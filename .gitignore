@@ -1,5 +1,23 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build Output
+dist/
+dist-ssr/
+build/
+*.tsbuildinfo
+
+# Environment Variables (IMPORTANT!)
+.env
+.env.local
+.env.*.local
+*.local
+!.vscode/extensions.json
+
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -7,22 +25,52 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
+# Editor/IDE
 .vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
+.idea/
+*.swp
+*.swo
+*~
+.suo
 *.ntvs*
 *.njsproj
 *.sln
-*.sw?
 
-# Agent ephemeral logs
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# VectaHub User Data (不应该提交)
+.vectahub/
+.vectahub-workflows/
+
+# Trae IDE Generated Documents (临时文档)
+.trae/documents/
+
+# Test Temporary Files
+test-*.ts
+test-*.js
+test-setup.ts
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Cache
+.cache/
+.parcel-cache/
+.turbo/
+
+# Agent Ephemeral Data
 .gemini/tasks/
 .gemini/responses/
+.claude/
+
+# Debug
+*.debug
+.trace

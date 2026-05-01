@@ -5,6 +5,14 @@ import type { EnvironmentReport } from '../cli-tools/discovery/types.js';
 
 function createMockReport(availableProviders: string[]): EnvironmentReport {
   const allProviders = ['gemini', 'claude', 'codex', 'aider', 'opencli'];
+  const priorities: Record<string, number> = { gemini: 90, claude: 85, codex: 80, aider: 75, opencli: 70 };
+  const fallbackTargets: Record<string, string[]> = {
+    gemini: ['claude', 'codex', 'built-in'],
+    claude: ['gemini', 'codex', 'built-in'],
+    codex: ['gemini', 'claude', 'built-in'],
+    aider: ['gemini', 'claude', 'built-in'],
+    opencli: ['gemini', 'claude', 'built-in'],
+  };
 
   return {
     scannedAt: new Date(),
@@ -14,17 +22,11 @@ function createMockReport(availableProviders: string[]): EnvironmentReport {
       versionCommand: '--version',
       requiredEnvVars: name === 'aider' || name === 'opencli' ? [] : [`${name.toUpperCase()}_API_KEY`],
       minVersion: '1.0.0',
-      status: availableProviders.includes(name) ? 'available' : 'not_found',
+      status: availableProviders.includes(name) ? 'available' as const : 'not_found' as const,
       version: availableProviders.includes(name) ? '1.0.0' : undefined,
       missingRequirements: availableProviders.includes(name) ? undefined : ['Not installed'],
-      priority: { gemini: 90, claude: 85, codex: 80, aider: 75, opencli: 70 }[name],
-      fallbackTargets: {
-        gemini: ['claude', 'codex', 'built-in'],
-        claude: ['gemini', 'codex', 'built-in'],
-        codex: ['gemini', 'claude', 'built-in'],
-        aider: ['gemini', 'claude', 'built-in'],
-        opencli: ['gemini', 'claude', 'built-in'],
-      }[name],
+      priority: priorities[name],
+      fallbackTargets: fallbackTargets[name],
     })),
     totalAvailable: availableProviders.length,
     recommendedProvider: availableProviders.length > 0 ? availableProviders[0] : 'built-in',
