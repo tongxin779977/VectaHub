@@ -112,8 +112,8 @@ export function createNLParser(): NLParser {
         const params: Record<string, string | string[] | undefined> = {};
 
         for (const [type, values] of Object.entries(groupedEntities)) {
-          if (values.length > 0) {
-            params[type.toLowerCase()] = values[0];
+          if (values.length > 0 && type !== 'CLI_TOOL') {
+            params[type.toLowerCase()] = values.length === 1 ? values[0] : values;
           }
         }
 

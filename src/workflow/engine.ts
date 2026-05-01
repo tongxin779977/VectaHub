@@ -101,18 +101,29 @@ export function createWorkflowEngine(): WorkflowEngine {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
 
-        const result = await executor.execute(step, executorOptions);
+        try {
+          const result = await executor.execute(step, executorOptions);
 
-        const stepRecord: StepRecord = {
-          stepId: step.id,
-          status: result.status as ExecutionStatus,
-          output: result.output,
-          error: result.error,
-        };
+          const stepRecord: StepRecord = {
+            stepId: step.id,
+            status: result.status as ExecutionStatus,
+            output: result.output,
+            error: result.error,
+          };
 
-        currentExecution.steps.push(stepRecord);
+          currentExecution.steps.push(stepRecord);
 
-        if (result.status === 'FAILED') {
+          if (result.status === 'FAILED') {
+            currentExecution.status = 'FAILED';
+            break;
+          }
+        } catch (error) {
+          const stepRecord: StepRecord = {
+            stepId: step.id,
+            status: 'FAILED',
+            error: error instanceof Error ? error.message : String(error),
+          };
+          currentExecution.steps.push(stepRecord);
           currentExecution.status = 'FAILED';
           break;
         }
