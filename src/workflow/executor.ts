@@ -2,6 +2,19 @@ import { spawn } from 'child_process';
 import type { Step, ExecutionStatus, SandboxMode } from '../types/index.js';
 import { createDetector, type Detector } from '../sandbox/detector.js';
 
+let auditInstance: any = null;
+function getAudit() {
+  if (!auditInstance) {
+    try {
+      const mod = require('../utils/audit.js');
+      auditInstance = mod.audit;
+    } catch {
+      return null;
+    }
+  }
+  return auditInstance;
+}
+
 export interface ExecutorOptions {
   mode: SandboxMode;
   timeout?: number;
@@ -107,6 +120,16 @@ export function createExecutor(): Executor {
       if (step.cli) {
         const detection = detector.detect(step.cli);
 
+        const audit = getAudit();
+        if (audit) {
+          audit.sandboxDetect(
+            detection.isDangerous,
+            detection.level || 'none',
+            step.cli,
+            (audit as any).getCurrentSessionId?.() || 'unknown'
+          );
+        }
+
         if (detection.isDangerous && options.mode === 'STRICT') {
           return {
             stepId: step.id,
@@ -117,6 +140,17 @@ export function createExecutor(): Executor {
         }
 
         const result = await exec(step.cli, step.args || [], options);
+
+        if (audit) {
+          audit.executorResult(
+            step.id,
+            step.cli,
+            result.exitCode,
+            result.duration,
+            (audit as any).getCurrentSessionId?.() || 'unknown',
+            { stdoutLength: result.stdout.length, stderrLength: result.stderr.length }
+          );
+        }
 
         return {
           stepId: step.id,

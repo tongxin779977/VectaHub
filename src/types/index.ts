@@ -71,8 +71,9 @@ export type SandboxMode = 'STRICT' | 'RELAXED' | 'CONSENSUS';
 
 export interface CommandDetection {
   isDangerous: boolean;
-  level: 'critical' | 'high' | 'medium' | 'low';
+  level: 'critical' | 'high' | 'medium' | 'low' | 'none';
   reason?: string;
+  matchedPattern?: string;
 }
 
 export type EntityType = 'FILE_PATH' | 'CLI_TOOL' | 'PACKAGE_NAME' | 'FUNCTION_NAME' | 'BRANCH_NAME' | 'ENV' | 'OPTIONS';

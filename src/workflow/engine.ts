@@ -1,6 +1,19 @@
 import type { Workflow, Step, StepType, ExecutionRecord, StepRecord, ExecutionStatus } from '../types/index.js';
 import { createExecutor, type Executor, type ExecutorOptions } from './executor.js';
 
+let auditInstance: any = null;
+function getAudit() {
+  if (!auditInstance) {
+    try {
+      const mod = require('../utils/audit.js');
+      auditInstance = mod.audit;
+    } catch {
+      return null;
+    }
+  }
+  return auditInstance;
+}
+
 export interface ExecuteOptions {
   dryRun?: boolean;
   timeout?: number;
@@ -85,6 +98,15 @@ export function createWorkflowEngine(): WorkflowEngine {
         logs: [],
       };
 
+      const audit = getAudit();
+      const sessionId = (audit as any)?.getCurrentSessionId?.() || 'unknown';
+      if (audit) {
+        audit.workflowStart(workflow.id, workflow.name, sessionId, {
+          stepCount: workflow.steps.length,
+          mode: workflow.mode,
+        });
+      }
+
       const executorOptions: ExecutorOptions = {
         mode: workflow.mode === 'strict' ? 'STRICT' : workflow.mode === 'consensus' ? 'CONSENSUS' : 'RELAXED',
         dryRun: options.dryRun,
@@ -113,6 +135,16 @@ export function createWorkflowEngine(): WorkflowEngine {
 
           currentExecution.steps.push(stepRecord);
 
+          if (audit && step.cli) {
+            audit.workflowStep(
+              step.id,
+              step.cli,
+              step.args || [],
+              sessionId,
+              { status: result.status }
+            );
+          }
+
           if (result.status === 'FAILED') {
             currentExecution.status = 'FAILED';
             break;
@@ -135,6 +167,15 @@ export function createWorkflowEngine(): WorkflowEngine {
 
       currentExecution.endedAt = new Date();
       currentExecution.duration = currentExecution.endedAt.getTime() - startedAt.getTime();
+
+      if (audit) {
+        audit.workflowEnd(
+          workflow.id,
+          currentExecution.status,
+          currentExecution.duration || 0,
+          sessionId
+        );
+      }
 
       return currentExecution;
     },

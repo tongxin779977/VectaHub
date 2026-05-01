@@ -1,3 +1,16 @@
+import pino from 'pino';
+import { mkdirSync, existsSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
+
+const LOG_DIR = join(homedir(), '.vectahub', 'logs');
+
+function ensureDir(dir: string): void {
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+}
+
 export enum LogLevel {
   DEBUG = 0,
   INFO = 1,
@@ -5,44 +18,48 @@ export enum LogLevel {
   ERROR = 3,
 }
 
-export interface Logger {
-  debug(message: string, ...args: unknown[]): void;
-  info(message: string, ...args: unknown[]): void;
-  warn(message: string, ...args: unknown[]): void;
-  error(message: string, ...args: unknown[]): void;
-  setLevel(level: LogLevel): void;
+function formatDate(date: Date): string {
+  return date.toISOString().split('T')[0];
 }
 
-export function createLogger(prefix = ''): Logger {
-  let level = LogLevel.INFO;
+export function createLogger(prefix = ''): pino.Logger {
+  const name = prefix || 'vectahub';
+  const appLogDir = join(LOG_DIR, 'app');
+  const errorLogDir = join(LOG_DIR, 'error');
 
-  return {
-    debug(message: string, ...args: unknown[]): void {
-      if (level <= LogLevel.DEBUG) {
-        console.debug(`[DEBUG]${prefix ? ` [${prefix}]` : ''}`, message, ...args);
-      }
-    },
+  ensureDir(appLogDir);
+  ensureDir(errorLogDir);
 
-    info(message: string, ...args: unknown[]): void {
-      if (level <= LogLevel.INFO) {
-        console.info(`[INFO]${prefix ? ` [${prefix}]` : ''}`, message, ...args);
-      }
-    },
+  const appLogFile = join(appLogDir, `${formatDate(new Date())}.log`);
+  const errorLogFile = join(errorLogDir, `${formatDate(new Date())}.json`);
 
-    warn(message: string, ...args: unknown[]): void {
-      if (level <= LogLevel.WARN) {
-        console.warn(`[WARN]${prefix ? ` [${prefix}]` : ''}`, message, ...args);
-      }
+  return pino({
+    name,
+    level: 'info',
+    transport: {
+      targets: [
+        { level: 'info', target: 'pino/file', options: { destination: 1 } },
+        { level: 'info', target: 'pino/file', options: { destination: appLogFile } },
+        { level: 'error', target: 'pino/file', options: { destination: errorLogFile } },
+      ],
     },
-
-    error(message: string, ...args: unknown[]): void {
-      if (level <= LogLevel.ERROR) {
-        console.error(`[ERROR]${prefix ? ` [${prefix}]` : ''}`, message, ...args);
-      }
-    },
-
-    setLevel(newLevel: LogLevel): void {
-      level = newLevel;
-    },
-  };
+  });
 }
+
+export function createConsoleLogger(prefix = ''): pino.Logger {
+  const name = prefix || 'vectahub';
+  return pino({
+    name,
+    level: 'info',
+    transport: {
+      target: 'pino-pretty',
+      options: {
+        colorize: true,
+        translateTime: 'HH:MM:ss',
+        ignore: 'pid,hostname',
+      },
+    },
+  });
+}
+
+export type Logger = pino.Logger;

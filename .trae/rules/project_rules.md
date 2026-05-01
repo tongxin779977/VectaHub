@@ -283,7 +283,93 @@ vectahub version                 # 版本
 
 ---
 
-## 10. 实现优先级
+## 10. 审计日志框架
+
+### 10.1 日志存储结构
+
+```
+~/.vectahub/logs/
+├── audit/                    # 审计日志 (JSONL)
+│   └── YYYY-MM-DD.jsonl     # 每日审计事件
+├── app/                     # 应用日志
+│   └── YYYY-MM-DD.log       # 每日应用日志
+└── error/                   # 错误日志 (JSON)
+    └── YYYY-MM-DD.json      # 每日错误日志
+```
+
+### 10.2 审计事件类型
+
+| 事件类型 | 描述 | 记录内容 |
+|---------|------|---------|
+| `CLI_COMMAND` | CLI 命令执行 | 命令名、参数、sessionId |
+| `CLI_OUTPUT` | CLI 输出 | 命令名、输出内容 |
+| `WORKFLOW_START` | 工作流开始 | workflowId、intent |
+| `WORKFLOW_END` | 工作流结束 | workflowId、状态、耗时 |
+| `WORKFLOW_STEP` | 工作流步骤执行 | stepId、cli、参数 |
+| `SANDBOX_DETECT` | 沙盒检测 | 检测结果、危险级别 |
+| `SECURITY_ALERT` | 安全告警 | 规则ID、命令、严重级别 |
+| `SECURITY_ACTION` | 安全操作 | 操作类型、目标、结果 |
+| `CONFIG_CHANGE` | 配置变更 | 模块、键、旧值、新值 |
+| `INTENT_MATCH` | 意图匹配 | intent、置信度、参数 |
+| `EXECUTOR_RESULT` | 执行器结果 | stepId、cli、exitCode、输出 |
+
+### 10.3 审计日志格式
+
+```json
+{
+  "event": "CLI_COMMAND",
+  "timestamp": "2026-05-01T10:00:00.000Z",
+  "sessionId": "sess_1234567890_abc",
+  "module": "CLI",
+  "action": "security test",
+  "input": ["sudo rm -rf /"],
+  "success": true,
+  "output": {},
+  "duration": 0,
+  "error": null,
+  "metadata": {}
+}
+```
+
+### 10.4 Session 管理
+
+- 每个 CLI 会话生成唯一 `sessionId` (`sess_${timestamp}_${random}`)
+- Session 用于关联同一会话的所有审计事件
+- 可通过 `queryAuditLogs()` 查询审计日志
+
+### 10.5 日志框架
+
+- **应用日志**: 使用 `pino` + `pino-pretty`
+- **审计日志**: 使用 `audit` 对象提供的方法
+- **文件输出**: 自动按日期分割
+
+### 10.6 迁移指南
+
+原有 `console.log/error/warn` 需替换为:
+
+```typescript
+// 引入审计模块
+import { audit, getCurrentSessionId } from './utils/audit.js';
+
+// CLI 命令和输出审计
+const sessionId = getCurrentSessionId();
+audit.cliCommand('mycommand', args, sessionId);
+console.log('Output');
+audit.cliOutput('mycommand', 'Output', sessionId);
+
+// 安全操作审计
+audit.securityAlert(ruleId, command, severity, sessionId);
+audit.securityAction('block', command, 'BLOCKED', sessionId);
+
+// 工作流审计
+audit.workflowStart(workflowId, intent, sessionId);
+audit.workflowStep(stepId, cli, args, sessionId);
+audit.workflowEnd(workflowId, 'COMPLETED', duration, sessionId);
+```
+
+---
+
+## 11. 实现优先级
 
 ### Phase 1: MVP
 
@@ -299,20 +385,15 @@ vectahub version                 # 版本
 - [ ] 危险命令检测
 - [ ] 执行记录
 
-### Phase 3: 完善
-
-- [ ] 意图模板市场
-- [ ] Workflow 保存/加载
-- [ ] 定时任务
-- [ ] Linux/Windows 支持
-
 ---
 
 ```yaml
-version: 2.1.0
+version: 2.2.0
 lastUpdated: 2026-05-01
 project: VectaHub
 framework: NL Workflow Engine + Modular Architecture
 reference: OpenCLI (互补)
 status: modular_design_complete_ready_for_development
+audit: enabled
+logFramework: pino + custom audit
 ```

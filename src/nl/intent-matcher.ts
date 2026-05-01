@@ -8,14 +8,14 @@ export interface IntentPattern {
 }
 
 export interface IntentMatcher {
-  match(input: string): IntentMatch;
+  match(input: string, sessionId?: string): IntentMatch;
   registerPattern(pattern: IntentPattern): void;
   getPatterns(): IntentPattern[];
 }
 
 export function createIntentMatcher(patterns: IntentPattern[]): IntentMatcher {
   return {
-    match(input: string): IntentMatch {
+    match(input: string, sessionId?: string): IntentMatch {
       const lowerInput = input.toLowerCase();
       let bestMatch: IntentMatch = {
         intent: 'UNKNOWN',
@@ -38,6 +38,17 @@ export function createIntentMatcher(patterns: IntentPattern[]): IntentMatcher {
             };
           }
         }
+      }
+
+      if (sessionId) {
+        try {
+          const { audit, AuditEventType } = require('../utils/audit.js');
+          audit.intentMatch(bestMatch.intent, bestMatch.confidence, input, sessionId, {
+            matchedKeywords: patterns
+              .filter(p => p.intent === bestMatch.intent)
+              .flatMap(p => p.keywords.filter(kw => lowerInput.includes(kw.toLowerCase()))),
+          });
+        } catch {}
       }
 
       return bestMatch;

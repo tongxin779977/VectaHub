@@ -43,8 +43,8 @@ const INTENT_PATTERNS = [
 ];
 
 export interface NLParser {
-  parse(input: string): IntentMatch;
-  parseToTaskList(input: string): ParseResult;
+  parse(input: string, sessionId?: string): IntentMatch;
+  parseToTaskList(input: string, sessionId?: string): ParseResult;
   addPattern(intent: string, keywords: string[], weight?: number): void;
 }
 
@@ -81,12 +81,12 @@ export function createNLParser(): NLParser {
   const synthesizer = createCommandSynthesizer();
 
   return {
-    parse(input: string): IntentMatch {
-      return matcher.match(input);
+    parse(input: string, sessionId?: string): IntentMatch {
+      return matcher.match(input, sessionId);
     },
 
-    parseToTaskList(input: string): ParseResult {
-      const intentMatch = matcher.match(input);
+    parseToTaskList(input: string, sessionId?: string): ParseResult {
+      const intentMatch = matcher.match(input, sessionId);
       const confidenceLevel = getConfidenceLevel(intentMatch.confidence);
 
       if (intentMatch.intent === 'UNKNOWN' || confidenceLevel === 'UNCERTAIN') {
