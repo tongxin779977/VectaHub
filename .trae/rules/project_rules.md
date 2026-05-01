@@ -162,6 +162,7 @@ const DANGEROUS_PATTERNS = {
 | `for_each` | 遍历列表，为每个元素执行 body |
 | `if` | 条件执行 |
 | `parallel` | 并行执行 |
+| `delegate` | 委托 AI 执行 (支持智能降级) |
 
 ### 5.2 Workflow 结构
 
@@ -242,6 +243,13 @@ vectahub status                  # 查看状态
 vectahub mode                    # 查看当前模式
 vectahub mode strict/relaxed/consensus
 
+# AI 环境发现
+vectahub ai status               # 查看 AI 环境状态
+vectahub ai rescan               # 重新扫描环境
+vectahub ai list                 # 列出可用 AI 提供者
+vectahub ai test <provider>      # 测试特定提供者
+vectahub ai config <key> <value> # 配置降级策略
+
 # 状态
 vectahub doctor                  # 诊断
 vectahub version                 # 版本
@@ -262,6 +270,7 @@ vectahub version                 # 版本
 | [07_module_design.md](file:///Users/xin.tong/apps/project/test_trae/VectaHub/docs/design/07_module_design.md) | 模块化开发规范 |
 | [08_dev_command_design.md](file:///Users/xin.tong/apps/project/test_trae/VectaHub/docs/design/08_dev_command_design.md) | 开发命令设计 |
 | [09_cli_tools_integration.md](file:///Users/xin.tong/apps/project/test_trae/VectaHub/docs/design/09_cli_tools_integration.md) | CLI 工具集成设计 |
+| [AI_CLI_环境发现与智能降级设计文档.md](file:///Users/xin.tong/apps/project/test_trae/VectaHub/.trae/documents/AI_CLI_环境发现与智能降级设计文档.md) | AI CLI 环境发现与智能降级 |
 
 ---
 
@@ -278,6 +287,10 @@ vectahub version                 # 版本
 | **Sandbox** | Agent E | `src/sandbox/detector.ts`, `src/sandbox/sandbox.ts` |
 | **Storage** | Agent F | `src/workflow/storage.ts` |
 | **Utils** | Agent G | `src/utils/` |
+| **AI 环境发现** | Agent D | `src/workflow/ai-env-detector.ts`, `src/workflow/ai-provider-registry.ts`, `src/workflow/ai-fallback-strategy.ts` |
+| **AI 工具定义** | Agent D | `src/cli-tools/discovery/ai-tools.ts` |
+| **AI CLI 命令** | Agent A | `src/utils/ai.ts` |
+| **AI 配置管理** | Agent G | `src/utils/ai-config.ts` |
 
 ### 9.2 模块接口契约
 
@@ -390,12 +403,12 @@ audit.workflowEnd(workflowId, 'COMPLETED', duration, sessionId);
 ---
 
 ```yaml
-version: 2.2.0
-lastUpdated: 2026-05-01
+version: 2.3.0
+lastUpdated: 2026-05-02
 project: VectaHub
-framework: NL Workflow Engine + Modular Architecture
+framework: NL Workflow Engine + Modular Architecture + AI Environment Discovery
 reference: OpenCLI (互补)
-status: p0_features_complete_testing_passed
+status: p0_p2_features_complete_all_tests_passed
 audit: enabled
 logFramework: pino + custom audit
 ```

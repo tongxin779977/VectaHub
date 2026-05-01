@@ -79,7 +79,13 @@ const COMMAND_TEMPLATES: Record<TaskType, CommandTemplate[]> = {
     {
       synthesize: (params) => ({
         cli: 'git',
-        args: ['commit', '-m', params.message as string],
+        args: ['add', '-A'],
+      }),
+    },
+    {
+      synthesize: (params) => ({
+        cli: 'git',
+        args: ['commit', '-m', params.message as string || 'auto commit'],
       }),
     },
     {
@@ -97,7 +103,7 @@ const COMMAND_TEMPLATES: Record<TaskType, CommandTemplate[]> = {
     {
       synthesize: (params) => ({
         cli: 'git',
-        args: ['clone', params.url as string, params.path as string || '.'],
+        args: ['clone', params.url as string || '', params.path as string || '.'],
       }),
     },
   ],
@@ -189,7 +195,7 @@ export function createTaskFromIntent(
 
   const taskType = taskTypeMap[intent] || 'QUERY_EXEC';
 
-  return {
+  const task: Task = {
     id: taskId,
     type: taskType,
     description: originalInput,
@@ -198,4 +204,21 @@ export function createTaskFromIntent(
     dependencies: [],
     estimatedDuration: 5000,
   };
+
+  if (taskType === 'GIT_OPERATION') {
+    const templates = (COMMAND_TEMPLATES as any)[taskType] as CommandTemplate[];
+    console.log('[DEBUG] GIT_OPERATION templates:', templates?.length, 'entities:', JSON.stringify(entities));
+    if (templates) {
+      const params: Record<string, string | string[] | undefined> = {
+        message: entities.OPTIONS?.[0] || 'auto commit',
+        branch: entities.BRANCH_NAME?.[0] || 'main',
+      };
+      task.commands = templates
+        .filter((_, i) => i < 3)
+        .map((t) => t.synthesize(params, 'git'));
+      console.log('[DEBUG] Generated commands:', task.commands.map(c => `${c.cli} ${c.args?.join(' ')}`));
+    }
+  }
+
+  return task;
 }

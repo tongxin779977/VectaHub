@@ -115,8 +115,8 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
   GIT_WORKFLOW: {
     name: 'GIT_WORKFLOW',
     description: 'Git 操作流程',
-    keywords: ['提交', 'commit', '推送', 'push', '拉取', 'pull', 'git'],
-    weight: 0.95,
+    keywords: ['提交', 'commit', '推送', 'push', '拉取', 'pull', 'git', 'add', '推送', 'branch'],
+    weight: 1.0,
     cli: ['git'],
     params: {
       action: {

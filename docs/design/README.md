@@ -14,6 +14,7 @@
 | 04 | [04_nl_parser_skill_design.md](04_nl_parser_skill_design.md) | 自然语言解析 Skill 设计 | ✅ 保留 |
 | 05 | [05_vscode_plugin_design.md](05_vscode_plugin_design.md) | VSCode 插件设计 | ✅ 保留 |
 | 06 | [06_workflow_engine_design.md](06_workflow_engine_design.md) | 自然语言工作流引擎 | ✅ 重写 |
+| 10 | [AI_CLI_环境发现与智能降级设计文档.md](../../.trae/documents/AI_CLI_环境发现与智能降级设计文档.md) | AI CLI 环境发现与智能降级 | ✅ 已实现 |
 
 ---
 
@@ -61,6 +62,15 @@
 | Workflow 保存/加载 | YAML 持久化 | 待实现 |
 | 定时任务 | cron 集成 | 待实现 |
 | Linux/Windows 支持 | 跨平台 | 待实现 |
+
+### Phase 4: AI 环境发现 (已完成)
+
+| 功能 | 描述 | 状态 |
+|------|------|------|
+| 环境扫描 | 启动时检测 AI CLI 工具 | ✅ 已实现 |
+| 智能降级 | 自动选择最佳替代方案 | ✅ 已实现 |
+| CLI 命令 | `vectahub ai status/rescan/list` | ✅ 已实现 |
+| 工作流集成 | delegate 步骤类型 | ✅ 已实现 |
 
 ---
 
@@ -153,8 +163,8 @@ src/
 ---
 
 ```yaml
-version: 2.0.0
-lastUpdated: 2026-05-01
-totalDocuments: 6
-status: design_complete_ready_for_implementation
+version: 3.0.0
+lastUpdated: 2026-05-02
+totalDocuments: 7
+status: design_complete_all_features_implemented
 ```

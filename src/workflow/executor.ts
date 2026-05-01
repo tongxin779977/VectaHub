@@ -163,6 +163,7 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
   }
 
   function interpolateString(template: string, context: ExecutionContext): string {
+    if (typeof template !== 'string') return template ?? '';
     return template.replace(/\$\{(\w+)(?:\.(\w+))?\}/g, (match, varName) => {
       const outputs = context.previousOutputs[varName];
       return outputs ? outputs.join('\n') : match;

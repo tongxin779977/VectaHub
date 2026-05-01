@@ -38,15 +38,21 @@ export const runCmd = new Command('run')
         process.exit(1);
       }
 
-      const steps = taskListResult.taskList.tasks.map((task, index) => {
-        const cmd = task.commands[0] || { cli: 'echo', args: [] };
-        return {
-          id: `step_${index + 1}`,
-          type: 'exec' as const,
-          cli: cmd.cli,
-          args: cmd.args,
-        };
-      });
+      const steps: Array<{ id: string; type: 'exec'; cli: string; args: string[] }> = [];
+      let stepIndex = 1;
+
+      for (const task of taskListResult.taskList.tasks) {
+        const commands = task.commands.length > 0 ? task.commands : [{ cli: 'echo', args: [] }];
+        for (const cmd of commands) {
+          steps.push({
+            id: `step_${stepIndex}`,
+            type: 'exec' as const,
+            cli: cmd.cli,
+            args: (cmd.args || []).filter((arg): arg is string => arg !== undefined && arg !== ''),
+          });
+          stepIndex++;
+        }
+      }
 
       const workflow = await workflowEngine.createWorkflow(
         `intent_${Date.now()}`,

@@ -74,3 +74,4 @@ coverage/
 # Debug
 *.debug
 .trace
+.trae

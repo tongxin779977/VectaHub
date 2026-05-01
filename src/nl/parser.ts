@@ -62,7 +62,9 @@ export function createNLParser(): NLParser {
           description: INTENT_TEMPLATES[name]?.description || name
         }));
 
-      if (intentMatch.intent === 'UNKNOWN' || confidenceLevel === 'UNCERTAIN') {
+      // 放宽 git 相关意图的置信度要求
+      const isGitIntent = intentMatch.intent.startsWith('GIT_');
+      if (intentMatch.intent === 'UNKNOWN' || (confidenceLevel === 'UNCERTAIN' && !isGitIntent)) {
         return {
           status: 'NEEDS_CLARIFICATION',
           confidenceLevel,
@@ -75,7 +77,7 @@ export function createNLParser(): NLParser {
       const groupedEntities = groupEntitiesByType(entities);
       const task = createTaskFromIntent(intentMatch.intent, groupedEntities, input);
 
-      if (groupedEntities.CLI_TOOL.length > 0) {
+      if (groupedEntities.CLI_TOOL.length > 0 && task.commands.length === 0) {
         const detectedCLI = groupedEntities.CLI_TOOL[0];
         const params: Record<string, string | string[] | undefined> = {};
 
