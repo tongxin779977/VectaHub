@@ -1,7 +1,7 @@
 import { Command } from 'commander';
-import { createLogger } from './logger.js';
+import { createConsoleLogger } from './logger.js';
 
-const logger = createLogger('mode');
+const logger = createConsoleLogger('mode');
 
 let currentMode: 'strict' | 'relaxed' | 'consensus' = 'relaxed';
 

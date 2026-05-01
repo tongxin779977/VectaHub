@@ -1,8 +1,8 @@
 import { Command } from 'commander';
 import { createStorage } from '../workflow/storage.js';
-import { createLogger } from './logger.js';
+import { createConsoleLogger } from './logger.js';
 
-const logger = createLogger('list');
+const logger = createConsoleLogger('list');
 
 export const listCmd = new Command('list')
   .description('List saved workflows')

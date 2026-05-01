@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { createLogger } from './logger.js';
+import { createConsoleLogger } from './logger.js';
 import { createNLParser } from '../nl/parser.js';
 import { createWorkflowEngine } from '../workflow/engine.js';
 import { createStorage } from '../workflow/storage.js';
@@ -13,7 +13,7 @@ import type { Workflow, ParseResult } from '../types/index.js';
 const HIGH_CONFIDENCE_THRESHOLD = 0.7;
 const LOW_CONFIDENCE_THRESHOLD = 0.01;
 
-const logger = createLogger('run');
+const logger = createConsoleLogger('run');
 
 export const runCmd = new Command('run')
   .description('Run a workflow from natural language')

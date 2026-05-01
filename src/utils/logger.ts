@@ -48,6 +48,7 @@ export function createLogger(prefix = ''): pino.Logger {
 
 export function createConsoleLogger(prefix = ''): pino.Logger {
   const name = prefix || 'vectahub';
+  // 简单的 console logger，只输出到控制台，不写文件
   return pino({
     name,
     level: 'info',

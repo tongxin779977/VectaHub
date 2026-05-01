@@ -1,7 +1,7 @@
 import { Command } from 'commander';
-import { createLogger } from './logger.js';
+import { createConsoleLogger } from './logger.js';
 
-const logger = createLogger('history');
+const logger = createConsoleLogger('history');
 
 export const historyCmd = new Command('history')
   .description('View workflow execution history')

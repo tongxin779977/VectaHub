@@ -2,9 +2,9 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { parse, stringify } from 'yaml';
 import { createInterface, type Interface } from 'readline';
-import { createLogger } from '../utils/logger.js';
+import { createConsoleLogger } from '../utils/logger.js';
 
-const logger = createLogger('setup');
+const logger = createConsoleLogger('setup');
 
 let sharedRl: Interface | null = null;
 

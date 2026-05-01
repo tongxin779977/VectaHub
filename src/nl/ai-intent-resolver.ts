@@ -7,9 +7,9 @@ import type { AIDelegateProvider } from '../workflow/ai-delegate.js';
 import { loadAIConfig } from '../utils/ai-config.js';
 import { callLLM, detectAPIKey, type LLMMessage } from './llm-client.js';
 import { getAvailableExternalCLI } from '../setup/cli-scanner.js';
-import { createLogger } from '../utils/logger.js';
+import { createConsoleLogger } from '../utils/logger.js';
 
-const logger = createLogger('ai-intent-resolver');
+const logger = createConsoleLogger('ai-intent-resolver');
 
 const AI_INTENT_PROMPT = `你是一个自然语言到 CLI 工作流的解析器。不要思考，不要推理，直接输出 JSON。
 用户输入自然语言指令，你需要将其解析为结构化的任务列表。
@@ -42,10 +42,10 @@ export async function resolveIntentWithAI(input: string, sessionId?: string): Pr
   try {
     // 优先级 1: VectaHub 自身 LLM API (真实 LLM 优先)
     const apiKey = detectAPIKey();
-    console.log(`[resolveIntentWithAI] API Key detected:`, apiKey ? 'Yes' : 'No');
+    logger.debug(`API Key detected:`, apiKey ? 'Yes' : 'No');
     if (apiKey) {
       const result = await resolveWithVectaHubLLM(input, apiKey, sessionId);
-      console.log(`[resolveIntentWithAI] VectaHub LLM success:`, result.success);
+      logger.debug(`VectaHub LLM success:`, result.success);
       if (result.success) {
         return result;
       }

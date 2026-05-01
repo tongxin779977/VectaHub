@@ -2,6 +2,9 @@ import https from 'https';
 import http from 'http';
 import { URL } from 'url';
 import { loadConfig } from '../utils/config.js';
+import { createConsoleLogger } from '../utils/logger.js';
+
+const logger = createConsoleLogger('llm-client');
 
 export interface LLMMessage {
   role: 'system' | 'user' | 'assistant';
@@ -81,29 +84,35 @@ function httpPost(url: string, body: string, headers: Record<string, string>, ti
 }
 
 async function callOpenAI(messages: LLMMessage[], options: LLMOptions): Promise<LLMResponse> {
-  const body = JSON.stringify({
+  const requestBody: any = {
     model: options.model || 'gpt-4o-mini',
     messages,
-    max_tokens: options.maxTokens || 4096,
     temperature: options.temperature ?? 0.1,
-  });
+  };
+  
+  // max_tokens=-1 表示不限制，不传递此参数；其他情况传递具体值
+  if (options.maxTokens !== -1 && options.maxTokens !== undefined) {
+    requestBody.max_tokens = options.maxTokens;
+  }
+  
+  const body = JSON.stringify(requestBody);
 
   let finalUrl = options.baseUrl || DEFAULT_BASE_URLS.openai;
   if (!finalUrl.endsWith('/chat/completions')) {
     finalUrl = finalUrl.endsWith('/') ? finalUrl + 'chat/completions' : finalUrl + '/chat/completions';
   }
 
-  console.log(`[callOpenAI] Calling URL:`, finalUrl);
-  console.log(`[callOpenAI] Request body:`, body);
+  logger.debug(`Calling URL:`, finalUrl);
+  logger.debug(`Request body:`, body);
 
   const result = await httpPost(finalUrl, body, {
     'Authorization': `Bearer ${options.apiKey}`,
   }, options.timeout || 30000);
 
-  console.log(`[callOpenAI] Raw response:`, result);
+  logger.debug(`Raw response:`, result);
 
   const parsed = JSON.parse(result);
-  console.log(`[callOpenAI] Parsed response:`, parsed);
+  logger.debug(`Parsed response:`, parsed);
 
   return {
     content: parsed.choices?.[0]?.message?.content || '',
