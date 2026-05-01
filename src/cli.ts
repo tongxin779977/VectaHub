@@ -20,6 +20,7 @@ import { doctorCmd } from './utils/doctor.js';
 import { getCliToolRegistry } from './cli-tools/index.js';
 import { gitTool } from './cli-tools/tools/git.js';
 import { formatErrorMessage, ErrorType } from './utils/errors.js';
+import { aiCmd } from './utils/ai.js';
 
 try {
   initAuditLogger();
@@ -69,6 +70,7 @@ program
   .addCommand(securityCmd)
   .addCommand(auditCmd)
   .addCommand(toolsCmd)
+  .addCommand(aiCmd)
   .addCommand(runCmd)
   .addCommand(listCmd)
   .addCommand(modeCmd)

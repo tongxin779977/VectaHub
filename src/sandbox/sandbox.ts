@@ -89,6 +89,7 @@ export class SandboxManager {
       globalAllowlist: loadGlobalAllowlist(),
       projectBlocklist: loadProjectBlocklist(this.projectPath),
       projectAllowlist: loadProjectAllowlist(this.projectPath),
+      defaultPolicy: 'passthrough', // 保持向后兼容性，使用原有行为
     });
     this.ensureDirectories();
   }
@@ -690,7 +691,7 @@ ${username} ALL=(ALL) NOPASSWD: /usr/bin/unshare
 
     const ruleResult = this.ruleEngine.evaluate(fullCmd);
 
-    if (ruleResult.matched && ruleResult.decision === 'block') {
+    if (ruleResult.decision === 'block') {
       return {
         success: false,
         exitCode: 1,
@@ -703,7 +704,7 @@ ${username} ALL=(ALL) NOPASSWD: /usr/bin/unshare
       };
     }
 
-    if (ruleResult.matched && ruleResult.decision === 'allow') {
+    if (ruleResult.decision === 'allow') {
       const result = await this.executeInSandbox(cmd, args, options);
       return result;
     }

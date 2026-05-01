@@ -13,7 +13,7 @@ export interface IntentMatch {
   params: Record<string, unknown>;
 }
 
-export type StepType = 'exec' | 'for_each' | 'if' | 'parallel';
+export type StepType = 'exec' | 'for_each' | 'if' | 'parallel' | 'delegate';
 
 export interface Step {
   id: string;
@@ -25,6 +25,9 @@ export interface Step {
   dependsOn?: string[];
   items?: string;
   outputVar?: string;
+  delegate_to?: string;
+  delegate_prompt?: string;
+  delegate_context?: Record<string, unknown>;
 }
 
 export type WorkflowMode = 'strict' | 'relaxed' | 'consensus';

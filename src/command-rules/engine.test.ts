@@ -83,9 +83,29 @@ describe('CommandRuleEngine', () => {
       expect(result.decision).toBe('block');
     });
 
-    it('should pass through commands not matching any list', () => {
+    it('should block commands not matching any list by default', () => {
       const result = engine.evaluate('echo hello');
+      expect(result.decision).toBe('block');
+      expect(result.matched).toBe(false);
+    });
+
+    it('should use passthrough commands when configured', () => {
+      const engineWithPassthrough = createCommandRuleEngine({
+        ...baseConfig,
+        defaultPolicy: 'passthrough',
+      });
+      const result = engineWithPassthrough.evaluate('echo hello');
       expect(result.decision).toBe('passthrough');
+      expect(result.matched).toBe(false);
+    });
+
+    it('should allow commands when configured', () => {
+      const engineWithAllow = createCommandRuleEngine({
+        ...baseConfig,
+        defaultPolicy: 'allow',
+      });
+      const result = engineWithAllow.evaluate('echo hello');
+      expect(result.decision).toBe('allow');
       expect(result.matched).toBe(false);
     });
 
@@ -125,6 +145,24 @@ describe('CommandRuleEngine', () => {
       const projectBlocklist = engineWithProject.getProjectBlocklist();
       expect(projectBlocklist).toHaveLength(1);
       expect(projectBlocklist[0].id).toBe('proj-bl-001');
+    });
+
+    it('should return default policy', () => {
+      expect(engine.getDefaultPolicy()).toBe('block');
+    });
+
+    it('should return configured default policy', () => {
+      const engineWithPassthrough = createCommandRuleEngine({
+        ...baseConfig,
+        defaultPolicy: 'passthrough',
+      });
+      expect(engineWithPassthrough.getDefaultPolicy()).toBe('passthrough');
+
+      const engineWithAllow = createCommandRuleEngine({
+        ...baseConfig,
+        defaultPolicy: 'allow',
+      });
+      expect(engineWithAllow.getDefaultPolicy()).toBe('allow');
     });
   });
 });

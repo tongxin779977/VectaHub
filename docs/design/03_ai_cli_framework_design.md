@@ -515,6 +515,144 @@ const result = await router.exec({
 
 ---
 
+## 14. API Key 管理
+
+### 14.1 设计原则
+
+**利用开发者现有工具链，不创造新的配置方式**
+
+| 优先级 | 方式 | 说明 |
+|--------|------|------|
+| 1 | 项目 `.env` 文件 | 项目级别，版本控制友好 |
+| 2 | `.zshrc`/`.bashrc` 环境变量 | 用户级别，全局可用 |
+| 3 | `~/.vectahub/config.yaml` | 备用方案 |
+
+### 14.2 检测流程
+
+```typescript
+// src/utils/api-key-detector.ts
+import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+
+export function detectAPIKey(provider: string): string | null {
+  const envVar = `${provider.toUpperCase()}_API_KEY`;
+  
+  // 1. 当前目录 .env (项目级别)
+  const envPath = path.join(process.cwd(), '.env');
+  if (fs.existsSync(envPath)) {
+    const env = dotenv.parse(fs.readFileSync(envPath));
+    if (env[envVar]) return env[envVar];
+  }
+  
+  // 2. 进程环境变量 (来自 .zshrc/.bashrc)
+  if (process.env[envVar]) return process.env[envVar];
+  
+  // 3. ~/.vectahub/config.yaml (备用)
+  const configPath = path.join(process.env.HOME!, '.vectahub', 'config.yaml');
+  if (fs.existsSync(configPath)) {
+    // 解析 config.yaml 中的 apiKeys 部分
+  }
+  
+  return null;
+}
+
+export function detectAllAPIKeys(): Record<string, string> {
+  const providers = ['GEMINI', 'ANTHROPIC', 'OPENAI', 'CODEX'];
+  const result: Record<string, string> = {};
+  
+  for (const provider of providers) {
+    const key = detectAPIKey(provider);
+    if (key) result[provider.toLowerCase()] = key;
+  }
+  
+  return result;
+}
+```
+
+### 14.3 `.env` 文件格式
+
+```env
+# AI Provider API Keys
+GEMINI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...
+
+# 可选：模型配置
+GEMINI_MODEL=gemini-2.5-pro
+CLAUDE_MODEL=claude-3-5-sonnet
+```
+
+### 14.4 `.zshrc` 配置示例
+
+```bash
+# ~/.zshrc
+
+# AI API Keys (全局配置)
+export GEMINI_API_KEY="sk-..."
+export ANTHROPIC_API_KEY="sk-ant-..."
+export OPENAI_API_KEY="sk-..."
+
+# 生效
+$ source ~/.zshrc
+```
+
+### 14.5 在适配器中使用
+
+```typescript
+// src/ai-cli/adapters/gemini.ts
+import { detectAPIKey } from '../../utils/api-key-detector.js';
+
+class GeminiAdapter extends BaseAIAdapter {
+  preprocess(command, context) {
+    const apiKey = detectAPIKey('gemini');
+    
+    return {
+      command: 'gemini',
+      args: this.buildArgs(command),
+      env: {
+        ...context.env,
+        GEMINI_API_KEY: apiKey || context.env.GEMINI_API_KEY
+      }
+    };
+  }
+}
+```
+
+### 14.6 安全注意事项
+
+- **`.env` 必须加入 `.gitignore`**：防止意外提交到版本库
+- **启动检查**：检测 `.env` 是否被 git 跟踪，警告用户
+- **日志脱敏**：不在日志、错误信息中打印 API Key
+- **权限控制**：`.env` 文件权限建议 `600` (仅所有者可读写)
+
+```bash
+# 检查 .env 是否被 git 跟踪
+$ git ls-files --error-unmatch .env 2>/dev/null && echo "⚠️ WARNING: .env is tracked by git!"
+
+# 设置文件权限
+$ chmod 600 .env
+```
+
+### 14.7 CLI 命令
+
+```bash
+# 检测当前可用的 API Key
+vectahub doctor
+
+🔍 Environment Check
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+GEMINI_API_KEY:    ✅ Found (.env)
+ANTHROPIC_API_KEY: ✅ Found (env)
+OPENAI_API_KEY:    ❌ Not configured
+
+Suggestion:
+  Add to .env or ~/.zshrc:
+  export OPENAI_API_KEY="sk-..."
+```
+
+---
+
 ## 11. 功能清单
 
 ### 11.1 核心功能
@@ -527,6 +665,7 @@ const result = await router.exec({
 | **命令预处理** | 参数转换和环境注入 | ✅ 已实现 | P0 |
 | **输出解析** | 统一输出格式 | ✅ 已实现 | P0 |
 | **沙盒集成** | 命令在沙盒中执行 | ✅ 已实现 | P0 |
+| **API Key 检测** | 分层检测 (.env/env/config) | 🔲 待实现 | P0 |
 
 ### 11.2 适配器支持
 
