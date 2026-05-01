@@ -37,7 +37,18 @@ export interface AIIntentResult {
 
 export async function resolveIntentWithAI(input: string, sessionId?: string): Promise<AIIntentResult> {
   try {
-    // 优先级 1: 外部 CLI 工具（有权限）
+    // 优先级 1: VectaHub 自身 LLM API (真实 LLM 优先)
+    const apiKey = detectAPIKey();
+    console.log(`[resolveIntentWithAI] API Key detected:`, apiKey ? { ...apiKey, key: '***' } : null);
+    if (apiKey) {
+      const result = await resolveWithVectaHubLLM(input, apiKey, sessionId);
+      console.log(`[resolveIntentWithAI] VectaHub LLM result:`, result);
+      if (result.success) {
+        return result;
+      }
+    }
+
+    // 优先级 2: 外部 CLI 工具（有权限）
     const availableCLI = getAvailableExternalCLI();
     if (availableCLI.length > 0) {
       const result = await resolveWithExternalCLI(availableCLI[0], input, sessionId);
@@ -46,16 +57,7 @@ export async function resolveIntentWithAI(input: string, sessionId?: string): Pr
       }
     }
 
-    // 优先级 2: VectaHub 自身 LLM API
-    const apiKey = detectAPIKey();
-    if (apiKey) {
-      const result = await resolveWithVectaHubLLM(input, apiKey, sessionId);
-      if (result.success) {
-        return result;
-      }
-    }
-
-    // 优先级 3: 降级到规则匹配（在 run.ts 中处理）
+    // 降级到规则匹配（在 run.ts 中处理）
     return {
       success: false,
       error: 'AI 暂时不可用，使用规则解析',
@@ -112,7 +114,7 @@ async function resolveWithExternalCLI(toolName: string, input: string, sessionId
 
 async function resolveWithVectaHubLLM(
   input: string,
-  apiKey: { provider: string; key: string; baseUrl?: string },
+  apiKey: { provider: string; key: string; baseUrl?: string; model?: string },
   sessionId?: string
 ): Promise<AIIntentResult> {
   const messages: LLMMessage[] = [
@@ -123,10 +125,10 @@ async function resolveWithVectaHubLLM(
   const result = await callLLM(messages, {
     apiKey: apiKey.key,
     baseUrl: apiKey.baseUrl,
-    model: undefined,
-    maxTokens: 512,
+    model: apiKey.model,
+    maxTokens: 2048,
     temperature: 0.1,
-    timeout: 30000,
+    timeout: 60000,
   });
 
   if (!result.content) {

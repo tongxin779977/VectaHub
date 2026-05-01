@@ -83,15 +83,28 @@ async function callOpenAI(messages: LLMMessage[], options: LLMOptions): Promise<
   const body = JSON.stringify({
     model: options.model || 'gpt-4o-mini',
     messages,
-    max_tokens: options.maxTokens || 1024,
+    max_tokens: options.maxTokens || 2048,
     temperature: options.temperature ?? 0.1,
   });
 
-  const result = await httpPost(options.baseUrl!, body, {
+  // 如果 baseUrl 已经是默认 OpenAI 格式的端点需要加上 /chat/completions
+  let finalUrl = options.baseUrl || DEFAULT_BASE_URLS.openai;
+  if (!finalUrl.endsWith('/chat/completions')) {
+    finalUrl = finalUrl.endsWith('/') ? finalUrl + 'chat/completions' : finalUrl + '/chat/completions';
+  }
+
+  console.log(`[callOpenAI] Calling URL:`, finalUrl);
+  console.log(`[callOpenAI] Request body:`, body);
+
+  const result = await httpPost(finalUrl, body, {
     'Authorization': `Bearer ${options.apiKey}`,
   }, options.timeout || 30000);
 
+  console.log(`[callOpenAI] Raw response:`, result);
+
   const parsed = JSON.parse(result);
+  console.log(`[callOpenAI] Parsed response:`, parsed);
+
   return {
     content: parsed.choices?.[0]?.message?.content || '',
     usage: parsed.usage || undefined,
@@ -187,7 +200,41 @@ export async function callLLM(messages: LLMMessage[], options: LLMOptions): Prom
   }
 }
 
-export function detectAPIKey(): { provider: string; key: string; baseUrl?: string } | null {
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
+import { parse } from 'yaml';
+
+function getVectaHubConfigPath(): string {
+  const homeDir = process.env.HOME || process.env.USERPROFILE || '~';
+  return join(homeDir, '.vectahub', 'config.yaml');
+}
+
+function loadVectaHubConfig(): any {
+  const configPath = getVectaHubConfigPath();
+  if (!existsSync(configPath)) return null;
+
+  try {
+    const content = readFileSync(configPath, 'utf-8');
+    return parse(content);
+  } catch {
+    return null;
+  }
+}
+
+export function detectAPIKey(): { provider: string; key: string; baseUrl?: string; model?: string } | null {
+  // 优先级 1: 从 VectaHub 配置文件读取
+  const vectaHubConfig = loadVectaHubConfig();
+  if (vectaHubConfig?.ai_providers?.vectahub_llm?.enabled) {
+    const llmConfig = vectaHubConfig.ai_providers.vectahub_llm;
+    return {
+      provider: llmConfig.provider,
+      key: llmConfig.apiKey,
+      baseUrl: llmConfig.baseUrl,
+      model: llmConfig.model,
+    };
+  }
+
+  // 优先级 2: 从环境变量读取
   if (process.env.OPENAI_API_KEY) {
     return { provider: 'openai', key: process.env.OPENAI_API_KEY, baseUrl: process.env.OPENAI_BASE_URL };
   }

@@ -177,10 +177,14 @@ async function tryAIFallback(input: string): Promise<ParseResult> {
   logger.info('🤖 尝试使用 AI 解析意图...');
   const aiResult = await resolveIntentWithAI(input);
   
+  logger.debug(`AI Result:`, aiResult);
+  
   if (aiResult.success && aiResult.parseResult) {
-    logger.info('✅ AI 解析成功');
+    logger.info(`✅ AI 解析成功 (source: ${aiResult.source})`);
     return aiResult.parseResult;
   }
+  
+  logger.warn(`⚠️ AI fallback failed: ${aiResult.error}`);
   
   // 更安静地回退，不显示警告
   logger.debug(`AI 不可用，回退到规则解析`);
