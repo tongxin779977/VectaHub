@@ -147,7 +147,7 @@ export const runCmd = new Command('run')
         if (step.output && step.output.length > 0) {
           logger.info(`\n📤 Step ${step.stepId} Output:`);
           for (const output of step.output) {
-            logger.info(output.trim());
+            logger.info(String(output).trim());
           }
         }
         if (step.error) {
@@ -177,7 +177,7 @@ async function tryAIFallback(input: string): Promise<ParseResult> {
   logger.info('🤖 尝试使用 AI 解析意图...');
   const aiResult = await resolveIntentWithAI(input);
   
-  logger.debug(`AI Result:`, aiResult);
+  logger.info(`AI Result: success=${aiResult.success}, source=${aiResult.source}`);
   
   if (aiResult.success && aiResult.parseResult) {
     logger.info(`✅ AI 解析成功 (source: ${aiResult.source})`);

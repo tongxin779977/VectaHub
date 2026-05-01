@@ -1,63 +1,32 @@
-import { mkdir, writeFile, readFile, access, constants } from 'fs/promises';
-import { join, dirname } from 'path';
-import type { RegistrationConfig, ValidationResult } from './types.js';
-import type { CliTool } from '../types.js';
+import type { CLIToolsConfig } from '../../utils/config.js';
+import { loadConfig as loadAppConfig, getDefaultConfig } from '../../utils/config.js';
 
-const CONFIG_PATH = join(process.env.HOME || '.', '.vectahub', 'cli-tools', 'config.json');
-const DEFAULT_CONFIG: RegistrationConfig = {
-  version: '1.0.0',
-  lastUpdated: new Date().toISOString(),
-  registeredTools: ['git'],
+export interface RegistrationConfig {
+  version: string;
+  registeredTools: string[];
   templates: {
-    enabled: ['default'],
-  },
-};
+    enabled: string[];
+  };
+}
 
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await access(path, constants.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
+export interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
 }
 
 export async function loadConfig(): Promise<RegistrationConfig> {
-  try {
-    const configDir = dirname(CONFIG_PATH);
-    const dirExists = await pathExists(configDir);
-    if (!dirExists) {
-      await mkdir(configDir, { recursive: true });
-      await saveConfig(DEFAULT_CONFIG);
-      return { ...DEFAULT_CONFIG };
-    }
-
-    const fileExists = await pathExists(CONFIG_PATH);
-    if (!fileExists) {
-      await saveConfig(DEFAULT_CONFIG);
-      return { ...DEFAULT_CONFIG };
-    }
-
-    const content = await readFile(CONFIG_PATH, 'utf-8');
-    return JSON.parse(content);
-  } catch {
-    return { ...DEFAULT_CONFIG };
-  }
+  const config = await loadAppConfig();
+  return config.cli_tools;
 }
 
 export async function saveConfig(config: RegistrationConfig): Promise<void> {
-  const configDir = dirname(CONFIG_PATH);
-  const dirExists = await pathExists(configDir);
-  if (!dirExists) {
-    await mkdir(configDir, { recursive: true });
-  }
-
-  config.lastUpdated = new Date().toISOString();
-  await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2));
+  // TODO: 实现保存统一配置的功能
+  console.warn('saveConfig: 统一配置保存功能待实现');
 }
 
 export function validateToolRegistration(
-  tool: CliTool,
+  tool: any,
   existingConfig: RegistrationConfig
 ): ValidationResult {
   const errors: string[] = [];

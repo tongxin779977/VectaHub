@@ -7,8 +7,11 @@ import type { AIDelegateProvider } from '../workflow/ai-delegate.js';
 import { loadAIConfig } from '../utils/ai-config.js';
 import { callLLM, detectAPIKey, type LLMMessage } from './llm-client.js';
 import { getAvailableExternalCLI } from '../setup/cli-scanner.js';
+import { createLogger } from '../utils/logger.js';
 
-const AI_INTENT_PROMPT = `你是一个自然语言到 CLI 工作流的解析器。
+const logger = createLogger('ai-intent-resolver');
+
+const AI_INTENT_PROMPT = `你是一个自然语言到 CLI 工作流的解析器。不要思考，不要推理，直接输出 JSON。
 用户输入自然语言指令，你需要将其解析为结构化的任务列表。
 
 支持的 CLI 工具: git, npm, yarn, pnpm, node, find, grep, ls, cp, mv, rm, chmod, tar, zip, docker, curl, ping
@@ -39,10 +42,10 @@ export async function resolveIntentWithAI(input: string, sessionId?: string): Pr
   try {
     // 优先级 1: VectaHub 自身 LLM API (真实 LLM 优先)
     const apiKey = detectAPIKey();
-    console.log(`[resolveIntentWithAI] API Key detected:`, apiKey ? { ...apiKey, key: '***' } : null);
+    console.log(`[resolveIntentWithAI] API Key detected:`, apiKey ? 'Yes' : 'No');
     if (apiKey) {
       const result = await resolveWithVectaHubLLM(input, apiKey, sessionId);
-      console.log(`[resolveIntentWithAI] VectaHub LLM result:`, result);
+      console.log(`[resolveIntentWithAI] VectaHub LLM success:`, result.success);
       if (result.success) {
         return result;
       }
@@ -114,11 +117,19 @@ async function resolveWithExternalCLI(toolName: string, input: string, sessionId
 
 async function resolveWithVectaHubLLM(
   input: string,
-  apiKey: { provider: string; key: string; baseUrl?: string; model?: string },
+  apiKey: { 
+    provider: string; 
+    key: string; 
+    baseUrl?: string; 
+    model?: string;
+    max_tokens?: number;
+    temperature?: number;
+    timeout_ms?: number;
+  },
   sessionId?: string
 ): Promise<AIIntentResult> {
   const messages: LLMMessage[] = [
-    { role: 'system', content: '你是一个 CLI 工作流意图解析器。只返回 JSON。' },
+    { role: 'system', content: '你是一个 CLI 工作流意图解析器。不要思考，直接输出 JSON。' },
     { role: 'user', content: AI_INTENT_PROMPT.replace('{{input}}', input) },
   ];
 
@@ -126,9 +137,9 @@ async function resolveWithVectaHubLLM(
     apiKey: apiKey.key,
     baseUrl: apiKey.baseUrl,
     model: apiKey.model,
-    maxTokens: 2048,
-    temperature: 0.1,
-    timeout: 60000,
+    maxTokens: apiKey.max_tokens ?? 4096,
+    temperature: apiKey.temperature ?? 0.1,
+    timeout: apiKey.timeout_ms ?? 60000,
   });
 
   if (!result.content) {
