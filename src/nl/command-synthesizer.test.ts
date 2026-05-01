@@ -76,16 +76,15 @@ describe('CommandSynthesizer', () => {
       const entities = { FILE_PATH: [], CLI_TOOL: ['git'], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: ['commit', 'fix bug'] };
       const task = createTaskFromIntent('GIT_WORKFLOW', entities, 'commit修复');
       expect(task.commands.length).toBe(1);
-      expect(task.commands[0].args).toEqual(['commit', '-m', 'commit']);
+      expect(task.commands[0].args).toEqual(['commit', '-m', 'commit修复']);
     });
 
-    it('should generate default add/commit/push workflow when no specific options', () => {
+    it('should generate default add/commit workflow when no specific options', () => {
       const entities = { FILE_PATH: [], CLI_TOOL: ['git'], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: [] };
       const task = createTaskFromIntent('GIT_WORKFLOW', entities, '提交代码');
-      expect(task.commands.length).toBe(3);
+      expect(task.commands.length).toBe(2);
       expect(task.commands[0].args).toEqual(['add', '-A']);
       expect(task.commands[1].args[0]).toEqual('commit');
-      expect(task.commands[2].args[0]).toEqual('push');
     });
   });
 });

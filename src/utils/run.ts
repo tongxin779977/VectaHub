@@ -75,9 +75,16 @@ export const runCmd = new Command('run')
       }
 
       if (taskListResult.status !== 'SUCCESS' || !taskListResult.taskList) {
-        logger.error('Failed to convert intent to task list');
+        logger.error('❌ 无法解析意图，请尝试更明确的输入！');
         if (taskListResult.candidates?.length) {
-          logger.info('Possible intents: ' + taskListResult.candidates.map(c => c.intent).join(', '));
+          logger.info('💡 可能的意图：' + taskListResult.candidates.map(c => c.intent).join(', '));
+        } else {
+          logger.info('\n📋 可用的意图示例：');
+          logger.info('  - "查找当前目录下的文件"');
+          logger.info('  - "显示磁盘使用情况"');
+          logger.info('  - "构建项目"');
+          logger.info('  - "运行测试"');
+          logger.info('  - "查看 git 状态"');
         }
         process.exit(1);
       }
@@ -167,15 +174,16 @@ export const runCmd = new Command('run')
   });
 
 async function tryAIFallback(input: string): Promise<ParseResult> {
-  logger.info('🤖 Using AI to parse intent...');
+  logger.info('🤖 尝试使用 AI 解析意图...');
   const aiResult = await resolveIntentWithAI(input);
   
   if (aiResult.success && aiResult.parseResult) {
-    logger.info('✅ AI parsing succeeded');
+    logger.info('✅ AI 解析成功');
     return aiResult.parseResult;
   }
   
-  logger.warn(`⚠️  AI fallback failed: ${aiResult.error}`);
+  // 更安静地回退，不显示警告
+  logger.debug(`AI 不可用，回退到规则解析`);
   return {
     status: 'NEEDS_CLARIFICATION',
     confidenceLevel: 'UNCERTAIN',

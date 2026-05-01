@@ -58,7 +58,7 @@ export async function resolveIntentWithAI(input: string, sessionId?: string): Pr
     // 优先级 3: 降级到规则匹配（在 run.ts 中处理）
     return {
       success: false,
-      error: 'No AI available, falling back to rules',
+      error: 'AI 暂时不可用，使用规则解析',
       source: 'rules',
     };
   } catch (error) {
