@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { parse } from 'yaml';
 
 interface ModuleStatus {
   name: string;
@@ -26,7 +27,8 @@ export const status = new Command('status')
       return;
     }
 
-    const config: Config = { modules: [], overallProgress: 0 };
+    const content = readFileSync(configPath, 'utf-8');
+    const config = parse(content) as Config;
 
     if (options.json) {
       console.log(JSON.stringify(config, null, 2));
@@ -36,9 +38,13 @@ export const status = new Command('status')
       console.log('-------------|----------|--------------|----------');
 
       for (const mod of config.modules) {
+        const progressBar = '█'.repeat(Math.floor(mod.progress / 10)) + '░'.repeat(10 - Math.floor(mod.progress / 10));
         console.log(
-          `${mod.name.padEnd(12)} | ${mod.agent.padEnd(8)} | ${mod.status.padEnd(12)} | ${mod.progress}%`
+          `${mod.name.padEnd(12)} | ${mod.agent.padEnd(8)} | ${mod.status.padEnd(12)} | ${progressBar} ${mod.progress}%`
         );
       }
+
+      const totalProgress = config.modules.reduce((sum, m) => sum + m.progress, 0) / config.modules.length;
+      console.log(`\nOverall Progress: ${totalProgress.toFixed(0)}%`);
     }
   });
