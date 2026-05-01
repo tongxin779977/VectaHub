@@ -1,12 +1,14 @@
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { parse } from 'yaml';
+import type { DefaultPolicy } from '../command-rules/types.js';
 
 export interface Config {
   mode: 'strict' | 'relaxed' | 'consensus';
   sandbox: {
     enabled: boolean;
     mode: 'STRICT' | 'RELAXED' | 'CONSENSUS';
+    defaultPolicy: DefaultPolicy;
   };
   storage: {
     dir: string;
@@ -18,6 +20,7 @@ const DEFAULT_CONFIG: Config = {
   sandbox: {
     enabled: true,
     mode: 'STRICT',
+    defaultPolicy: 'passthrough', // 保持向后兼容性
   },
   storage: {
     dir: '~/.vectahub',

@@ -1,3 +1,5 @@
+export type DefaultPolicy = 'block' | 'allow' | 'passthrough';
+
 export interface CommandRule {
   id: string;
   pattern: string;
@@ -26,4 +28,5 @@ export interface RuleEngineConfig {
   globalAllowlist: CommandRule[];
   projectBlocklist?: CommandRule[];
   projectAllowlist?: CommandRule[];
+  defaultPolicy?: DefaultPolicy;
 }

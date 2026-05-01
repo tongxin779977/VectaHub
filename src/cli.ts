@@ -19,8 +19,9 @@ import { historyCmd } from './utils/history.js';
 import { doctorCmd } from './utils/doctor.js';
 import { getCliToolRegistry } from './cli-tools/index.js';
 import { gitTool } from './cli-tools/tools/git.js';
-import { formatErrorMessage, ErrorType } from './utils/errors.js';
+import { formatErrorMessage } from './utils/errors.js';
 import { aiCmd } from './utils/ai.js';
+import { loadConfig } from './utils/config.js';
 
 try {
   initAuditLogger();
@@ -36,6 +37,39 @@ try {
   console.warn('⚠️  Git 工具注册失败，将继续运行...');
   console.warn(`   原因: ${formatErrorMessage(error, '工具注册')}`);
 }
+
+function displayPolicyWarning() {
+  try {
+    const config = loadConfig();
+    const policy = config.sandbox.defaultPolicy;
+    
+    if (policy !== 'block') {
+      console.log();
+      console.log('╔══════════════════════════════════════════════════════════════╗');
+      console.log('║  ⚠️  安全策略警告                                            ║');
+      console.log('╠══════════════════════════════════════════════════════════════╣');
+      console.log(`║  当前命令规则默认策略: ${policy}`);
+      console.log('║                                                              ║');
+      console.log('║  为了提高安全性，建议将默认策略设置为 "block"。            ║');
+      console.log('║  这样未明确白名单的命令将被拒绝执行。                      ║');
+      console.log('║                                                              ║');
+      console.log('║  配置示例 (vectahub.config.yaml):                            ║');
+      console.log('║    sandbox:                                                  ║');
+      console.log('║      defaultPolicy: block                                    ║');
+      console.log('║                                                              ║');
+      console.log('║  可选策略:                                                   ║');
+      console.log('║  - block: 默认拒绝 (推荐，最安全)                            ║');
+      console.log('║  - allow: 默认允许                                           ║');
+      console.log('║  - passthrough: 交给危险命令检测 (当前)                      ║');
+      console.log('╚══════════════════════════════════════════════════════════════╝');
+      console.log();
+    }
+  } catch {
+    // 静默失败
+  }
+}
+
+displayPolicyWarning();
 
 const program = new Command();
 

@@ -6,6 +6,7 @@ import { createHash } from 'crypto';
 import { createDetector } from './detector.js';
 import { CommandRuleEngine, createCommandRuleEngine, loadGlobalBlocklist, loadGlobalAllowlist, loadProjectBlocklist, loadProjectAllowlist } from '../command-rules/index.js';
 import type { SandboxMode, CommandDetection } from '../types/index.js';
+import type { DefaultPolicy } from '../command-rules/types.js';
 
 interface SandboxConfig {
   root: string;
@@ -17,6 +18,7 @@ interface SandboxConfig {
   timeoutMs: number;
   allowedEnvVars: string[];
   namespaceIsolation: boolean;
+  defaultPolicy?: DefaultPolicy;
 }
 
 interface ExecOptions {
@@ -73,6 +75,7 @@ const DEFAULT_CONFIG: SandboxConfig = {
   timeoutMs: 60000,
   allowedEnvVars: ['PATH', 'HOME', 'USER', 'LANG', 'LC_ALL'],
   namespaceIsolation: true,
+  defaultPolicy: 'passthrough', // 保持向后兼容性，使用原有行为
 };
 
 export class SandboxManager {
@@ -89,7 +92,7 @@ export class SandboxManager {
       globalAllowlist: loadGlobalAllowlist(),
       projectBlocklist: loadProjectBlocklist(this.projectPath),
       projectAllowlist: loadProjectAllowlist(this.projectPath),
-      defaultPolicy: 'passthrough', // 保持向后兼容性，使用原有行为
+      defaultPolicy: this.config.defaultPolicy || 'passthrough',
     });
     this.ensureDirectories();
   }
@@ -691,7 +694,7 @@ ${username} ALL=(ALL) NOPASSWD: /usr/bin/unshare
 
     const ruleResult = this.ruleEngine.evaluate(fullCmd);
 
-    if (ruleResult.decision === 'block') {
+    if (ruleResult.matched && ruleResult.decision === 'block') {
       return {
         success: false,
         exitCode: 1,
@@ -704,7 +707,7 @@ ${username} ALL=(ALL) NOPASSWD: /usr/bin/unshare
       };
     }
 
-    if (ruleResult.decision === 'allow') {
+    if (ruleResult.matched && ruleResult.decision === 'allow') {
       const result = await this.executeInSandbox(cmd, args, options);
       return result;
     }

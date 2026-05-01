@@ -233,4 +233,159 @@ src/types/
 | `.gitignore` | Git 忽略规则 | ✅ 是 |
 | `.env` | 环境变量 (API Keys) | ❌ 否 |
 | `.env.local` | 本地环境变量 | ❌ 否 |
-| `.vectahub/` | VectaHub 用户数据 |
+| `.vectahub/` | VectaHub 用户数据 | ❌ 否 |
+
+---
+
+## 4. 文档结构
+
+### 4.1 设计文档
+
+```
+docs/
+├── design/
+│   ├── README.md             # 文档索引 (01-09)
+│   ├── 01_system_architecture.md    # 系统架构
+│   ├── 02_sandbox_design.md         # 沙盒设计
+│   ├── 03_ai_cli_framework_design.md # AI CLI 框架
+│   ├── 04_nl_parser_skill_design.md  # NL 解析器
+│   ├── 05_vscode_plugin_design.md    # VSCode 插件
+│   ├── 06_workflow_engine_design.md  # 工作流引擎
+│   ├── 07_module_design.md           # 模块化设计
+│   ├── 08_dev_command_design.md      # 开发者命令
+│   └── 09_cli_tools_integration.md   # CLI 工具集成
+└── interview-java-oa.md      # 其他文档
+```
+
+### 4.2 临时文档 (不提交)
+
+```
+.trae/documents/
+├── AI_CLI_环境发现与智能降级设计文档.md
+└── AI_CLI_环境发现与智能降级集成计划.md
+```
+
+---
+
+## 5. 文件命名规范
+
+### 5.1 源文件
+
+| 类型 | 命名规则 | 示例 |
+|------|----------|------|
+| **模块入口** | `index.ts` | `src/nl/index.ts` |
+| **核心实现** | 小写连字符 | `intent-matcher.ts` |
+| **测试文件** | 同名 + `.test.ts` | `parser.ts` → `parser.test.ts` |
+| **类型定义** | `types.ts` | `src/cli-tools/types.ts` |
+
+### 5.2 测试文件
+
+```
+src/
+├── module.ts           # 实现
+└── module.test.ts      # 测试 (同名 + .test.ts)
+```
+
+**规则**：
+- 测试文件与源文件同目录
+- 使用 `.test.ts` 后缀
+- 使用 Vitest 框架
+
+---
+
+## 6. Git 忽略规则
+
+### 6.1 必须忽略
+
+| 模式 | 说明 | 示例 |
+|------|------|------|
+| `node_modules/` | 依赖 | `node_modules/` |
+| `dist/` | 构建输出 | `dist/` |
+| `.env` | 环境变量 | `.env`, `.env.local` |
+| `.vectahub/` | 用户数据 | `.vectahub/` |
+| `.trae/documents/` | 临时文档 | `.trae/documents/` |
+| `*.log` | 日志文件 | `npm-debug.log` |
+| `.DS_Store` | macOS 元数据 | `.DS_Store` |
+| `test-*.ts` | 临时测试文件 | `test-cli-tools.ts` |
+
+### 6.2 必须提交
+
+| 文件 | 说明 |
+|------|------|
+| `package.json` | 项目依赖 |
+| `tsconfig.json` | TypeScript 配置 |
+| `.gitignore` | Git 规则 |
+| `docs/design/*.md` | 设计文档 |
+| `src/**/*.ts` | 源代码 |
+| `src/**/*.test.ts` | 测试代码 |
+
+---
+
+## 7. 模块依赖关系
+
+```
+cli.ts
+  ├── nl/ (自然语言解析)
+  │   ├── parser.ts
+  │   ├── intent-matcher.ts
+  │   └── templates/
+  ├── workflow/ (工作流引擎)
+  │   ├── engine.ts
+  │   ├── executor.ts
+  │   └── storage.ts
+  ├── sandbox/ (沙盒)
+  │   ├── sandbox.ts
+  │   └── detector.ts
+  ├── cli-tools/ (工具注册)
+  │   ├── registry.ts
+  │   ├── discovery/
+  │   └── tools/
+  ├── command-rules/ (命令规则)
+  │   ├── engine.ts
+  │   └── matcher.ts
+  ├── security-protocol/ (安全协议)
+  │   └── manager.ts
+  └── utils/ (工具函数)
+      ├── config.ts
+      ├── logger.ts
+      └── ...
+```
+
+---
+
+## 8. 清理建议
+
+### 8.1 可以删除的临时文件
+
+| 文件 | 原因 |
+|------|------|
+| `test-cli-tools.ts` | 临时测试脚本 |
+| `test-imports.ts` | 临时测试脚本 |
+| `test-setup.ts` | 已整合到 vitest.config.ts |
+| `test-tools-commands.ts` | 临时测试脚本 |
+
+### 8.2 需要移动的文件
+
+| 文件 | 当前路径 | 建议路径 | 原因 |
+|------|----------|----------|------|
+| `FRAMEWORK_GUIDE.md` | 根目录 | `docs/` | 文档应放在 docs 目录 |
+| `README_EN.md` | 根目录 | 合并到 `README.md` | 避免分散 |
+
+---
+
+## 9. 文件统计
+
+| 类型 | 数量 | 说明 |
+|------|------|------|
+| **源文件 (.ts)** | ~80 | 核心代码 |
+| **测试文件 (.test.ts)** | ~25 | 单元测试 |
+| **设计文档 (.md)** | 10 | 架构设计 |
+| **配置文件** | 4 | 项目配置 |
+
+---
+
+```yaml
+version: 1.0.0
+lastUpdated: 2026-05-02
+status: design_complete
+```
