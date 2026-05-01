@@ -1,4 +1,0 @@
---- Task: test_cacp_2_0 | Start: Sat Apr  4 00:44:40 CST 2026 ---
-⚙️ 执行指令: touch test_cacp_2_0.txt && echo "CACP 2.0 Success" > test_cacp_2_0.txt
--e 
---- EXITCODE: 0 ---

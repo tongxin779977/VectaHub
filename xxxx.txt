@@ -1,1 +1,0 @@
-此文件由 Gemini CLI 通过信箱协议强制生成。 --model gemini-3.1-pro

@@ -1,0 +1,55 @@
+modules:
+  - name: cli
+    agent: Agent A
+    status: in_progress
+    progress: 10
+    dependencies: []
+
+  - name: nl
+    agent: Agent B
+    status: completed
+    progress: 90
+    dependencies: []
+
+  - name: workflow
+    agent: Agent C
+    status: pending
+    progress: 0
+    dependencies: [nl]
+
+  - name: executor
+    agent: Agent D
+    status: in_progress
+    progress: 10
+    dependencies: [workflow, sandbox]
+
+  - name: sandbox
+    agent: Agent E
+    status: completed
+    progress: 100
+    dependencies: []
+
+  - name: storage
+    agent: Agent F
+    status: completed
+    progress: 100
+    dependencies: [workflow]
+
+  - name: utils
+    agent: Agent G
+    status: in_progress
+    progress: 10
+    dependencies: []
+
+test:
+  coverage:
+    threshold: 80
+    exclude:
+      - "**/templates/**"
+
+build:
+  entry: src/cli.ts
+  outDir: dist
+  format:
+    - esm
+    - cjs

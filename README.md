@@ -19,10 +19,10 @@
 
 ### 工业级通信 SOP
 
-1.  **指令发信 (Command Post)**：Antigravity Agent 解析需求，将指令集序列化为 `.task` 格式写入 `.gemini/tasks/`。
-2.  **高频监听 (Event Heartbeat)**：`gemini_watcher.sh` 作为守护进程，通过 2s 级心跳扫描“发件箱”，触发原生环境下的 Gemini CLI 提权执行。
-3.  **执行回执 (Result Feedback)**：执行结果（Stdout/Stderr/ExitCode）被封装为 `.response` 实时回写，Agent 根据回执进行逻辑自愈。
-4.  **权限归拨 (Permission Re-delegation)**：监听器执行完任务后，利用 `root` 权限自动执行 `chown` 与 `chmod`，确保所有 AI 生成的文件所有权实时回归 IDE 用户，根治 `EPERM` 权限死锁。
+1. **指令发信 (Command Post)**：Antigravity Agent 解析需求，将指令集序列化为 `.task` 格式写入 `.gemini/tasks/`。
+2. **高频监听 (Event Heartbeat)**：`gemini_watcher.sh` 作为守护进程，通过 2s 级心跳扫描“发件箱”，触发原生环境下的 Gemini CLI 提权执行。
+3. **执行回执 (Result Feedback)**：执行结果（Stdout/Stderr/ExitCode）被封装为 `.response` 实时回写，Agent 根据回执进行逻辑自愈。
+4. **权限归拨 (Permission Re-delegation)**：监听器执行完任务后，利用 `root` 权限自动执行 `chown` 与 `chmod`，确保所有 AI 生成的文件所有权实时回归 IDE 用户，根治 `EPERM` 权限死锁。
 
 ---
 
@@ -86,14 +86,18 @@ npm run dev
 ## 🛡️ 安全、隐私与权限管理
 
 ### 为什么需要 sudo？
+
 在 CACP 2.0 架构中，`sudo` 是实现 **“生成即归属”** 的必要条件：
--   **突破沙盒约束**：沙盒内的 Agent 无法触达宿主机二进制环境。
--   **动态权属修正 (Auto-Chown)**：AI 生成的文件默认权限可能受限，监听器通过 `root` 权限将文件所有权强制拨正给当前用户 `$(whoami)`，确保开发过程无感、顺滑。
+
+- **突破沙盒约束**：沙盒内的 Agent 无法触达宿主机二进制环境。
+- **动态权属修正 (Auto-Chown)**：AI 生成的文件默认权限可能受限，监听器通过 `root` 权限将文件所有权强制拨正给当前用户 `$(whoami)`，确保开发过程无感、顺滑。
 
 ### 隐私保护
+
 项目原生适配 **GitHub Ready**：
--   使用 `$(id -u):$(id -g)` 动态获取系统标识，杜绝硬编码。
--   敏感路径与凭证受 `.geminiignore` 保护，确保开源安全性。
+
+- 使用 `$(id -u):$(id -g)` 动态获取系统标识，杜绝硬编码。
+- 敏感路径与凭证受 `.geminiignore` 保护，确保开源安全性。
 
 ---
 
@@ -114,7 +118,7 @@ npm run dev
 │   ├── responses/      # 执行回执收件箱
 │   └── GEMINI.md       # CACP 2.0 协议规范 (项目宪法)
 ├── scripts/
-│   └── gemini_watcher.sh # 跨环境通信守护进程 (2s 心跳)
+│   └── gemini_watcher.sh # 跨环境通信守护进程 (5s 心跳)
 ├── src/                # 业务源码 (React + Vite)
 └── vite.config.js      # 构建配置
 ```
