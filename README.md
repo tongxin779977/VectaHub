@@ -1,127 +1,201 @@
-# VectaHub: Antigravity CACP Framework (Vite + React) 🚀
-
-![VectaHub CACP Architecture](./public/assets/cacp_architecture.png)
+# VectaHub: Natural Language Workflow Automation Engine 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Vite](https://img.shields.io/badge/Vite-5.0+-646CFF?logo=vite)](https://vitejs.dev/)
-[![React](https://img.shields.io/badge/React-18.0+-61DAFB?logo=react)](https://reactjs.org/)
-[![Protocol](https://img.shields.io/badge/Protocol-CACP%202.0-orange)](./.gemini/GEMINI.md)
+[![Node.js](https://img.shields.io/badge/Node.js-21+-339933?logo=node.js)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6?logo=typescript)](https://www.typescriptlang.org/)
 
-> **VectaHub** (Antigravity CACP Framework) 是一个面向 AI 协作时代的工业级 Web 项目底座。它不仅提供了极致性能的 Vite + React 运行环境，更深度集成了基于 **Mailbox (异步信箱)** 机制的跨沙盒通信协议 (CACP 2.0)，实现了 AI Agent 与原生终端的无缝协同。
+> **VectaHub** 是一个自然语言驱动的工作流自动化引擎。只需用自然语言描述你要做的事，它会自动生成、执行、并记录整个工作流。
 
 [English Version](./README_EN.md) | **中文说明**
 
 ---
 
-## 🏗️ 核心引擎：CACP 2.0 (Cross-Agent Communication Protocol)
+## 核心价值：一句话说清 VectaHub
 
-本项目最具竞争力的核心在于其 **CACP 2.0 异步驱动架构**。它彻底解决了 AI 助手在受限沙盒环境内无法执行原生二进制指令（如 `npm install`、`git push`、`docker build`）的痛点。
-
-### 工业级通信 SOP
-
-1. **指令发信 (Command Post)**：Antigravity Agent 解析需求，将指令集序列化为 `.task` 格式写入 `.gemini/tasks/`。
-2. **高频监听 (Event Heartbeat)**：`gemini_watcher.sh` 作为守护进程，通过 2s 级心跳扫描“发件箱”，触发原生环境下的 Gemini CLI 提权执行。
-3. **执行回执 (Result Feedback)**：执行结果（Stdout/Stderr/ExitCode）被封装为 `.response` 实时回写，Agent 根据回执进行逻辑自愈。
-4. **权限归拨 (Permission Re-delegation)**：监听器执行完任务后，利用 `root` 权限自动执行 `chown` 与 `chmod`，确保所有 AI 生成的文件所有权实时回归 IDE 用户，根治 `EPERM` 权限死锁。
+| 工具 | 你要做什么 | 实际工作 |
+|------|-----------|----------|
+| Taskfile | 写 YAML: `tasks: { compress: ... }` | 说"压缩图片" |
+| Shell Script | 写 bash: `for f in *.jpg; do...` | 说"压缩图片" |
+| Claude Code | 手动指导 AI 每一步 | 说"压缩图片" |
+| **VectaHub** | **说什么就做什么** | **说"压缩图片"** |
 
 ---
 
-## 🛠️ 技术栈选型与优势
+## 🎯 核心使用场景
 
-- **高效构建**: 基于 Vite 5.x 实现秒级热更新 (HMR)，确保极速开发体验。
-- **现代 UI**: React 18.x (Concurrent Mode) 支持，保障高负载下的渲染流畅度。
-- **协作底座**: Gemini CLI + CACP 2.0 构成的跨环境桥梁。
-- **规则自治**: 结构化 `.gemini/GEMINI.md` 定义了项目的“数字宪法”，确立 Agent 行为边界。
+### 场景 1：日常文件处理
+
+```bash
+$ vectahub "压缩当前目录的图片"
+
+🤖 解析意图: IMAGE_COMPRESS
+📋 生成工作流:
+  Step 1: find . -type f \( -name "*.jpg" -o -name "*.png" \)
+  Step 2: for each: convert ${item} -resize 50% ${item}
+⏳ 模式: CONSENSUS
+
+确认执行? [Y/n] y
+▶️ 执行中...
+✅ 完成: 12 个文件已压缩
+```
+
+### 场景 2：开发者工作流
+
+```bash
+$ vectahub "跑测试，通过就部署"
+
+🤖 解析意图: CI_PIPELINE
+📋 生成工作流:
+  Step 1: npm test
+  Step 2: if (exit_code == 0) then npm run deploy
+⏳ 模式: STRICT (CI 场景自动严格)
+
+▶️ 执行中...
+  ▶ npm test ... ✅
+  ▶ npm run deploy ... ✅
+```
+
+### 场景 3：Git 协作
+
+```bash
+$ vectahub "提交并推送所有更改"
+
+🤖 解析意图: GIT_WORKFLOW
+📋 生成工作流:
+  Step 1: git add -A
+  Step 2: git commit -m "update"
+  Step 3: git push
+```
 
 ---
 
-## 🏗️ 架构深度解析：为什么它是“工业级”的？
+## 🏗️ 系统架构
 
-作为一套 AI 驱动的代码自动化方案，VectaHub 的设计初衷是解决 **“从对话到交付”** 的最后 1 厘米。
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        VectaHub                             │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐   │
+│  │  NL Parser  │───▶│   Workflow  │───▶│  Executor   │   │
+│  │   (意图解析) │    │   Engine    │    │   (执行器)   │   │
+│  └─────────────┘    └─────────────┘    └─────────────┘   │
+│         │                  │                  │           │
+│         ▼                  ▼                  ▼           │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐   │
+│  │ Intent       │    │ Workflow    │    │ Sandbox     │   │
+│  │ Templates    │    │ Storage     │    │ (macOS)     │   │
+│  └─────────────┘    └─────────────┘    └─────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
 
-### 1. 跨沙盒原子性 (Sandbox Traversal)
+### 核心组件
 
-传统的 AI 助手受限于沙盒环境，无法触达复杂的本地二进制链（二进制隔离）。CACP 2.0 建立了基于“信箱”的解耦通信模型，让 Agent 专注于业务逻辑，让 Executor 专注于重型执行。
+| 组件 | 职责 |
+|------|------|
+| **NL Parser** | 将自然语言转为 Workflow 对象 |
+| **Workflow Engine** | 管理工作流生命周期、步骤执行 |
+| **Executor** | 在沙盒中执行 CLI 命令 |
+| **Sandbox** | macOS 沙盒隔离，保证安全执行 |
+| **CLI Tools Registry** | 标准化 CLI 工具集成 |
 
-### 2. 动态权属自愈 (Auto-Chown)
+---
 
-在 AI 与人类混合开发的场景中，权限冲突（EPERM）是导致 CI/CD 失败的头号原因。`gemini_watcher.sh` 会在每次执行任务后自动进行所有权拨正，实现了 **“AI 生成，用户归属”** 的零感知体验。
+## 🛡️ 安全机制
 
-### 3. 自主进化能力 (Self-Evolution & Bootstrapping)
+### 三种执行模式
 
-VectaHub 理论上具备 **“根据文档完成自我进化”** 的能力。
+| 模式 | 非危险命令 | 危险命令 | 适用场景 |
+|------|-----------|----------|----------|
+| **STRICT** | 自动执行 | 报错 | CI/CD |
+| **RELAXED** | 自动执行 | 报错 | 开发调试 |
+| **CONSENSUS** | 确认后执行 | 确认后执行 | 交互执行 |
 
-- **文档驱动**：它可以读取项目内的 PRD 或 ADR 文档。
-- **闭环自纠**：依托 CACP 协议，它能自主修改源码、运行测试、观察报错并迭代修复，直到实现逻辑对齐。
-- **自产自销**：本项目自身的所有文档与协议架构，均是这一方案的实战产物。
+### 危险命令检测
+
+```typescript
+const DANGEROUS_PATTERNS = {
+  critical: [
+    /^sudo\s+/,                          // 提权
+    /^chmod\s+777/,                      // 全局权限
+    /^rm\s+-rf\s+\/(?!sandbox)/,         // 递归删除根目录
+  ]
+};
+```
+
+---
+
+## 📦 内置意图模板
+
+| Intent | 描述 | 示例 |
+|--------|------|------|
+| `IMAGE_COMPRESS` | 压缩图片 | "压缩当前目录图片" |
+| `FILE_FIND` | 查找文件 | "找出所有大于 100M 的文件" |
+| `BACKUP` | 备份文件/目录 | "备份 Documents 到外接硬盘" |
+| `CI_PIPELINE` | CI 流程 | "跑测试，通过就部署" |
+| `BATCH_RENAME` | 批量重命名 | "把所有 .jpeg 改成 .jpg" |
+| `GIT_WORKFLOW` | Git 操作 | "提交并推送" |
 
 ---
 
 ## 🚀 快速开始
 
-### 1. 初始化环境
+### 1. 安装
 
 ```bash
-git clone <your-repo-url>
-cd <project-name>
-npm install
+npm install -g vectahub
 ```
 
-### 2. 激活跨沙盒监听器 (关键步骤)
-
-在原生终端（非 IDE 内嵌终端）中启动监听器。建议首次运行使用 `sudo` 以开启自动权限归拨功能：
+### 2. 运行自然语言命令
 
 ```bash
-sudo sh scripts/gemini_watcher.sh
+vectahub run "压缩当前目录的图片"
+vectahub run "提交并推送所有更改"
+vectahub run "找出所有大于 100M 的文件"
 ```
 
-### 3. 启动开发服务器
+### 3. 从文件运行工作流
 
 ```bash
-npm run dev
+vectahub run -f workflow.yaml
 ```
 
 ---
 
-## 🛡️ 安全、隐私与权限管理
+## 📂 项目结构
 
-### 为什么需要 sudo？
-
-在 CACP 2.0 架构中，`sudo` 是实现 **“生成即归属”** 的必要条件：
-
-- **突破沙盒约束**：沙盒内的 Agent 无法触达宿主机二进制环境。
-- **动态权属修正 (Auto-Chown)**：AI 生成的文件默认权限可能受限，监听器通过 `root` 权限将文件所有权强制拨正给当前用户 `$(whoami)`，确保开发过程无感、顺滑。
-
-### 隐私保护
-
-项目原生适配 **GitHub Ready**：
-
-- 使用 `$(id -u):$(id -g)` 动态获取系统标识，杜绝硬编码。
-- 敏感路径与凭证受 `.geminiignore` 保护，确保开源安全性。
-
----
-
-## ✨ 全量自主生成声明 (Self-Provenance)
-
-> **本项目的脚手架、CACP 通信协议架构、脚本逻辑以及您正在阅读的所有文档，均由本项目内置的 CACP 协议驱动 Agent 自动化生成。**
-
-这不仅是一个模板，更是对 **AI 驱动软件工程 (AI-Driven Software Engineering)** 可行性的工业级实战验证。
-
----
-
-## 📂 目录结构
-
-```text
-├── .agents/            # Agent 逻辑与工作流规约
-├── .gemini/
-│   ├── tasks/          # 任务指令发件箱
-│   ├── responses/      # 执行回执收件箱
-│   └── GEMINI.md       # CACP 2.0 协议规范 (项目宪法)
-├── scripts/
-│   └── gemini_watcher.sh # 跨环境通信守护进程 (5s 心跳)
-├── src/                # 业务源码 (React + Vite)
-└── vite.config.js      # 构建配置
 ```
+VectaHub/
+├── docs/design/              # 设计文档
+├── src/
+│   ├── cli.ts               # CLI 入口
+│   ├── nl/                  # 自然语言解析
+│   │   ├── parser.ts
+│   │   ├── intent-matcher.ts
+│   │   └── templates/
+│   ├── workflow/            # 工作流引擎
+│   │   ├── engine.ts
+│   │   ├── executor.ts
+│   │   └── storage.ts
+│   ├── sandbox/            # 沙盒隔离
+│   │   ├── detector.ts
+│   │   └── sandbox.ts
+│   ├── cli-tools/          # CLI 工具集成
+│   │   ├── registry.ts
+│   │   └── tools/
+│   └── utils/              # 工具函数
+├── workflows/               # 用户工作流
+└── intents/                # 自定义意图
+```
+
+---
+
+## 🛠️ 技术栈
+
+- **语言**: TypeScript
+- **运行时**: Node.js 21+
+- **构建**: tsup
+- **CLI**: Commander.js
+- **配置**: YAML
 
 ---
 

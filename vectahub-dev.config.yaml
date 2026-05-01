@@ -1,26 +1,26 @@
 modules:
   - name: cli
     agent: Agent A
-    status: in_progress
-    progress: 10
+    status: completed
+    progress: 100
     dependencies: []
 
   - name: nl
     agent: Agent B
     status: completed
-    progress: 90
+    progress: 100
     dependencies: []
 
   - name: workflow
     agent: Agent C
-    status: pending
-    progress: 0
+    status: completed
+    progress: 100
     dependencies: [nl]
 
   - name: executor
     agent: Agent D
-    status: in_progress
-    progress: 10
+    status: completed
+    progress: 100
     dependencies: [workflow, sandbox]
 
   - name: sandbox
@@ -37,8 +37,8 @@ modules:
 
   - name: utils
     agent: Agent G
-    status: in_progress
-    progress: 10
+    status: completed
+    progress: 100
     dependencies: []
 
 test:

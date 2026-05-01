@@ -1,5 +1,12 @@
-import type { CommandDetection } from '../types/index.js';
+import type { CommandDetection, DangerCategory } from '../types/index.js';
 import { getSecurityManager } from '../security-protocol/index.js';
+
+const CATEGORY_MAP: Record<string, DangerCategory> = {
+  system: 'SYSTEM',
+  filesystem: 'FS',
+  network: 'NETWORK',
+  resource: 'RESOURCE',
+};
 
 const DANGEROUS_PATTERNS = {
   critical: [
@@ -68,6 +75,7 @@ export function createDetector(): Detector {
           level: securityResult.severity as any,
           reason: securityResult.rule.description,
           matchedPattern: securityResult.matchedPattern,
+          category: CATEGORY_MAP[securityResult.rule.category] || 'SYSTEM',
         };
       }
 

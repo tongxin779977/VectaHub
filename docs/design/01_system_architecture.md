@@ -4,6 +4,20 @@
 
 ---
 
+## 0. 实现状态
+
+| 模块 | 状态 | 说明 |
+|------|------|------|
+| **CLI 框架** | ✅ 已实现 | Commander.js + 审计日志 |
+| **NL Parser** | ✅ 已实现 | 规则匹配，LLM 待集成 |
+| **Workflow Engine** | ✅ 已实现 | 顺序执行，暂停/恢复待完善 |
+| **Executor** | ✅ 已实现 | 基础执行，Sandbox 隔离待实现 |
+| **Sandbox** | ✅ 部分实现 | 黑名单/白名单，进程隔离待实现 |
+| **CLI Tools Registry** | ✅ 已实现 | Git/NPM 工具注册 |
+| **意图模板** | ⚠️ 8/30 | 需要扩展到 30+ |
+
+---
+
 ## 1. 项目定位
 
 ### 1.1 与 OpenCLI 的关系
@@ -34,6 +48,19 @@
 ### 1.2 核心价值主张
 
 **一句话**：用自然语言描述你要做的事，VectaHub 自动生成、执行、并记录。
+
+### 1.3 跨平台安全策略
+
+| 平台 | 沙盒方案 | 是否需要 sudo | 说明 |
+|------|----------|--------------|------|
+| **macOS** | `sandbox-exec` | ❌ 不需要 | 苹果原生沙盒，开箱即用 |
+| **Linux** | `bubblewrap` | ✅ 需要 | 强大的用户态隔离，首次配置需 sudo |
+| **Windows** | WSL2 + bwrap | ✅ 需要 | 通过 WSL 实现跨平台兼容 |
+
+**设计原则**：
+- **macOS 优先**：利用系统原生能力，零配置启动
+- **Linux 务实**：接受 sudo 需求，提供降级方案
+- **用户友好**：首次运行自动检测并提示配置
 
 **对比现有工具**：
 
@@ -463,28 +490,32 @@ vectahub "把 news.txt 里的链接提取出来"
 
 ---
 
-## 10. 实现优先级
+## 10. 实现优先级（已更新）
 
-### Phase 1: 最小可行产品 (MVP)
+### Phase 1: MVP ✅ 已完成
 
-- [ ] NL Parser (规则匹配)
-- [ ] Workflow Engine (顺序执行)
-- [ ] Basic Executor (无沙盒)
-- [ ] CLI: `vectahub run <intent>`
+- [x] NL Parser (规则匹配)
+- [x] Workflow Engine (顺序执行)
+- [x] Basic Executor (无沙盒)
+- [x] CLI: `vectahub run <intent>`
 
-### Phase 2: 核心功能
+### Phase 2: 核心功能 🔄 进行中
 
-- [ ] For_each / If 步骤类型
-- [ ] macOS Sandbox
-- [ ] 危险命令检测
-- [ ] 执行记录
+- [ ] LLM 集成 (OpenAI/Anthropic/Ollama)
+- [x] For_each / If 步骤类型
+- [x] 危险命令检测 (黑名单/白名单)
+- [x] 执行记录 (审计日志)
+- [ ] 进程隔离 (macOS sandbox-exec)
+- [ ] 工作流暂停/恢复/终止
 
-### Phase 3: 完善生态
+### Phase 3: 完善生态 📋 计划中
 
+- [ ] 意图模板扩展 (30+)
 - [ ] 意图模板市场
 - [ ] Workflow 保存/加载
-- [ ] 定时任务
+- [ ] 定时任务 (cron)
 - [ ] Linux/Windows 支持
+- [ ] VSCode 插件
 
 ---
 

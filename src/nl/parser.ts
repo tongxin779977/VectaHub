@@ -2,45 +2,9 @@ import type { IntentMatch, IntentName, EntityType, ParseResult, TaskList, Confid
 import { createIntentMatcher, type IntentMatcher } from './intent-matcher.js';
 import { createEntityExtractor } from './entity-extractor.js';
 import { createCommandSynthesizer, createTaskFromIntent } from './command-synthesizer.js';
+import { INTENT_TEMPLATES, convertTemplateToPattern, getAllIntentNames } from './templates/index.js';
 
-const INTENT_PATTERNS = [
-  {
-    intent: 'IMAGE_COMPRESS' as IntentName,
-    keywords: ['压缩', '缩小', 'resize', 'compress', '图片', 'image'],
-    weight: 0.9,
-    cli: ['convert', 'sharp', 'cwebp'],
-  },
-  {
-    intent: 'FILE_FIND' as IntentName,
-    keywords: ['查找', '找出', 'find', 'search', '文件', 'file'],
-    weight: 0.8,
-    cli: ['find'],
-  },
-  {
-    intent: 'BACKUP' as IntentName,
-    keywords: ['备份', 'backup', '复制', 'copy'],
-    weight: 0.85,
-    cli: ['cp', 'rsync'],
-  },
-  {
-    intent: 'CI_PIPELINE' as IntentName,
-    keywords: ['测试', '部署', 'pipeline', 'ci', 'cd', 'test', 'deploy'],
-    weight: 0.9,
-    cli: ['npm', 'yarn', 'docker'],
-  },
-  {
-    intent: 'BATCH_RENAME' as IntentName,
-    keywords: ['重命名', 'rename', '批量', 'batch'],
-    weight: 0.85,
-    cli: ['rename', 'mmv'],
-  },
-  {
-    intent: 'GIT_WORKFLOW' as IntentName,
-    keywords: ['提交', 'commit', '推送', 'push', 'git', '拉取', 'pull'],
-    weight: 0.95,
-    cli: ['git'],
-  },
-];
+const INTENT_PATTERNS = Object.values(INTENT_TEMPLATES).map(convertTemplateToPattern);
 
 export interface NLParser {
   parse(input: string, sessionId?: string): IntentMatch;
@@ -89,17 +53,21 @@ export function createNLParser(): NLParser {
       const intentMatch = matcher.match(input, sessionId);
       const confidenceLevel = getConfidenceLevel(intentMatch.confidence);
 
+      const allIntentNames = getAllIntentNames();
+      const candidates = allIntentNames
+        .filter(name => name !== 'UNKNOWN')
+        .slice(0, 8)
+        .map(name => ({
+          intent: name as IntentName,
+          description: INTENT_TEMPLATES[name]?.description || name
+        }));
+
       if (intentMatch.intent === 'UNKNOWN' || confidenceLevel === 'UNCERTAIN') {
         return {
           status: 'NEEDS_CLARIFICATION',
           confidenceLevel,
           originalInput: input,
-          candidates: [
-            { intent: 'IMAGE_COMPRESS', description: '压缩图片' },
-            { intent: 'FILE_FIND', description: '查找文件' },
-            { intent: 'GIT_WORKFLOW', description: 'Git 操作' },
-            { intent: 'CI_PIPELINE', description: 'CI/CD 流程' },
-          ],
+          candidates,
         };
       }
 

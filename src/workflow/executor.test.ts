@@ -116,4 +116,10 @@ describe('Executor', () => {
     expect(result.valid).toBe(true);
     expect(result.errors).toEqual([]);
   });
+
+  it('should use default timeout when not specified', async () => {
+    const result = await executor.exec('sleep', ['0.1'], { mode: 'RELAXED' });
+    expect(result.success).toBe(true);
+    expect(result.duration).toBeGreaterThan(0);
+  });
 });

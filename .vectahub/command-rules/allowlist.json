@@ -1,0 +1,356 @@
+{
+  "version": "1.0.0",
+  "description": "全局命令白名单 - 命中即放行",
+  "rules": [
+    {
+      "id": "wl-001",
+      "pattern": "git status",
+      "action": "allow",
+      "description": "查看工作区状态",
+      "examples": ["git status", "git status -s"]
+    },
+    {
+      "id": "wl-002",
+      "pattern": "git log *",
+      "action": "allow",
+      "description": "查看提交历史",
+      "examples": ["git log", "git log --oneline -10"]
+    },
+    {
+      "id": "wl-003",
+      "pattern": "git diff *",
+      "action": "allow",
+      "description": "查看代码差异",
+      "examples": ["git diff", "git diff HEAD~1"]
+    },
+    {
+      "id": "wl-004",
+      "pattern": "git branch *",
+      "action": "allow",
+      "description": "查看和管理分支",
+      "examples": ["git branch", "git branch -a", "git branch feature/xxx"]
+    },
+    {
+      "id": "wl-005",
+      "pattern": "git fetch *",
+      "action": "allow",
+      "description": "拉取远程更新（不合并）",
+      "examples": ["git fetch", "git fetch origin"]
+    },
+    {
+      "id": "wl-006",
+      "pattern": "git pull *",
+      "action": "allow",
+      "description": "拉取并合并",
+      "examples": ["git pull", "git pull origin main"]
+    },
+    {
+      "id": "wl-007",
+      "pattern": "git add *",
+      "action": "allow",
+      "description": "暂存文件",
+      "examples": ["git add .", "git add src/"]
+    },
+    {
+      "id": "wl-008",
+      "pattern": "git commit *",
+      "action": "allow",
+      "description": "提交代码",
+      "examples": ["git commit -m 'fix: bug'"]
+    },
+    {
+      "id": "wl-009",
+      "pattern": "git push *",
+      "action": "allow",
+      "description": "推送到远程",
+      "examples": ["git push origin main"]
+    },
+    {
+      "id": "wl-010",
+      "pattern": "npm install *",
+      "action": "allow",
+      "description": "安装依赖",
+      "examples": ["npm install", "npm install lodash"]
+    },
+    {
+      "id": "wl-011",
+      "pattern": "npm run *",
+      "action": "allow",
+      "description": "运行脚本",
+      "examples": ["npm run build", "npm run test"]
+    },
+    {
+      "id": "wl-012",
+      "pattern": "npm list *",
+      "action": "allow",
+      "description": "查看已安装包",
+      "examples": ["npm list", "npm list --depth=0"]
+    },
+    {
+      "id": "wl-013",
+      "pattern": "npm audit *",
+      "action": "allow",
+      "description": "安全审计",
+      "examples": ["npm audit", "npm audit fix"]
+    },
+    {
+      "id": "wl-014",
+      "pattern": "docker ps *",
+      "action": "allow",
+      "description": "查看容器列表",
+      "examples": ["docker ps", "docker ps -a"]
+    },
+    {
+      "id": "wl-015",
+      "pattern": "docker images *",
+      "action": "allow",
+      "description": "查看镜像列表",
+      "examples": ["docker images"]
+    },
+    {
+      "id": "wl-016",
+      "pattern": "docker logs *",
+      "action": "allow",
+      "description": "查看容器日志",
+      "examples": ["docker logs my-container"]
+    },
+    {
+      "id": "wl-017",
+      "pattern": "docker inspect *",
+      "action": "allow",
+      "description": "查看容器详情",
+      "examples": ["docker inspect my-container"]
+    },
+    {
+      "id": "wl-018",
+      "pattern": "docker stats *",
+      "action": "allow",
+      "description": "查看资源使用",
+      "examples": ["docker stats"]
+    },
+    {
+      "id": "wl-019",
+      "pattern": "kubectl get *",
+      "action": "allow",
+      "description": "查看 K8s 资源",
+      "examples": ["kubectl get pods", "kubectl get svc"]
+    },
+    {
+      "id": "wl-020",
+      "pattern": "kubectl describe *",
+      "action": "allow",
+      "description": "查看 K8s 资源详情",
+      "examples": ["kubectl describe pod my-pod"]
+    },
+    {
+      "id": "wl-021",
+      "pattern": "kubectl logs *",
+      "action": "allow",
+      "description": "查看 K8s Pod 日志",
+      "examples": ["kubectl logs my-pod"]
+    },
+    {
+      "id": "wl-022",
+      "pattern": "node *",
+      "action": "allow",
+      "description": "执行 Node.js 脚本",
+      "examples": ["node app.js", "node --version"]
+    },
+    {
+      "id": "wl-023",
+      "pattern": "python3 *",
+      "action": "allow",
+      "description": "执行 Python 脚本",
+      "examples": ["python3 app.py", "python3 --version"]
+    },
+    {
+      "id": "wl-024",
+      "pattern": "cargo build *",
+      "action": "allow",
+      "description": "Rust 编译",
+      "examples": ["cargo build", "cargo build --release"]
+    },
+    {
+      "id": "wl-025",
+      "pattern": "cargo test *",
+      "action": "allow",
+      "description": "Rust 测试",
+      "examples": ["cargo test"]
+    },
+    {
+      "id": "wl-026",
+      "pattern": "ls *",
+      "action": "allow",
+      "description": "列出文件",
+      "examples": ["ls", "ls -la", "ls -la /home"]
+    },
+    {
+      "id": "wl-027",
+      "pattern": "cat *",
+      "action": "allow",
+      "description": "查看文件内容",
+      "examples": ["cat package.json", "cat README.md"]
+    },
+    {
+      "id": "wl-028",
+      "pattern": "echo *",
+      "action": "allow",
+      "description": "输出内容",
+      "examples": ["echo hello", "echo $PATH"]
+    },
+    {
+      "id": "wl-029",
+      "pattern": "mkdir *",
+      "action": "allow",
+      "description": "创建目录",
+      "examples": ["mkdir new-dir", "mkdir -p a/b/c"]
+    },
+    {
+      "id": "wl-030",
+      "pattern": "touch *",
+      "action": "allow",
+      "description": "创建文件",
+      "examples": ["touch new-file.txt"]
+    },
+    {
+      "id": "wl-031",
+      "pattern": "cp *",
+      "action": "allow",
+      "description": "复制文件",
+      "examples": ["cp file.txt file.bak", "cp -r dir1 dir2"]
+    },
+    {
+      "id": "wl-032",
+      "pattern": "mv *",
+      "action": "allow",
+      "description": "移动文件",
+      "examples": ["mv old.txt new.txt", "mv dir1 dir2"]
+    },
+    {
+      "id": "wl-033",
+      "pattern": "rm *",
+      "action": "allow",
+      "description": "删除文件",
+      "examples": ["rm file.txt", "rm -f temp.txt"]
+    },
+    {
+      "id": "wl-034",
+      "pattern": "cd *",
+      "action": "allow",
+      "description": "切换目录",
+      "examples": ["cd /home", "cd .."]
+    },
+    {
+      "id": "wl-035",
+      "pattern": "pwd",
+      "action": "allow",
+      "description": "显示当前目录",
+      "examples": ["pwd"]
+    },
+    {
+      "id": "wl-036",
+      "pattern": "find *",
+      "action": "allow",
+      "description": "查找文件",
+      "examples": ["find . -name '*.ts'", "find /tmp -type f"]
+    },
+    {
+      "id": "wl-037",
+      "pattern": "grep *",
+      "action": "allow",
+      "description": "搜索内容",
+      "examples": ["grep 'error' log.txt", "grep -r 'TODO' ."]
+    },
+    {
+      "id": "wl-038",
+      "pattern": "curl *",
+      "action": "allow",
+      "description": "HTTP 请求",
+      "examples": ["curl https://api.example.com", "curl -I https://example.com"]
+    },
+    {
+      "id": "wl-039",
+      "pattern": "wget *",
+      "action": "allow",
+      "description": "下载文件",
+      "examples": ["wget https://example.com/file.zip"]
+    },
+    {
+      "id": "wl-040",
+      "pattern": "tar *",
+      "action": "allow",
+      "description": "压缩/解压",
+      "examples": ["tar -xzf file.tar.gz", "tar -czf archive.tar.gz dir/"]
+    },
+    {
+      "id": "wl-041",
+      "pattern": "unzip *",
+      "action": "allow",
+      "description": "解压 ZIP",
+      "examples": ["unzip file.zip"]
+    },
+    {
+      "id": "wl-042",
+      "pattern": "zip *",
+      "action": "allow",
+      "description": "压缩 ZIP",
+      "examples": ["zip archive.zip file1.txt file2.txt"]
+    },
+    {
+      "id": "wl-043",
+      "pattern": "chmod *",
+      "action": "allow",
+      "description": "修改权限",
+      "examples": ["chmod +x script.sh", "chmod 644 file.txt"]
+    },
+    {
+      "id": "wl-044",
+      "pattern": "chown *",
+      "action": "allow",
+      "description": "修改所有者",
+      "examples": ["chown user:group file.txt"]
+    },
+    {
+      "id": "wl-045",
+      "pattern": "npm version *",
+      "action": "allow",
+      "description": "版本管理",
+      "examples": ["npm version patch", "npm version 1.0.0"]
+    },
+    {
+      "id": "wl-046",
+      "pattern": "npx *",
+      "action": "allow",
+      "description": "执行包命令",
+      "examples": ["npx tsc", "npx vitest"]
+    },
+    {
+      "id": "wl-047",
+      "pattern": "yarn *",
+      "action": "allow",
+      "description": "Yarn 包管理",
+      "examples": ["yarn install", "yarn build"]
+    },
+    {
+      "id": "wl-048",
+      "pattern": "pnpm *",
+      "action": "allow",
+      "description": "pnpm 包管理",
+      "examples": ["pnpm install", "pnpm run test"]
+    },
+    {
+      "id": "wl-049",
+      "pattern": "docker-compose *",
+      "action": "allow",
+      "description": "Docker Compose",
+      "examples": ["docker-compose up", "docker-compose down"]
+    },
+    {
+      "id": "wl-050",
+      "pattern": "make *",
+      "action": "allow",
+      "description": "Make 构建",
+      "examples": ["make", "make install"]
+    }
+  ]
+}

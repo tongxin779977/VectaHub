@@ -1,50 +1,67 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { createDetector } from './detector.js';
+import { setTestMode } from '../security-protocol/manager.js';
 
 describe('Detector', () => {
+  beforeEach(() => {
+    setTestMode(true);
+  });
+
   const detector = createDetector();
 
   describe('getDangerLevel', () => {
     it('should return critical for sudo commands', () => {
-      expect(detector.getDangerLevel('sudo rm -rf /')).toBe('critical');
+      const result = detector.getDangerLevel('sudo rm -rf /');
+      expect(result.level).toBe('critical');
     });
 
     it('should return critical for chmod 777', () => {
-      expect(detector.getDangerLevel('chmod 777 /etc')).toBe('critical');
+      const result = detector.getDangerLevel('chmod 777 /etc');
+      expect(result.level).toBe('critical');
     });
 
     it('should return critical for rm -rf root', () => {
-      expect(detector.getDangerLevel('rm -rf /')).toBe('critical');
+      const result = detector.getDangerLevel('rm -rf /');
+      expect(result.level).toBe('critical');
     });
 
     it('should return high for etc file overwrite', () => {
-      expect(detector.getDangerLevel('echo test > /etc/passwd')).toBe('high');
+      const result = detector.getDangerLevel('echo test > /etc/passwd');
+      expect(result.level).toBe('high');
     });
 
     it('should return high for mount --bind', () => {
-      expect(detector.getDangerLevel('mount --bind /dev/sda /mnt')).toBe('high');
+      const result = detector.getDangerLevel('mount --bind /dev/sda /mnt');
+      expect(result.level).toBe('high');
     });
 
     it('should return medium for dev file overwrite', () => {
-      expect(detector.getDangerLevel('echo test > /dev/sda')).toBe('medium');
+      const result = detector.getDangerLevel('echo test > /dev/sda');
+      expect(result.level).toBe('medium');
     });
 
     it('should return medium for pipe commands', () => {
-      expect(detector.getDangerLevel('ls | grep test')).toBe('medium');
+      const result = detector.getDangerLevel('ls | grep test');
+      expect(result.level).toBe('medium');
     });
 
     it('should return low for npm install -g', () => {
-      expect(detector.getDangerLevel('npm install -g typescript')).toBe('low');
+      const result = detector.getDangerLevel('npm install -g typescript');
+      expect(result.level).toBe('low');
     });
 
     it('should return low for rm -rf node_modules', () => {
-      expect(detector.getDangerLevel('rm -rf node_modules')).toBe('low');
+      const result = detector.getDangerLevel('rm -rf node_modules');
+      expect(result.level).toBe('low');
     });
 
     it('should return none for safe commands', () => {
-      expect(detector.getDangerLevel('ls -la')).toBe('none');
-      expect(detector.getDangerLevel('echo hello')).toBe('none');
-      expect(detector.getDangerLevel('cat package.json')).toBe('none');
+      const result1 = detector.getDangerLevel('ls -la');
+      expect(result1.level).toBe('none');
+      const result2 = detector.getDangerLevel('echo hello');
+      expect(result2.level).toBe('none');
+      const result3 = detector.getDangerLevel('cat package.json');
+      expect(result3.level).toBe('none');
     });
   });
 
@@ -70,19 +87,28 @@ describe('Detector', () => {
       const result = detector.detect('sudo rm -rf /');
       expect(result.isDangerous).toBe(true);
       expect(result.level).toBe('critical');
-      expect(result.reason).toBe('Critical system modification');
+      expect(result.reason).toBe('Detects sudo commands for privilege escalation');
     });
 
-    it('should return appropriate reason for different levels', () => {
-      expect(detector.detect('echo test > /etc/passwd').reason).toBe(
-        'High-risk system file modification'
-      );
-      expect(detector.detect('echo test > /dev/sda').reason).toBe(
-        'Medium-risk device/file manipulation'
-      );
-      expect(detector.detect('rm -rf node_modules').reason).toBe(
-        'Low-risk potentially destructive command'
-      );
+    it('should return detection with category for etc overwrite', () => {
+      const result = detector.detect('echo test > /etc/passwd');
+      expect(result.isDangerous).toBe(true);
+      expect(result.level).toBe('high');
+      expect(result.category).toBe('FS');
+    });
+
+    it('should return detection with category for network commands', () => {
+      const result = detector.detect('iptables -F');
+      expect(result.isDangerous).toBe(true);
+      expect(result.level).toBe('high');
+      expect(result.category).toBe('NETWORK');
+    });
+
+    it('should return detection with category for resource commands', () => {
+      const result = detector.detect('rm -rf node_modules');
+      expect(result.isDangerous).toBe(true);
+      expect(result.level).toBe('low');
+      expect(result.category).toBe('FS');
     });
   });
 });

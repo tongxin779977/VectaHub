@@ -1,6 +1,7 @@
 import { mkdirSync, existsSync, appendFileSync, readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { VectaHubError, ErrorType } from './errors.js';
 
 const AUDIT_DIR = join(homedir(), '.vectahub', 'logs', 'audit');
 
@@ -36,8 +37,16 @@ export interface AuditEvent {
 }
 
 function ensureDir(dir: string): void {
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
+  try {
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+  } catch (error) {
+    throw new VectaHubError(
+      `无法创建审计日志目录: ${dir}`,
+      ErrorType.FILESYSTEM,
+      error,
+    );
   }
 }
 
@@ -61,8 +70,12 @@ class AuditLogger {
   }
 
   write(event: AuditEvent): void {
-    const line = JSON.stringify(event) + '\n';
-    appendFileSync(this.filePath, line, 'utf-8');
+    try {
+      const line = JSON.stringify(event) + '\n';
+      appendFileSync(this.filePath, line, 'utf-8');
+    } catch {
+      // Silently ignore write errors (e.g., permission denied in sandbox)
+    }
   }
 
   query(options: {
@@ -170,7 +183,7 @@ export const audit = {
     });
   },
 
-  workflowStart(workflowId: string, intent: string, sessionId: string): void {
+  workflowStart(workflowId: string, intent: string, sessionId: string, metadata?: Record<string, unknown>): void {
     this.log({
       event: AuditEventType.WORKFLOW_START,
       timestamp: new Date().toISOString(),
@@ -179,6 +192,7 @@ export const audit = {
       action: 'start',
       input: { workflowId, intent },
       success: true,
+      metadata,
     });
   },
 
@@ -196,7 +210,7 @@ export const audit = {
     });
   },
 
-  workflowStep(stepId: string, cli: string, args: string[], sessionId: string): void {
+  workflowStep(stepId: string, cli: string, args: string[], sessionId: string, metadata?: Record<string, unknown>): void {
     this.log({
       event: AuditEventType.WORKFLOW_STEP,
       timestamp: new Date().toISOString(),
@@ -205,6 +219,7 @@ export const audit = {
       action: 'step_execute',
       input: { stepId, cli, args },
       success: true,
+      metadata,
     });
   },
 
@@ -246,7 +261,7 @@ export const audit = {
     });
   },
 
-  intentMatch(intent: string, confidence: number, params: Record<string, unknown>, sessionId: string): void {
+  intentMatch(intent: string, confidence: number, params: Record<string, unknown>, sessionId: string, metadata?: Record<string, unknown>): void {
     this.log({
       event: AuditEventType.INTENT_MATCH,
       timestamp: new Date().toISOString(),
@@ -256,10 +271,11 @@ export const audit = {
       input: { intent, confidence },
       output: params,
       success: confidence >= 0.7,
+      metadata,
     });
   },
 
-  executorResult(stepId: string, cli: string, exitCode: number, output: string, duration: number, sessionId: string): void {
+  executorResult(stepId: string, cli: string, exitCode: number, duration: number, sessionId: string, metadata?: Record<string, unknown>): void {
     this.log({
       event: AuditEventType.EXECUTOR_RESULT,
       timestamp: new Date().toISOString(),
@@ -267,9 +283,22 @@ export const audit = {
       module: 'Executor',
       action: 'step_result',
       input: { stepId, cli, exitCode },
-      output: output.substring(0, 500),
       duration,
       success: exitCode === 0,
+      metadata,
+    });
+  },
+
+  sandboxDetect(isDangerous: boolean, level: string, command: string, sessionId: string): void {
+    this.log({
+      event: AuditEventType.SANDBOX_DETECT,
+      timestamp: new Date().toISOString(),
+      sessionId,
+      module: 'Sandbox',
+      action: 'detect',
+      input: { command, level },
+      output: { isDangerous },
+      success: true,
     });
   },
 };

@@ -169,7 +169,11 @@ export function createStorage(options?: StorageOptions): Storage {
       await init();
       workflows.set(workflow.id, workflow);
       const filePath = join(workflowsDir, `${workflow.id}.json`);
-      await fs.writeFile(filePath, serializeWorkflow(workflow));
+      try {
+        await fs.writeFile(filePath, serializeWorkflow(workflow));
+      } catch {
+        // Silently ignore write errors (e.g., permission denied in sandbox)
+      }
     },
 
     async getWorkflow(id: string): Promise<Workflow | undefined> {

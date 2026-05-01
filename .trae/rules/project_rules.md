@@ -260,6 +260,8 @@ vectahub version                 # 版本
 | [05_vscode_plugin_design.md](file:///Users/xin.tong/apps/project/test_trae/VectaHub/docs/design/05_vscode_plugin_design.md) | VSCode 插件设计 |
 | [06_workflow_engine_design.md](file:///Users/xin.tong/apps/project/test_trae/VectaHub/docs/design/06_workflow_engine_design.md) | 自然语言工作流引擎详细设计 |
 | [07_module_design.md](file:///Users/xin.tong/apps/project/test_trae/VectaHub/docs/design/07_module_design.md) | 模块化开发规范 |
+| [08_dev_command_design.md](file:///Users/xin.tong/apps/project/test_trae/VectaHub/docs/design/08_dev_command_design.md) | 开发命令设计 |
+| [09_cli_tools_integration.md](file:///Users/xin.tong/apps/project/test_trae/VectaHub/docs/design/09_cli_tools_integration.md) | CLI 工具集成设计 |
 
 ---
 
@@ -393,7 +395,7 @@ lastUpdated: 2026-05-01
 project: VectaHub
 framework: NL Workflow Engine + Modular Architecture
 reference: OpenCLI (互补)
-status: modular_design_complete_ready_for_development
+status: p0_features_complete_testing_passed
 audit: enabled
 logFramework: pino + custom audit
 ```

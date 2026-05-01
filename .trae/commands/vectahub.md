@@ -9,6 +9,79 @@ description: "为指定模块生成开发模板"
 # VectaHub 开发命令规范
 
 > 本规范定义 `vectahub dev` 命令的功能，帮助多个 Agent 协同开发。
+> **所有模块开发必须与 docs/design/ 下的设计文档严格对齐**。
+
+***
+
+## 0. 模块与文档映射
+
+> 每个模块的研发任务、功能清单、架构设计都必须基于对应的设计文档。
+
+### 0.1 模块文档映射表
+
+| 模块名        | Agent   | 对应设计文档       | 文档路径                                                                                            |
+| ---------- | ------- | ------------ | ----------------------------------------------------------------------------------------------- |
+| `cli`      | Agent A | CLI 入口设计     | [06\_workflow\_engine\_design.md](../../docs/design/06_workflow_engine_design.md#12-cli-入口)     |
+| `nl`       | Agent B | NL Parser 设计 | [04\_nl\_parser\_skill\_design.md](../../docs/design/04_nl_parser_skill_design.md)              |
+| `workflow` | Agent C | 工作流引擎设计      | [06\_workflow\_engine\_design.md](../../docs/design/06_workflow_engine_design.md)               |
+| `executor` | Agent D | 执行器设计        | [06\_workflow\_engine\_design.md](../../docs/design/06_workflow_engine_design.md#7-executor-实现) |
+| `sandbox`  | Agent E | 沙盒架构设计       | [02\_sandbox\_design.md](../../docs/design/02_sandbox_design.md)                                |
+| `storage`  | Agent F | 存储设计         | [06\_workflow\_engine\_design.md](../../docs/design/06_workflow_engine_design.md#8-存储)          |
+| `utils`    | Agent G | 工具函数设计       | [07\_module\_design.md](../../docs/design/07_module_design.md#11-技术架构)                          |
+
+### 0.2 模块开发文档依赖
+
+```
+模块开发
+    │
+    ▼
+1. 阅读对应设计文档
+    │
+    ▼
+2. 提取功能清单（第 X 节：功能清单）
+    │
+    ├── 核心功能（P0）
+    ├── 高级功能（P1-P2）
+    └── 扩展功能（P3）
+    │
+    ▼
+3. 提取架构信息
+    │
+    ├── 业务架构（业务流程、组件、规则）
+    └── 技术架构（技术选型、模块结构、数据流、接口）
+    │
+    ▼
+4. 生成研发任务
+    │
+    ▼
+5. 按优先级实现功能
+    │
+    ▼
+6. 验证实现与文档一致性
+```
+
+### 0.3 功能清单提取规则
+
+每个模块的设计文档包含以下标准章节：
+
+| 章节       | 内容                 | 用途          |
+| -------- | ------------------ | ----------- |
+| **功能清单** | 表格列出所有功能、状态、优先级    | 生成研发任务列表    |
+| **业务架构** | 业务流程、组件表、业务规则      | 指导业务逻辑实现    |
+| **技术架构** | 技术选型、模块结构、数据流、关键接口 | 指导代码结构和接口设计 |
+
+**状态标识**：
+
+- ✅ 已实现：功能已完成
+- 🔲 待实现：功能尚未开始
+- ⚠️ 部分实现：功能部分完成
+
+**优先级**：
+
+- P0：核心功能，必须优先实现
+- P1：重要功能，第二阶段实现
+- P2：增强功能，第三阶段实现
+- P3：扩展功能，可选实现
 
 ***
 
@@ -83,31 +156,100 @@ vectahub dev init [--yes] [--force]
 
 为指定模块生成开发模板。
 
-**支持的模块**:
+**重要**：生成模板前，必须先读取对应的设计文档，确保：
+1. 功能清单与设计文档对齐
+2. 模块结构与技术架构一致
+3. 接口定义符合文档规范
+4. 研发任务按优先级排列
 
-| 模块名        | 生成文件                                                                |
-| ---------- | ------------------------------------------------------------------- |
-| `cli`      | `src/cli.ts`                                                        |
-| `nl`       | `src/nl/parser.ts`, `src/nl/intent-matcher.ts`, `src/nl/templates/` |
-| `workflow` | `src/workflow/engine.ts`                                            |
-| `executor` | `src/workflow/executor.ts`                                          |
-| `sandbox`  | `src/sandbox/detector.ts`, `src/sandbox/sandbox.ts`                 |
-| `storage`  | `src/workflow/storage.ts`                                           |
-| `utils`    | `src/utils/`                                                        |
+**支持的模块及对应文档**：
 
-**执行流程**:
+| 模块名 | 设计文档 | 生成文件 | 核心功能（P0） |
+|--------|----------|----------|----------------|
+| `cli` | [06_workflow_engine_design.md](../../docs/design/06_workflow_engine_design.md#12-cli-入口) | `src/cli.ts` | run/list/mode/status/history 命令 |
+| `nl` | [04_nl_parser_skill_design.md](../../docs/design/04_nl_parser_skill_design.md) | `src/nl/parser.ts`, `src/nl/intent-matcher.ts`, `src/nl/templates/` | 规则匹配、意图识别、参数提取、实体提取、命令合成 |
+| `workflow` | [06_workflow_engine_design.md](../../docs/design/06_workflow_engine_design.md) | `src/workflow/engine.ts` | 顺序执行、for_each、if、parallel、状态机 |
+| `executor` | [06_workflow_engine_design.md](../../docs/design/06_workflow_engine_design.md#7-executor-实现) | `src/workflow/executor.ts` | CLI 执行、危险检测、超时控制 |
+| `sandbox` | [02_sandbox_design.md](../../docs/design/02_sandbox_design.md) | `src/sandbox/detector.ts`, `src/sandbox/sandbox.ts` | 平台检测、黑白名单、三种模式 |
+| `storage` | [06_workflow_engine_design.md](../../docs/design/06_workflow_engine_design.md#8-存储) | `src/workflow/storage.ts` | 工作流 CRUD、执行记录 |
+| `utils` | [07_module_design.md](../../docs/design/07_module_design.md#11-技术架构) | `src/utils/` | 日志、配置、安全检测 |
+
+**执行流程**：
 
 ```
-1. 检查模块是否已存在
-2. 生成模块骨架代码（包含接口实现占位符）
-3. 生成单元测试文件
-4. 更新模块导出索引
+1. 读取模块对应的设计文档
+   ↓
+2. 从文档提取功能清单（第 X 节）
+   ↓
+3. 从文档提取架构信息
+   ↓
+4. 检查模块是否已存在
+   ↓
+5. 生成模块骨架代码（包含接口实现占位符）
+   ↓
+6. 生成单元测试文件
+   ↓
+7. 生成研发任务清单（按优先级排序）
+   ↓
+8. 更新模块导出索引
+   ↓
+9. 输出开发指南（引用文档章节）
 ```
 
 **示例**:
 
 ```bash
+# Agent B 开始开发 NL Parser
 vectahub dev module nl --agent "Agent B"
+```
+
+**输出示例**：
+
+```
+正在为 NL Parser 模块生成开发模板...
+
+📖 读取设计文档: docs/design/04_nl_parser_skill_design.md
+
+✅ 提取功能清单:
+  P0 核心功能:
+    - [✅] 规则匹配
+    - [✅] 意图识别
+    - [✅] 参数提取
+    - [✅] 实体提取
+    - [🔲] LLM 集成
+  P1 高级功能:
+    - [🔲] 上下文理解
+    - [🔲] 参数补全
+  P2 扩展功能:
+    - [🔲] 同义词识别
+    - [🔲] 命令验证
+
+📐 提取架构信息:
+  - 业务架构: 11.1-11.3
+  - 技术架构: 12.1-12.4
+  - 模块结构: src/nl/
+  - 数据流: parser.ts → intent-matcher.ts → workflow-generator.ts
+
+📝 生成文件:
+  ✓ src/nl/parser.ts
+  ✓ src/nl/intent-matcher.ts
+  ✓ src/nl/entity-extractor.ts
+  ✓ src/nl/command-synthesizer.ts
+  ✓ src/nl/templates/index.ts
+  ✓ src/nl/index.ts
+  ✓ src/nl/parser.test.ts
+
+📋 研发任务清单:
+  [P0] 实现 LLM 集成 (src/nl/llm.ts)
+  [P1] 添加上下文理解支持
+  [P2] 实现同义词识别
+
+📖 开发指南:
+  - 功能清单: 04_nl_parser_skill_design.md#10-功能清单
+  - 业务架构: 04_nl_parser_skill_design.md#11-业务架构
+  - 技术架构: 04_nl_parser_skill_design.md#12-技术架构
+
+模块模板生成完成！请按照研发任务清单按优先级实现。
 ```
 
 ### 2.3 `vectahub dev check`
@@ -220,49 +362,202 @@ VectaHub 开发进度
 
 ## 3. 开发工作流
 
-### 3.1 Agent 开发流程
+### 3.1 Agent 开发流程（基于文档驱动）
 
 ```
 Agent 开始开发
     │
     ▼
-1. vectahub dev check        # 检查环境
+1. vectahub dev check                          # 检查环境
     │
     ▼
-2. vectahub dev module <name> # 生成模板
+2. 阅读模块对应的设计文档
+   docs/design/<模块>_design.md
+    │
+    ├── 阅读「功能清单」章节
+    ├── 阅读「业务架构」章节
+    └── 阅读「技术架构」章节
     │
     ▼
-3. 实现模块代码
+3. vectahub dev module <name>                  # 生成模板（自动对齐文档）
+    │
+    ├── 自动提取功能清单
+    ├── 自动提取架构信息
+    └── 生成研发任务清单
     │
     ▼
-4. vectahub dev test <name>  # 运行测试
+4. 按优先级实现模块代码
+   [P0] 核心功能 → [P1] 高级功能 → [P2] 扩展功能
     │
     ▼
-5. vectahub dev validate     # 验证接口
+5. vectahub dev test <name>                    # 运行测试
     │
     ▼
-6. 提交代码
+6. vectahub dev validate                       # 验证接口
+    │
+    ├── 验证接口定义是否符合文档
+    ├── 验证模块结构是否符合文档
+    └── 验证功能实现是否与功能清单对齐
+    │
+    ▼
+7. 更新功能状态
+   在 vectahub-dev.config.yaml 中更新模块进度
+    │
+    ▼
+8. 提交代码
 ```
 
-### 3.2 协调整个项目
+### 3.2 协调整个项目（基于文档驱动）
 
 ```
 项目负责人:
     │
     ▼
-1. vectahub dev init         # 初始化项目
+1. vectahub dev init                           # 初始化项目
     │
     ▼
-2. 分配模块给各个 Agent
+2. 查看设计文档总览
+   docs/design/README.md
     │
     ▼
-3. vectahub dev status       # 监控进度
+3. 分配模块给各个 Agent
+   根据 07_module_design.md 的模块划分
     │
     ▼
-4. vectahub dev validate     # 验证集成
+4. 每个 Agent 执行:
+   vectahub dev module <name> --agent "Agent X"
+    │
+    ├── 自动读取对应设计文档
+    ├── 提取功能清单和架构信息
+    └── 生成研发任务清单
     │
     ▼
-5. vectahub dev build        # 构建发布
+5. vectahub dev status                         # 监控进度
+    │
+    ├── 显示各模块功能完成度
+    ├── 显示 P0/P1/P2 功能实现状态
+    └── 显示与文档的对齐状态
+    │
+    ▼
+6. vectahub dev validate                       # 验证集成
+    │
+    ├── 验证模块接口是否符合文档定义
+    └── 验证模块协作是否符合文档流程
+    │
+    ▼
+7. vectahub dev build                          # 构建发布
+```
+
+### 3.3 研发任务与文档对齐机制
+
+#### 3.3.1 任务生成规则
+
+```yaml
+# 从设计文档生成研发任务的规则
+task_generation:
+  # 1. 从功能清单章节提取功能
+  source:
+    section: "功能清单"  # 每个文档的第 X 节
+    fields:
+      - 功能名称
+      - 描述
+      - 状态（✅/🔲/⚠️）
+      - 优先级（P0/P1/P2/P3）
+  
+  # 2. 过滤待实现功能
+  filter:
+    status: ["🔲", "⚠️"]
+  
+  # 3. 按优先级排序
+  sort:
+    - 优先级升序（P0 → P3）
+    - 同优先级按文档顺序
+  
+  # 4. 生成任务
+  output:
+    format: "[优先级] 功能描述 (文件路径)"
+    example: "[P0] 实现 LLM 集成 (src/nl/llm.ts)"
+```
+
+#### 3.3.2 任务验证规则
+
+```yaml
+# 验证实现是否与文档对齐
+task_validation:
+  # 1. 验证功能实现
+  feature_check:
+    source: "设计文档 - 功能清单"
+    check:
+      - 功能是否已实现（代码存在）
+      - 测试是否通过
+      - 接口是否符合文档定义
+  
+  # 2. 验证架构一致性
+  architecture_check:
+    source: "设计文档 - 技术架构"
+    check:
+      - 模块结构是否一致
+      - 文件命名是否一致
+      - 导出接口是否一致
+  
+  # 3. 验证业务规则
+  business_rules_check:
+    source: "设计文档 - 业务架构"
+    check:
+      - 业务流程是否遵循文档定义
+      - 业务规则是否实现
+      - 组件交互是否正确
+```
+
+#### 3.3.3 进度追踪
+
+```yaml
+# 进度追踪基于功能清单
+progress_tracking:
+  # 模块进度 = 已实现功能数 / 总功能数
+  module_progress: "completed_features / total_features * 100%"
+  
+  # 按优先级追踪
+  priority_progress:
+    P0: "P0_completed / P0_total"
+    P1: "P1_completed / P1_total"
+    P2: "P2_completed / P2_total"
+    P3: "P3_completed / P3_total"
+  
+  # 文档对齐状态
+  doc_alignment:
+    status: ["aligned", "partial", "misaligned"]
+    check_frequency: "每次 validate 命令"
+```
+
+#### 3.3.4 冲突解决
+
+```yaml
+# 当实现与文档不一致时的处理
+conflict_resolution:
+  # 1. 检测冲突
+  detection:
+    - 功能实现但文档标记为待实现
+    - 功能未实现但文档标记为已实现
+    - 接口定义与文档不一致
+    - 模块结构与文档不一致
+  
+  # 2. 解决策略
+  resolution:
+    # 策略 A: 更新文档（实现优先）
+    - type: "update_doc"
+      condition: "实现正确，文档过时"
+      action: "更新设计文档功能状态"
+    
+    # 策略 B: 修改实现（文档优先）
+    - type: "update_implementation"
+      condition: "文档正确，实现有误"
+      action: "修改实现以符合文档"
+    
+    # 策略 C: 手动确认
+    - type: "manual_confirm"
+      condition: "不确定哪个正确"
+      action: "提示用户确认"
 ```
 
 ***

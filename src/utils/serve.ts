@@ -58,7 +58,7 @@ async function runCommand(cmd: string, args: string[]): Promise<{ stdout: string
     cwd: process.cwd(),
   });
 
-  audit.executorResult(fullCmd, cmd, result.exitCode || 0, result.stdout + result.stderr, 0, sessionId);
+  audit.executorResult(fullCmd, cmd, result.exitCode || 0, 0, sessionId, { output: result.stdout + result.stderr });
 
   if (!result.success) {
     throw new Error(result.stderr || `Command failed with exit code ${result.exitCode}`);
@@ -75,7 +75,7 @@ async function runGit(args: string[]): Promise<{ stdout: string; stderr: string 
     cwd: process.cwd(),
   });
 
-  audit.executorResult(fullCmd, 'git', result.exitCode || 0, result.stdout + result.stderr, 0, sessionId);
+  audit.executorResult(fullCmd, 'git', result.exitCode || 0, 0, sessionId, { output: result.stdout + result.stderr });
 
   if (!result.success) {
     throw new Error(result.stderr || `Git command failed with exit code ${result.exitCode}`);

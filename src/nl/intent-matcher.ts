@@ -1,4 +1,5 @@
 import type { IntentMatch, IntentName } from '../types/index.js';
+import { audit, AuditEventType } from '../utils/audit.js';
 
 export interface IntentPattern {
   intent: string;
@@ -41,14 +42,11 @@ export function createIntentMatcher(patterns: IntentPattern[]): IntentMatcher {
       }
 
       if (sessionId) {
-        try {
-          const { audit, AuditEventType } = require('../utils/audit.js');
-          audit.intentMatch(bestMatch.intent, bestMatch.confidence, input, sessionId, {
-            matchedKeywords: patterns
-              .filter(p => p.intent === bestMatch.intent)
-              .flatMap(p => p.keywords.filter(kw => lowerInput.includes(kw.toLowerCase()))),
-          });
-        } catch {}
+        audit.intentMatch(bestMatch.intent, bestMatch.confidence, { input }, sessionId, {
+          matchedKeywords: patterns
+            .filter(p => p.intent === bestMatch.intent)
+            .flatMap(p => p.keywords.filter(kw => lowerInput.includes(kw.toLowerCase()))),
+        });
       }
 
       return bestMatch;

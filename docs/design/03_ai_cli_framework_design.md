@@ -515,6 +515,128 @@ const result = await router.exec({
 
 ---
 
+## 11. 功能清单
+
+### 11.1 核心功能
+
+| 功能 | 描述 | 状态 | 优先级 |
+|------|------|------|--------|
+| **适配器注册表** | 动态注册/注销适配器 | ✅ 已实现 | P0 |
+| **CLI 类型检测** | 自动识别 AI CLI 类型 | ✅ 已实现 | P0 |
+| **Base 适配器** | 统一适配器接口 | ✅ 已实现 | P0 |
+| **命令预处理** | 参数转换和环境注入 | ✅ 已实现 | P0 |
+| **输出解析** | 统一输出格式 | ✅ 已实现 | P0 |
+| **沙盒集成** | 命令在沙盒中执行 | ✅ 已实现 | P0 |
+
+### 11.2 适配器支持
+
+| AI CLI | 状态 | 适配器 | 优先级 |
+|--------|------|--------|--------|
+| **gemini** | ✅ 支持 | GeminiAdapter | P0 |
+| **claude** | ✅ 支持 | ClaudeAdapter | P0 |
+| **cc** | ✅ 支持 | CCAdapter | P0 |
+| **openai** | ✅ 支持 | OpenAIAdapter | P0 |
+| **generic-ai** | ✅ 支持 | GenericAIClAdapter | P0 |
+| **cursor** | 🔲 待适配 | CursorAdapter | P1 |
+| **copilot** | 🔲 待适配 | CopilotAdapter | P1 |
+| **replit** | 🔲 待适配 | ReplitAdapter | P2 |
+| **bolt** | 🔲 待适配 | BoltAdapter | P2 |
+| **lovable** | 🔲 待适配 | LovableAdapter | P2 |
+| **windsurf** | 🔲 待适配 | WindsurfAdapter | P2 |
+
+### 11.3 高级功能
+
+| 功能 | 描述 | 状态 | 优先级 |
+|------|------|------|--------|
+| **动态注册** | 运行时注册新适配器 | ✅ 已实现 | P0 |
+| **钩子支持** | 执行前后钩子 | ✅ 已实现 | P0 |
+| **通用兜底** | 未知 CLI 使用通用适配器 | ✅ 已实现 | P0 |
+| **CLI 列表** | 查看已注册 CLI | ✅ 已实现 | P1 |
+| **自定义配置** | 支持自定义适配器配置 | 🔲 待实现 | P1 |
+| **输出缓存** | 缓存常见 AI CLI 输出 | 🔲 待实现 | P2 |
+| **并发执行** | 同时执行多个 AI CLI | 🔲 待实现 | P2 |
+
+---
+
+## 12. 业务架构
+
+### 12.1 AI CLI 路由流程
+
+```
+用户输入 → CLI 检测 → 选择适配器 → 命令预处理 → 沙盒执行 → 输出解析 → 返回结果
+```
+
+### 12.2 业务组件
+
+| 组件 | 职责 | 输入 | 输出 |
+|------|------|------|------|
+| **AICLIRouter** | 路由 AI CLI 命令 | 命令字符串 | 执行结果 |
+| **AICLIRegistry** | 管理适配器注册表 | 适配器实例 | 适配器列表 |
+| **Detector** | 检测 CLI 类型 | 命令字符串 | CLI 类型 |
+| **BaseAIAdapter** | 适配器基类 | 命令 | 预处理结果 |
+| **Sandbox** | 沙盒执行环境 | 命令参数 | 执行结果 |
+| **OutputParser** | 解析输出 | 原始输出 | 结构化结果 |
+
+### 12.3 业务规则
+
+1. **适配器优先**：注册适配器按注册顺序优先匹配
+2. **通用兜底**：未识别 CLI 使用 Generic AI Adapter
+3. **沙盒强制**：所有 AI CLI 命令必须在沙盒中执行
+4. **环境隔离**：每个 AI CLI 使用独立环境变量
+5. **超时限制**：默认命令执行超时 60 秒
+
+---
+
+## 13. 技术架构
+
+### 13.1 技术选型
+
+| 分类 | 技术 | 版本 | 说明 |
+|------|------|------|------|
+| **框架** | Node.js | 21+ | 运行时环境 |
+| **语言** | TypeScript | 5.x | 类型安全 |
+| **沙盒** | sandbox-exec (macOS) | 系统内置 | macOS 沙盒 |
+| **沙盒** | bubblewrap (Linux) | 0.8+ | Linux 隔离 |
+| **日志** | Pino | 8.x | 高性能日志 |
+
+### 13.2 模块结构
+
+```
+src/ai-cli/
+├── router.ts                 # AI CLI Router 主类
+├── registry.ts               # 适配器注册表
+├── base-adapter.ts           # Base 适配器
+├── detector.ts               # CLI 检测器
+└── adapters/                 # 适配器实现
+    ├── gemini.ts             # Gemini 适配器
+    ├── claude.ts             # Claude 适配器
+    ├── cc.ts                 # CC 适配器
+    ├── openai.ts             # OpenAI 适配器
+    └── generic.ts            # 通用适配器
+```
+
+### 13.3 数据流
+
+```
+用户输入 → router.ts → detector.ts → registry.ts → adapter.preprocess() → sandbox.exec() → adapter.parseOutput() → 返回结果
+```
+
+### 13.4 关键接口
+
+| 接口 | 方法 | 描述 |
+|------|------|------|
+| **AICLIRouter** | `exec(input, context)` | 执行 AI CLI 命令 |
+| **AICLIRouter** | `registerCLI(name, adapter)` | 注册新 CLI |
+| **AICLIRouter** | `listSupportedCLI()` | 列出支持的 CLI |
+| **AICLIRegistry** | `register(name, adapter)` | 注册适配器 |
+| **AICLIRegistry** | `detect(command)` | 检测 CLI 类型 |
+| **AICLIRegistry** | `getAdapter(name)` | 获取适配器 |
+| **BaseAIAdapter** | `preprocess(command, context)` | 预处理命令 |
+| **BaseAIAdapter** | `parseOutput(output)` | 解析输出 |
+| **BaseAIAdapter** | `validate(command)` | 验证命令 |
+
+---
+
 ```yaml
 version: 2.0.0
 lastUpdated: 2026-05-01

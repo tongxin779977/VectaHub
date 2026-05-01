@@ -16,6 +16,7 @@
 | Workflow 引擎 | [06_workflow_engine_design.md](file:///Users/xin.tong/apps/project/test_trae/VectaHub/docs/design/06_workflow_engine_design.md) |
 | 模块设计 | [07_module_design.md](file:///Users/xin.tong/apps/project/test_trae/VectaHub/docs/design/07_module_design.md) |
 | 开发命令 | [08_dev_command_design.md](file:///Users/xin.tong/apps/project/test_trae/VectaHub/docs/design/08_dev_command_design.md) |
+| CLI 工具集成 | [09_cli_tools_integration.md](file:///Users/xin.tong/apps/project/test_trae/VectaHub/docs/design/09_cli_tools_integration.md) |
 
 ---
 

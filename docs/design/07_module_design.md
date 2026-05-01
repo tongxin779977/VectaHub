@@ -241,6 +241,14 @@ export class Executor {
    * @returns 执行结果
    */
   async exec(cli: string, args: string[], options: ExecOptions): Promise<CLIResult>;
+
+  /**
+   * 执行 AI 委派任务
+   * @param step 委派步骤
+   * @param options 执行选项
+   * @returns 执行结果
+   */
+  async executeDelegate(step: Step, options: ExecutorOptions): Promise<StepResult>;
 }
 
 interface ExecOptions {
@@ -248,6 +256,228 @@ interface ExecOptions {
   cwd?: string;
   env?: Record<string, string>;
   timeout?: number;
+}
+```
+
+### 2.4.1 AI 委派执行器接口
+
+**Agent D** 负责，新增 AI 工具委派能力：
+
+```typescript
+// src/workflow/ai-delegate.ts
+export interface AIAdapter {
+  name: string;
+  version: string;
+  headlessCommand: string;
+  allowedTools?: string[];
+  maxTurns?: number;
+  outputFormat?: 'text' | 'json' | 'stream-json';
+  sandboxCompatible: boolean;
+  recommendedTimeout: number;
+  healthCheck(): Promise<boolean>;
+  buildCommand(prompt: string, context?: Record<string, unknown>, options?: AIDelegateOptions): string;
+  parseOutput(stdout: string, options?: AIDelegateOptions): ParsedAIOutput;
+}
+
+interface ParsedAIOutput {
+  success: boolean;
+  result: string;
+  metadata?: Record<string, unknown>;
+  tokenUsage?: number;
+  error?: string;
+}
+
+export class AIDelegateExecutor {
+  /**
+   * 注册 AI 适配器
+   */
+  registerAdapter(name: string, adapter: AIAdapter): void;
+
+  /**
+   * 执行委派任务
+   * @param step 委派步骤
+   * @param options 执行选项
+   * @returns 执行结果
+   */
+  async execute(step: Step, options: ExecutorOptions): Promise<StepResult>;
+
+  /**
+   * 健康检查
+   */
+  async healthCheck(adapter: string): Promise<boolean>;
+
+  /**
+   * 列出已注册的适配器
+   */
+  listAdapters(): string[];
+}
+
+interface AIDelegateOptions {
+  maxTurns?: number;
+  allowedTools?: string[];
+  timeout?: number;
+  outputFormat?: 'text' | 'json' | 'stream-json';
+  sandboxOverride?: boolean;
+  retry?: RetryPolicy;
+}
+
+interface RetryPolicy {
+  maxRetries: number;
+  retryOnExitCodes: number[];
+  backoffMs: number;
+}
+```
+
+### 2.4.2 AI 会话管理器接口
+
+**Agent D** 负责，管理 AI 工具会话复用：
+
+```typescript
+// src/workflow/ai-session.ts
+export interface AISession {
+  id: string;
+  adapter: string;
+  process: ChildProcess;
+  lastUsed: Date;
+  isActive(): boolean;
+  isExpired(): boolean;
+  tokenUsage: number;
+  context: Record<string, unknown>;
+}
+
+export class AISessionManager {
+  /**
+   * 获取或创建会话
+   */
+  async getSession(adapter: string, context: SessionContext): Promise<AISession>;
+
+  /**
+   * 通过 stdin 执行任务
+   */
+  async executeViaStdin(session: AISession, prompt: string): Promise<string>;
+
+  /**
+   * 清理所有会话
+   */
+  cleanup(): void;
+}
+
+interface SessionConfig {
+  timeout?: number;
+  maxTokenUsage?: number;
+  keepAlive?: boolean;
+}
+```
+
+### 2.4.3 AI 守护进程接口
+
+**Agent D** 负责，提供持久化运行的 AI 工具会话管理：
+
+```typescript
+// src/workflow/ai-daemon.ts
+
+// 任务定义
+interface AITask {
+  id: string;
+  adapter: string;          // gemini/claude/codex/aider
+  prompt: string;
+  context?: Record<string, unknown>;
+  options?: AIDelegateOptions;
+  priority: 'high' | 'medium' | 'low';
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  createdAt: Date;
+  startedAt?: Date;
+  completedAt?: Date;
+  result?: AITaskResult;
+  error?: string;
+}
+
+interface AITaskResult {
+  output: string;
+  metadata?: Record<string, unknown>;
+  tokenUsage?: number;
+  duration: number;
+}
+
+// 守护进程会话
+interface AIDaemonSession {
+  id: string;
+  adapter: string;
+  process: ChildProcess;
+  lastUsed: Date;
+  createdAt: Date;
+  isActive: boolean;
+  isIdle: boolean;  // 进程在运行但无任务
+  tokenUsage: number;
+  tasksCompleted: number;
+  context: Record<string, unknown>;
+}
+
+// 守护进程配置
+interface AIDaemonConfig {
+  socketPath: string;           // Unix Socket 路径
+  taskQueueSize: number;        // 任务队列大小
+  sessionTimeout: number;       // 会话超时 (ms)
+  idleTimeout: number;          // 空闲超时 (ms)
+  maxConcurrentSessions: number; // 最大并发会话数
+  healthCheckInterval: number;  // 健康检查间隔 (ms)
+  autoCleanup: boolean;         // 自动清理过期会话
+}
+
+// 守护进程接口
+export class AIDaemon {
+  /**
+   * 启动守护进程
+   */
+  async start(config?: Partial<AIDaemonConfig>): Promise<void>;
+
+  /**
+   * 停止守护进程
+   */
+  async shutdown(): Promise<void>;
+
+  /**
+   * 入队任务
+   */
+  async enqueue(task: AITask): Promise<string>;
+
+  /**
+   * 查询任务状态
+   */
+  async getTaskStatus(taskId: string): Promise<AITask>;
+
+  /**
+   * 列出任务
+   */
+  async listTasks(adapter?: string): Promise<AITask[]>;
+
+  /**
+   * 取消任务
+   */
+  async cancelTask(taskId: string): Promise<boolean>;
+
+  /**
+   * 列出会话
+   */
+  async listSessions(): Promise<AIDaemonSession[]>;
+}
+
+// 守护进程客户端
+export class AIDaemonClient {
+  /**
+   * 发送任务到守护进程
+   */
+  async enqueueTask(task: AITask): Promise<string>;
+
+  /**
+   * 查询任务状态
+   */
+  async getTaskStatus(taskId: string): Promise<AITask>;
+
+  /**
+   * 等待任务完成（轮询）
+   */
+  async waitForCompletion(taskId: string, timeout?: number): Promise<AITask>;
 }
 ```
 
@@ -660,6 +890,234 @@ main                    # 稳定版本
 [CLI] 添加 run 命令
 [NL] 实现意图匹配
 [Workflow] 支持 for_each 步骤
+```
+
+---
+
+## 9. 功能清单
+
+### 9.1 模块接口功能
+
+| 模块 | 核心接口 | 状态 | 优先级 |
+|------|---------|------|--------|
+| **CLI** | `run()`, `list()`, `mode()` | ✅ 已实现 | P0 |
+| **NL Parser** | `parse()`, `matchIntent()` | ✅ 已实现 | P0 |
+| **Workflow Engine** | `execute()`, `pause()`, `resume()` | ✅ 已实现 | P0 |
+| **Executor** | `exec()`, `detectDanger()` | ✅ 已实现 | P0 |
+| **Sandbox** | `run()`, `setMode()` | 🔲 部分实现 | P0 |
+| **Storage** | `save()`, `load()`, `list()` | ✅ 已实现 | P0 |
+| **Utils** | `log()`, `config()`, `ui()` | ✅ 已实现 | P0 |
+
+### 9.2 模块协作功能
+
+| 协作路径 | 功能 | 状态 | 优先级 |
+|---------|------|------|--------|
+| **CLI → NL Parser** | 解析自然语言命令 | ✅ 已实现 | P0 |
+| **NL Parser → Workflow** | 生成工作流对象 | ✅ 已实现 | P0 |
+| **Workflow → Executor** | 执行工作流步骤 | ✅ 已实现 | P0 |
+| **Executor → Sandbox** | 沙盒隔离执行 | 🔲 部分实现 | P0 |
+| **Executor → Storage** | 保存执行记录 | ✅ 已实现 | P0 |
+| **Workflow → Storage** | 保存工作流定义 | ✅ 已实现 | P0 |
+| **Executor → AI CLI** | 委派给 AI 工具执行 | 🔲 待实现 | P1 |
+| **AI CLI → Storage** | 保存 AI 执行记录 | 🔲 待实现 | P1 |
+
+### 9.3 AI 委派协作路径
+
+#### 9.3.1 Headless 模式 AI 委派流程
+
+```
+用户输入: "用 Gemini 审查代码，然后用 Claude 修复问题"
+    │
+    ▼
+┌─────────────────────────────────────────────────────┐
+│              Agent C (Workflow Engine)              │
+│  • 解析为工作流:                                     │
+│    Step 1: delegate → gemini                        │
+│    Step 2: delegate → claude                        │
+│  • 调用 Executor 执行                                │
+└─────────────────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────────────────┐
+│              Agent D (Executor)                      │
+│  • 检测 Step.type === 'delegate'                     │
+│  • 调用 AIDelegateExecutor                          │
+│  • 获取 AI 适配器: gemini                           │
+│  • 构建命令: gemini -p "Review code..."             │
+│  • 执行并返回结果                                    │
+└─────────────────────────────────────────────────────┘
+    │
+    ▼
+┌──────────────────┐  ┌──────────────────┐
+│  Gemini CLI      │  │  Claude Code     │
+│  (Headless 模式) │  │  (Headless 模式) │
+│  一次性执行      │  │  一次性执行      │
+└──────────────────┘  └──────────────────┘
+    │                         │
+    ▼                         ▼
+┌─────────────────────────────────────────────────────┐
+│              Agent F (Storage)                       │
+│  • 保存 AI 执行记录                                  │
+│  • 包含 tokenUsage, metadata                        │
+└─────────────────────────────────────────────────────┘
+```
+
+#### 9.3.2 守护进程模式 AI 委派流程
+
+```
+用户输入: "用 Gemini 审查代码，然后修复问题，然后写测试"
+    │
+    ▼
+┌─────────────────────────────────────────────────────┐
+│              Agent C (Workflow Engine)              │
+│  • 解析为工作流:                                     │
+│    Step 1: delegate → gemini                        │
+│    Step 2: delegate → gemini                        │
+│    Step 3: delegate → gemini                        │
+│  • 检测到连续相同 AI 工具，使用守护进程模式          │
+└─────────────────────────────────────────────────────┘
+    │
+    │ IPC (Unix Socket)
+    ▼
+┌─────────────────────────────────────────────────────┐
+│              vectahub-daemon (守护进程)              │
+│  • 接收任务队列                                      │
+│  • 管理 Gemini 持久进程                              │
+│  • 会话复用，保持上下文                              │
+│  • 通过 stdin/stdout 通信                           │
+└───────────────────────────┬─────────────────────────┘
+                            │
+                    spawn() / stdio
+                            ▼
+┌─────────────────────────────────────────────────────┐
+│              Gemini CLI (持久进程)                   │
+│  • 持续运行，等待任务                                │
+│  • 通过 stdin 接收 prompt                           │
+│  • 通过 stdout 返回结果                             │
+│  • 上下文保持（多轮对话）                            │
+└─────────────────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────────────────┐
+│              Agent F (Storage)                       │
+│  • 保存 AI 执行记录                                  │
+│  • 包含 tokenUsage, metadata, sessionId             │
+└─────────────────────────────────────────────────────┘
+```
+
+#### 9.3.3 混合架构策略
+
+VectaHub 支持两种执行模式，根据场景自动选择：
+
+| 模式 | 适用场景 | 触发条件 |
+|------|---------|---------|
+| **Headless** | 单次 AI 调用、不同 AI 工具 | 1 个 AI 步骤，或不同适配器 |
+| **Daemon** | 多次 AI 调用、相同 AI 工具 | 2+ 个 AI 步骤，且相同适配器 |
+| **Auto** | 智能切换 | 根据配置策略自动选择 |
+
+#### 9.3.4 支持的 AI 工具
+
+| AI 工具 | Headless 命令 | 沙盒兼容 | 适配器文件 |
+|---------|--------------|---------|-----------|
+| **Gemini CLI** | `gemini -p` | ❌ 否 | `src/workflow/ai-adapters/gemini.ts` |
+| **Claude Code** | `claude -p` | ✅ 是 | `src/workflow/ai-adapters/claude.ts` |
+| **Codex CLI** | `codex exec` | ✅ 是（云端） | `src/workflow/ai-adapters/codex.ts` |
+| **Aider** | `aider --message` | ✅ 是 | `src/workflow/ai-adapters/aider.ts` |
+| **OpenCLI** | `opencli` | ✅ 是 | `src/workflow/ai-adapters/opencli.ts` |
+
+#### 9.3.5 跨模块功能
+
+| 功能 | 涉及模块 | 状态 | 优先级 |
+|------|---------|------|--------|
+| **错误处理** | 全部模块 | ✅ 已实现 | P0 |
+| **日志记录** | 全部模块 | ✅ 已实现 | P0 |
+| **审计追踪** | CLI, Executor, Sandbox | 🔲 待实现 | P1 |
+| **配置共享** | CLI, Storage | ✅ 已实现 | P0 |
+| **类型检查** | 全部模块 | ✅ 已实现 | P0 |
+| **AI 委派执行** | Executor, AI CLI | 🔲 待实现 | P1 |
+| **会话管理** | Executor, AI CLI | 🔲 待实现 | P1 |
+
+---
+
+## 10. 业务架构
+
+### 10.1 核心业务流程
+
+```
+用户输入 → CLI 解析 → NL Parser → Workflow Engine → Executor → Sandbox → Storage → 返回结果
+```
+
+### 10.2 模块职责
+
+| 模块 | Agent | 职责 | 输入 | 输出 |
+|------|-------|------|------|------|
+| **CLI** | Agent A | 命令行入口 | 命令行参数 | 执行结果 |
+| **NL Parser** | Agent B | 自然语言解析 | 用户输入 | IntentMatch |
+| **Workflow Engine** | Agent C | 工作流管理 | Workflow | ExecutionRecord |
+| **Executor** | Agent D | 步骤执行 | Step | CLIResult |
+| **Sandbox** | Agent E | 安全隔离 | 命令 | 执行结果 |
+| **Storage** | Agent F | 数据持久化 | 数据对象 | 存储结果 |
+| **Utils** | Agent G | 工具函数 | - | 工具服务 |
+
+### 10.3 业务规则
+
+1. **模块隔离**：每个模块独立开发和测试
+2. **接口契约**：模块必须遵循定义的接口
+3. **依赖方向**：只能依赖下层模块，不能循环依赖
+4. **错误传播**：错误必须向上传播到 CLI 层
+5. **日志规范**：所有模块必须使用统一日志格式
+
+---
+
+## 11. 技术架构
+
+### 11.1 技术选型
+
+| 分类 | 技术 | 版本 | 说明 |
+|------|------|------|------|
+| **语言** | TypeScript | 5.x | 类型安全 |
+| **运行时** | Node.js | 21+ | 异步 IO |
+| **CLI** | Commander.js | 12.x | 命令行解析 |
+| **构建** | tsup | 8.x | TypeScript 打包 |
+| **测试** | Vitest | 1.x | 单元测试 |
+| **日志** | Pino | 8.x | 高性能日志 |
+
+### 11.2 依赖关系
+
+```
+CLI → NL Parser → Workflow Engine → Executor → Sandbox
+                          ↓
+                        Storage
+                          ↑
+                        Utils (所有模块)
+```
+
+### 11.3 模块结构
+
+```
+src/
+├── cli.ts                    # CLI 入口 (Agent A)
+├── nl/                       # 自然语言解析 (Agent B)
+│   ├── parser.ts
+│   ├── intent-matcher.ts
+│   └── templates/
+├── workflow/                 # 工作流引擎 (Agent C/D/F)
+│   ├── engine.ts
+│   ├── executor.ts
+│   └── storage.ts
+├── sandbox/                  # 沙盒隔离 (Agent E)
+│   ├── detector.ts
+│   └── sandbox.ts
+└── utils/                    # 工具函数 (Agent G)
+    ├── logger.ts
+    ├── config.ts
+    └── ui.ts
+```
+
+### 11.4 数据流
+
+```
+用户命令 → cli.ts → parser.ts → engine.ts → executor.ts → sandbox.ts → storage.ts → 输出
 ```
 
 ---

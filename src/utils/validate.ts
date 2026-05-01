@@ -50,7 +50,7 @@ const MODULE_CONTRACTS: ModuleContract[] = [
   {
     name: 'utils',
     file: 'src/utils/logger.ts',
-    requiredMethods: ['info', 'warn', 'error', 'debug'],
+    requiredMethods: ['createLogger', 'createConsoleLogger'],
   },
 ];
 

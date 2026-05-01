@@ -22,6 +22,7 @@ export interface Step {
   args?: string[];
   body?: Step[];
   condition?: string;
+  dependsOn?: string[];
   items?: string;
   outputVar?: string;
 }
@@ -69,11 +70,14 @@ export interface StepRecord {
 
 export type SandboxMode = 'STRICT' | 'RELAXED' | 'CONSENSUS';
 
+export type DangerCategory = 'SYSTEM' | 'FS' | 'NETWORK' | 'RESOURCE';
+
 export interface CommandDetection {
   isDangerous: boolean;
   level: 'critical' | 'high' | 'medium' | 'low' | 'none';
   reason?: string;
   matchedPattern?: string;
+  category?: DangerCategory;
 }
 
 export type EntityType = 'FILE_PATH' | 'CLI_TOOL' | 'PACKAGE_NAME' | 'FUNCTION_NAME' | 'BRANCH_NAME' | 'ENV' | 'OPTIONS';

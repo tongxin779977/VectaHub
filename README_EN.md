@@ -1,127 +1,202 @@
-# VectaHub: Antigravity CACP Framework (Vite + React) 🚀
-
-![VectaHub CACP Architecture](./public/assets/cacp_architecture.png)
+# VectaHub: Natural Language Workflow Automation Engine 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Vite](https://img.shields.io/badge/Vite-5.0+-646CFF?logo=vite)](https://vitejs.dev/)
-[![React](https://img.shields.io/badge/React-18.0+-61DAFB?logo=react)](https://reactjs.org/)
-[![Protocol](https://img.shields.io/badge/Protocol-CACP%202.0-orange)](./.gemini/GEMINI.md)
+[![Node.js](https://img.shields.io/badge/Node.js-21+-339933?logo=node.js)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6?logo=typescript)](https://www.typescriptlang.org/)
 
-> **VectaHub** (Antigravity CACP Framework) is an industrial-grade foundational template for the AI-Native collaboration era. Beyond high-performance Vite + React integration, it features the **CACP 2.0 (Cross-Agent Communication Protocol)**—an asynchronous, mailbox-driven architecture enabling seamless interaction between sandboxed AI agents and native OS environments.
+> **VectaHub** is a natural language-driven workflow automation engine. Simply describe what you want to do in plain language, and it will automatically generate, execute, and record the entire workflow.
 
-**English Version** | [中文说明](./README.md)
-
----
-
-## 🏗️ Core Engine: CACP 2.0 (Cross-Agent Communication Protocol)
-
-The definitive competitive edge of this project is its **CACP 2.0 Asynchronous Drive Architecture**. It shatters the "Sandbox Wall" that typically restricts AI assistants from executing native binary commands (e.g., `npm install`, `git push`, `docker build`).
-
-### Industrial-Grade Communication SOP
-
-1. **Command Post**: The Antigravity Agent serializes task instructions into `.task` files within `.gemini/tasks/`.
-2. **Event Heartbeat**: `gemini_watcher.sh` acts as a host-level daemon, scanning the "Outbox" via a 2s high-frequency heartbeat to trigger elevated command execution via the Gemini CLI.
-3. **Result Feedback**: Execution logs (Stdout/Stderr/ExitCode) are encapsulated into `.response` files, allowing the Agent to perform logic self-healing based on real-time feedback.
-4. **Permission Re-delegation**: Upon task completion, the watcher leverages `root` privileges to auto-execute `chown` and `chmod`. This ensures all AI-generated file ownership is instantly returned to the local IDE user, permanently fixing `EPERM` deadlocks.
+**[中文说明](./README.md)** | **English Version**
 
 ---
 
-## 🛠️ Technical Excellence
+## Core Value: One Line to Understand VectaHub
 
-- **High-Speed Build**: Vite 5.x for millisecond-level Hot Module Replacement (HMR).
-- **Modern UI**: React 18.x with Concurrent Mode for high-performance rendering.
-- **Collaboration Layer**: Gemini CLI + CACP 2.0 bridging the sandbox-to-native gap.
-- **Rules Autonomy**: Structured `.gemini/GEMINI.md` defines the project's "Digital Constitution," establishing Agent behavioral boundaries.
+| Tool | What You Write | VectaHub Does |
+|------|---------------|---------------|
+| Taskfile | Write YAML: `tasks: { compress: ... }` | Say "compress images" |
+| Shell Script | Write bash: `for f in *.jpg; do...` | Say "compress images" |
+| Claude Code | Manually guide AI step by step | Say "compress images" |
+| **VectaHub** | **Say what you want** | **Say "compress images"** |
 
 ---
 
-## 🏗️ Deep Architectural Insights: Why "Industrial-Grade"?
+## 🎯 Core Use Cases
 
-As an AI-driven automated coding solution, VectaHub is designed to bridge the final gap between **"Dialogue and Delivery."**
+### Scenario 1: Daily File Processing
 
-### 1. Sandbox Traversal (Cross-Sandbox Atomicity)
+```bash
+$ vectahub "compress images in current directory"
 
-Traditional AI assistants are confined within sandboxes, unable to reach complex local binary chains (binary isolation). CACP 2.0 establishes a decoupled communication model based on a "Mailbox" system, allowing the Agent to focus on business logic while the Executor handles heavy-duty native execution.
+🤖 Intent: IMAGE_COMPRESS
+📋 Generated Workflow:
+  Step 1: find . -type f \( -name "*.jpg" -o -name "*.png" \)
+  Step 2: for each: convert ${item} -resize 50% ${item}
+⏳ Mode: CONSENSUS
 
-### 2. Dynamic Ownership Self-Healing (Auto-Chown)
+Confirm execution? [Y/n] y
+▶️ Running...
+✅ Done: 12 files compressed
+```
 
-In mixed AI-human development environments, permission conflicts (`EPERM`) are the leading cause of CI/CD failures. `gemini_watcher.sh` automatically corrections file ownership after every task execution, ensuring a **"AI Generated, User Owned"** zero-friction experience.
+### Scenario 2: Developer Workflows
 
-### 3. Self-Evolution & Bootstrapping (Autonomous Code Generation)
+```bash
+$ vectahub "run tests, if passed then deploy"
 
-VectaHub is theoretically capable of **"Self-Evolution based on Documentation."**
+🤖 Intent: CI_PIPELINE
+📋 Generated Workflow:
+  Step 1: npm test
+  Step 2: if (exit_code == 0) then npm run deploy
+⏳ Mode: STRICT (auto-strict for CI scenarios)
 
-- **Doc-Driven**: It can ingest PRD or ADR documents within the project.
-- **Closed-Loop Execution**: Leveraging the CACP protocol, it autonomously modifies source code, runs tests, monitors errors, and iterates on fixes until logical alignment is achieved.
-- **Provenance**: This project's own documentation and protocol architecture are real-world products of this very scheme.
+▶️ Running...
+  ▶ npm test ... ✅
+  ▶ npm run deploy ... ✅
+```
+
+### Scenario 3: Git Collaboration
+
+```bash
+$ vectahub "commit and push all changes"
+
+🤖 Intent: GIT_WORKFLOW
+📋 Generated Workflow:
+  Step 1: git add -A
+  Step 2: git commit -m "update"
+  Step 3: git push
+```
+
+---
+
+## 🏗️ System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        VectaHub                             │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐   │
+│  │  NL Parser  │───▶│   Workflow  │───▶│  Executor   │   │
+│  │ (Intent     │    │   Engine    │    │             │   │
+│  │  Parsing)   │    │             │    │             │   │
+│  └─────────────┘    └─────────────┘    └─────────────┘   │
+│         │                  │                  │           │
+│         ▼                  ▼                  ▼           │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐   │
+│  │ Intent       │    │ Workflow    │    │ Sandbox     │   │
+│  │ Templates    │    │ Storage     │    │ (macOS)     │   │
+│  └─────────────┘    └─────────────┘    └─────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Core Components
+
+| Component | Responsibility |
+|-----------|----------------|
+| **NL Parser** | Converts natural language to Workflow objects |
+| **Workflow Engine** | Manages workflow lifecycle and step execution |
+| **Executor** | Executes CLI commands in sandbox |
+| **Sandbox** | macOS sandbox isolation for secure execution |
+| **CLI Tools Registry** | Standardized CLI tool integration |
+
+---
+
+## 🛡️ Security Mechanisms
+
+### Three Execution Modes
+
+| Mode | Non-dangerous Commands | Dangerous Commands | Use Case |
+|------|------------------------|-------------------|----------|
+| **STRICT** | Auto-execute | Block | CI/CD |
+| **RELAXED** | Auto-execute | Block | Dev debugging |
+| **CONSENSUS** | Confirm then execute | Confirm then execute | Interactive |
+
+### Dangerous Command Detection
+
+```typescript
+const DANGEROUS_PATTERNS = {
+  critical: [
+    /^sudo\s+/,                          // Privilege escalation
+    /^chmod\s+777/,                      // Global permissions
+    /^rm\s+-rf\s+\/(?!sandbox)/,         // Recursive root deletion
+  ]
+};
+```
+
+---
+
+## 📦 Built-in Intent Templates
+
+| Intent | Description | Example |
+|--------|-------------|---------|
+| `IMAGE_COMPRESS` | Compress images | "compress images in current directory" |
+| `FILE_FIND` | Find files | "find all files larger than 100M" |
+| `BACKUP` | Backup files/directories | "backup Documents to external drive" |
+| `CI_PIPELINE` | CI workflows | "run tests, deploy if passed" |
+| `BATCH_RENAME` | Batch rename | "rename all .jpeg to .jpg" |
+| `GIT_WORKFLOW` | Git operations | "commit and push" |
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Environment Initialization
+### 1. Install
 
 ```bash
-git clone <your-repo-url>
-cd <project-name>
-npm install
+npm install -g vectahub
 ```
 
-### 2. Activate Sandbox-Traversal Watcher (CRITICAL)
-
-Launch the watcher in your native terminal (outside the IDE's terminal). `sudo` is recommended for initial runs to enable automated permission re-delegation:
+### 2. Run Natural Language Commands
 
 ```bash
-sudo sh scripts/gemini_watcher.sh
+vectahub run "compress images in current directory"
+vectahub run "commit and push all changes"
+vectahub run "find all files larger than 100M"
 ```
 
-### 3. Launch Development Server
+### 3. Run Workflow from File
 
 ```bash
-npm run dev
+vectahub run -f workflow.yaml
 ```
-
----
-
-## 🛡️ Security, Privacy & Permissions
-
-### Why Sudo?
-
-In CACP 2.0, `sudo` is the prerequisite for **"Generation as Possession"**:
-
-- **Escaping Sandbox Constraints**: Sandboxed Agents cannot access native binary environments directly.
-- **Dynamic Ownership Correction (Auto-Chown)**: The watcher uses `root` privileges to forcibly re-assign file ownership to the current user `$(whoami)`, ensuring a frictionless IDE experience.
-
-### Privacy & Compliance
-
-This project is **GitHub Ready**:
-
-- Dynamic user identification via `$(id -u):$(id -g)`—zero hardcoding.
-- Sensitive credentials and paths protected by `.geminiignore` for safe open-source distribution.
-
----
-
-## ✨ Automated Self-Provenance
-
-> **This project's scaffolding, CACP communication protocols, script logic, and all documentation (including the one you are reading) were autonomously generated by the built-in CACP-driven Agent.**
-
-This project is not just a template—it is an industrial-grade validation of **AI-Driven Software Engineering**.
 
 ---
 
 ## 📂 Project Structure
 
-```text
-├── .agents/            # Agent logic and workflow definitions
-├── .gemini/
-│   ├── tasks/          # Task Outbox
-│   ├── responses/      # Execution Inbox (Responses)
-│   └── GEMINI.md       # CACP 2.0 Constitution (Protocol)
-├── scripts/
-│   └── gemini_watcher.sh # Sandbox-Traversal Daemon (5s heartbeat)
-├── src/                # Source Code (React + Vite)
-└── vite.config.js      # Build Configuration
 ```
+VectaHub/
+├── docs/design/              # Design documents
+├── src/
+│   ├── cli.ts               # CLI entry point
+│   ├── nl/                  # Natural language parsing
+│   │   ├── parser.ts
+│   │   ├── intent-matcher.ts
+│   │   └── templates/
+│   ├── workflow/            # Workflow engine
+│   │   ├── engine.ts
+│   │   ├── executor.ts
+│   │   └── storage.ts
+│   ├── sandbox/            # Sandbox isolation
+│   │   ├── detector.ts
+│   │   └── sandbox.ts
+│   ├── cli-tools/          # CLI tool integration
+│   │   ├── registry.ts
+│   │   └── tools/
+│   └── utils/              # Utilities
+├── workflows/               # User workflows
+└── intents/                # Custom intents
+```
+
+---
+
+## 🛠️ Tech Stack
+
+- **Language**: TypeScript
+- **Runtime**: Node.js 21+
+- **Build**: tsup
+- **CLI**: Commander.js
+- **Configuration**: YAML
 
 ---
 

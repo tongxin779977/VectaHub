@@ -1,0 +1,146 @@
+{
+  "version": "1.0.0",
+  "description": "全局命令黑名单 - 命中即拒绝，不可绕过",
+  "rules": [
+    {
+      "id": "bl-001",
+      "pattern": "sudo *",
+      "action": "block",
+      "reason": "禁止 sudo 提权操作",
+      "examples": ["sudo rm -rf /", "sudo apt install", "sudo chmod 777"]
+    },
+    {
+      "id": "bl-002",
+      "pattern": "chmod 777 *",
+      "action": "block",
+      "reason": "禁止设置全开权限",
+      "examples": ["chmod 777 file.txt", "chmod -R 777 /tmp"]
+    },
+    {
+      "id": "bl-003",
+      "pattern": "rm -rf /",
+      "action": "block",
+      "reason": "禁止递归删除根目录",
+      "examples": ["rm -rf /", "rm -rf /home", "rm -rf /*"]
+    },
+    {
+      "id": "bl-004",
+      "pattern": "rm -rf ~",
+      "action": "block",
+      "reason": "禁止递归删除用户目录",
+      "examples": ["rm -rf ~", "rm -rf ~/"]
+    },
+    {
+      "id": "bl-005",
+      "pattern": "rm -rf $HOME",
+      "action": "block",
+      "reason": "禁止递归删除 HOME 目录",
+      "examples": ["rm -rf $HOME", "rm -rf ${HOME}/*"]
+    },
+    {
+      "id": "bl-006",
+      "pattern": "git push --force *",
+      "action": "block",
+      "reason": "禁止 git 强制推送",
+      "examples": ["git push --force origin main", "git push -f origin main"]
+    },
+    {
+      "id": "bl-007",
+      "pattern": "git reset --hard *",
+      "action": "block",
+      "reason": "禁止 git 硬重置",
+      "examples": ["git reset --hard HEAD", "git reset --hard origin/main"]
+    },
+    {
+      "id": "bl-008",
+      "pattern": "git clean -fd *",
+      "action": "block",
+      "reason": "禁止 git 强制清理",
+      "examples": ["git clean -fd", "git clean -fdx"]
+    },
+    {
+      "id": "bl-009",
+      "pattern": "docker rm -f *",
+      "action": "block",
+      "reason": "禁止强制删除容器",
+      "examples": ["docker rm -f my-container", "docker rm -f $(docker ps -aq)"]
+    },
+    {
+      "id": "bl-010",
+      "pattern": "docker system prune --all *",
+      "action": "block",
+      "reason": "禁止清理所有 Docker 资源",
+      "examples": ["docker system prune --all", "docker system prune -af"]
+    },
+    {
+      "id": "bl-011",
+      "pattern": "kubectl delete namespace *",
+      "action": "block",
+      "reason": "禁止删除 Kubernetes 命名空间",
+      "examples": ["kubectl delete namespace default", "kubectl delete namespace kube-system"]
+    },
+    {
+      "id": "bl-012",
+      "pattern": "npm publish *",
+      "action": "block",
+      "reason": "禁止直接发布 npm 包（请使用 CI/CD）",
+      "examples": ["npm publish", "npm publish --access public"]
+    },
+    {
+      "id": "bl-013",
+      "pattern": "cargo publish *",
+      "action": "block",
+      "reason": "禁止直接发布 crate（请使用 CI/CD）",
+      "examples": ["cargo publish", "cargo publish --dry-run"]
+    },
+    {
+      "id": "bl-014",
+      "pattern": "> /etc/*",
+      "action": "block",
+      "reason": "禁止覆写系统配置文件",
+      "examples": ["echo 'x' > /etc/passwd", "cat file > /etc/hosts"]
+    },
+    {
+      "id": "bl-015",
+      "pattern": "mkfs *",
+      "action": "block",
+      "reason": "禁止格式化磁盘",
+      "examples": ["mkfs.ext4 /dev/sda1", "mkfs -t ntfs /dev/sdb1"]
+    },
+    {
+      "id": "bl-016",
+      "pattern": "dd if=* of=/dev/*",
+      "action": "block",
+      "reason": "禁止直接写入磁盘设备",
+      "examples": ["dd if=image.iso of=/dev/sda", "dd if=/dev/zero of=/dev/sdb"]
+    },
+    {
+      "id": "bl-017",
+      "pattern": "shutdown *",
+      "action": "block",
+      "reason": "禁止关机操作",
+      "examples": ["shutdown -h now", "shutdown -r now"]
+    },
+    {
+      "id": "bl-018",
+      "pattern": "reboot *",
+      "action": "block",
+      "reason": "禁止重启操作",
+      "examples": ["reboot", "reboot -f"]
+    },
+    {
+      "id": "bl-019",
+      "pattern": "git push --delete *",
+      "action": "block",
+      "reason": "禁止删除远程分支",
+      "examples": ["git push --delete origin main", "git push origin :main"]
+    },
+    {
+      "id": "bl-020",
+      "pattern": "git filter-branch *",
+      "action": "block",
+      "reason": "禁止重写 git 历史",
+      "examples": ["git filter-branch --force", "git filter-branch --env-filter"]
+    }
+  ]
+}
