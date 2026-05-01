@@ -27,6 +27,9 @@ const ENTITY_PATTERNS: Record<EntityType, RegExp[]> = {
   OPTIONS: [
     /--[\w\-]+/g,
     /-[\w]/g,
+    /(?:消息(?:是)?|commit(?: message)?)\s*(.+)/g,
+    /(?:clone(?: from)?)\s*(https?:\/\/[^\s]+)/g,
+    /(?:branch(?: to)?)\s*([\w\-\/]+)/g,
   ],
 };
 

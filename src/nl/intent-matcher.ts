@@ -30,7 +30,7 @@ export function createIntentMatcher(patterns: IntentPattern[]): IntentMatcher {
         ).length;
 
         if (matches > 0) {
-          const confidence = (matches / pattern.keywords.length) * pattern.weight;
+          const confidence = matches * pattern.weight;
           if (confidence > bestMatch.confidence) {
             bestMatch = {
               intent: pattern.intent as IntentName,

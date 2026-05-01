@@ -62,9 +62,8 @@ export function createNLParser(): NLParser {
           description: INTENT_TEMPLATES[name]?.description || name
         }));
 
-      // 放宽 git 相关意图的置信度要求
-      const isGitIntent = intentMatch.intent.startsWith('GIT_');
-      if (intentMatch.intent === 'UNKNOWN' || (confidenceLevel === 'UNCERTAIN' && !isGitIntent)) {
+      // 放宽置信度要求，只要匹配到意图就尝试解析
+      if (intentMatch.intent === 'UNKNOWN') {
         return {
           status: 'NEEDS_CLARIFICATION',
           confidenceLevel,

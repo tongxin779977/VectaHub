@@ -14,29 +14,197 @@ import { npmTool } from '../cli-tools/tools/npm.js';
 export const toolsCmd = new Command('tools')
   .description('CLI tools management commands');
 
+function formatToolList(tools: any[]): string {
+  if (tools.length === 0) {
+    return '\n⚠️  No CLI tools registered.\n';
+  }
+
+  const lines = ['\n📦 Registered CLI Tools:', '─'.repeat(80)];
+
+  for (const tool of tools) {
+    const commandCount = Object.keys(tool.commands).length;
+    const dangerousCount = tool.dangerousCommands?.length || 0;
+
+    lines.push(`${tool.name.padEnd(20)} ${tool.description}`);
+    lines.push(`  Commands: ${commandCount} | Dangerous: ${dangerousCount}`);
+  }
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+function formatToolInfo(tool: any): string {
+  const lines = [
+    `\n📦 ${tool.name}`,
+    '─'.repeat(80),
+    `Description: ${tool.description}`,
+    `Version: ${tool.version}`,
+    `Commands: ${Object.keys(tool.commands).length}`,
+  ];
+
+  if (tool.dangerousCommands && tool.dangerousCommands.length > 0) {
+    lines.push(`\n⚠️  Dangerous Commands:`);
+    for (const cmd of tool.dangerousCommands) {
+      lines.push(`  - ${cmd}`);
+    }
+  }
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+function formatToolCommands(tool: any): string {
+  const lines = [`\n📋 ${tool.name} Commands:`, '─'.repeat(80)];
+
+  const commands = Object.values(tool.commands);
+  for (const cmd of commands) {
+    const cmdObj = cmd as any;
+    const dangerTag = cmdObj.dangerous ? ' ⚠️' : '';
+    lines.push(`${cmdObj.name.padEnd(25)} ${cmdObj.description}${dangerTag}`);
+  }
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+function formatCommandDetail(tool: any, cmd: any): string {
+  const lines = [
+    `\n📋 ${tool.name} ${cmd.name}`,
+    '─'.repeat(80),
+    `Description: ${cmd.description}`,
+    `Usage: ${cmd.usage}`,
+  ];
+
+  if (cmd.examples && cmd.examples.length > 0) {
+    lines.push('\nExamples:');
+    for (const example of cmd.examples) {
+      lines.push(`  $ ${example}`);
+    }
+  }
+
+  if (cmd.dangerous) {
+    lines.push(`\n⚠️  DANGER LEVEL: ${cmd.dangerLevel?.toUpperCase()}`);
+    if (cmd.requiresConfirmation) {
+      lines.push('   Requires user confirmation');
+    }
+  }
+
+  if (cmd.options && cmd.options.length > 0) {
+    lines.push('\nOptions:');
+    for (const opt of cmd.options) {
+      const alias = opt.alias ? `, -${opt.alias}` : '';
+      const required = opt.required ? ' (required)' : '';
+      lines.push(`  --${opt.name}${alias}${required}`);
+      lines.push(`    ${opt.description}`);
+    }
+  }
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+function formatTestResult(toolName: string, command: string, isDangerous: boolean, cmd?: any): string {
+  if (isDangerous) {
+    const lines = [
+      `\n❌ DANGEROUS: "${command}" is marked as dangerous`,
+    ];
+    if (cmd) {
+      lines.push(`   Level: ${cmd.dangerLevel?.toUpperCase()}`);
+      lines.push(`   Requires confirmation: ${cmd.requiresConfirmation ? 'Yes' : 'No'}`);
+    }
+    return lines.join('\n') + '\n';
+  } else {
+    return `\n✅ SAFE: "${command}" is not marked as dangerous\n`;
+  }
+}
+
+function formatScanResult(result: any): string {
+  const lines = [
+    '\n✅ 扫描完成！',
+    `\n发现了 ${result.discoveredTools.length} 个工具（共扫描 ${result.totalScanned} 个）`,
+  ];
+
+  if (result.discoveredTools.length > 0) {
+    lines.push('\n📦 发现的工具：');
+    lines.push('─'.repeat(80));
+    for (const tool of result.discoveredTools) {
+      lines.push(`${tool.knownTool.name.padEnd(20)} v${tool.version}`);
+      lines.push(`  ${tool.knownTool.description}`);
+    }
+  }
+
+  if (result.failedChecks.length > 0) {
+    lines.push('\n⚠️  检测失败的工具：');
+    for (const fail of result.failedChecks) {
+      lines.push(`  - ${fail.name}: ${fail.reason}`);
+    }
+  }
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+function formatKnownTools(tools: any[]): string {
+  const lines = [`\n📚 已知工具库（共 ${tools.length} 个）：`, '─'.repeat(80)];
+
+  for (const tool of tools) {
+    lines.push(`${tool.name.padEnd(20)} ${tool.description}`);
+    lines.push(`  版本要求: ${tool.versionRequirement}`);
+    lines.push(`  置信度: ${(tool.confidence * 100).toFixed(0)}%`);
+  }
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+function formatRuleList(template: string, rules: any[]): string {
+  const lines = [
+    `\n🔒 安全规则模板: ${template.toUpperCase()}`,
+    '─'.repeat(80),
+    '\n当前规则列表：\n',
+  ];
+
+  for (const rule of rules) {
+    const actionIcon = rule.action === 'block' ? '⛔' : '✅';
+    const reason = rule.reason ? ` (${rule.reason})` : '';
+    const desc = rule.description ? ` - ${rule.description}` : '';
+
+    lines.push(`${actionIcon} ${rule.id.padEnd(25)} ${rule.pattern}${reason}${desc}`);
+  }
+
+  lines.push('\n💡 提示：');
+  lines.push('  - "block"规则会先于安全协议执行');
+  lines.push('  - "allow"规则放行命令');
+  lines.push('  - 没有命中规则的命令会继续执行 02 沙盒文档的安全协议\n');
+
+  return lines.join('\n');
+}
+
+function formatEvalResult(args: string[], template: string, result: any): string {
+  const lines = [
+    `\n📋 命令: ${args.join(' ')}`,
+    `模板: ${template.toUpperCase()}`,
+    '─'.repeat(80),
+    `判决: ${result.decision.toUpperCase()}`,
+  ];
+
+  if (result.rule) {
+    lines.push(`规则: ${result.rule.id} (${result.scope || 'global'})`);
+    lines.push(`原因: ${result.rule.reason || '无'}`);
+  }
+  lines.push('');
+
+  return lines.join('\n');
+}
+
 toolsCmd
   .command('list')
   .description('List all registered CLI tools')
   .action(() => {
     const registry = getCliToolRegistry();
     const tools = registry.getAllTools();
-    
-    if (tools.length === 0) {
-      console.log('\n⚠️  No CLI tools registered.\n');
-      return;
-    }
-    
-    console.log('\n📦 Registered CLI Tools:');
-    console.log('─'.repeat(80));
-    
-    for (const tool of tools) {
-      const commandCount = Object.keys(tool.commands).length;
-      const dangerousCount = tool.dangerousCommands?.length || 0;
-      
-      console.log(`${tool.name.padEnd(20)} ${tool.description}`);
-      console.log(`  Commands: ${commandCount} | Dangerous: ${dangerousCount}`);
-    }
-    console.log('');
+
+    console.log(formatToolList(tools));
   });
 
 toolsCmd
@@ -45,26 +213,14 @@ toolsCmd
   .action((toolName: string) => {
     const registry = getCliToolRegistry();
     const tool = registry.getTool(toolName);
-    
+
     if (!tool) {
       console.error(`❌ Tool not found: ${toolName}`);
       console.error('Available tools:', registry.getAllTools().map(t => t.name).join(', '));
       process.exit(1);
     }
-    
-    console.log(`\n📦 ${tool.name}`);
-    console.log('─'.repeat(80));
-    console.log(`Description: ${tool.description}`);
-    console.log(`Version: ${tool.version}`);
-    console.log(`Commands: ${Object.keys(tool.commands).length}`);
-    
-    if (tool.dangerousCommands && tool.dangerousCommands.length > 0) {
-      console.log(`\n⚠️  Dangerous Commands:`);
-      for (const cmd of tool.dangerousCommands) {
-        console.log(`  - ${cmd}`);
-      }
-    }
-    console.log('');
+
+    console.log(formatToolInfo(tool));
   });
 
 toolsCmd
@@ -73,21 +229,13 @@ toolsCmd
   .action((toolName: string) => {
     const registry = getCliToolRegistry();
     const tool = registry.getTool(toolName);
-    
+
     if (!tool) {
       console.error(`❌ Tool not found: ${toolName}`);
       process.exit(1);
     }
-    
-    console.log(`\n📋 ${tool.name} Commands:`);
-    console.log('─'.repeat(80));
-    
-    const commands = Object.values(tool.commands);
-    for (const cmd of commands) {
-      const dangerTag = cmd.dangerous ? ' ⚠️' : '';
-      console.log(`${cmd.name.padEnd(25)} ${cmd.description}${dangerTag}`);
-    }
-    console.log('');
+
+    console.log(formatToolCommands(tool));
   });
 
 toolsCmd
@@ -96,48 +244,20 @@ toolsCmd
   .action((toolName: string, commandName: string) => {
     const registry = getCliToolRegistry();
     const tool = registry.getTool(toolName);
-    
+
     if (!tool) {
       console.error(`❌ Tool not found: ${toolName}`);
       process.exit(1);
     }
-    
+
     const cmd = registry.getCommandInfo(toolName, commandName);
     if (!cmd) {
       console.error(`❌ Command not found: ${commandName}`);
       console.error('Available commands:', Object.keys(tool.commands).join(', '));
       process.exit(1);
     }
-    
-    console.log(`\n📋 ${tool.name} ${cmd.name}`);
-    console.log('─'.repeat(80));
-    console.log(`Description: ${cmd.description}`);
-    console.log(`Usage: ${cmd.usage}`);
-    
-    if (cmd.examples && cmd.examples.length > 0) {
-      console.log('\nExamples:');
-      for (const example of cmd.examples) {
-        console.log(`  $ ${example}`);
-      }
-    }
-    
-    if (cmd.dangerous) {
-      console.log(`\n⚠️  DANGER LEVEL: ${cmd.dangerLevel?.toUpperCase()}`);
-      if (cmd.requiresConfirmation) {
-        console.log('   Requires user confirmation');
-      }
-    }
-    
-    if (cmd.options && cmd.options.length > 0) {
-      console.log('\nOptions:');
-      for (const opt of cmd.options) {
-        const alias = opt.alias ? `, -${opt.alias}` : '';
-        const required = opt.required ? ' (required)' : '';
-        console.log(`  --${opt.name}${alias}${required}`);
-        console.log(`    ${opt.description}`);
-      }
-    }
-    console.log('');
+
+    console.log(formatCommandDetail(tool, cmd));
   });
 
 toolsCmd
@@ -145,26 +265,17 @@ toolsCmd
   .description('Test if a command is dangerous')
   .action((toolName: string, command: string) => {
     const registry = getCliToolRegistry();
-    
+
     const tool = registry.getTool(toolName);
     if (!tool) {
       console.error(`❌ Tool not found: ${toolName}`);
       process.exit(1);
     }
-    
+
     const isDangerous = registry.isCommandDangerous(toolName, command);
-    
-    if (isDangerous) {
-      const cmd = registry.getCommandInfo(toolName, command);
-      console.log(`\n❌ DANGEROUS: "${command}" is marked as dangerous`);
-      if (cmd) {
-        console.log(`   Level: ${cmd.dangerLevel?.toUpperCase()}`);
-        console.log(`   Requires confirmation: ${cmd.requiresConfirmation ? 'Yes' : 'No'}`);
-      }
-    } else {
-      console.log(`\n✅ SAFE: "${command}" is not marked as dangerous`);
-    }
-    console.log('');
+    const cmd = registry.getCommandInfo(toolName, command);
+
+    console.log(formatTestResult(toolName, command, isDangerous, cmd));
   });
 
 toolsCmd
@@ -174,25 +285,7 @@ toolsCmd
     const scanner = getToolScanner();
     const result = await scanner.scan();
 
-    console.log('\n✅ 扫描完成！');
-    console.log(`\n发现了 ${result.discoveredTools.length} 个工具（共扫描 ${result.totalScanned} 个）`);
-    
-    if (result.discoveredTools.length > 0) {
-      console.log('\n📦 发现的工具：');
-      console.log('─'.repeat(80));
-      for (const tool of result.discoveredTools) {
-        console.log(`${tool.knownTool.name.padEnd(20)} v${tool.version}`);
-        console.log(`  ${tool.knownTool.description}`);
-      }
-    }
-
-    if (result.failedChecks.length > 0) {
-      console.log('\n⚠️  检测失败的工具：');
-      for (const fail of result.failedChecks) {
-        console.log(`  - ${fail.name}: ${fail.reason}`);
-      }
-    }
-    console.log('');
+    console.log(formatScanResult(result));
   });
 
 toolsCmd
@@ -200,15 +293,7 @@ toolsCmd
   .description('List all known tools that can be registered')
   .action(() => {
     const tools = getAllKnownTools();
-    console.log('\n📚 已知工具库（共 ' + tools.length + ' 个）：');
-    console.log('─'.repeat(80));
-
-    for (const tool of tools) {
-      console.log(`${tool.name.padEnd(20)} ${tool.description}`);
-      console.log(`  版本要求: ${tool.versionRequirement}`);
-      console.log(`  置信度: ${(tool.confidence * 100).toFixed(0)}%`);
-    }
-    console.log('');
+    console.log(formatKnownTools(tools));
   });
 
 toolsCmd
@@ -222,12 +307,12 @@ toolsCmd
       console.log('\n🚀 注册所有已知工具...');
       let registeredCount = 0;
       const allTools = getAllKnownTools();
-      
+
       // 已经有 git 和 npm 工具定义了
       // 这里可以完善更多工具定义
       console.log('   跳过：完整的工具定义需要逐个实现');
       console.log('   当前已注册: git');
-      
+
       // 注册 npm 工具
       if (!registry.getTool('npm')) {
         registry.register(npmTool);
@@ -270,22 +355,7 @@ toolsCmd
   .action(async (options) => {
     const rules = getSecurityTemplate(options.template as any);
 
-    console.log(`\n🔒 安全规则模板: ${options.template.toUpperCase()}`);
-    console.log('─'.repeat(80));
-    console.log('\n当前规则列表：\n');
-
-    for (const rule of rules) {
-      const actionIcon = rule.action === 'block' ? '⛔' : '✅';
-      const reason = rule.reason ? ` (${rule.reason})` : '';
-      const desc = rule.description ? ` - ${rule.description}` : '';
-
-      console.log(`${actionIcon} ${rule.id.padEnd(25)} ${rule.pattern}${reason}${desc}`);
-    }
-
-    console.log('\n💡 提示：');
-    console.log('  - "block"规则会先于安全协议执行');
-    console.log('  - "allow"规则放行命令');
-    console.log('  - 没有命中规则的命令会继续执行 02 沙盒文档的安全协议\n');
+    console.log(formatRuleList(options.template, rules));
   });
 
 toolsCmd
@@ -299,14 +369,5 @@ toolsCmd
     const engine = new CommandRuleEngine(rules);
     const result = engine.evaluate(command, cmdArgs, process.cwd());
 
-    console.log(`\n📋 命令: ${args.join(' ')}`);
-    console.log(`模板: ${options.template.toUpperCase()}`);
-    console.log('─'.repeat(80));
-    console.log(`判决: ${result.decision.toUpperCase()}`);
-
-    if (result.rule) {
-      console.log(`规则: ${result.rule.id} (${result.scope || 'global'})`);
-      console.log(`原因: ${result.rule.reason || '无'}`);
-    }
-    console.log('');
+    console.log(formatEvalResult(args, options.template, result));
   });

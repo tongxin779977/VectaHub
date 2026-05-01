@@ -61,9 +61,11 @@ export class ProviderRegistry {
     }
   }
 
-  printStatus(): void {
-    console.log('\n🤖 AI CLI Environment Status:');
-    console.log('─'.repeat(50));
+  formatStatus(): string {
+    const lines = [
+      '\n🤖 AI CLI Environment Status:',
+      '─'.repeat(50),
+    ];
 
     for (const provider of this.providers.sort((a, b) => b.priority - a.priority)) {
       const icon = provider.status === 'available' ? '✅' :
@@ -71,13 +73,19 @@ export class ProviderRegistry {
       const version = provider.version ? ` v${provider.version}` : '';
       const missing = provider.missingRequirements?.join(', ') || '';
 
-      console.log(`${icon} ${provider.name}${version} [${provider.status}]`);
+      lines.push(`${icon} ${provider.name}${version} [${provider.status}]`);
       if (missing) {
-        console.log(`   → Missing: ${missing}`);
+        lines.push(`   → Missing: ${missing}`);
       }
     }
 
-    console.log('─'.repeat(50));
-    console.log(`Recommended: ${this.getRecommendedProvider()}\n`);
+    lines.push('─'.repeat(50));
+    lines.push(`Recommended: ${this.getRecommendedProvider()}\n`);
+
+    return lines.join('\n');
+  }
+
+  printStatus(): void {
+    console.log(this.formatStatus());
   }
 }

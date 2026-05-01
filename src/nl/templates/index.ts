@@ -115,7 +115,7 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
   GIT_WORKFLOW: {
     name: 'GIT_WORKFLOW',
     description: 'Git 操作流程',
-    keywords: ['提交', 'commit', '推送', 'push', '拉取', 'pull', 'git', 'add', '推送', 'branch'],
+    keywords: ['提交', 'commit', '推送', 'push', '拉取', 'pull', 'git', 'add', 'branch', '远程仓库', '推送到'],
     weight: 1.0,
     cli: ['git'],
     params: {
@@ -223,7 +223,7 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     name: 'BACKUP',
     description: '备份文件或目录',
     keywords: ['备份', 'backup', '拷贝', 'copy', '复制', 'cp'],
-    weight: 0.8,
+    weight: 0.6,
     cli: ['rsync', 'cp', 'tar'],
     params: {
       source: {
@@ -304,8 +304,8 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
   INSTALL_PACKAGE: {
     name: 'INSTALL_PACKAGE',
     description: '安装依赖包',
-    keywords: ['安装', 'install', '添加', 'add', '依赖', 'package', 'library'],
-    weight: 0.9,
+    keywords: ['安装', 'install', '添加', 'add', '依赖', 'package', 'library', 'npm包'],
+    weight: 0.95,
     cli: ['npm', 'yarn', 'pnpm', 'pip'],
     params: {
       package: {
@@ -468,8 +468,8 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
   RUN_SCRIPT: {
     name: 'RUN_SCRIPT',
     description: '运行脚本',
-    keywords: ['运行', '执行', '跑', 'run', 'script', '脚本', 'build', 'test', 'start', 'dev'],
-    weight: 0.9,
+    keywords: ['运行', '执行', '跑', 'run', 'script', '脚本', 'build', 'test', 'start', 'dev', '构建项目', '清理缓存', '检查过期'],
+    weight: 0.95,
     cli: ['npm', 'yarn', 'node', 'python', 'cargo'],
     params: {
       script: {
@@ -739,8 +739,8 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
   SYSTEM_INFO: {
     name: 'SYSTEM_INFO',
     description: '查看系统信息',
-    keywords: ['系统', 'system', '信息', 'info', '磁盘', 'disk', '内存', 'memory', 'cpu'],
-    weight: 0.75,
+    keywords: ['系统', 'system', '信息', 'info', '磁盘', 'disk', '内存', 'memory', 'cpu', '磁盘使用', '内存使用', '计算目录'],
+    weight: 0.85,
     cli: ['df', 'du', 'free', 'top', 'uname'],
     params: {
       type: {
@@ -787,8 +787,8 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
   NETWORK_CHECK: {
     name: 'NETWORK_CHECK',
     description: '网络检查',
-    keywords: ['网络', 'network', '检查', 'check', 'ping', 'curl', 'wget', '连接', 'connect'],
-    weight: 0.7,
+    keywords: ['网络', 'network', '检查', 'check', 'ping', 'curl', 'wget', '连接', 'connect', '网络连接'],
+    weight: 0.85,
     cli: ['ping', 'curl', 'wget'],
     params: {
       host: {
@@ -826,8 +826,8 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
   PROCESS_LIST: {
     name: 'PROCESS_LIST',
     description: '查看进程列表',
-    keywords: ['进程', 'process', '列表', 'list', 'ps', 'top'],
-    weight: 0.7,
+    keywords: ['进程', 'process', '列表', 'list', 'ps', 'top', 'CPU', '进程列表', '占用最高'],
+    weight: 0.85,
     cli: ['ps', 'top'],
     params: {
       filter: {
@@ -1170,7 +1170,7 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     name: 'DOCKER_BUILD',
     description: '构建 Docker 镜像',
     keywords: ['docker', '构建', 'build', 'image', '镜像'],
-    weight: 0.85,
+    weight: 0.5,
     cli: ['docker'],
     params: {
       image: {

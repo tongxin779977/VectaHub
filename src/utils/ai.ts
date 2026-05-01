@@ -9,6 +9,103 @@ import type { AIDelegateProvider } from '../workflow/ai-delegate.js';
 export const aiCmd = new Command('ai')
   .description('AI CLI environment management commands');
 
+function formatEnvironmentReport(report: any): string {
+  const lines = [
+    '📊 Environment Report:',
+    '─'.repeat(50),
+    `Scanned at: ${report.scannedAt.toLocaleString()}`,
+    `Total available: ${report.totalAvailable}`,
+    `Recommended: ${report.recommendedProvider}`,
+  ];
+
+  if (report.warnings.length > 0) {
+    lines.push('\n⚠️  Warnings:');
+    for (const warning of report.warnings) {
+      lines.push(`  - ${warning}`);
+    }
+  }
+  
+  return lines.join('\n');
+}
+
+function formatProviderList(available: any[]): string {
+  if (available.length === 0) {
+    return [
+      '⚠️  No AI CLI tools detected.',
+      '   Install an AI CLI tool for better experience:',
+      '   - gemini: npm install -g @google/gemini-cli',
+      '   - claude: npm install -g @anthropic-ai/claude-code',
+      '   - codex: npm install -g @openai/codex',
+    ].join('\n');
+  }
+
+  const lines = available.map(provider => {
+    const version = provider.version ? ` v${provider.version}` : '';
+    return `✅ ${provider.name}${version} (priority: ${provider.priority})`;
+  });
+
+  return lines.join('\n');
+}
+
+function formatTestResult(provider: string, target: any, result?: any, error?: any): string {
+  const lines = [
+    `\n🧪 Testing ${provider}...`,
+    '─'.repeat(50),
+    `Status: ${target.status}`,
+    `Version: ${target.version || 'N/A'}`,
+  ];
+
+  if (target.missingRequirements) {
+    lines.push(`Missing: ${target.missingRequirements.join(', ')}`);
+  }
+
+  if (target.status === 'available') {
+    if (result) {
+      if (result.success) {
+        lines.push(`\n✅ Provider is available. Running test task...`);
+        lines.push(`✅ Test completed (${result.duration}ms)`);
+        lines.push(`Output: ${result.output?.substring(0, 100)}`);
+      } else {
+        lines.push(`\n✅ Provider is available. Running test task...`);
+        lines.push(`❌ Test failed: ${result.error}`);
+      }
+    } else if (error) {
+      lines.push(`\n✅ Provider is available. Running test task...`);
+      lines.push(`❌ Test error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  } else {
+    lines.push('\n❌ Provider is not available. Cannot test.');
+  }
+
+  return lines.join('\n');
+}
+
+function formatAIConfig(config: any): string {
+  return [
+    '\n⚙️  AI Configuration:',
+    '─'.repeat(50),
+    `Environment Scan: ${config.environment_scan.enabled ? 'Enabled' : 'Disabled'}`,
+    `Auto Fallback: ${config.fallback.auto_fallback ? 'Enabled' : 'Disabled'}`,
+    `Prompt Before Switch: ${config.fallback.prompt_before_switch ? 'Yes' : 'No'}`,
+    `Max Fallback Attempts: ${config.fallback.max_attempts}`,
+    `Built-in AI: ${config.built_in_ai.enabled ? 'Enabled' : 'Disabled'}`,
+    `Model: ${config.built_in_ai.model}`,
+    '',
+  ].join('\n');
+}
+
+function formatFallbackPaths(registry: ProviderRegistry): string {
+  const lines = ['\n🔄 Fallback Paths:', '─'.repeat(50)];
+
+  for (const provider of registry.getAllProviders().sort((a, b) => b.priority - a.priority)) {
+    const fallbacks = registry.getFallbackTargets(provider.name);
+    const status = provider.status === 'available' ? '✅' : '❌';
+    lines.push(`${status} ${provider.name} → ${fallbacks.join(' → ')}`);
+  }
+
+  return lines.join('\n') + '\n';
+}
+
 aiCmd
   .command('status')
   .description('Show current AI CLI environment status')
@@ -22,19 +119,7 @@ aiCmd
     registry.printStatus();
 
     if (options.verbose) {
-      console.log('📊 Environment Report:');
-      console.log('─'.repeat(50));
-      console.log(`Scanned at: ${report.scannedAt.toLocaleString()}`);
-      console.log(`Total available: ${report.totalAvailable}`);
-      console.log(`Recommended: ${report.recommendedProvider}`);
-
-      if (report.warnings.length > 0) {
-        console.log('\n⚠️  Warnings:');
-        for (const warning of report.warnings) {
-          console.log(`  - ${warning}`);
-        }
-      }
-      console.log('');
+      console.log(formatEnvironmentReport(report));
     }
   });
 
@@ -66,18 +151,7 @@ aiCmd
     console.log('─'.repeat(50));
 
     const available = registry.getAvailableProviders();
-    if (available.length === 0) {
-      console.log('⚠️  No AI CLI tools detected.');
-      console.log('   Install an AI CLI tool for better experience:');
-      console.log('   - gemini: npm install -g @google/gemini-cli');
-      console.log('   - claude: npm install -g @anthropic-ai/claude-code');
-      console.log('   - codex: npm install -g @openai/codex');
-    } else {
-      for (const provider of available) {
-        const version = provider.version ? ` v${provider.version}` : '';
-        console.log(`✅ ${provider.name}${version} (priority: ${provider.priority})`);
-      }
-    }
+    console.log(formatProviderList(available));
 
     console.log(`\n🎯 Recommended: ${registry.getRecommendedProvider()}\n`);
   });
@@ -97,18 +171,7 @@ aiCmd
       process.exit(1);
     }
 
-    console.log(`\n🧪 Testing ${provider}...`);
-    console.log('─'.repeat(50));
-    console.log(`Status: ${target.status}`);
-    console.log(`Version: ${target.version || 'N/A'}`);
-
-    if (target.missingRequirements) {
-      console.log(`Missing: ${target.missingRequirements.join(', ')}`);
-    }
-
     if (target.status === 'available') {
-      console.log('\n✅ Provider is available. Running test task...');
-
       try {
         const result = await delegateExecutor.delegate({
           provider: provider as AIDelegateProvider,
@@ -116,17 +179,12 @@ aiCmd
           timeout: 10000,
         });
 
-        if (result.success) {
-          console.log(`✅ Test completed (${result.duration}ms)`);
-          console.log(`Output: ${result.output?.substring(0, 100)}`);
-        } else {
-          console.log(`❌ Test failed: ${result.error}`);
-        }
+        console.log(formatTestResult(provider, target, result));
       } catch (error) {
-        console.log(`❌ Test error: ${error instanceof Error ? error.message : String(error)}`);
+        console.log(formatTestResult(provider, target, undefined, error));
       }
     } else {
-      console.log('\n❌ Provider is not available. Cannot test.');
+      console.log(formatTestResult(provider, target));
     }
     console.log('');
   });
@@ -148,15 +206,7 @@ aiCmd
 
     if (options?.show || (!key && !value)) {
       const config = await loadAIConfig();
-      console.log('\n⚙️  AI Configuration:');
-      console.log('─'.repeat(50));
-      console.log(`Environment Scan: ${config.environment_scan.enabled ? 'Enabled' : 'Disabled'}`);
-      console.log(`Auto Fallback: ${config.fallback.auto_fallback ? 'Enabled' : 'Disabled'}`);
-      console.log(`Prompt Before Switch: ${config.fallback.prompt_before_switch ? 'Yes' : 'No'}`);
-      console.log(`Max Fallback Attempts: ${config.fallback.max_attempts}`);
-      console.log(`Built-in AI: ${config.built_in_ai.enabled ? 'Enabled' : 'Disabled'}`);
-      console.log(`Model: ${config.built_in_ai.model}`);
-      console.log('');
+      console.log(formatAIConfig(config));
       return;
     }
 
@@ -202,13 +252,5 @@ aiCmd
     const report = await detector.scan();
     const registry = new ProviderRegistry(report);
 
-    console.log('\n🔄 Fallback Paths:');
-    console.log('─'.repeat(50));
-
-    for (const provider of registry.getAllProviders().sort((a, b) => b.priority - a.priority)) {
-      const fallbacks = registry.getFallbackTargets(provider.name);
-      const status = provider.status === 'available' ? '✅' : '❌';
-      console.log(`${status} ${provider.name} → ${fallbacks.join(' → ')}`);
-    }
-    console.log('');
+    console.log(formatFallbackPaths(registry));
   });

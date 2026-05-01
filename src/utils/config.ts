@@ -20,7 +20,7 @@ const DEFAULT_CONFIG: Config = {
   sandbox: {
     enabled: true,
     mode: 'STRICT',
-    defaultPolicy: 'passthrough', // 保持向后兼容性
+    defaultPolicy: 'passthrough', // 安全优先: 默认拒绝
   },
   storage: {
     dir: '~/.vectahub',

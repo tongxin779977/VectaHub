@@ -148,45 +148,58 @@ function validateModule(contract: ModuleContract): ValidationResult {
   };
 }
 
+function formatValidationResults(results: ValidationResult[]): string {
+  let passCount = 0;
+  let failCount = 0;
+  let warnCount = 0;
+
+  const lines = ['\n🔍 Validating module interfaces...\n'];
+
+  for (const result of results) {
+    if (result.status === 'pass') passCount++;
+    else if (result.status === 'fail') failCount++;
+    else warnCount++;
+
+    const icon = result.status === 'pass' ? '✅' : result.status === 'fail' ? '❌' : '⚠️';
+    lines.push(`${icon} ${result.module}: ${result.message}`);
+    if (result.details) {
+      result.details.forEach(d => lines.push(d));
+    }
+    lines.push('');
+  }
+
+  lines.push('─'.repeat(50));
+  lines.push(`\n📊 Validation Summary:`);
+  lines.push(`   ✅ Passed:  ${passCount}`);
+  lines.push(`   ❌ Failed:  ${failCount}`);
+  lines.push(`   ⚠️  Warnings: ${warnCount}`);
+  lines.push('');
+
+  if (failCount > 0) {
+    lines.push('❌ Validation FAILED - some modules have missing methods\n');
+  } else if (warnCount > 0) {
+    lines.push('⚠️  Validation passed with warnings\n');
+  } else {
+    lines.push('✅ All modules validated successfully!\n');
+  }
+
+  return lines.join('\n');
+}
+
 export const validate = new Command('validate')
   .description('Validate module interface contracts')
   .action(async () => {
-    console.log('\n🔍 Validating module interfaces...\n');
-
     const results: ValidationResult[] = [];
-    let passCount = 0;
-    let failCount = 0;
-    let warnCount = 0;
 
     for (const contract of MODULE_CONTRACTS) {
       const result = validateModule(contract);
       results.push(result);
-
-      if (result.status === 'pass') passCount++;
-      else if (result.status === 'fail') failCount++;
-      else warnCount++;
-
-      const icon = result.status === 'pass' ? '✅' : result.status === 'fail' ? '❌' : '⚠️';
-      console.log(`${icon} ${result.module}: ${result.message}`);
-      if (result.details) {
-        result.details.forEach(d => console.log(d));
-      }
-      console.log('');
     }
 
-    console.log('─'.repeat(50));
-    console.log(`\n📊 Validation Summary:`);
-    console.log(`   ✅ Passed:  ${passCount}`);
-    console.log(`   ❌ Failed:  ${failCount}`);
-    console.log(`   ⚠️  Warnings: ${warnCount}`);
-    console.log('');
+    console.log(formatValidationResults(results));
 
+    const failCount = results.filter(r => r.status === 'fail').length;
     if (failCount > 0) {
-      console.log('❌ Validation FAILED - some modules have missing methods\n');
       process.exit(1);
-    } else if (warnCount > 0) {
-      console.log('⚠️  Validation passed with warnings\n');
-    } else {
-      console.log('✅ All modules validated successfully!\n');
     }
   });
