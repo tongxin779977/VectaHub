@@ -1,11 +1,7 @@
 import { Command } from 'commander';
 import { existsSync } from 'fs';
-import { join, dirname } from 'path';
+import { join } from 'path';
 import { spawn } from 'child_process';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 const moduleMap: Record<string, string[]> = {
   cli: ['src/cli.test.ts'],
@@ -39,7 +35,7 @@ export const test = new Command('test')
     args.push(...patterns);
 
     const child = spawn('npx', args, {
-      cwd: join(__dirname, '..', '..'),
+      cwd: process.cwd(),
       stdio: 'inherit',
     });
 
