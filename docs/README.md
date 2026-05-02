@@ -1,31 +1,25 @@
-# VectaHub 文档
+# VectaHub 文档索引
 
-## 快速导航
+> 最后更新: 2026-05-02
 
-| 你是谁 | 看哪个 |
-|--------|--------|
-| 想了解这个项目是什么 | [product/01_product_positioning.md](product/01_product_positioning.md) |
-| 想看完整功能清单 | [product/02_feature_planning.md](product/02_feature_planning.md) |
-| 想了解技术架构 | [design/01_system_architecture.md](design/01_system_architecture.md) |
-| 想开始开发（agent 专用） | [design/04_agent_tasks.md](design/04_agent_tasks.md) |
-| 想了解实施路径 | [design/03_implementation_roadmap.md](design/03_implementation_roadmap.md) |
-| 想看 CLI 命令清单 | [design/05_cli_commands.md](design/05_cli_commands.md) |
-| 想看工作流引擎设计 | [design/06_workflow_engine_design.md](design/06_workflow_engine_design.md) |
-| 想看工程改进计划 | [design/11_engineering_improvement_plan.md](design/11_engineering_improvement_plan.md) |
+---
 
-## 目录结构
+## 产品文档
 
-```
-docs/
-├── product/                          # 产品文档（给人看）
-│   ├── 01_product_positioning.md     # 产品定位、与 OpenCLI 关系
-│   └── 02_feature_planning.md        # 功能清单、三步规划
-│
-└── design/                           # 技术文档（给人 + agent 看）
-    ├── 01_system_architecture.md     # 系统架构、数据结构、数据流
-    ├── 02_sandbox_design.md          # 沙箱设计
-    ├── 03_implementation_roadmap.md  # 实施路线图（给人看：为什么做、验收标准）
-    ├── 04_agent_tasks.md             # 开发任务（给 agent 看：精确到代码行）
-    ├── 06_workflow_engine_design.md  # 工作流引擎设计
-    └── 11_engineering_improvement_plan.md  # 工程改进计划
-```
+| 文档 | 说明 |
+|------|------|
+| [00 已实现功能](product/00_implemented_features.md) | 当前实际已完成的功能清单 |
+| [01 产品定位](product/01_product_positioning.md) | 产品定位、三步走策略 |
+| [02 功能规划](product/02_feature_planning.md) | 功能列表、三步详细规划 |
+| [04 后续路线图](product/04_next_phase_roadmap.md) | Phase 1-4 开发路线图 |
+
+## 设计文档
+
+| 文档 | 说明 |
+|------|------|
+| [01 系统架构](design/01_system_architecture.md) | 三层架构、数据流 |
+| [03 实施路线图](design/03_implementation_roadmap.md) | 三步实施计划（人类可读） |
+| [04 Agent 开发任务](design/04_agent_tasks.md) | 精确到代码行级别的开发规格（Agent 用） |
+| [05 CLI 命令文档](design/05_cli_commands.md) | 全部 CLI 命令参考 |
+| [06 工作流引擎设计](design/06_workflow_engine_design.md) | 工作流引擎实现指南 |
+| [11 工程改进计划](design/11_engineering_improvement_plan.md) | 工程质量和规范改进计划 |

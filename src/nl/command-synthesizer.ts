@@ -246,6 +246,11 @@ export function createTaskFromIntent(
     INSTALL_PACKAGE: 'PACKAGE_INSTALL',
     RUN_SCRIPT: 'TEST_RUN',
     DELETE_FILE: 'CODE_DELETE',
+    FILE_ARCHIVE: 'CODE_TRANSFORM',
+    NETWORK_INFO: 'QUERY_EXEC',
+    SYSTEM_MONITOR: 'QUERY_EXEC',
+    FILE_PERMISSION: 'CODE_TRANSFORM',
+    FILE_DIFF: 'QUERY_EXEC',
   };
 
   const taskType = taskTypeMap[intent] || 'QUERY_EXEC';
@@ -346,6 +351,51 @@ export function createTaskFromIntent(
   } else if (intent === 'DELETE_FILE') {
     // 删除文件
     task.commands = [{ cli: 'echo', args: ['Delete file task'] }];
+  } else if (intent === 'FILE_ARCHIVE') {
+    // 压缩/解压文件
+    const input = originalInput.toLowerCase();
+    if (input.includes('解压') || input.includes('unzip') || input.includes('extract')) {
+      task.commands = [{ cli: 'tar', args: ['-xzf', entities.FILE_PATH?.[0] || 'archive.tar.gz', '-C', '.'] }];
+    } else {
+      task.commands = [{ cli: 'tar', args: ['-czf', 'archive.tar.gz', entities.FILE_PATH?.[0] || '.'] }];
+    }
+  } else if (intent === 'NETWORK_INFO') {
+    // 网络信息查询
+    const input = originalInput.toLowerCase();
+    if (input.includes('ping') || input.includes('连通')) {
+      task.commands = [{ cli: 'ping', args: ['-c', '3', entities.HOST?.[0] || 'localhost'] }];
+    } else if (input.includes('dns') || input.includes('解析')) {
+      task.commands = [{ cli: 'nslookup', args: [entities.HOST?.[0] || 'baidu.com'] }];
+    } else if (input.includes('端口') || input.includes('port')) {
+      task.commands = [{ cli: 'curl', args: ['-s', '-o', '/dev/null', '-w', '%{http_code}', `http://localhost:${entities.PORT?.[0] || '80'}`] }];
+    } else {
+      task.commands = [{ cli: 'ifconfig', args: [] }];
+    }
+  } else if (intent === 'SYSTEM_MONITOR') {
+    // 系统监控
+    const input = originalInput.toLowerCase();
+    if (input.includes('cpu') || input.includes('负载') || input.includes('load')) {
+      task.commands = [{ cli: 'top', args: ['-bn', '1'] }];
+    } else if (input.includes('内存') || input.includes('memory')) {
+      task.commands = [{ cli: 'ps', args: ['aux', '--sort', '-%mem', '|', 'head', '-20'] }];
+    } else if (input.includes('进程') || input.includes('process')) {
+      task.commands = [{ cli: 'ps', args: ['aux', '|', 'wc', '-l'] }];
+    } else {
+      task.commands = [{ cli: 'df', args: ['-h'] }];
+    }
+  } else if (intent === 'FILE_PERMISSION') {
+    // 文件权限管理
+    const input = originalInput.toLowerCase();
+    if (input.includes('查看') || input.includes('check') || input.includes('ls')) {
+      task.commands = [{ cli: 'ls', args: ['-la', entities.FILE_PATH?.[0] || '.'] }];
+    } else if (input.includes('owner') || input.includes('chown')) {
+      task.commands = [{ cli: 'chown', args: [entities.OWNER?.[0] || 'user', entities.FILE_PATH?.[0] || '.'] }];
+    } else {
+      task.commands = [{ cli: 'chmod', args: [entities.MODE?.[0] || '644', entities.FILE_PATH?.[0] || '.'] }];
+    }
+  } else if (intent === 'FILE_DIFF') {
+    // 文件比较
+    task.commands = [{ cli: 'diff', args: ['-u', entities.FILE1?.[0] || 'file1', entities.FILE2?.[0] || 'file2'] }];
   } else {
     // 默认的查询命令
     task.commands = [{ cli: 'echo', args: ['Task executed successfully'] }];

@@ -1,6 +1,10 @@
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { spawn } from 'child_process';
+import type { WorkflowEngine } from './engine.js';
+import type { Workflow } from '../types/index.js';
+import { getAuditInstance, AuditEventType, audit } from '../infrastructure/audit/index.js';
 
 const SCHEDULES_FILE = join(homedir(), '.vectahub', 'schedules.json');
 
@@ -9,19 +13,69 @@ export interface ScheduleEntry {
   name: string;
   cron: string;
   workflowId?: string;
+  workflowFile?: string;
   command?: string;
   args?: string[];
   enabled: boolean;
   lastRun?: string;
+  lastStatus?: 'SUCCESS' | 'FAILED' | 'RUNNING';
+  lastError?: string;
+  runCount: number;
   createdAt: string;
 }
 
+export interface ScheduleManagerOptions {
+  engine?: WorkflowEngine;
+}
+
 export interface ScheduleManager {
-  add(entry: Omit<ScheduleEntry, 'id' | 'createdAt' | 'enabled'>): ScheduleEntry;
+  add(entry: Omit<ScheduleEntry, 'id' | 'createdAt' | 'enabled' | 'runCount'>): ScheduleEntry;
   remove(id: string): boolean;
   list(): ScheduleEntry[];
   start(): void;
   stop(): void;
+}
+
+async function executeCommand(entry: ScheduleEntry): Promise<{ success: boolean; error?: string }> {
+  const command = entry.command;
+  if (!command) return { success: false, error: 'No command to execute' };
+
+  return new Promise((resolve) => {
+    const child = spawn(command, entry.args || [], { stdio: 'pipe' });
+    let stderr = '';
+    child.stderr?.on('data', (data: Buffer) => { stderr += data.toString(); });
+    child.on('close', (code: number | null) => {
+      resolve({ success: code === 0, error: code !== 0 ? stderr.trim() : undefined });
+    });
+    child.on('error', (err: Error) => {
+      resolve({ success: false, error: err.message });
+    });
+  });
+}
+
+async function executeWorkflow(entry: ScheduleEntry, engine?: WorkflowEngine): Promise<{ success: boolean; error?: string }> {
+  if (!entry.workflowFile || !engine) return { success: false, error: 'No workflow or engine' };
+
+  try {
+    const content = readFileSync(entry.workflowFile, 'utf-8');
+    const workflow = JSON.parse(content) as Workflow;
+    const result = await engine.execute(workflow);
+    return { success: result.status === 'COMPLETED', error: result.warnings?.join('; ') };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+function updateEntryStatus(entry: ScheduleEntry, result: { success: boolean; error?: string }): void {
+  const schedules = loadSchedules();
+  const idx = schedules.findIndex((e) => e.id === entry.id);
+  if (idx >= 0) {
+    schedules[idx].lastRun = new Date().toISOString();
+    schedules[idx].lastStatus = result.success ? 'SUCCESS' : 'FAILED';
+    schedules[idx].lastError = result.error;
+    schedules[idx].runCount = (schedules[idx].runCount || 0) + 1;
+    saveSchedules(schedules);
+  }
 }
 
 function ensureSchedulesDir(): void {
@@ -65,12 +119,30 @@ function parseCronInterval(cron: string): number {
   return 5 * 60 * 1000;
 }
 
-export function createScheduleManager(): ScheduleManager {
+export function createScheduleManager(options: ScheduleManagerOptions = {}): ScheduleManager {
   let timers: Map<string, NodeJS.Timeout> = new Map();
+  const { engine } = options;
 
-  function runTask(entry: ScheduleEntry): void {
-    entry.lastRun = new Date().toISOString();
-    saveSchedules(loadSchedules());
+  async function runTask(entry: ScheduleEntry): Promise<void> {
+    let result: { success: boolean; error?: string };
+    
+    if (entry.workflowFile && engine) {
+      result = await executeWorkflow(entry, engine);
+    } else if (entry.command) {
+      result = await executeCommand(entry);
+    } else {
+      result = { success: false, error: 'No workflow or command configured' };
+    }
+
+    updateEntryStatus(entry, result);
+
+    audit.workflowStep(
+      `schedule:${entry.id}`,
+      entry.workflowFile || entry.command || '',
+      entry.args || [],
+      getAuditInstance().getSessionId(),
+      { scheduleId: entry.id, status: result.success ? 'SUCCESS' : 'FAILED', error: result.error }
+    );
   }
 
   function scheduleEntry(entry: ScheduleEntry): void {
@@ -79,9 +151,9 @@ export function createScheduleManager(): ScheduleManager {
     }
 
     const interval = parseCronInterval(entry.cron);
-    const timer = setInterval(() => {
+    const timer = setInterval(async () => {
       if (entry.enabled) {
-        runTask(entry);
+        await runTask(entry);
       }
     }, interval);
 
@@ -96,6 +168,7 @@ export function createScheduleManager(): ScheduleManager {
         id: `sched_${Date.now()}`,
         createdAt: new Date().toISOString(),
         enabled: true,
+        runCount: 0,
       };
       schedules.push(newEntry);
       saveSchedules(schedules);

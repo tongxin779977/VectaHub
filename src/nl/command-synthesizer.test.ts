@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createCommandSynthesizer, createTaskFromIntent } from './command-synthesizer.js';
 
+const EMPTY_ENTITIES = {
+  FILE_PATH: [], CLI_TOOL: [], PACKAGE_NAME: [], FUNCTION_NAME: [],
+  BRANCH_NAME: [], ENV: [], OPTIONS: [], HOST: [], PORT: [],
+  OWNER: [], MODE: [], FILE1: [], FILE2: [],
+};
+
 describe('CommandSynthesizer', () => {
   let synthesizer: ReturnType<typeof createCommandSynthesizer>;
 
@@ -39,48 +45,48 @@ describe('CommandSynthesizer', () => {
 
   describe('createTaskFromIntent', () => {
     it('should create GIT_WORKFLOW task', () => {
-      const entities = { FILE_PATH: [], CLI_TOOL: ['git'], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: [] };
+      const entities = { ...EMPTY_ENTITIES, CLI_TOOL: ['git'] };
       const task = createTaskFromIntent('GIT_WORKFLOW', entities, '提交代码');
       expect(task.type).toBe('GIT_OPERATION');
       expect(task.status).toBe('PENDING');
     });
 
     it('should create FILE_FIND task', () => {
-      const entities = { FILE_PATH: [], CLI_TOOL: ['find'], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: [] };
+      const entities = { ...EMPTY_ENTITIES, CLI_TOOL: ['find'] };
       const task = createTaskFromIntent('FILE_FIND', entities, '查找文件');
       expect(task.type).toBe('QUERY_EXEC');
     });
 
     it('should generate pull command when OPTIONS contains "pull"', () => {
-      const entities = { FILE_PATH: [], CLI_TOOL: ['git'], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: ['pull'] };
+      const entities = { ...EMPTY_ENTITIES, CLI_TOOL: ['git'], OPTIONS: ['pull'] };
       const task = createTaskFromIntent('GIT_WORKFLOW', entities, 'pull代码');
       expect(task.commands.length).toBe(1);
       expect(task.commands[0].args).toEqual(['pull']);
     });
 
     it('should generate push command when OPTIONS contains "push" only', () => {
-      const entities = { FILE_PATH: [], CLI_TOOL: ['git'], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: ['main'], ENV: [], OPTIONS: ['push'] };
+      const entities = { ...EMPTY_ENTITIES, CLI_TOOL: ['git'], BRANCH_NAME: ['main'], OPTIONS: ['push'] };
       const task = createTaskFromIntent('GIT_WORKFLOW', entities, 'push到main分支');
       expect(task.commands.length).toBe(1);
       expect(task.commands[0].args).toEqual(['push', 'origin', 'main']);
     });
 
     it('should generate clone command when OPTIONS contains "clone"', () => {
-      const entities = { FILE_PATH: [], CLI_TOOL: ['git'], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: ['clone'] };
+      const entities = { ...EMPTY_ENTITIES, CLI_TOOL: ['git'], OPTIONS: ['clone'] };
       const task = createTaskFromIntent('GIT_WORKFLOW', entities, 'clone仓库');
       expect(task.commands.length).toBe(1);
       expect(task.commands[0].args[0]).toEqual('clone');
     });
 
     it('should generate commit command when OPTIONS contains "commit" only', () => {
-      const entities = { FILE_PATH: [], CLI_TOOL: ['git'], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: ['commit', 'fix bug'] };
+      const entities = { ...EMPTY_ENTITIES, CLI_TOOL: ['git'], OPTIONS: ['commit', 'fix bug'] };
       const task = createTaskFromIntent('GIT_WORKFLOW', entities, 'commit修复');
       expect(task.commands.length).toBe(1);
       expect(task.commands[0].args).toEqual(['commit', '-m', '修复']);
     });
 
     it('should generate default add/commit workflow when no specific options', () => {
-      const entities = { FILE_PATH: [], CLI_TOOL: ['git'], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: [] };
+      const entities = { ...EMPTY_ENTITIES, CLI_TOOL: ['git'] };
       const task = createTaskFromIntent('GIT_WORKFLOW', entities, '提交代码');
       expect(task.commands.length).toBe(2);
       expect(task.commands[0].args).toEqual(['add', '-A']);

@@ -94,7 +94,7 @@ export interface CommandDetection {
   category?: DangerCategory;
 }
 
-export type EntityType = 'FILE_PATH' | 'CLI_TOOL' | 'PACKAGE_NAME' | 'FUNCTION_NAME' | 'BRANCH_NAME' | 'ENV' | 'OPTIONS';
+export type EntityType = 'FILE_PATH' | 'CLI_TOOL' | 'PACKAGE_NAME' | 'FUNCTION_NAME' | 'BRANCH_NAME' | 'ENV' | 'OPTIONS' | 'HOST' | 'PORT' | 'OWNER' | 'MODE' | 'FILE1' | 'FILE2';
 
 export interface ExtractedEntity {
   type: EntityType;

@@ -3,6 +3,7 @@ import type { Step, ExecutionStatus, SandboxMode } from '../types/index.js';
 import { createDetector, type Detector } from '../sandbox/detector.js';
 import { createSandboxManager, type SandboxManager } from '../sandbox/sandbox.js';
 import { audit } from '../utils/audit.js';
+import { createRBACManager, type RoleName } from '../security-protocol/rbac.js';
 
 const DEFAULT_TIMEOUT = 60000;
 
@@ -13,6 +14,7 @@ export interface ExecutorOptions {
   cwd?: string;
   env?: Record<string, string>;
   useSandbox?: boolean;
+  role?: RoleName;
 }
 
 export interface ExecutionResult {
@@ -73,6 +75,22 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
   async function exec(cli: string, args: string[], options: ExecutorOptions): Promise<CLIResult> {
     const startTime = Date.now();
     const timeout = options.timeout || DEFAULT_TIMEOUT;
+
+    // RBAC check
+    if (options.role) {
+      const rbac = createRBACManager();
+      const fullCommand = `${cli} ${args.join(' ')}`;
+      if (!rbac.canExecute(options.role, fullCommand, cli)) {
+        audit.securityAction('RBAC_DENIED', fullCommand, `Role ${options.role} blocked command: ${fullCommand}`, '');
+        return {
+          success: false,
+          exitCode: 1,
+          stdout: '',
+          stderr: `Command denied by RBAC: role "${options.role}" cannot execute "${cli}"`,
+          duration: Date.now() - startTime,
+        };
+      }
+    }
 
     return new Promise((resolve) => {
       const child = spawn(cli, args, {

@@ -274,6 +274,81 @@ describe('CLI Tool Registry', () => {
     // No match
     expect(registry.searchCommands('nonexistent').length).toBe(0);
   });
+
+  it('should handle null/undefined values safely in searchTools', () => {
+    // @ts-ignore Test with incomplete tool data
+    const incompleteTool: CliTool = { 
+      name: 'test', 
+      description: undefined, 
+      version: '1.0.0',
+      category: null,
+      tags: [undefined, 'valid', null],
+      commands: {}
+    };
+
+    registry.register(incompleteTool);
+
+    // Should not throw errors
+    expect(() => registry.searchTools('test')).not.toThrow();
+    expect(() => registry.searchTools('valid')).not.toThrow();
+    expect(() => registry.searchTools('')).not.toThrow();
+  });
+
+  it('should handle null/undefined values safely in searchCommands', () => {
+    // @ts-ignore Test with incomplete command data
+    const toolWithIncompleteCommands: CliTool = { 
+      name: 'test', 
+      description: 'Test tool', 
+      version: '1.0.0',
+      commands: {
+        // @ts-ignore
+        cmd1: {
+          name: 'cmd1',
+          description: undefined,
+          usage: 'cmd1',
+          examples: [],
+          tags: [null, 'valid', undefined]
+        },
+        // @ts-ignore
+        cmd2: {
+          name: null,
+          description: 'Description',
+          usage: 'cmd2',
+          examples: []
+        }
+      }
+    };
+
+    registry.register(toolWithIncompleteCommands);
+
+    // Should not throw errors
+    expect(() => registry.searchCommands('cmd1')).not.toThrow();
+    expect(() => registry.searchCommands('valid')).not.toThrow();
+    expect(() => registry.searchCommands('')).not.toThrow();
+  });
+
+  it('should return empty array for empty keyword', () => {
+    const tool: CliTool = { 
+      name: 'git', 
+      description: 'Git', 
+      version: '>=2.0.0', 
+      commands: { status: { name: 'status', description: 'Status', usage: 'git status', examples: [] } }
+    };
+
+    registry.register(tool);
+
+    // @ts-ignore Testing with undefined keyword
+    expect(registry.searchTools(undefined)).toEqual([]);
+    // @ts-ignore Testing with null keyword
+    expect(registry.searchTools(null)).toEqual([]);
+    expect(registry.searchTools('')).toEqual([]);
+
+    // @ts-ignore Testing with undefined keyword
+    expect(registry.searchCommands(undefined)).toEqual([]);
+    // @ts-ignore Testing with null keyword
+    expect(registry.searchCommands(null)).toEqual([]);
+    expect(registry.searchCommands('')).toEqual([]);
+  });
 });
 
 describe('Git Tool Definition', () => {

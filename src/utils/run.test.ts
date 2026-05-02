@@ -33,7 +33,7 @@ function convertLLMResultToTaskList(llmResult: LLMResponse, originalInput: strin
     id: `task_${index + 1}`,
     type: mapIntentToTaskType(llmResult.intent),
     description: `${step.cli} ${(step.args || []).join(' ')}`,
-    status: 'PENDING',
+    status: 'PENDING' as const,
     commands: step.cli ? [{ cli: step.cli, args: step.args || [] }] : [{ cli: 'echo', args: [step.type || 'unknown'] }],
     dependencies: [],
   }));

@@ -35,31 +35,34 @@ class CliToolRegistryImpl implements CliToolRegistry {
   }
 
   searchTools(keyword: string): CliTool[] {
+    if (!keyword) return [];
     const lowerKeyword = keyword.toLowerCase();
     return this.getAllTools().filter((tool) => {
-      if (tool.name.toLowerCase().includes(lowerKeyword)) return true;
-      if (tool.description.toLowerCase().includes(lowerKeyword)) return true;
+      if (tool.name?.toLowerCase().includes(lowerKeyword)) return true;
+      if (tool.description?.toLowerCase().includes(lowerKeyword)) return true;
       if (tool.category?.toLowerCase().includes(lowerKeyword)) return true;
-      if (tool.tags?.some((tag) => tag.toLowerCase().includes(lowerKeyword))) return true;
+      if (tool.tags?.some((tag) => tag?.toLowerCase().includes(lowerKeyword))) return true;
       return false;
     });
   }
 
   searchCommands(keyword: string): Array<{ tool: CliTool; command: CliCommand }> {
+    if (!keyword) return [];
     const lowerKeyword = keyword.toLowerCase();
     const results: Array<{ tool: CliTool; command: CliCommand }> = [];
     
     for (const tool of this.getAllTools()) {
+      if (!tool.commands) continue;
       for (const [commandName, command] of Object.entries(tool.commands)) {
-        if (commandName.toLowerCase().includes(lowerKeyword)) {
+        if (commandName?.toLowerCase().includes(lowerKeyword)) {
           results.push({ tool, command });
           continue;
         }
-        if (command.description.toLowerCase().includes(lowerKeyword)) {
+        if (command.description?.toLowerCase().includes(lowerKeyword)) {
           results.push({ tool, command });
           continue;
         }
-        if (command.tags?.some((tag) => tag.toLowerCase().includes(lowerKeyword))) {
+        if (command.tags?.some((tag) => tag?.toLowerCase().includes(lowerKeyword))) {
           results.push({ tool, command });
         }
       }

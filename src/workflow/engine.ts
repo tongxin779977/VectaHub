@@ -84,6 +84,27 @@ function topologicalSort(steps: Step[]): Step[] {
   return sorted;
 }
 
+function interpolateStep(step: Step, context: ExecutionContext): Step {
+  const resolveVariable = (value: string): string => {
+    return value.replace(/\$\{([^}]+)\}/g, (_, varName) => {
+      if (context.previousOutputs[varName]) {
+        const output = context.previousOutputs[varName];
+        return Array.isArray(output) ? output.join('\n') : String(output);
+      }
+      if (context.variables[varName]) {
+        return String(context.variables[varName]);
+      }
+      return `\${${varName}}`;
+    });
+  };
+
+  return {
+    ...step,
+    cli: step.cli ? resolveVariable(step.cli) : undefined,
+    args: step.args?.map(arg => resolveVariable(arg)),
+  };
+}
+
 export function createWorkflowEngine(): WorkflowEngine {
   const workflows = new Map<string, Workflow>();
   const executor = createExecutor();
@@ -184,7 +205,8 @@ export function createWorkflowEngine(): WorkflowEngine {
       }
 
       try {
-        const result = await executor.execute(step, executorOptions, context);
+        const interpolatedStep = interpolateStep(step, context);
+        const result = await executor.execute(interpolatedStep, executorOptions, context);
 
         const stepRecord: StepRecord = {
           stepId: step.id,
@@ -206,8 +228,9 @@ export function createWorkflowEngine(): WorkflowEngine {
           { status: result.status, iterations: result.iterations }
         );
 
+        const storageKey = (step as any).outputVar || step.id;
         if (result.output) {
-          context.previousOutputs[step.id] = result.output;
+          context.previousOutputs[storageKey] = result.output;
         }
 
         if (result.status === 'FAILED') {
@@ -418,6 +441,7 @@ export function createWorkflowEngine(): WorkflowEngine {
         throw new Error(`No remaining steps to execute after step ${failedStepIndex + 1}`);
       }
 
+      const newExecutionId = `exec_${++executionCounter}`;
       const context: ExecutionContext = { variables: {}, previousOutputs: {} };
       for (const stepRecord of previousExecution.steps) {
         if (stepRecord.output) {
@@ -425,7 +449,6 @@ export function createWorkflowEngine(): WorkflowEngine {
         }
       }
 
-      const newExecutionId = `exec_${++executionCounter}`;
       const startedAt = new Date();
 
       currentExecution = {
@@ -467,7 +490,8 @@ export function createWorkflowEngine(): WorkflowEngine {
         }
 
         try {
-          const result = await executor.execute(step, executorOptions, context);
+          const interpolatedStep = interpolateStep(step, context);
+          const result = await executor.execute(interpolatedStep, executorOptions, context);
 
           const stepRecord: StepRecord = {
             stepId: step.id,
@@ -489,8 +513,9 @@ export function createWorkflowEngine(): WorkflowEngine {
             { status: result.status, iterations: result.iterations, resumedFrom: executionId }
           );
 
+          const storageKey = (step as any).outputVar || step.id;
           if (result.output) {
-            context.previousOutputs[step.id] = result.output;
+            context.previousOutputs[storageKey] = result.output;
           }
 
           if (result.status === 'FAILED') {

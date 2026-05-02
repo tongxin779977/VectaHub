@@ -31,9 +31,9 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
   FILE_FIND: {
     name: 'FILE_FIND',
     description: '查找文件',
-    keywords: ['找出', '查找', 'find', 'search', '文件', 'file'],
+    keywords: ['找出', '查找', 'find', 'search', '文件', 'file', '搜索'],
     weight: 0.9,
-    cli: ['find', 'fd', 'locate'],
+    cli: ['find', 'fd', 'locate', 'grep'],
     params: {
       path: {
         type: 'string',
@@ -45,13 +45,41 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
         type: 'string',
         required: false,
         description: '文件名模式'
+      },
+      type: {
+        type: 'string',
+        required: false,
+        default: 'f',
+        description: '文件类型 (f|d|l)'
+      },
+      mtime: {
+        type: 'string',
+        required: false,
+        description: '修改时间 (天数，如 -7 表示7天内)'
+      },
+      size: {
+        type: 'string',
+        required: false,
+        description: '文件大小 (如 +1M, -100k)'
       }
     },
     steps: [
       {
         type: 'exec',
         cli: 'find',
-        args: ['${path}', '-type', 'f', '-name', '${name:-*}']
+        args: ['${path}', '-type', '${type}', '-name', '${name:-*}']
+      },
+      {
+        type: 'exec',
+        cli: 'find',
+        args: ['${path}', '-type', '${type}', '-mtime', '${mtime}'],
+        condition: '${mtime}'
+      },
+      {
+        type: 'exec',
+        cli: 'find',
+        args: ['${path}', '-type', '${type}', '-size', '${size}'],
+        condition: '${size}'
       }
     ]
   },
@@ -59,14 +87,14 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
   GIT_WORKFLOW: {
     name: 'GIT_WORKFLOW',
     description: 'Git 操作流程',
-    keywords: ['提交', 'commit', '推送', 'push', '拉取', 'pull', 'git', 'add'],
+    keywords: ['提交', 'commit', '推送', 'push', '拉取', 'pull', 'git', 'add', '分支', 'branch', '标签', 'tag', '暂存', 'stash', '变基', 'rebase', '合并', 'merge', '日志', 'log', '历史', 'history'],
     weight: 1.0,
     cli: ['git'],
     params: {
       action: {
         type: 'string',
         required: true,
-        description: '操作类型 (add|commit|push|pull|status)'
+        description: '操作类型 (add|commit|push|pull|status|branch|tag|stash|rebase|merge|log|diff)'
       },
       message: {
         type: 'string',
@@ -77,6 +105,16 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
         type: 'string',
         required: false,
         description: '分支名'
+      },
+      tag: {
+        type: 'string',
+        required: false,
+        description: '标签名'
+      },
+      target: {
+        type: 'string',
+        required: false,
+        description: '合并/变基目标分支'
       }
     },
     steps: [
@@ -109,6 +147,60 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
         cli: 'git',
         args: ['status'],
         condition: '${action} == "status"'
+      },
+      {
+        type: 'exec',
+        cli: 'git',
+        args: ['branch'],
+        condition: '${action} == "branch"'
+      },
+      {
+        type: 'exec',
+        cli: 'git',
+        args: ['checkout', '-b', '${branch}'],
+        condition: '${action} in ["branch", "create_branch"]'
+      },
+      {
+        type: 'exec',
+        cli: 'git',
+        args: ['tag', '${tag}'],
+        condition: '${action} in ["tag"]'
+      },
+      {
+        type: 'exec',
+        cli: 'git',
+        args: ['stash', 'push', '-m', '${message:-stashed changes}'],
+        condition: '${action} == "stash"'
+      },
+      {
+        type: 'exec',
+        cli: 'git',
+        args: ['stash', 'pop'],
+        condition: '${action} == "stash_pop"'
+      },
+      {
+        type: 'exec',
+        cli: 'git',
+        args: ['rebase', '${target}'],
+        condition: '${action} == "rebase"'
+      },
+      {
+        type: 'exec',
+        cli: 'git',
+        args: ['merge', '${target}'],
+        condition: '${action} == "merge"'
+      },
+      {
+        type: 'exec',
+        cli: 'git',
+        args: ['log', '--oneline', '-20'],
+        condition: '${action} in ["log", "history"]'
+      },
+      {
+        type: 'exec',
+        cli: 'git',
+        args: ['diff'],
+        condition: '${action} == "diff"'
       }
     ]
   },
@@ -370,6 +462,244 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
         site: '${source}',
         command: 'summary',
         args: ['--format', 'text']
+      }
+    ]
+  },
+
+  FILE_ARCHIVE: {
+    name: 'FILE_ARCHIVE',
+    description: '文件压缩解压',
+    keywords: ['压缩', '解压', 'zip', 'tar', 'gzip', '打包', 'archive', 'unzip'],
+    weight: 0.85,
+    cli: ['tar', 'zip', 'gzip', 'unzip'],
+    params: {
+      source: {
+        type: 'string',
+        required: true,
+        description: '源文件或目录'
+      },
+      target: {
+        type: 'string',
+        required: false,
+        description: '目标文件名'
+      },
+      action: {
+        type: 'string',
+        required: false,
+        default: 'compress',
+        description: '操作类型 (compress|extract)'
+      }
+    },
+    steps: [
+      {
+        type: 'exec',
+        cli: 'tar',
+        args: ['-czf', '${target:-archive.tar.gz}', '${source}'],
+        condition: '${action} in ["compress"]'
+      },
+      {
+        type: 'exec',
+        cli: 'tar',
+        args: ['-xzf', '${source}', '-C', '${target:-.}'],
+        condition: '${action} in ["extract"]'
+      },
+      {
+        type: 'exec',
+        cli: 'unzip',
+        args: ['${source}', '-d', '${target:-.}'],
+        condition: '${source} endsWith ".zip"'
+      }
+    ]
+  },
+
+  NETWORK_INFO: {
+    name: 'NETWORK_INFO',
+    description: '网络信息查询',
+    keywords: ['网络', '状态', 'ifconfig', 'ping', 'dns', 'ip', '端口', '连接', 'network', '连通性'],
+    weight: 0.85,
+    cli: ['ping', 'ifconfig', 'ip', 'netstat', 'curl'],
+    params: {
+      type: {
+        type: 'string',
+        required: false,
+        default: 'ping',
+        description: '查询类型 (ping|ip|dns|port|all)'
+      },
+      target: {
+        type: 'string',
+        required: false,
+        default: 'localhost',
+        description: '目标主机或地址'
+      },
+      port: {
+        type: 'string',
+        required: false,
+        description: '端口号'
+      }
+    },
+    steps: [
+      {
+        type: 'exec',
+        cli: 'ping',
+        args: ['-c', '4', '${target}'],
+        condition: '${type} in ["ping"]'
+      },
+      {
+        type: 'exec',
+        cli: 'ifconfig',
+        args: [],
+        condition: '${type} in ["ip", "all"]'
+      },
+      {
+        type: 'exec',
+        cli: 'nslookup',
+        args: ['${target}'],
+        condition: '${type} in ["dns", "all"]'
+      },
+      {
+        type: 'exec',
+        cli: 'curl',
+        args: ['-s', '-o', '/dev/null', '-w', '%{http_code}', 'http://${target}:${port}'],
+        condition: '${type} in ["port"]'
+      }
+    ]
+  },
+
+  SYSTEM_MONITOR: {
+    name: 'SYSTEM_MONITOR',
+    description: '系统状态监控',
+    keywords: ['系统', '监控', 'top', 'ps', 'df', 'cpu', '负载', 'load', '进程', '进程数', 'memory'],
+    weight: 0.85,
+    cli: ['top', 'ps', 'df', 'free', 'vmstat'],
+    params: {
+      type: {
+        type: 'string',
+        required: false,
+        default: 'all',
+        description: '监控类型 (cpu|memory|disk|process|all)'
+      }
+    },
+    steps: [
+      {
+        type: 'exec',
+        cli: 'top',
+        args: ['-bn', '1'],
+        condition: '${type} in ["cpu", "all"]'
+      },
+      {
+        type: 'exec',
+        cli: 'ps',
+        args: ['aux', '--sort', '-%mem', '|', 'head', '-20'],
+        condition: '${type} in ["memory", "all"]'
+      },
+      {
+        type: 'exec',
+        cli: 'df',
+        args: ['-h'],
+        condition: '${type} in ["disk", "all"]'
+      },
+      {
+        type: 'exec',
+        cli: 'ps',
+        args: ['aux', '|', 'wc', '-l'],
+        condition: '${type} in ["process", "all"]'
+      }
+    ]
+  },
+
+  FILE_PERMISSION: {
+    name: 'FILE_PERMISSION',
+    description: '文件权限管理',
+    keywords: ['权限', '授权', '拒绝', 'chmod', 'chown', 'rwx', '读写', '执行', 'permission', 'access'],
+    weight: 0.85,
+    cli: ['chmod', 'chown', 'ls'],
+    params: {
+      path: {
+        type: 'string',
+        required: true,
+        description: '文件或目录路径'
+      },
+      mode: {
+        type: 'string',
+        required: false,
+        description: '权限模式 (如 755, +x, u+rwx)'
+      },
+      owner: {
+        type: 'string',
+        required: false,
+        description: '所有者'
+      },
+      action: {
+        type: 'string',
+        required: false,
+        default: 'chmod',
+        description: '操作类型 (chmod|chown|check)'
+      }
+    },
+    steps: [
+      {
+        type: 'exec',
+        cli: 'chmod',
+        args: ['${mode}', '${path}'],
+        condition: '${action} in ["chmod"]'
+      },
+      {
+        type: 'exec',
+        cli: 'chown',
+        args: ['${owner}', '${path}'],
+        condition: '${action} in ["chown"]'
+      },
+      {
+        type: 'exec',
+        cli: 'ls',
+        args: ['-la', '${path}'],
+        condition: '${action} in ["check"]'
+      }
+    ]
+  },
+
+  FILE_DIFF: {
+    name: 'FILE_DIFF',
+    description: '文件内容比较',
+    keywords: ['比较', '差异', 'diff', 'compare', '对比', '不同', '区别'],
+    weight: 0.85,
+    cli: ['diff', 'cmp', 'comm'],
+    params: {
+      file1: {
+        type: 'string',
+        required: true,
+        description: '第一个文件'
+      },
+      file2: {
+        type: 'string',
+        required: true,
+        description: '第二个文件'
+      },
+      mode: {
+        type: 'string',
+        required: false,
+        default: 'diff',
+        description: '比较模式 (diff|sidebyside|stat)'
+      }
+    },
+    steps: [
+      {
+        type: 'exec',
+        cli: 'diff',
+        args: ['-u', '${file1}', '${file2}'],
+        condition: '${mode} in ["diff"]'
+      },
+      {
+        type: 'exec',
+        cli: 'diff',
+        args: ['-y', '-W', '80', '${file1}', '${file2}'],
+        condition: '${mode} in ["sidebyside"]'
+      },
+      {
+        type: 'exec',
+        cli: 'diff',
+        args: ['--stat', '${file1}', '${file2}'],
+        condition: '${mode} in ["stat"]'
       }
     ]
   }

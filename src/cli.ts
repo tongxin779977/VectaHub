@@ -18,6 +18,7 @@ import { modeCmd } from './utils/mode.js';
 import { historyCmd } from './utils/history.js';
 import { doctorCmd } from './utils/doctor.js';
 import { generateCmd } from './utils/generate.js';
+import { scheduleCmd } from './utils/schedule.js';
 import { getCliToolRegistry } from './cli-tools/index.js';
 import { gitTool } from './cli-tools/tools/git.js';
 import { npmTool } from './cli-tools/tools/npm.js';
@@ -132,7 +133,8 @@ program
   .addCommand(modeCmd)
   .addCommand(historyCmd)
   .addCommand(doctorCmd)
-  .addCommand(generateCmd);
+  .addCommand(generateCmd)
+  .addCommand(scheduleCmd);
 
 // Setup 命令
 const setupCmd = new Command('setup')
