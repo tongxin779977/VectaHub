@@ -1,9 +1,11 @@
 import pino from 'pino';
 import { mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { fileURLToPath } from 'url';
 
-const LOG_DIR = join(homedir(), '.vectahub', 'logs');
+// 日志生成到项目内部的 logs 目录
+const PROJECT_ROOT = join(fileURLToPath(import.meta.url), '../../..');
+const LOG_DIR = join(PROJECT_ROOT, 'logs');
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) {

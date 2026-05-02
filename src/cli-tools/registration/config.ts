@@ -64,7 +64,13 @@ export async function saveConfig(config: RegistrationConfig): Promise<void> {
   currentConfig.cli_tools = config;
 
   const content = stringify(currentConfig);
-  writeFileSync(configPath, content, 'utf-8');
+
+  try {
+    writeFileSync(configPath, content, 'utf-8');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to save config: ${message}`);
+  }
 }
 
 export function validateToolRegistration(

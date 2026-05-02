@@ -3,11 +3,6 @@ import type { Step, ExecutionStatus, SandboxMode } from '../types/index.js';
 import { createDetector, type Detector } from '../sandbox/detector.js';
 import { createSandboxManager, type SandboxManager } from '../sandbox/sandbox.js';
 import { audit } from '../utils/audit.js';
-import { delegateExecutor } from './ai-delegate.js';
-import { EnvironmentDetector } from './ai-env-detector.js';
-import { ProviderRegistry } from './ai-provider-registry.js';
-import { FallbackStrategy } from './ai-fallback-strategy.js';
-import { loadAIConfig } from '../utils/ai-config.js';
 
 const DEFAULT_TIMEOUT = 60000;
 
@@ -209,8 +204,46 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
   async function executeStep(step: Step, options: ExecutorOptions, context: ExecutionContext): Promise<ExecutionResult> {
     const startTime = Date.now();
 
-    if (step.type === 'delegate') {
-      return executeDelegateStep(step, options, context, startTime);
+    if (step.type === 'opencli') {
+      const site = interpolateString(step.site || '', context);
+      const command = interpolateString(step.command || '', context);
+      const args = (step.args || []).map((arg: string) => interpolateString(arg, context));
+      
+      const fullArgs = [site, command, ...args];
+      
+      const detection = detector.detect('opencli');
+
+      audit.sandboxDetect(
+        detection.isDangerous,
+        detection.level || 'none',
+        `opencli ${site} ${command}`,
+        'unknown'
+      );
+
+      const result = options.useSandbox && sandboxManager
+        ? await execInSandbox('opencli', fullArgs, options)
+        : await exec('opencli', fullArgs, options);
+
+      audit.executorResult(
+        step.id,
+        'opencli',
+        result.exitCode,
+        result.duration,
+        'unknown',
+        { stdoutLength: result.stdout.length, stderrLength: result.stderr.length }
+      );
+
+      const outputs = result.stdout ? [result.stdout] : [];
+      context.previousOutputs[step.id] = outputs;
+
+      return {
+        stepId: step.id,
+        status: result.success ? 'COMPLETED' : 'FAILED',
+        output: outputs,
+        error: result.success ? undefined : result.stderr,
+        duration: Date.now() - startTime,
+        sandboxed: options.useSandbox && sandboxManager ? true : undefined,
+      };
     }
 
     if (step.type === 'for_each') {
@@ -340,60 +373,6 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     };
   }
 
-  async function executeDelegateStep(
-    step: Step,
-    options: ExecutorOptions,
-    context: ExecutionContext,
-    startTime: number
-  ): Promise<ExecutionResult> {
-    const provider = step.delegate_to || 'built-in';
-    const prompt = step.delegate_prompt || '';
-    const delegateContext = step.delegate_context || {};
-
-    try {
-      const aiConfig = await loadAIConfig();
-
-      const detector = new EnvironmentDetector();
-      const envReport = await detector.scan();
-      const registry = new ProviderRegistry(envReport);
-      const fallback = new FallbackStrategy(registry, {
-        autoFallback: aiConfig.fallback.auto_fallback,
-        promptBeforeSwitch: aiConfig.fallback.prompt_before_switch,
-        maxFallbackAttempts: aiConfig.fallback.max_attempts,
-        timeoutMs: aiConfig.fallback.timeout_ms,
-      });
-
-      const targetProvider = await fallback.resolveProvider(provider);
-
-      audit.workflowStep(step.id, `delegate:${targetProvider}`, [], 'unknown');
-
-      const result = await delegateExecutor.delegate({
-        provider: targetProvider as any,
-        prompt,
-        context: delegateContext,
-      });
-
-      if (result.output) {
-        context.previousOutputs[step.id] = [result.output];
-      }
-
-      return {
-        stepId: step.id,
-        status: result.success ? 'COMPLETED' : 'FAILED',
-        output: result.output ? [result.output] : undefined,
-        error: result.error,
-        duration: result.duration,
-      };
-    } catch (error) {
-      return {
-        stepId: step.id,
-        status: 'FAILED',
-        error: error instanceof Error ? error.message : String(error),
-        duration: Date.now() - startTime,
-      };
-    }
-  }
-
   return {
     exec: (cli, args, options) => {
       if (options.useSandbox && sandboxManager) {
@@ -455,11 +434,9 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     validateStep(step: Step): { valid: boolean; errors: string[] } {
       const errors: string[] = [];
 
-      if (!step.id) {
-        errors.push('Step must have an id');
-      }
+      if (!step.id) { errors.push('Step must have an id'); }
 
-      if (!['exec', 'for_each', 'if', 'parallel', 'delegate'].includes(step.type)) {
+      if (!['exec', 'for_each', 'if', 'parallel', 'opencli'].includes(step.type)) {
         errors.push(`Invalid step type: ${step.type}`);
       }
 
@@ -467,8 +444,8 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
         errors.push('exec step must have a cli command');
       }
 
-      if (step.type === 'delegate' && !step.delegate_prompt) {
-        errors.push('delegate step must have a delegate_prompt');
+      if (step.type === 'opencli' && (!step.site || !step.command)) {
+        errors.push('opencli step must have site and command');
       }
 
       if (step.type === 'for_each' && (!step.items || !step.body)) {

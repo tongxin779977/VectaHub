@@ -1,7 +1,6 @@
 import { Command } from 'commander';
 import {
   getCliToolRegistry,
-  getToolScanner,
   getAllKnownTools,
   getKnownTool,
   CommandRuleEngine,
@@ -276,16 +275,6 @@ toolsCmd
     const cmd = registry.getCommandInfo(toolName, command);
 
     console.log(formatTestResult(toolName, command, isDangerous, cmd));
-  });
-
-toolsCmd
-  .command('scan')
-  .description('Scan system for known CLI tools and auto-register them')
-  .action(async () => {
-    const scanner = getToolScanner();
-    const result = await scanner.scan();
-
-    console.log(formatScanResult(result));
   });
 
 toolsCmd

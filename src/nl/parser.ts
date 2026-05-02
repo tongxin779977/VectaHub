@@ -1,7 +1,6 @@
-import type { IntentMatch, IntentName, EntityType, ParseResult, TaskList, ConfidenceLevel } from '../types/index.js';
+import type { IntentMatch, IntentName, ParseResult, TaskList, ConfidenceLevel } from '../types/index.js';
 import { createIntentMatcher, type IntentMatcher } from './intent-matcher.js';
-import { createEntityExtractor } from './entity-extractor.js';
-import { createCommandSynthesizer, createTaskFromIntent } from './command-synthesizer.js';
+import { createTaskFromIntent } from './command-synthesizer.js';
 import { INTENT_TEMPLATES, convertTemplateToPattern, getAllIntentNames } from './templates/index.js';
 
 const INTENT_PATTERNS = Object.values(INTENT_TEMPLATES).map(convertTemplateToPattern);
@@ -19,30 +18,8 @@ function getConfidenceLevel(confidence: number): ConfidenceLevel {
   return 'UNCERTAIN';
 }
 
-function groupEntitiesByType(entities: { type: EntityType; value: string }[]): Record<EntityType, string[]> {
-  const grouped: Record<EntityType, string[]> = {
-    FILE_PATH: [],
-    CLI_TOOL: [],
-    PACKAGE_NAME: [],
-    FUNCTION_NAME: [],
-    BRANCH_NAME: [],
-    ENV: [],
-    OPTIONS: [],
-  };
-
-  for (const entity of entities) {
-    if (!grouped[entity.type].includes(entity.value)) {
-      grouped[entity.type].push(entity.value);
-    }
-  }
-
-  return grouped;
-}
-
 export function createNLParser(): NLParser {
   const matcher = createIntentMatcher([...INTENT_PATTERNS]);
-  const extractor = createEntityExtractor();
-  const synthesizer = createCommandSynthesizer();
 
   return {
     parse(input: string, sessionId?: string): IntentMatch {
@@ -62,7 +39,6 @@ export function createNLParser(): NLParser {
           description: INTENT_TEMPLATES[name]?.description || name
         }));
 
-      // 放宽置信度要求，只要匹配到意图就尝试解析
       if (intentMatch.intent === 'UNKNOWN') {
         return {
           status: 'NEEDS_CLARIFICATION',
@@ -72,22 +48,17 @@ export function createNLParser(): NLParser {
         };
       }
 
-      const entities = extractor.extract(input);
-      const groupedEntities = groupEntitiesByType(entities);
+      // 简化：直接创建任务，不做复杂实体提取
+      const groupedEntities: any = {
+        FILE_PATH: [],
+        CLI_TOOL: [],
+        PACKAGE_NAME: [],
+        FUNCTION_NAME: [],
+        BRANCH_NAME: [],
+        ENV: [],
+        OPTIONS: [],
+      };
       const task = createTaskFromIntent(intentMatch.intent, groupedEntities, input);
-
-      if (groupedEntities.CLI_TOOL.length > 0 && task.commands.length === 0) {
-        const detectedCLI = groupedEntities.CLI_TOOL[0];
-        const params: Record<string, string | string[] | undefined> = {};
-
-        for (const [type, values] of Object.entries(groupedEntities)) {
-          if (values.length > 0 && type !== 'CLI_TOOL') {
-            params[type.toLowerCase()] = values.length === 1 ? values[0] : values;
-          }
-        }
-
-        task.commands = [synthesizer.synthesize(task.type, params, detectedCLI)];
-      }
 
       const taskList: TaskList = {
         version: '1.0',

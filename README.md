@@ -1,10 +1,12 @@
-# VectaHub: Natural Language Workflow Automation Engine 🚀
+# VectaHub: Workflow Editor & Engine + OpenCLI 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/Node.js-21+-339933?logo=node.js)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6?logo=typescript)](https://www.typescriptlang.org/)
 
-> **VectaHub** 是一个自然语言驱动的工作流自动化引擎。只需用自然语言描述你要做的事，它会自动生成、执行、并记录整个工作流。
+> **VectaHub** 是一个工作流编辑器 + 工作流执行引擎。用自然语言（5-10个高频场景）或 YAML 编辑工作流，它会自动编排、执行、并记录整个流程。
+>
+> **与 OpenCLI 互补**：VectaHub 做工作流编排，OpenCLI 做网站操作。
 
 [English Version](./README_EN.md) | **中文说明**
 
@@ -16,75 +18,118 @@
 |------|-----------|----------|
 | Taskfile | 写 YAML: `tasks: { compress: ... }` | 说"压缩图片" |
 | Shell Script | 写 bash: `for f in *.jpg; do...` | 说"压缩图片" |
-| Claude Code | 手动指导 AI 每一步 | 说"压缩图片" |
-| **VectaHub** | **说什么就做什么** | **说"压缩图片"** |
+| **VectaHub** | **YAML 编辑 + 工作流编排** | **写 YAML 或说高频场景** |
 
 ---
 
 ## 🎯 核心使用场景
 
-### 场景 1：日常文件处理
+### 场景 1：高频场景（简单自然语言）
 
 ```bash
-$ vectahub "压缩当前目录的图片"
+$ vectahub run "看 HackerNews 热榜"
 
-🤖 解析意图: IMAGE_COMPRESS
+🤖 匹配高频场景: HACKERNEWS_TOP
 📋 生成工作流:
-  Step 1: find . -type f \( -name "*.jpg" -o -name "*.png" \)
-  Step 2: for each: convert ${item} -resize 50% ${item}
-⏳ 模式: CONSENSUS
-
-确认执行? [Y/n] y
+  Step 1: opencli hackernews top --limit 10
+⏳ 模式: RELAXED
 ▶️ 执行中...
-✅ 完成: 12 个文件已压缩
+✅ 完成
 ```
 
-### 场景 2：开发者工作流
+### 场景 2：YAML 工作流（推荐！）
 
-```bash
-$ vectahub "跑测试，通过就部署"
+创建 `workflow.yaml`:
 
-🤖 解析意图: CI_PIPELINE
-📋 生成工作流:
-  Step 1: npm test
-  Step 2: if (exit_code == 0) then npm run deploy
-⏳ 模式: STRICT (CI 场景自动严格)
+```yaml
+name: HackerNews 热榜保存
+description: 看热榜，提取链接，保存到文件
 
-▶️ 执行中...
-  ▶ npm test ... ✅
-  ▶ npm run deploy ... ✅
+steps:
+  - id: step1
+    type: opencli
+    site: hackernews
+    command: top
+    args: ["--limit", "10"]
+    output: hn_data
+
+  - id: step2
+    type: shell
+    command: node
+    args: ["-e", "console.log(JSON.parse(process.stdin.read()).map(i => i.url).join('\\n'))"]
+    input: "{{ step1.output }}"
+    output: urls
+
+  - id: step3
+    type: shell
+    command: tee
+    args: ["hn-top-urls.txt"]
+    input: "{{ step2.output }}"
+
+mode: relaxed
 ```
 
-### 场景 3：Git 协作
+然后运行：
 
 ```bash
-$ vectahub "提交并推送所有更改"
+$ vectahub run -f workflow.yaml
 
-🤖 解析意图: GIT_WORKFLOW
-📋 生成工作流:
-  Step 1: git add -A
-  Step 2: git commit -m "update"
-  Step 3: git push
+📋 加载工作流: HackerNews 热榜保存
+▶️ 执行中...
+  Step 1: opencli hackernews top ... ✅
+  Step 2: node ... ✅
+  Step 3: tee hn-top-urls.txt ... ✅
+✅ 完成
+```
+
+### 场景 3：本地工作流
+
+```yaml
+name: 提交并推送
+steps:
+  - id: step1
+    type: shell
+    command: git
+    args: ["add", "-A"]
+  - id: step2
+    type: shell
+    command: git
+    args: ["commit", "-m", "update"]
+  - id: step3
+    type: shell
+    command: git
+    args: ["push"]
+mode: strict
 ```
 
 ---
 
-## 🏗️ 系统架构
+## 🏗️ 系统架构（方案C）
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        VectaHub                             │
 ├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐   │
-│  │  NL Parser  │───▶│   Workflow  │───▶│  Executor   │   │
-│  │   (意图解析) │    │   Engine    │    │   (执行器)   │   │
-│  └─────────────┘    └─────────────┘    └─────────────┘   │
-│         │                  │                  │           │
-│         ▼                  ▼                  ▼           │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐   │
-│  │ Intent       │    │ Workflow    │    │ Sandbox     │   │
-│  │ Templates    │    │ Storage     │    │ (macOS)     │   │
-│  └─────────────┘    └─────────────┘    └─────────────┘   │
+│  ┌─────────────────────────────────────────────────────────┐
+│  │  用户交互层                                              │
+│  │  - 简单自然语言（5-10个高频场景）                        │
+│  │  - YAML/JSON 工作流编辑                                 │
+│  └─────────────────────────────────────────────────────────┘
+│                            │
+│                            ▼
+│  ┌─────────────────────────────────────────────────────────┐
+│  │  工作流引擎层（核心）                                   │
+│  │  - 步骤调度（顺序/条件/循环/并行）                      │
+│  │  - 上下文传递（步骤间数据流转）                         │
+│  │  - 审计日志（全程记录）                                 │
+│  └─────────────────────────────────────────────────────────┘
+│                            │
+│                            ▼
+│  ┌─────────────────────────────────────────────────────────┐
+│  │  执行委托层                                              │
+│  │  - OpenCLI（90+网站）                                   │
+│  │  - 本地命令（Shell/Git）                                │
+│  └─────────────────────────────────────────────────────────┘
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -92,11 +137,10 @@ $ vectahub "提交并推送所有更改"
 
 | 组件 | 职责 |
 |------|------|
-| **NL Parser** | 将自然语言转为 Workflow 对象 |
-| **Workflow Engine** | 管理工作流生命周期、步骤执行 |
-| **Executor** | 在沙盒中执行 CLI 命令 |
-| **Sandbox** | macOS 沙盒隔离，保证安全执行 |
-| **CLI Tools Registry** | 标准化 CLI 工具集成 |
+| **Workflow Engine** | 工作流引擎核心：调度、上下文、审计 |
+| **Executor** | 执行器：OpenCLI + 本地命令 |
+| **Sandbox** | macOS 沙盒隔离，安全保障 |
+| **简单 Intent Matcher** | 只匹配 5-10 个高频场景 |
 
 ---
 
@@ -107,7 +151,7 @@ $ vectahub "提交并推送所有更改"
 | 模式 | 非危险命令 | 危险命令 | 适用场景 |
 |------|-----------|----------|----------|
 | **STRICT** | 自动执行 | 报错 | CI/CD |
-| **RELAXED** | 自动执行 | 报错 | 开发调试 |
+| **RELAXED** | 自动执行 | 确认后执行 | 开发调试 |
 | **CONSENSUS** | 确认后执行 | 确认后执行 | 交互执行 |
 
 ### 危险命令检测
@@ -124,19 +168,6 @@ const DANGEROUS_PATTERNS = {
 
 ---
 
-## 📦 内置意图模板
-
-| Intent | 描述 | 示例 |
-|--------|------|------|
-| `IMAGE_COMPRESS` | 压缩图片 | "压缩当前目录图片" |
-| `FILE_FIND` | 查找文件 | "找出所有大于 100M 的文件" |
-| `BACKUP` | 备份文件/目录 | "备份 Documents 到外接硬盘" |
-| `CI_PIPELINE` | CI 流程 | "跑测试，通过就部署" |
-| `BATCH_RENAME` | 批量重命名 | "把所有 .jpeg 改成 .jpg" |
-| `GIT_WORKFLOW` | Git 操作 | "提交并推送" |
-
----
-
 ## 🚀 快速开始
 
 ### 1. 安装
@@ -145,47 +176,82 @@ const DANGEROUS_PATTERNS = {
 npm install -g vectahub
 ```
 
-### 2. 运行自然语言命令
+### 2. 运行简单自然语言（高频场景）
 
 ```bash
-vectahub run "压缩当前目录的图片"
-vectahub run "提交并推送所有更改"
-vectahub run "找出所有大于 100M 的文件"
+vectahub run "看 HackerNews 热榜"
+vectahub run "压缩当前目录图片"
 ```
 
-### 3. 从文件运行工作流
+### 3. 从文件运行工作流（推荐）
 
 ```bash
+# 创建 workflow.yaml
 vectahub run -f workflow.yaml
+```
+
+### 4. OpenCLI 辅助命令
+
+```bash
+vectahub opencli list            # 列出 OpenCLI 可用的网站
+vectahub opencli help <site>     # 查看某个网站的帮助
 ```
 
 ---
 
-## 📂 项目结构
+## 📦 高频场景列表（5-10个）
+
+| 场景 | 自然语言 |
+|------|---------|
+| HACKERNEWS_TOP | "看 HackerNews 热榜" |
+| BILIBILI_HOT | "看 B站热榜" |
+| IMAGE_COMPRESS | "压缩当前目录图片" |
+| GIT_COMMIT_PUSH | "提交并推送" |
+| RUN_TESTS | "跑测试" |
+
+---
+
+## 📂 项目结构（精简后）
 
 ```
 VectaHub/
-├── docs/design/              # 设计文档
+├── docs/design/              # 设计文档（3个核心文档）
+├── .trae/documents/          # 方案文档
 ├── src/
 │   ├── cli.ts               # CLI 入口
-│   ├── nl/                  # 自然语言解析
+│   ├── nl/                  # 简化的 NL（高频场景）
 │   │   ├── parser.ts
 │   │   ├── intent-matcher.ts
 │   │   └── templates/
-│   ├── workflow/            # 工作流引擎
+│   ├── workflow/            # 工作流引擎（核心）
 │   │   ├── engine.ts
 │   │   ├── executor.ts
-│   │   └── storage.ts
+│   │   ├── context-manager.ts
+│   │   ├── storage.ts
+│   │   └── session-manager.ts
 │   ├── sandbox/            # 沙盒隔离
 │   │   ├── detector.ts
 │   │   └── sandbox.ts
 │   ├── cli-tools/          # CLI 工具集成
 │   │   ├── registry.ts
-│   │   └── tools/
+│   │   └── discovery/      # 简化（只保留 known-tools）
 │   └── utils/              # 工具函数
-├── workflows/               # 用户工作流
-└── intents/                # 自定义意图
+│       ├── audit.ts
+│       ├── history.ts
+│       └── config.ts
+└── workflows/               # 用户工作流
 ```
+
+---
+
+## 🗑️ 已删除的内容
+
+| 内容 | 原因 |
+|------|------|
+| AI CLI 环境发现与智能降级 | 大部分用户只用一个 AI CLI，甚至不用 |
+| 复杂的 NL Parser | 维护成本高，用简单规则 + YAML 编辑 |
+| 复杂实体提取 | 同上，工作流里直接写就行 |
+| 对话历史管理 | 工作流步骤间传递才需要 |
 
 ---
 
@@ -202,3 +268,12 @@ VectaHub/
 ## 📄 开源协议
 
 基于 [MIT License](./LICENSE) 开源。
+
+---
+
+```yaml
+version: 4.0.0
+lastUpdated: 2026-05-02
+mindset: 极简、真实、可预测、不杜撰
+status: plan_c_refactoring
+```

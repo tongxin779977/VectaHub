@@ -1,10 +1,11 @@
 export type IntentName =
-  | 'IMAGE_COMPRESS'
   | 'FILE_FIND'
-  | 'BACKUP'
-  | 'CI_PIPELINE'
-  | 'BATCH_RENAME'
   | 'GIT_WORKFLOW'
+  | 'RUN_SCRIPT'
+  | 'SYSTEM_INFO'
+  | 'QUERY_INFO'
+  | 'INSTALL_PACKAGE'
+  | 'CREATE_FILE'
   | 'UNKNOWN';
 
 export interface IntentMatch {
@@ -13,7 +14,14 @@ export interface IntentMatch {
   params: Record<string, unknown>;
 }
 
-export type StepType = 'exec' | 'for_each' | 'if' | 'parallel' | 'delegate';
+export type StepType = 'exec' | 'for_each' | 'if' | 'parallel' | 'opencli' | 'delegate';
+
+export interface AIDelegateOptions {
+  maxTurns?: number;
+  allowedTools?: string[];
+  timeout?: number;
+  outputFormat?: 'text' | 'json' | 'stream-json';
+}
 
 export interface Step {
   id: string;
@@ -25,9 +33,12 @@ export interface Step {
   dependsOn?: string[];
   items?: string;
   outputVar?: string;
-  delegate_to?: string;
-  delegate_prompt?: string;
-  delegate_context?: Record<string, unknown>;
+  site?: string;
+  command?: string;
+  delegateTo?: 'gemini' | 'claude' | 'codex' | 'aider' | 'custom';
+  delegatePrompt?: string;
+  delegateContext?: Record<string, unknown>;
+  delegateOptions?: AIDelegateOptions;
 }
 
 export type WorkflowMode = 'strict' | 'relaxed' | 'consensus';

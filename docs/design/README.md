@@ -1,6 +1,7 @@
 # VectaHub 设计文档索引
 
 > 本文档是所有设计文档的索引和总览
+> 基于方案C：极简产品业务方案 - 工作流编辑器 + 工作流执行引擎
 
 ---
 
@@ -8,145 +9,123 @@
 
 | 编号 | 文档 | 描述 | 状态 |
 |------|------|------|------|
-| 01 | [01_system_architecture.md](01_system_architecture.md) | 系统架构总览 | ✅ 重写 |
+| 01 | [01_system_architecture.md](01_system_architecture.md) | 系统架构总览 | ✅ 保留 |
 | 02 | [02_sandbox_design.md](02_sandbox_design.md) | 沙盒架构设计 | ✅ 保留 |
-| 03 | [03_ai_cli_framework_design.md](03_ai_cli_framework_design.md) | AI Agent CLI 适配器框架 | ✅ 保留 |
-| 04 | [04_nl_parser_skill_design.md](04_nl_parser_skill_design.md) | 自然语言解析 Skill 设计 | ✅ 保留 |
-| 05 | [05_vscode_plugin_design.md](05_vscode_plugin_design.md) | VSCode 插件设计 | ✅ 保留 |
-| 06 | [06_workflow_engine_design.md](06_workflow_engine_design.md) | 自然语言工作流引擎 | ✅ 重写 |
-| 10 | [AI_CLI_环境发现与智能降级设计文档.md](../../.trae/documents/AI_CLI_环境发现与智能降级设计文档.md) | AI CLI 环境发现与智能降级 | ✅ 已实现 |
+| 06 | [06_workflow_engine_design.md](06_workflow_engine_design.md) | 工作流引擎核心设计 | ✅ 核心 |
 
 ---
 
-## 🎯 需求对照表
+## 🎯 产品定位（方案C）
 
-| 用户需求 | 对应设计章节 |
-|----------|--------------|
-| 自然语言生成工作流 | [06_workflow_engine_design.md](06_workflow_engine_design.md) |
-| 可追溯可审查的 CLI 操作 | [06_workflow_engine_design.md - 执行记录](06_workflow_engine_design.md#53-执行记录) |
-| 对标 OpenCLI (互补) | [01_system_architecture.md - 定位](01_system_architecture.md#11-与-opencli-的关系) |
-| 不需要 sudo | [02_sandbox_design.md](02_sandbox_design.md) |
-| 沙盒三种模式 | [02_sandbox_design.md](02_sandbox_design.md) |
-| 支持 AI Agent CLI | [03_ai_cli_framework_design.md](03_ai_cli_framework_design.md) |
-| NL 解析变任务列表 | [06_workflow_engine_design.md - NL Parser](06_workflow_engine_design.md#4-nl-parser-实现) |
-| 生成 VSCode 插件 | [05_vscode_plugin_design.md](05_vscode_plugin_design.md) |
-| 保留 CACP 2.0 | [03_ai_cli_framework_design.md](03_ai_cli_framework_design.md) |
+**一句话**：VectaHub 是一个「工作流编辑器 + 工作流执行引擎」
+
+- **输入**：自然语言（5-10个高频场景）→ 生成工作流；或直接编辑 YAML/JSON
+- **核心**：工作流编排（步骤、条件、循环、并行）
+- **执行**：委托给 OpenCLI 或本地命令
+- **保障**：审计日志 + 危险命令检查
 
 ---
 
-## 🔄 实现优先级
+## 🗑️ 已删除的内容
 
-### Phase 1: 最小可行产品 (MVP)
-
-| 功能 | 描述 | 状态 |
-|------|------|------|
-| NL Parser | 规则匹配意图解析 | 待实现 |
-| Workflow Engine | 顺序执行 | 待实现 |
-| Basic Executor | 无沙盒执行 | 待实现 |
-| CLI: `vectahub run <intent>` | 命令行入口 | 待实现 |
-
-### Phase 2: 核心功能
-
-| 功能 | 描述 | 状态 |
-|------|------|------|
-| For_each / If 步骤类型 | 循环和条件 | 待实现 |
-| macOS Sandbox | 沙盒执行 | 待实现 |
-| 危险命令检测 | 正则匹配 | 待实现 |
-| 执行记录 | JSON 日志 | 待实现 |
-
-### Phase 3: 完善生态
-
-| 功能 | 描述 | 状态 |
-|------|------|------|
-| 意图模板市场 | 用户贡献模板 | 待实现 |
-| Workflow 保存/加载 | YAML 持久化 | 待实现 |
-| 定时任务 | cron 集成 | 待实现 |
-| Linux/Windows 支持 | 跨平台 | 待实现 |
-
-### Phase 4: AI 环境发现 (已完成)
-
-| 功能 | 描述 | 状态 |
-|------|------|------|
-| 环境扫描 | 启动时检测 AI CLI 工具 | ✅ 已实现 |
-| 智能降级 | 自动选择最佳替代方案 | ✅ 已实现 |
-| CLI 命令 | `vectahub ai status/rescan/list` | ✅ 已实现 |
-| 工作流集成 | delegate 步骤类型 | ✅ 已实现 |
+| 内容 | 原因 |
+|------|------|
+| AI CLI 环境发现与智能降级 | 大部分用户只用一个 AI CLI，甚至不用 |
+| 复杂的 NL Parser | 维护成本高，用简单规则 + YAML 编辑 |
+| 复杂实体提取 | 同上，工作流里直接写就行 |
+| 对话历史管理 | 工作流步骤间传递才需要 |
 
 ---
 
-## 📁 VectaHub CLI 命令
+## 🚀 核心功能
+
+### 1. YAML 工作流格式
+
+```yaml
+name: HackerNews 热榜保存
+description: 看热榜，提取链接，保存到文件
+
+steps:
+  - id: step1
+    type: opencli
+    site: hackernews
+    command: top
+    args: ["--limit", "10"]
+    output: hn_data
+
+  - id: step2
+    type: shell
+    command: node
+    args: ["-e", "console.log(JSON.parse(process.stdin.read()).map(i => i.url).join('\\n'))"]
+    input: "{{ step1.output }}"
+    output: urls
+
+  - id: step3
+    type: shell
+    command: tee
+    args: ["hn-top-urls.txt"]
+    input: "{{ step2.output }}"
+
+mode: relaxed
+```
+
+### 2. CLI 命令
 
 ```bash
 # 工作流
-vectahub run <intent>           # 自然语言运行
-vectahub run -f <workflow.yaml>  # 文件运行
+vectahub run <intent>            # 简单自然语言（5-10个高频场景）
+vectahub run -f <workflow.yaml>  # 从文件运行
 vectahub save <name>             # 保存工作流
-vectahub list                    # 列出工作流
-vectahub edit <id>              # 编辑工作流
-vectahub delete <id>            # 删除工作流
+vectahub list                    # 列出保存的工作流
+vectahub history                 # 查看执行历史
 
-# 执行控制
-vectahub pause                   # 暂停
-vectahub resume                  # 继续
-vectahub abort                   # 终止
-vectahub status                  # 查看状态
-vectahub history                 # 查看历史
+# OpenCLI 辅助
+vectahub opencli list            # 列出 OpenCLI 可用的网站
+vectahub opencli help <site>     # 查看某个网站的帮助
 
-# 沙盒控制
+# 执行模式
 vectahub mode                    # 查看当前模式
 vectahub mode strict/relaxed/consensus
 
-# 状态
+# 其他
 vectahub doctor                  # 诊断
 vectahub version                 # 版本
 ```
 
 ---
 
-## 🆚 OpenCLI 互补定位
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    用户需求                               │
-└─────────────────────────────────────────────────────────┘
-                          │
-            ┌─────────────┴─────────────┐
-            │                           │
-            ▼                           ▼
-    ┌──────────────────┐      ┌──────────────────┐
-    │     OpenCLI      │  +   │    VectaHub      │
-    │   浏览器自动化    │      │   本地工作流     │
-    │  (网站操作)      │      │  (文件/脚本)     │
-    └──────────────────┘      └──────────────────┘
-```
-
-**OpenCLI**: 刷网站、爬数据、操作已登录的 Chrome
-**VectaHub**: 压缩图片、批量重命名、CI/CD 流程、备份同步
-
----
-
-## 📂 源码结构
+## 📂 源码结构（精简后）
 
 ```
 src/
 ├── index.ts                    # 入口
 ├── cli.ts                      # CLI 命令
 ├── nl/
-│   ├── parser.ts               # NL 解析器
-│   ├── intent-matcher.ts       # 意图匹配
-│   └── templates/              # 意图模板
+│   ├── parser.ts               # 简化的 NL 解析器（高频场景）
+│   ├── intent-matcher.ts       # 简单意图匹配
+│   ├── llm.ts                  # LLM 兜底（可选）
+│   └── templates/              # 意图模板（5-10个）
 ├── workflow/
 │   ├── engine.ts               # 工作流引擎
 │   ├── executor.ts             # 执行器
+│   ├── context-manager.ts      # 工作流上下文（步骤间传递）
 │   ├── storage.ts              # 存储
-│   └── types.ts                # 类型定义
+│   └── session-manager.ts      # 会话管理
 ├── sandbox/
 │   ├── detector.ts             # 危险命令检测
-│   ├── macos.ts               # macOS 沙盒
-│   └── linux.ts               # Linux 沙盒
+│   └── sandbox.ts              # macOS 沙盒
+├── security-protocol/
+│   └── manager.ts              # 安全协议
+├── command-rules/
+│   └── engine.ts               # 命令规则
+├── cli-tools/
+│   ├── registry.ts             # CLI 工具注册
+│   └── discovery/              # 简化的发现（只保留 known-tools）
 └── utils/
-    ├── logger.ts
-    └── config.ts
+    ├── audit.ts                # 审计日志
+    ├── config.ts               # 配置
+    ├── logger.ts               # 日志
+    └── history.ts              # 历史
 ```
 
 ---
@@ -155,16 +134,16 @@ src/
 
 | 项目 | 描述 |
 |------|------|
-| [OpenCLI](https://github.com/jackwener/OpenCLI) | 浏览器自动化 + AI Agent |
+| [OpenCLI](https://github.com/jackwener/OpenCLI) | 浏览器自动化 + AI Agent（互补！）|
 | [Taskfile](https://taskfile.dev/) | 任务运行器 |
 | [Just](https://github.com/casey/just) | 命令运行器 |
-| [Airplane](https://www.airplane.dev/) | 工作流平台 |
 
 ---
 
 ```yaml
-version: 3.0.0
+version: 4.0.0
 lastUpdated: 2026-05-02
-totalDocuments: 7
-status: design_complete_all_features_implemented
+totalDocuments: 3
+mindset: 极简、真实、可预测、不杜撰
+status: plan_c_refactoring
 ```

@@ -17,10 +17,10 @@ import { listCmd } from './utils/list.js';
 import { modeCmd } from './utils/mode.js';
 import { historyCmd } from './utils/history.js';
 import { doctorCmd } from './utils/doctor.js';
+import { generateCmd } from './utils/generate.js';
 import { getCliToolRegistry } from './cli-tools/index.js';
 import { gitTool } from './cli-tools/tools/git.js';
 import { formatErrorMessage } from './utils/errors.js';
-import { aiCmd } from './utils/ai.js';
 import { loadConfig as loadUtilsConfig } from './utils/config.js';
 import { isFirstRun, runFirstRunWizard, loadConfig as loadSetupConfig, saveConfig as saveSetupConfig } from './setup/first-run-wizard.js';
 import { scanCLITools, updateCLIToolConfig, getAvailableExternalCLI } from './setup/cli-scanner.js';
@@ -90,8 +90,8 @@ const program = new Command();
 
 program
   .name('vectahub')
-  .description('VectaHub - Natural Language Workflow Engine')
-  .version('2.1.0')
+  .description('VectaHub - Workflow Editor & Engine + OpenCLI')
+  .version('4.0.0')
   .hook('preAction', (thisCommand) => {
     displayPolicyWarning();
     
@@ -121,12 +121,12 @@ program
   .addCommand(securityCmd)
   .addCommand(auditCmd)
   .addCommand(toolsCmd)
-  .addCommand(aiCmd)
   .addCommand(runCmd)
   .addCommand(listCmd)
   .addCommand(modeCmd)
   .addCommand(historyCmd)
-  .addCommand(doctorCmd);
+  .addCommand(doctorCmd)
+  .addCommand(generateCmd);
 
 // Setup 命令
 const setupCmd = new Command('setup')

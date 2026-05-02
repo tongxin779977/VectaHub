@@ -1,200 +1,156 @@
-import { promises as fs, existsSync } from 'fs';
-import { join } from 'path';
-import { homedir } from 'os';
-import type { ExecutionRecord, Workflow } from '../types/index.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { homedir } from 'node:os';
+import YAML from 'yaml';
+import type { Workflow, ExecutionRecord } from '../types/index.js';
+import { createConsoleLogger } from '../utils/logger.js';
+
+const logger = createConsoleLogger('storage');
+
+const DEFAULT_STORAGE_DIR = path.join(homedir(), '.vectahub');
+
+export interface StorageOptions {
+  storageDir?: string;
+}
 
 export interface Storage {
   save(record: ExecutionRecord): Promise<void>;
   get(id: string): Promise<ExecutionRecord | undefined>;
   list(): Promise<ExecutionRecord[]>;
   delete(id: string): Promise<void>;
-  saveWorkflow(workflow: Workflow): Promise<void>;
+  
+  saveWorkflow(workflow: Workflow, format?: 'json' | 'yaml'): Promise<void>;
   getWorkflow(id: string): Promise<Workflow | undefined>;
   listWorkflows(): Promise<Workflow[]>;
   deleteWorkflow(id: string): Promise<void>;
-}
-
-export interface StorageOptions {
-  storageDir?: string;
-}
-
-function getStorageDirs(options?: StorageOptions): { storageDir: string; executionsDir: string; workflowsDir: string } {
-  const baseDir = options?.storageDir || join(homedir(), '.vectahub');
-  return {
-    storageDir: baseDir,
-    executionsDir: join(baseDir, 'executions'),
-    workflowsDir: join(baseDir, 'workflows'),
-  };
-}
-
-async function ensureDirs(storageDir: string, executionsDir: string, workflowsDir: string): Promise<void> {
-  if (!existsSync(storageDir)) {
-    await fs.mkdir(storageDir, { recursive: true });
-  }
-  if (!existsSync(executionsDir)) {
-    await fs.mkdir(executionsDir, { recursive: true });
-  }
-  if (!existsSync(workflowsDir)) {
-    await fs.mkdir(workflowsDir, { recursive: true });
-  }
-}
-
-function dateToISO(date: Date): string {
-  return typeof date === 'string' ? date : date.toISOString();
-}
-
-function isoToDate(isoString: string): Date {
-  return new Date(isoString);
-}
-
-function serializeRecord(record: ExecutionRecord): string {
-  const serialized = {
-    ...record,
-    startedAt: dateToISO(record.startedAt),
-    endedAt: record.endedAt ? dateToISO(record.endedAt) : undefined,
-    steps: record.steps.map(step => ({
-      ...step,
-      startAt: step.startAt ? dateToISO(step.startAt) : undefined,
-      endAt: step.endAt ? dateToISO(step.endAt) : undefined,
-    })),
-  };
-  return JSON.stringify(serialized, null, 2);
-}
-
-function deserializeRecord(data: string): ExecutionRecord {
-  const parsed = JSON.parse(data);
-  return {
-    ...parsed,
-    startedAt: isoToDate(parsed.startedAt),
-    endedAt: parsed.endedAt ? isoToDate(parsed.endedAt) : undefined,
-    steps: parsed.steps.map((step: any) => ({
-      ...step,
-      startAt: step.startAt ? isoToDate(step.startAt) : undefined,
-      endAt: step.endAt ? isoToDate(step.endAt) : undefined,
-    })),
-  };
-}
-
-function serializeWorkflow(workflow: Workflow): string {
-  const serialized = {
-    ...workflow,
-    createdAt: dateToISO(workflow.createdAt),
-  };
-  return JSON.stringify(serialized, null, 2);
-}
-
-function deserializeWorkflow(data: string): Workflow {
-  const parsed = JSON.parse(data);
-  return {
-    ...parsed,
-    createdAt: isoToDate(parsed.createdAt),
-  };
-}
-
-export function createStorage(options?: StorageOptions): Storage {
-  const records = new Map<string, ExecutionRecord>();
-  const workflows = new Map<string, Workflow>();
-  let initialized = false;
   
-  const { storageDir, executionsDir, workflowsDir } = getStorageDirs(options);
+  loadWorkflowFromFile(filepath: string): Promise<Workflow | null>;
+}
 
-  async function init(): Promise<void> {
-    if (initialized) return;
-    await ensureDirs(storageDir, executionsDir, workflowsDir);
-    await loadRecords();
-    await loadWorkflows();
-    initialized = true;
-  }
+export function createStorage(options: StorageOptions = {}): Storage {
+  const storageDir = options.storageDir || DEFAULT_STORAGE_DIR;
+  const executionsDir = path.join(storageDir, 'executions');
+  const workflowsDir = path.join(storageDir, 'workflows');
 
-  async function loadRecords(): Promise<void> {
-    try {
-      const files = await fs.readdir(executionsDir);
-      for (const file of files) {
-        if (file.endsWith('.json')) {
-          const content = await fs.readFile(join(executionsDir, file), 'utf-8');
-          const record = deserializeRecord(content);
-          records.set(record.executionId, record);
-        }
+  function initDirectories() {
+    [storageDir, executionsDir, workflowsDir].forEach(dir => {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
       }
-    } catch {
-      // Directory might not exist or be empty
-    }
+    });
   }
 
-  async function loadWorkflows(): Promise<void> {
-    try {
-      const files = await fs.readdir(workflowsDir);
-      for (const file of files) {
-        if (file.endsWith('.json')) {
-          const content = await fs.readFile(join(workflowsDir, file), 'utf-8');
-          const workflow = deserializeWorkflow(content);
-          workflows.set(workflow.id, workflow);
-        }
-      }
-    } catch {
-      // Directory might not exist or be empty
-    }
-  }
+  initDirectories();
 
   return {
     async save(record: ExecutionRecord): Promise<void> {
-      await init();
-      records.set(record.executionId, record);
-      const filePath = join(executionsDir, `${record.executionId}.json`);
-      await fs.writeFile(filePath, serializeRecord(record));
+      initDirectories();
+      const filePath = path.join(executionsDir, `${record.executionId}.json`);
+      fs.writeFileSync(filePath, JSON.stringify(record, null, 2), 'utf-8');
     },
 
     async get(id: string): Promise<ExecutionRecord | undefined> {
-      await init();
-      return records.get(id);
+      const filePath = path.join(executionsDir, `${id}.json`);
+      if (!fs.existsSync(filePath)) return undefined;
+      return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
     },
 
     async list(): Promise<ExecutionRecord[]> {
-      await init();
-      return Array.from(records.values());
+      if (!fs.existsSync(executionsDir)) return [];
+      return fs.readdirSync(executionsDir)
+        .filter(f => f.endsWith('.json'))
+        .map(f => JSON.parse(fs.readFileSync(path.join(executionsDir, f), 'utf-8')))
+        .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
     },
 
     async delete(id: string): Promise<void> {
-      await init();
-      records.delete(id);
-      const filePath = join(executionsDir, `${id}.json`);
-      try {
-        await fs.unlink(filePath);
-      } catch {
-        // File might not exist
+      const filePath = path.join(executionsDir, `${id}.json`);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
       }
     },
 
-    async saveWorkflow(workflow: Workflow): Promise<void> {
-      await init();
-      workflows.set(workflow.id, workflow);
-      const filePath = join(workflowsDir, `${workflow.id}.json`);
-      try {
-        await fs.writeFile(filePath, serializeWorkflow(workflow));
-      } catch {
-        // Silently ignore write errors (e.g., permission denied in sandbox)
+    async saveWorkflow(workflow: Workflow, format: 'json' | 'yaml' = 'yaml'): Promise<void> {
+      initDirectories();
+      const ext = format === 'yaml' ? 'yaml' : 'json';
+      const filePath = path.join(workflowsDir, `${workflow.id}.${ext}`);
+      
+      let content;
+      if (format === 'yaml') {
+        content = YAML.stringify(workflow, { indent: 2, blockQuote: true });
+      } else {
+        content = JSON.stringify(workflow, null, 2);
       }
+      
+      fs.writeFileSync(filePath, content, 'utf-8');
     },
 
     async getWorkflow(id: string): Promise<Workflow | undefined> {
-      await init();
-      return workflows.get(id);
+      for (const ext of ['yaml', 'json']) {
+        const filePath = path.join(workflowsDir, `${id}.${ext}`);
+        if (fs.existsSync(filePath)) {
+          const content = fs.readFileSync(filePath, 'utf-8');
+          const data = ext === 'yaml' ? YAML.parse(content) : JSON.parse(content);
+          return {
+            ...data,
+            createdAt: new Date(data.createdAt)
+          };
+        }
+      }
+      return undefined;
     },
 
     async listWorkflows(): Promise<Workflow[]> {
-      await init();
-      return Array.from(workflows.values());
+      if (!fs.existsSync(workflowsDir)) return [];
+      return fs.readdirSync(workflowsDir)
+        .filter(f => f.endsWith('.yaml') || f.endsWith('.json'))
+        .map(f => {
+          const filePath = path.join(workflowsDir, f);
+          const content = fs.readFileSync(filePath, 'utf-8');
+          const ext = path.extname(f).toLowerCase().slice(1);
+          const data = ext === 'yaml' ? YAML.parse(content) : JSON.parse(content);
+          return {
+            ...data,
+            createdAt: new Date(data.createdAt)
+          };
+        })
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     },
 
     async deleteWorkflow(id: string): Promise<void> {
-      await init();
-      workflows.delete(id);
-      const filePath = join(workflowsDir, `${id}.json`);
-      try {
-        await fs.unlink(filePath);
-      } catch {
-        // File might not exist
+      for (const ext of ['yaml', 'json']) {
+        const filePath = path.join(workflowsDir, `${id}.${ext}`);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
       }
     },
+
+    async loadWorkflowFromFile(filepath: string): Promise<Workflow | null> {
+      if (!fs.existsSync(filepath)) {
+        logger.debug(`文件不存在: ${filepath}`);
+        return null;
+      }
+
+      const ext = path.extname(filepath).toLowerCase().slice(1);
+      const content = fs.readFileSync(filepath, 'utf-8');
+
+      try {
+        let data;
+        if (['yaml', 'yml'].includes(ext)) {
+          data = YAML.parse(content);
+        } else {
+          data = JSON.parse(content);
+        }
+
+        return {
+          ...data,
+          createdAt: data.createdAt ? new Date(data.createdAt) : new Date()
+        };
+      } catch (e) {
+        logger.error(`无法解析文件: ${filepath}`);
+        return null;
+      }
+    }
   };
 }
