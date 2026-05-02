@@ -23,6 +23,8 @@ export interface StepTemplate {
   condition?: string;
   items?: string;
   outputVar?: string;
+  site?: string;
+  command?: string;
 }
 
 export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
@@ -269,6 +271,105 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
         cli: 'touch',
         args: ['${path}'],
         condition: '!${directory}'
+      }
+    ]
+  },
+
+  FETCH_HOT_NEWS: {
+    name: 'FETCH_HOT_NEWS',
+    description: '获取热榜信息',
+    keywords: ['热榜', 'hot', 'trending', '排行榜'],
+    weight: 0.85,
+    cli: ['opencli', 'curl'],
+    params: {
+      site: {
+        type: 'string',
+        required: false,
+        default: 'hackernews',
+        description: '热榜站点名称'
+      }
+    },
+    steps: [
+      {
+        type: 'opencli',
+        site: '${site}',
+        command: 'top',
+        args: ['--limit', '10']
+      }
+    ]
+  },
+
+  SOCIAL_MEDIA_SEARCH: {
+    name: 'SOCIAL_MEDIA_SEARCH',
+    description: '社交媒体搜索',
+    keywords: ['搜索', 'search', '查找', 'find'],
+    weight: 0.8,
+    cli: ['opencli', 'curl'],
+    params: {
+      query: {
+        type: 'string',
+        required: true,
+        description: '搜索关键词'
+      },
+      platform: {
+        type: 'string',
+        required: false,
+        default: 'twitter',
+        description: '社交媒体平台'
+      }
+    },
+    steps: [
+      {
+        type: 'opencli',
+        site: '${platform}',
+        command: 'search',
+        args: ['--query', '${query}']
+      }
+    ]
+  },
+
+  DATA_SCRAPING: {
+    name: 'DATA_SCRAPING',
+    description: '网页数据爬取',
+    keywords: ['爬取', 'scrape', '抓取', '采集'],
+    weight: 0.85,
+    cli: ['opencli', 'curl'],
+    params: {
+      url: {
+        type: 'string',
+        required: true,
+        description: '目标 URL'
+      }
+    },
+    steps: [
+      {
+        type: 'opencli',
+        site: '${url}',
+        command: 'scrape',
+        args: ['--output', 'json']
+      }
+    ]
+  },
+
+  CONTENT_SUMMARY: {
+    name: 'CONTENT_SUMMARY',
+    description: '内容摘要',
+    keywords: ['摘要', 'summary', '汇总', '总结'],
+    weight: 0.8,
+    cli: ['opencli', 'cat'],
+    params: {
+      source: {
+        type: 'string',
+        required: true,
+        description: '内容来源'
+      }
+    },
+    steps: [
+      {
+        type: 'opencli',
+        site: '${source}',
+        command: 'summary',
+        args: ['--format', 'text']
       }
     ]
   }

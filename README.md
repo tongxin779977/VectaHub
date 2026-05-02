@@ -1,261 +1,139 @@
-# VectaHub: Workflow Editor & Engine + OpenCLI 🚀
+# VectaHub
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/Node.js-21+-339933?logo=node.js)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6?logo=typescript)](https://www.typescriptlang.org/)
 
-> **VectaHub** 是一个工作流编辑器 + 工作流执行引擎。用自然语言（5-10个高频场景）或 YAML 编辑工作流，它会自动编排、执行、并记录整个流程。
->
-> **与 OpenCLI 互补**：VectaHub 做工作流编排，OpenCLI 做网站操作。
-
-[English Version](./README_EN.md) | **中文说明**
+> **用自然语言定义本地自动化工作流，安全执行，可复用。**
 
 ---
 
-## 核心价值：一句话说清 VectaHub
+## 一句话定位
 
-| 工具 | 你要做什么 | 实际工作 |
-|------|-----------|----------|
-| Taskfile | 写 YAML: `tasks: { compress: ... }` | 说"压缩图片" |
-| Shell Script | 写 bash: `for f in *.jpg; do...` | 说"压缩图片" |
-| **VectaHub** | **YAML 编辑 + 工作流编排** | **写 YAML 或说高频场景** |
+说人话，自动编排工作流，安全执行。
+
+| 你想要 | 传统方式 | VectaHub |
+|--------|----------|----------|
+| 压缩文件 | 写 bash 脚本 | `"压缩当前目录的所有图片"` |
+| 跑测试后部署 | 写 Makefile | `"跑测试，通过了就部署"` |
+| 备份数据库 | 写 cron + 脚本 | `"每天凌晨备份数据库到外接硬盘"` |
 
 ---
 
-## 🎯 核心使用场景
+## 快速开始
 
-### 场景 1：高频场景（简单自然语言）
+### 安装
 
 ```bash
-$ vectahub run "看 HackerNews 热榜"
-
-🤖 匹配高频场景: HACKERNEWS_TOP
-📋 生成工作流:
-  Step 1: opencli hackernews top --limit 10
-⏳ 模式: RELAXED
-▶️ 执行中...
-✅ 完成
+npm install -g vectahub
 ```
 
-### 场景 2：YAML 工作流（推荐！）
+### 首次配置
 
-创建 `workflow.yaml`:
+```bash
+vectahub setup
+```
+
+首次运行会引导你配置 LLM 提供商（OpenAI / Anthropic / Ollama）。如果跳过配置，VectaHub 会降级使用关键词匹配模式。
+
+### 使用自然语言执行
+
+```bash
+vectahub run "查看 git 状态"
+vectahub run "查找昨天修改的所有 .ts 文件"
+vectahub run "跑测试，通过了就构建"
+```
+
+### 使用 YAML 工作流
+
+创建 `workflow.yaml`：
 
 ```yaml
-name: HackerNews 热榜保存
-description: 看热榜，提取链接，保存到文件
-
+name: 提交并推送
 steps:
   - id: step1
-    type: opencli
-    site: hackernews
-    command: top
-    args: ["--limit", "10"]
-    output: hn_data
-
+    type: exec
+    cli: git
+    args: ["add", "-A"]
   - id: step2
-    type: shell
-    command: node
-    args: ["-e", "console.log(JSON.parse(process.stdin.read()).map(i => i.url).join('\\n'))"]
-    input: "{{ step1.output }}"
-    output: urls
-
+    type: exec
+    cli: git
+    args: ["commit", "-m", "update"]
   - id: step3
-    type: shell
-    command: tee
-    args: ["hn-top-urls.txt"]
-    input: "{{ step2.output }}"
-
+    type: exec
+    cli: git
+    args: ["push"]
 mode: relaxed
 ```
 
 然后运行：
 
 ```bash
-$ vectahub run -f workflow.yaml
-
-📋 加载工作流: HackerNews 热榜保存
-▶️ 执行中...
-  Step 1: opencli hackernews top ... ✅
-  Step 2: node ... ✅
-  Step 3: tee hn-top-urls.txt ... ✅
-✅ 完成
-```
-
-### 场景 3：本地工作流
-
-```yaml
-name: 提交并推送
-steps:
-  - id: step1
-    type: shell
-    command: git
-    args: ["add", "-A"]
-  - id: step2
-    type: shell
-    command: git
-    args: ["commit", "-m", "update"]
-  - id: step3
-    type: shell
-    command: git
-    args: ["push"]
-mode: strict
-```
-
----
-
-## 🏗️ 系统架构（方案C）
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        VectaHub                             │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────────────────────────────────────────────────┐
-│  │  用户交互层                                              │
-│  │  - 简单自然语言（5-10个高频场景）                        │
-│  │  - YAML/JSON 工作流编辑                                 │
-│  └─────────────────────────────────────────────────────────┘
-│                            │
-│                            ▼
-│  ┌─────────────────────────────────────────────────────────┐
-│  │  工作流引擎层（核心）                                   │
-│  │  - 步骤调度（顺序/条件/循环/并行）                      │
-│  │  - 上下文传递（步骤间数据流转）                         │
-│  │  - 审计日志（全程记录）                                 │
-│  └─────────────────────────────────────────────────────────┘
-│                            │
-│                            ▼
-│  ┌─────────────────────────────────────────────────────────┐
-│  │  执行委托层                                              │
-│  │  - OpenCLI（90+网站）                                   │
-│  │  - 本地命令（Shell/Git）                                │
-│  └─────────────────────────────────────────────────────────┘
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 核心组件
-
-| 组件 | 职责 |
-|------|------|
-| **Workflow Engine** | 工作流引擎核心：调度、上下文、审计 |
-| **Executor** | 执行器：OpenCLI + 本地命令 |
-| **Sandbox** | macOS 沙盒隔离，安全保障 |
-| **简单 Intent Matcher** | 只匹配 5-10 个高频场景 |
-
----
-
-## 🛡️ 安全机制
-
-### 三种执行模式
-
-| 模式 | 非危险命令 | 危险命令 | 适用场景 |
-|------|-----------|----------|----------|
-| **STRICT** | 自动执行 | 报错 | CI/CD |
-| **RELAXED** | 自动执行 | 确认后执行 | 开发调试 |
-| **CONSENSUS** | 确认后执行 | 确认后执行 | 交互执行 |
-
-### 危险命令检测
-
-```typescript
-const DANGEROUS_PATTERNS = {
-  critical: [
-    /^sudo\s+/,                          // 提权
-    /^chmod\s+777/,                      // 全局权限
-    /^rm\s+-rf\s+\/(?!sandbox)/,         // 递归删除根目录
-  ]
-};
-```
-
----
-
-## 🚀 快速开始
-
-### 1. 安装
-
-```bash
-npm install -g vectahub
-```
-
-### 2. 运行简单自然语言（高频场景）
-
-```bash
-vectahub run "看 HackerNews 热榜"
-vectahub run "压缩当前目录图片"
-```
-
-### 3. 从文件运行工作流（推荐）
-
-```bash
-# 创建 workflow.yaml
 vectahub run -f workflow.yaml
 ```
 
-### 4. OpenCLI 辅助命令
+### 使用 LLM 生成工作流
 
 ```bash
-vectahub opencli list            # 列出 OpenCLI 可用的网站
-vectahub opencli help <site>     # 查看某个网站的帮助
+vectahub generate "每天早上获取热榜并保存"
 ```
 
 ---
 
-## 📦 高频场景列表（5-10个）
+## 核心功能
 
-| 场景 | 自然语言 |
-|------|---------|
-| HACKERNEWS_TOP | "看 HackerNews 热榜" |
-| BILIBILI_HOT | "看 B站热榜" |
-| IMAGE_COMPRESS | "压缩当前目录图片" |
-| GIT_COMMIT_PUSH | "提交并推送" |
-| RUN_TESTS | "跑测试" |
+### 工作流引擎
+
+- **五种步骤类型**: `exec`（本地命令）、`if`（条件）、`for_each`（循环）、`parallel`（并行）、`opencli`（网站适配器）
+- **拓扑排序**: 自动处理步骤依赖
+- **暂停/恢复**: 中断后从断点继续
+- **DryRun 模式**: 预览不执行
+
+### 安全执行
+
+- **三层检测**: 安全协议引擎 + 命令黑白名单 + 危险命令正则匹配
+- **多平台沙箱**: macOS sandbox-exec / Linux bubblewrap
+- **三种模式**: `strict`（严格）、`relaxed`（宽松）、`consensus`（协商确认）
+
+### 工具集成
+
+内置工具元数据注册（git/npm/docker/curl），以及 OpenCLI 适配器基础集成。
+
+### LLM 集成
+
+支持 OpenAI / Anthropic / Ollama 三大提供商，用于自然语言意图解析和 YAML 工作流生成。
 
 ---
 
-## 📂 项目结构（精简后）
+## CLI 命令
 
+```bash
+# 工作流
+vectahub run <intent>            # 自然语言执行
+vectahub run -f <file>           # 从 YAML 文件执行
+vectahub generate <desc>         # LLM 生成 YAML 工作流
+vectahub list                    # 列出保存的工作流
+vectahub history                 # 查看执行历史
+
+# 工具管理
+vectahub tools list              # 列出所有工具
+vectahub tools search <keyword>  # 搜索工具
+vectahub tools categories        # 查看工具分类
+vectahub tools info <name>       # 查看工具详情
+
+# 执行模式
+vectahub mode                    # 查看/切换模式
+
+# 其他
+vectahub doctor                  # 系统诊断
+vectahub setup                   # 首次配置向导
+vectahub security                # 安全管理
+vectahub audit                   # 查看审计日志
 ```
-VectaHub/
-├── docs/design/              # 设计文档（3个核心文档）
-├── .trae/documents/          # 方案文档
-├── src/
-│   ├── cli.ts               # CLI 入口
-│   ├── nl/                  # 简化的 NL（高频场景）
-│   │   ├── parser.ts
-│   │   ├── intent-matcher.ts
-│   │   └── templates/
-│   ├── workflow/            # 工作流引擎（核心）
-│   │   ├── engine.ts
-│   │   ├── executor.ts
-│   │   ├── context-manager.ts
-│   │   ├── storage.ts
-│   │   └── session-manager.ts
-│   ├── sandbox/            # 沙盒隔离
-│   │   ├── detector.ts
-│   │   └── sandbox.ts
-│   ├── cli-tools/          # CLI 工具集成
-│   │   ├── registry.ts
-│   │   └── discovery/      # 简化（只保留 known-tools）
-│   └── utils/              # 工具函数
-│       ├── audit.ts
-│       ├── history.ts
-│       └── config.ts
-└── workflows/               # 用户工作流
-```
 
 ---
 
-## 🗑️ 已删除的内容
-
-| 内容 | 原因 |
-|------|------|
-| AI CLI 环境发现与智能降级 | 大部分用户只用一个 AI CLI，甚至不用 |
-| 复杂的 NL Parser | 维护成本高，用简单规则 + YAML 编辑 |
-| 复杂实体提取 | 同上，工作流里直接写就行 |
-| 对话历史管理 | 工作流步骤间传递才需要 |
-
----
-
-## 🛠️ 技术栈
+## 技术栈
 
 - **语言**: TypeScript
 - **运行时**: Node.js 21+
@@ -265,15 +143,6 @@ VectaHub/
 
 ---
 
-## 📄 开源协议
+## 开源协议
 
 基于 [MIT License](./LICENSE) 开源。
-
----
-
-```yaml
-version: 4.0.0
-lastUpdated: 2026-05-02
-mindset: 极简、真实、可预测、不杜撰
-status: plan_c_refactoring
-```

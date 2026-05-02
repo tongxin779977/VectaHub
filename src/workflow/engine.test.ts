@@ -150,20 +150,14 @@ describe('WorkflowEngine', () => {
     ];
     const workflow = await engine.createWorkflow('test-workflow', steps);
 
-    let abortCalled = false;
-    const originalKill = vi.mocked(vi.fn()).mockImplementation(() => { abortCalled = true; });
-
-    const abortPromise = new Promise(resolve => {
-      setTimeout(() => {
-        engine.abort();
-        resolve(true);
-      }, 5);
-    });
-
-    await abortPromise;
-    const result = await engine.execute(workflow);
-
-    expect(engine.abort()).toBe(true);
+    engine.execute(workflow);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    const result = engine.abort();
+    
+    expect(result).toBe(true);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const status = engine.getStatus();
+    expect(status?.status).toBe('ABORTED');
   });
 
   it('should get current execution status', async () => {

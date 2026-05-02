@@ -234,7 +234,8 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
       );
 
       const outputs = result.stdout ? [result.stdout] : [];
-      context.previousOutputs[step.id] = outputs;
+      const storageKey = (step as any).outputVar || step.id;
+      context.previousOutputs[storageKey] = outputs;
 
       return {
         stepId: step.id,

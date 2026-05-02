@@ -20,6 +20,9 @@ import { doctorCmd } from './utils/doctor.js';
 import { generateCmd } from './utils/generate.js';
 import { getCliToolRegistry } from './cli-tools/index.js';
 import { gitTool } from './cli-tools/tools/git.js';
+import { npmTool } from './cli-tools/tools/npm.js';
+import { dockerTool } from './cli-tools/tools/docker.js';
+import { curlTool } from './cli-tools/tools/curl.js';
 import { formatErrorMessage } from './utils/errors.js';
 import { loadConfig as loadUtilsConfig } from './utils/config.js';
 import { isFirstRun, runFirstRunWizard, loadConfig as loadSetupConfig, saveConfig as saveSetupConfig } from './setup/first-run-wizard.js';
@@ -33,12 +36,15 @@ try {
 }
 
 try {
-  const registry = getCliToolRegistry();
-  registry.register(gitTool);
-} catch (error) {
-  console.warn('⚠️  Git 工具注册失败，将继续运行...');
-  console.warn(`   原因: ${formatErrorMessage(error, '工具注册')}`);
-}
+    const registry = getCliToolRegistry();
+    registry.register(gitTool);
+    registry.register(npmTool);
+    registry.register(dockerTool);
+    registry.register(curlTool);
+  } catch (error) {
+    console.warn('⚠️  工具注册失败，将继续运行...');
+    console.warn(`   原因: ${formatErrorMessage(error, '工具注册')}`);
+  }
 
 /**
  * 安全策略警告模板

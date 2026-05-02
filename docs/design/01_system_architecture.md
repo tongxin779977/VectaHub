@@ -1,6 +1,7 @@
-# VectaHub 系统架构设计
+# VectaHub 技术架构设计
 
-> 本文档定义 VectaHub 的核心架构，定位为**本地自然语言工作流引擎**
+> 版本: 6.0.0 | 最后更新: 2026-05-02
+> 定位: 本地自然语言工作流引擎
 
 ---
 
@@ -8,309 +9,231 @@
 
 | 模块 | 状态 | 说明 |
 |------|------|------|
-| **CLI 框架** | ✅ 已实现 | Commander.js + 审计日志 |
-| **NL Parser** | ✅ 已实现 | 规则匹配，LLM 待集成 |
-| **Workflow Engine** | ✅ 已实现 | 顺序执行，暂停/恢复待完善 |
-| **Executor** | ✅ 已实现 | 基础执行，Sandbox 隔离待实现 |
-| **Sandbox** | ✅ 部分实现 | 黑名单/白名单，进程隔离待实现 |
-| **CLI Tools Registry** | ✅ 已实现 | Git/NPM 工具注册 |
-| **意图模板** | ⚠️ 8/30 | 需要扩展到 30+ |
+| **CLI 框架** | ✅ 已实现 | Commander.js + 审计日志 + 工具注册 |
+| **NL Parser** | ⚠️ 部分实现 | 规则匹配已完成，LLM 待接入核心路径 |
+| **Workflow Engine** | ✅ 已实现 | 顺序/条件/循环/并行，暂停/恢复 |
+| **Executor** | ✅ 已实现 | 五种步骤类型 |
+| **Sandbox** | ✅ 已实现 | 三层检测 + macOS sandbox-exec + Linux bubblewrap |
+| **CLI Tools Registry** | ✅ 已实现 | git/npm/docker/curl + 搜索/分类 |
+| **LLM Client** | ✅ 已实现 | OpenAI/Anthropic/Ollama，但未接入 run 命令 |
 
 ---
 
-## 1. 项目定位
+## 1. 系统架构
 
-### 1.1 与 OpenCLI 的关系
-
-| 维度 | OpenCLI | VectaHub |
-|------|---------|----------|
-| **核心能力** | 浏览器自动化 | 本地工作流自动化 |
-| **交互方式** | CLI + Chrome 扩展 | 自然语言 |
-| **执行环境** | 你的 Chrome (已登录) | 本地沙盒 |
-| **AI Agent 集成** | `npx skills add` | Skill 驱动 |
-| **适用场景** | 刷网站、爬数据、自动化网页操作 | 文件处理、脚本编排、持续集成 |
-
-**互补关系**：
-```
-┌─────────────────────────────────────────────────────────┐
-│                    用户需求                               │
-└─────────────────────────────────────────────────────────┘
-                          │
-            ┌─────────────┴─────────────┐
-            │                           │
-            ▼                           ▼
-    ┌──────────────────┐      ┌──────────────────┐
-    │     OpenCLI      │      │    VectaHub      │
-    │   浏览器自动化    │  +   │   本地工作流     │
-    └──────────────────┘      └──────────────────┘
-```
-
-### 1.2 核心价值主张
-
-**一句话**：用自然语言描述你要做的事，VectaHub 自动生成、执行、并记录。
-
-### 1.3 跨平台安全策略
-
-| 平台 | 沙盒方案 | 是否需要 sudo | 说明 |
-|------|----------|--------------|------|
-| **macOS** | `sandbox-exec` | ❌ 不需要 | 苹果原生沙盒，开箱即用 |
-| **Linux** | `bubblewrap` | ✅ 需要 | 强大的用户态隔离，首次配置需 sudo |
-| **Windows** | WSL2 + bwrap | ✅ 需要 | 通过 WSL 实现跨平台兼容 |
-
-**设计原则**：
-- **macOS 优先**：利用系统原生能力，零配置启动
-- **Linux 务实**：接受 sudo 需求，提供降级方案
-- **用户友好**：首次运行自动检测并提示配置
-
-**对比现有工具**：
-
-| 工具 | 你要做什么 | VectaHub 做什么 |
-|------|-----------|----------------|
-| Taskfile | 写 YAML: `tasks: { compress: ... }` | 说"压缩图片" |
-| Shell Script | 写 bash: `for f in *.jpg; do...` | 说"压缩图片" |
-| Claude Code | 手动指导 AI 每一步 | 说"压缩图片" |
-| OpenCLI | N/A | 说"压缩图片" |
-
----
-
-## 2. 核心使用场景
-
-### 2.1 场景 1：日常文件处理
-
-```bash
-$ vectahub "压缩 current directory 里的所有图片"
-
-🤖 解析意图: IMAGE_COMPRESS
-📋 生成工作流:
-  Step 1: find . -type f \( -name "*.jpg" -o -name "*.png" \)
-  Step 2: for each: convert ${item} -resize 50% ${item}
-⏳ 模式: CONSENSUS
-
-确认执行? [Y/n] y
-▶️ 执行中...
-✅ 完成: 12 个文件已压缩
-💾 已保存到: ~/.vectahub/workflows/image-compress.yaml
-```
-
-### 2.2 场景 2：开发者工作流
-
-```bash
-$ vectahub "帮我跑 test 然后 if 通过就 deploy"
-
-🤖 解析意图: CI_PIPELINE
-📋 生成工作流:
-  Step 1: npm test
-  Step 2: if (exit_code == 0) then npm run deploy
-⏳ 模式: STRICT (CI 场景自动严格)
-
-▶️ 执行中...
-  ▶ npm test ... ✅
-  ▶ npm run deploy ... ✅
-✅ 完成
-```
-
-### 2.3 场景 3：定时任务
-
-```bash
-$ vectahub "每天早上 9 点自动备份 ~/Documents 到外接硬盘"
-
-🤖 解析意图: SCHEDULED_BACKUP
-📋 生成 cron:
-  0 9 * * * rsync -av ~/Documents /Volumes/Backup/
-💾 已保存为定时任务: daily-doc-backup
-```
-
----
-
-## 3. 系统架构
-
-### 3.1 组件图
+### 1.1 三层架构
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        VectaHub                             │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐   │
-│  │  NL Parser  │───▶│   Workflow  │───▶│  Executor   │   │
-│  │   (意图解析) │    │   Engine    │    │   (执行器)   │   │
-│  └─────────────┘    └─────────────┘    └─────────────┘   │
-│         │                  │                  │           │
-│         ▼                  ▼                  ▼           │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐   │
-│  │ Intent       │    │ Workflow    │    │ Sandbox     │   │
-│  │ Templates    │    │ Storage     │    │ (macOS)     │   │
-│  └─────────────┘    └─────────────┘    └─────────────┘   │
-│                              │                              │
-│                              ▼                              │
-│                      ┌─────────────┐                       │
-│                      │  Execution  │                       │
-│                      │    Log      │                       │
-│                      └─────────────┘                       │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│   第 1 层：智能交互层                             │
+│   "说人话，做复杂事"                              │
+│   - LLM 意图解析（待接入核心路径）                 │
+│   - 关键词匹配降级                                │
+│   - YAML 工作流编辑                              │
+│   - 命令编辑器审查                                │
+├─────────────────────────────────────────────────┤
+│   第 2 层：工作流引擎层                           │
+│   "条件、循环、并行、依赖"                        │
+│   - 步骤编排（exec/if/for_each/parallel/opencli） │
+│   - 上下文传递                                   │
+│   - 暂停/恢复/中止                               │
+│   - DryRun 模式                                  │
+├─────────────────────────────────────────────────┤
+│   第 3 层：安全执行层                             │
+│   "安全、隔离、审计"                              │
+│   - 安全协议引擎（17条规则）                      │
+│   - 命令黑白名单                                 │
+│   - 危险命令正则检测                             │
+│   - 多平台沙箱（macOS/Linux）                    │
+└─────────────────────────────────────────────────┘
 ```
 
-### 3.2 核心组件
+### 1.2 核心组件
 
 | 组件 | 职责 | 输入 | 输出 |
 |------|------|------|------|
-| **NL Parser** | 将自然语言转为 Workflow | `"压缩图片"` | `Workflow` |
+| **NL Parser** | 自然语言 → 结构化任务 | `"压缩图片"` | `TaskList` 或 `LLMResponse` |
 | **Workflow Engine** | 管理工作流生命周期 | `Workflow` | `ExecutionRecord` |
-| **Executor** | 在沙盒中执行 CLI 命令 | `Step` | `StepResult` |
-| **Sandbox** | 隔离执行环境 (macOS) | `CLI command` | `result + logs` |
-| **Storage** | 存储工作流和执行记录 | - | - |
+| **Executor** | 执行步骤（含安全检测） | `Step` | `StepResult` |
+| **Sandbox** | 隔离执行环境 | `CLI command` | `result + logs` |
+| **LLM Client** | 调用 LLM API | `user input` | `structured response` |
+| **Storage** | 持久化工作流 | `Workflow object` | `file system` |
 
-### 3.3 数据流
+### 1.3 数据流
 
 ```
-用户输入: "压缩图片"
+用户输入自然语言
     │
     ▼
-┌─────────────────────────────────────────┐
-│            NL Parser                     │
-│  1. 匹配 Intent: IMAGE_COMPRESS         │
-│  2. 提取参数: { pattern: "*.jpg" }      │
-│  3. 生成 Steps: [find, convert]         │
-└─────────────────────────────────────────┘
+┌─────────────────────────────────────┐
+│         run.ts（命令入口）            │
+│  检查 LLM 配置                       │
+│  ├─ 可用 → LLM 解析                 │
+│  └─ 不可用 → 关键词匹配降级          │
+└─────────────────────────────────────┘
     │
     ▼
-┌─────────────────────────────────────────┐
-│          Workflow Engine                 │
-│  1. 构建 Workflow 对象                   │
-│  2. 持久化到 ~/.vectahub/workflows/     │
-│  3. 发送到 Executor                     │
-└─────────────────────────────────────────┘
+┌─────────────────────────────────────┐
+│      NL Parser / LLM Parser          │
+│  1. 识别意图                         │
+│  2. 提取参数                         │
+│  3. 生成任务列表                     │
+└─────────────────────────────────────┘
     │
     ▼
-┌─────────────────────────────────────────┐
-│            Executor                      │
-│  1. 检查沙盒模式                         │
-│  2. 危险命令检测                         │
-│  3. 执行 CLI                            │
-│  4. 记录日志                            │
-└─────────────────────────────────────────┘
+┌─────────────────────────────────────┐
+│       Command Editor                 │
+│  用户审查/编辑生成的命令              │
+└─────────────────────────────────────┘
     │
     ▼
-┌─────────────────────────────────────────┐
-│          Execution Log                   │
-│  状态: COMPLETED                        │
-│  输出: ["a.jpg", "b.png"]               │
-│  耗时: 3.2s                             │
-└─────────────────────────────────────────┘
-```
-
----
-
-## 4. 意图模板系统
-
-### 4.1 内置意图
-
-| Intent | 模式 | 描述 | 示例 |
-|--------|------|------|------|
-| `IMAGE_COMPRESS` | 批量 | 压缩图片 | "压缩当前目录图片" |
-| `FILE_FIND` | 查询 | 查找文件 | "找出所有大于 100M 的文件" |
-| `BACKUP` | 同步 | 备份文件/目录 | "备份 Documents 到外接硬盘" |
-| `CI_PIPELINE` | 条件 | CI 流程 | "跑测试，通过就部署" |
-| `BATCH_RENAME` | 批量 | 批量重命名 | "把所有 .jpeg 改成 .jpg" |
-| `GIT_WORKFLOW` | 流程 | Git 操作 | "提交并推送" |
-| `DOCKER_MANAGE` | 管理 | Docker 操作 | "停止所有容器" |
-| `SHELL_EXEC` | 通用 | 执行 Shell | "运行这个命令" |
-
-### 4.2 意图匹配规则
-
-```javascript
-const INTENT_PATTERNS = {
-  IMAGE_COMPRESS: {
-    keywords: ['压缩', '缩小', 'resize', 'compress'],
-    weight: 0.9,
-    cli: ['convert', 'sharp', 'cwebp']
-  },
-
-  FILE_FIND: {
-    keywords: ['找出', '查找', 'find', 'search'],
-    weight: 0.85,
-    cli: ['find', 'fd', 'locate']
-  },
-
-  BACKUP: {
-    keywords: ['备份', 'backup', '同步', 'sync'],
-    weight: 0.9,
-    cli: ['rsync', 'cp', 'tar']
-  },
-
-  CI_PIPELINE: {
-    keywords: ['测试', 'test', '部署', 'deploy', '构建', 'build'],
-    weight: 0.8,
-    cli: ['npm', 'yarn', 'make', 'CI']
-  },
-
-  BATCH_RENAME: {
-    keywords: ['重命名', 'rename', '批量改名'],
-    weight: 0.9,
-    cli: ['rename', 'mmv', 'git mv']
-  },
-
-  GIT_WORKFLOW: {
-    keywords: ['提交', 'commit', '推送', 'push', '拉取', 'pull'],
-    weight: 0.95,
-    cli: ['git']
-  }
-};
-```
-
-### 4.3 自定义意图
-
-用户可以添加自己的意图模板：
-
-```yaml
-# ~/.vectahub/intents/my-workflow.yaml
-name: "我的备份"
-pattern: "备份.*到.*"
-steps:
-  - type: exec
-    cli: rsync
-    args: ["-av", "${source}", "${target}"]
-params:
-  source:
-    type: string
-    required: true
-  target:
-    type: string
-    required: true
+┌─────────────────────────────────────┐
+│      Workflow Engine                 │
+│  1. 构建 Workflow 对象               │
+│  2. 拓扑排序                         │
+│  3. 发送到 Executor                  │
+└─────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────┐
+│         Executor                     │
+│  1. 安全检查（三层检测）             │
+│  2. 沙箱执行                         │
+│  3. 记录结果                         │
+└─────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────┐
+│      Execution Log                   │
+│  状态/输出/耗时/错误                  │
+└─────────────────────────────────────┘
 ```
 
 ---
 
-## 5. 工作流引擎
+## 2. 核心数据结构
 
-### 5.1 Workflow 结构
+### 2.1 Workflow
 
 ```typescript
 interface Workflow {
-  id: string;
-  name: string;
-  description?: string;
+  id: string;                    // wf_001
+  name: string;                  // "压缩图片"
+  description?: string;          // "压缩当前目录所有图片"
   mode: 'strict' | 'relaxed' | 'consensus';
   steps: Step[];
   createdAt: Date;
   updatedAt: Date;
 }
+```
 
+### 2.2 Step
+
+```typescript
 interface Step {
-  id: string;
-  type: 'exec' | 'for_each' | 'if' | 'parallel';
-  cli?: string;
-  args?: string[];
-  body?: Step[];
-  condition?: string;
-  dependsOn?: string[];
-  items?: string;      // for_each
-  outputVar?: string; // 存储输出
+  id: string;                    // step_1
+  type: 'exec' | 'for_each' | 'if' | 'parallel' | 'opencli';
+  
+  // exec 类型
+  cli?: string;                  // "find"
+  args?: string[];               // [".", "-name", "*.jpg"]
+  
+  // opencli 类型
+  site?: string;                 // "hackernews"
+  command?: string;              // "top"
+  
+  // 控制流
+  body?: Step[];                 // for_each/if 的嵌套步骤
+  condition?: string;            // "${step1.exitCode} == 0"
+  dependsOn?: string[];          // ["step1"]
+  items?: string;                // "step1.output"
+  outputVar?: string;            // "found_files"
 }
 ```
 
-### 5.2 执行状态机
+### 2.3 ExecutionRecord
+
+```typescript
+interface ExecutionRecord {
+  executionId: string;           // exec_001
+  workflowId: string;            // wf_001
+  workflowName: string;          // "压缩图片"
+  status: 'COMPLETED' | 'FAILED' | 'ABORTED' | 'PAUSED';
+  mode: string;
+  startedAt: string;
+  endedAt?: string;
+  duration: number;              // ms
+  steps: StepResult[];
+  warnings: string[];
+  logs: string[];
+}
+```
+
+### 2.4 LLMResponse
+
+```typescript
+interface LLMResponse {
+  intent: string;                // "FIND_FILES"
+  confidence: number;            // 0.0 - 1.0
+  params: Record<string, unknown>;
+  workflow: {
+    name: string;
+    steps: {
+      type: 'exec' | 'for_each' | 'if' | 'parallel';
+      cli?: string;
+      args?: string[];
+    }[];
+  };
+}
+```
+
+---
+
+## 3. NL 解析系统
+
+### 3.1 当前实现：关键词匹配
+
+```
+输入文本 → 转小写 → 分词 → 匹配关键词 → 计算置信度 → 返回最高分意图
+```
+
+**局限**：无法理解语义，只能匹配预定义关键词。
+
+### 3.2 LLM 增强解析（待接入）
+
+**流程**：
+```
+用户输入 → LLMClient.complete() → 结构化 JSON 响应 → 转换为 TaskList
+```
+
+**Prompt 示例**：
+```
+你是一个工作流解析专家。用户输入一段自然语言，你需要：
+1. 识别用户意图（从列表中选择）
+2. 提取关键参数
+3. 生成标准化的工作流步骤
+
+支持意图：FIND_FILES, GIT_WORKFLOW, CI_PIPELINE, ...
+
+输出 JSON：
+{
+  "intent": "...",
+  "confidence": 0.95,
+  "params": {},
+  "workflow": {
+    "name": "...",
+    "steps": [
+      { "type": "exec", "cli": "find", "args": ["..."] }
+    ]
+  }
+}
+```
+
+---
+
+## 4. 工作流引擎
+
+### 4.1 状态机
 
 ```
 PENDING ──▶ RUNNING ──▶ COMPLETED
@@ -322,125 +245,134 @@ PENDING ──▶ RUNNING ──▶ COMPLETED
               └──▶ ABORTED
 ```
 
-### 5.3 执行记录
+### 4.2 执行流程
 
-```json
-{
-  "executionId": "exec_001",
-  "workflowId": "wf_001",
-  "workflowName": "压缩图片",
-  "status": "COMPLETED",
-  "mode": "consensus",
-  "startedAt": "2026-05-01T10:00:00Z",
-  "endedAt": "2026-05-01T10:00:03Z",
-  "duration": 3241,
-  "steps": [
-    {
-      "stepId": "step_001",
-      "type": "exec",
-      "cli": "find",
-      "args": [".", "-type", "f", "-name", "*.jpg"],
-      "status": "COMPLETED",
-      "startAt": "10:00:00",
-      "endAt": "10:00:00",
-      "output": ["a.jpg", "b.jpg", "c.jpg"]
-    },
-    {
-      "stepId": "step_002",
-      "type": "for_each",
-      "items": "step_001.output",
-      "body": [
-        {
-          "type": "exec",
-          "cli": "convert",
-          "args": ["${item}", "-resize", "50%", "${item}"],
-          "status": "COMPLETED"
-        }
-      ],
-      "iterations": 3,
-      "status": "COMPLETED"
-    }
-  ],
-  "warnings": [],
-  "logs": []
-}
 ```
+1. 加载 Workflow
+2. 拓扑排序（处理 dependsOn）
+3. 按序执行步骤
+   ├─ exec: 执行 CLI 命令
+   ├─ if: 评估条件，执行 body
+   ├─ for_each: 循环执行 body
+   ├─ parallel: 并行执行 body（Promise.all）
+   └─ opencli: 调用 OpenCLI 工具
+4. 记录 ExecutionRecord
+```
+
+### 4.3 条件表达式（当前限制）
+
+仅支持两种模式：
+- `${stepId.exitCode} == 0`
+- `varName == value`
+
+不支持逻辑运算符、比较运算符、或任意表达式。
 
 ---
 
-## 6. 沙盒执行 (macOS)
+## 5. 安全执行层
 
-### 6.1 macOS 沙盒方案
+### 5.1 三层检测
 
-| 方案 | 技术 | 优点 | 缺点 |
-|------|------|------|------|
-| **应用沙盒** | `sandbox-exec` | 系统级隔离 | 需要签名 |
-| **Seatbelt** | Apple Sandbox | 原生支持 | 仅 macOS |
-| **Namespace** | `chroot` + `unshare` | Linux 兼容 | macOS 不完全支持 |
+```
+1. CommandRuleEngine（黑白名单）
+   ├─ 命中黑名单 → 拒绝
+   └─ 命中白名单 → 放行
 
-### 6.2 危险命令检测
+2. SecurityProtocolManager（安全协议）
+   ├─ 17 条内置规则
+   └─ 支持增删改查
 
-```javascript
-const DANGEROUS_PATTERNS = {
-  system: [
-    /^sudo\s+/,
-    /^chmod\s+777/,
-    /^rm\s+-rf\s+\/(?!sandbox)/,
-    /^dd\s+.*of=\/dev/,
-    /^mkfs/,
-    /^shutdown|reboot/
-  ],
-  file: [
-    />\s*\/etc\//,
-    /^mv\s+\/\s+/,
-    /^mount\s+--bind/
-  ],
-  network: [
-    /^curl.*--data.*password/,
-    /^wget.*--password/
-  ]
-};
+3. DangerDetector（正则检测）
+   ├─ 系统级危险（sudo, rm -rf /）
+   ├─ 文件系统危险（覆写系统文件）
+   └─ 网络危险（iptables）
 ```
 
-### 6.3 三种执行模式
+### 5.2 执行模式
 
-| 模式 | STRICT | RELAXED | CONSENSUS |
-|------|--------|---------|-----------|
-| **非危险命令** | 自动执行 | 自动执行 | 确认后执行 |
-| **危险命令** | 报错 | 报错 | 确认后执行 |
-| **超时** | 30s | 60s | 60s |
-| **适用场景** | CI/CD | 开发调试 | 交互执行 |
+| 模式 | 非危险命令 | 危险命令 | 适用场景 |
+|------|-----------|----------|----------|
+| STRICT | 自动执行 | 报错 | CI/CD |
+| RELAXED | 自动执行 | 报错 | 开发调试 |
+| CONSENSUS | 确认后执行 | 确认后执行 | 交互执行 |
+
+### 5.3 沙箱隔离
+
+| 平台 | 方案 | 需要 sudo | 说明 |
+|------|------|----------|------|
+| macOS | sandbox-exec | ❌ | 系统级隔离 |
+| Linux | bubblewrap | ✅ | 容器级隔离 |
+| 降级 | 目录隔离 | ❌ | 仅限制 cwd |
+
+---
+
+## 6. LLM 集成
+
+### 6.1 支持提供商
+
+| 提供商 | 环境变量 | 端点 |
+|--------|----------|------|
+| OpenAI | `OPENAI_API_KEY` | `https://api.openai.com/v1` |
+| Anthropic | `ANTHROPIC_API_KEY` | `https://api.anthropic.com/v1` |
+| Ollama | `OLLAMA_API_KEY` | 本地端点 |
+
+### 6.2 配置
+
+```bash
+VECTAHUB_LLM_PROVIDER=openai
+VECTAHUB_LLM_MODEL=gpt-4o-mini
+VECTAHUB_LLM_BASE_URL=https://api.openai.com/v1
+```
+
+### 6.3 当前使用位置
+
+| 命令 | 是否使用 LLM | 说明 |
+|------|-------------|------|
+| `run` | ❌ 未使用 | 使用关键词匹配 |
+| `generate` | ✅ 使用 | 生成 YAML 工作流 |
+| `serve` | ❌ 未使用 | 只实现 GIT_WORKFLOW |
 
 ---
 
 ## 7. 目录结构
 
 ```
-vectahub/
-├── src/
-│   ├── index.ts              # 入口
-│   ├── cli.ts                # CLI 命令行
-│   ├── nl/
-│   │   ├── parser.ts          # NL 解析器
-│   │   ├── intent-matcher.ts # 意图匹配
-│   │   └── templates/         # 意图模板
-│   ├── workflow/
-│   │   ├── engine.ts          # 工作流引擎
-│   │   ├── executor.ts       # 执行器
-│   │   ├── storage.ts        # 存储
-│   │   └── types.ts          # 类型定义
-│   ├── sandbox/
-│   │   ├── macos.ts          # macOS 沙盒
-│   │   ├── linux.ts          # Linux 沙盒
-│   │   └── detector.ts       # 危险命令检测
-│   └── utils/
-│       ├── logger.ts
-│       └── config.ts
-├── workflows/                 # 用户工作流
-├── intents/                   # 自定义意图
-├── tests/
-├── package.json
-└── README.md
+src/
+├── cli.ts                      # CLI 入口
+├── nl/                         # 自然语言解析
+│   ├── parser.ts               # NL Parser（关键词匹配）
+│   ├── intent-matcher.ts       # 意图匹配
+│   ├── command-synthesizer.ts  # 命令合成
+│   ├── llm.ts                  # LLM 客户端（已实现）
+│   └── templates/              # 意图模板
+├── workflow/                   # 工作流引擎
+│   ├── engine.ts               # 引擎核心
+│   ├── executor.ts             # 执行器
+│   ├── storage.ts              # 持久化
+│   └── context-manager.ts      # 上下文管理
+├── sandbox/                    # 安全沙箱
+│   ├── sandbox.ts              # 沙箱实现
+│   └── detector.ts             # 危险命令检测
+├── cli-tools/                  # 工具集成
+│   ├── registry.ts             # 注册中心
+│   └── tools/                  # git/npm/docker/curl
+├── skills/                     # 技能系统
+│   ├── iterative-refinement/
+│   └── llm-dialog-control/
+├── setup/                      # 配置向导
+│   ├── first-run-wizard.ts
+│   └── cli-scanner.ts
+├── security-protocol/          # 安全协议
+│   ├── manager.ts
+│   └── default-rules.ts
+├── command-rules/              # 黑白名单
+│   ├── engine.ts
+│   └── matcher.ts
+└── utils/                      # CLI 命令
+    ├── run.ts                  # 核心执行命令
+    ├── generate.ts             # LLM 生成
+    ├── serve.ts                # Socket 服务
+    └── ...
 ```
 
 ---
@@ -449,81 +381,17 @@ vectahub/
 
 | 组件 | 选型 | 理由 |
 |------|------|------|
-| **语言** | TypeScript | 类型安全、AI Agent 友好 |
-| **运行时** | Node.js 21+ | 跨平台 |
-| **构建** | Vite / tsup | 快速打包 |
-| **CLI** | Commander.js | 简单够用 |
-| **配置** | YAML | 用户友好 |
-| **存储** | 本地文件系统 | 无依赖 |
-
----
-
-## 9. 与 OpenCLI 的集成点
-
-### 9.1 互补场景
-
-```bash
-# 场景 1：先用 VectaHub 处理本地文件，再让 OpenCLI 上传
-vectahub "压缩 current directory 里的图片"
-opencli upload --site twitter --files ./*.jpg
-
-# 场景 2：OpenCLI 爬数据，VectaHub 处理
-opencli hackernews top --limit 10 > news.txt
-vectahub "把 news.txt 里的链接提取出来"
-```
-
-### 9.2 架构互补
-
-```
-┌─────────────┐     ┌─────────────┐
-│   OpenCLI   │     │  VectaHub   │
-│  浏览器自动化 │ +   │  本地自动化  │
-└─────────────┘     └─────────────┘
-         │                 │
-         └────────┬────────┘
-                  ▼
-         ┌─────────────┐
-         │  AI Agent   │
-         │ (统一调度)   │
-         └─────────────┘
-```
-
----
-
-## 10. 实现优先级（已更新）
-
-### Phase 1: MVP ✅ 已完成
-
-- [x] NL Parser (规则匹配)
-- [x] Workflow Engine (顺序执行)
-- [x] Basic Executor (无沙盒)
-- [x] CLI: `vectahub run <intent>`
-
-### Phase 2: 核心功能 🔄 进行中
-
-- [ ] LLM 集成 (OpenAI/Anthropic/Ollama)
-- [x] For_each / If 步骤类型
-- [x] 危险命令检测 (黑名单/白名单)
-- [x] 执行记录 (审计日志)
-- [ ] 进程隔离 (macOS sandbox-exec)
-- [ ] 工作流暂停/恢复/终止
-
-### Phase 3: 完善生态 📋 计划中
-
-- [ ] 意图模板扩展 (30+)
-- [ ] 意图模板市场
-- [ ] Workflow 保存/加载
-- [ ] 定时任务 (cron)
-- [ ] Linux/Windows 支持
-- [ ] VSCode 插件
+| 语言 | TypeScript | 类型安全 |
+| 运行时 | Node.js 21+ | 跨平台 |
+| 构建 | tsup | 快速打包 |
+| CLI | Commander.js | 简单 |
+| 配置 | YAML | 用户友好 |
+| 存储 | 本地文件系统 | 无依赖 |
+| 测试 | Vitest | 现代 |
 
 ---
 
 ```yaml
-version: 1.0.0
-lastUpdated: 2026-05-01
-status: ready_for_implementation
-relatedTo:
-  - docs/design/02_sandbox_design.md
-  - docs/design/06_workflow_engine_design.md
+version: 6.0.0
+lastUpdated: 2026-05-02
 ```

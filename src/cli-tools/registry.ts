@@ -18,6 +18,56 @@ class CliToolRegistryImpl implements CliToolRegistry {
     return Array.from(this.tools.values());
   }
 
+  getToolsByCategory(category: string): CliTool[] {
+    return this.getAllTools().filter(
+      (tool) => tool.category?.toLowerCase() === category.toLowerCase()
+    );
+  }
+
+  getAllCategories(): string[] {
+    const categories = new Set<string>();
+    for (const tool of this.getAllTools()) {
+      if (tool.category) {
+        categories.add(tool.category);
+      }
+    }
+    return Array.from(categories).sort();
+  }
+
+  searchTools(keyword: string): CliTool[] {
+    const lowerKeyword = keyword.toLowerCase();
+    return this.getAllTools().filter((tool) => {
+      if (tool.name.toLowerCase().includes(lowerKeyword)) return true;
+      if (tool.description.toLowerCase().includes(lowerKeyword)) return true;
+      if (tool.category?.toLowerCase().includes(lowerKeyword)) return true;
+      if (tool.tags?.some((tag) => tag.toLowerCase().includes(lowerKeyword))) return true;
+      return false;
+    });
+  }
+
+  searchCommands(keyword: string): Array<{ tool: CliTool; command: CliCommand }> {
+    const lowerKeyword = keyword.toLowerCase();
+    const results: Array<{ tool: CliTool; command: CliCommand }> = [];
+    
+    for (const tool of this.getAllTools()) {
+      for (const [commandName, command] of Object.entries(tool.commands)) {
+        if (commandName.toLowerCase().includes(lowerKeyword)) {
+          results.push({ tool, command });
+          continue;
+        }
+        if (command.description.toLowerCase().includes(lowerKeyword)) {
+          results.push({ tool, command });
+          continue;
+        }
+        if (command.tags?.some((tag) => tag.toLowerCase().includes(lowerKeyword))) {
+          results.push({ tool, command });
+        }
+      }
+    }
+    
+    return results;
+  }
+
   isCommandDangerous(toolName: string, command: string): boolean {
     const tool = this.tools.get(toolName);
     if (!tool) return false;

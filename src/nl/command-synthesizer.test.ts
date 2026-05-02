@@ -76,7 +76,7 @@ describe('CommandSynthesizer', () => {
       const entities = { FILE_PATH: [], CLI_TOOL: ['git'], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: ['commit', 'fix bug'] };
       const task = createTaskFromIntent('GIT_WORKFLOW', entities, 'commit修复');
       expect(task.commands.length).toBe(1);
-      expect(task.commands[0].args).toEqual(['commit', '-m', 'commit修复']);
+      expect(task.commands[0].args).toEqual(['commit', '-m', '修复']);
     });
 
     it('should generate default add/commit workflow when no specific options', () => {

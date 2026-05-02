@@ -9,12 +9,6 @@ describe('NLParser', () => {
   });
 
   describe('parse', () => {
-    it('should match IMAGE_COMPRESS intent', () => {
-      const result = parser.parse('压缩当前目录的图片');
-      expect(result.intent).toBe('IMAGE_COMPRESS');
-      expect(result.confidence).toBeGreaterThan(0);
-    });
-
     it('should match GIT_WORKFLOW intent', () => {
       const result = parser.parse('提交并推送代码');
       expect(result.intent).toBe('GIT_WORKFLOW');

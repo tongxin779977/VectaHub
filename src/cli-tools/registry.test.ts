@@ -116,6 +116,164 @@ describe('CLI Tool Registry', () => {
   it('should return undefined for non-existent command info', () => {
     expect(registry.getCommandInfo('git', 'nonexistent')).toBeUndefined();
   });
+
+  it('should get tools by category', () => {
+    const tool1: CliTool = { 
+      name: 'tool1', 
+      description: 'Tool 1', 
+      version: '>=1.0.0', 
+      category: 'cat1', 
+      commands: {} 
+    };
+    const tool2: CliTool = { 
+      name: 'tool2', 
+      description: 'Tool 2', 
+      version: '>=1.0.0', 
+      category: 'cat1', 
+      commands: {} 
+    };
+    const tool3: CliTool = { 
+      name: 'tool3', 
+      description: 'Tool 3', 
+      version: '>=1.0.0', 
+      category: 'cat2', 
+      commands: {} 
+    };
+
+    registry.register(tool1);
+    registry.register(tool2);
+    registry.register(tool3);
+
+    const cat1Tools = registry.getToolsByCategory('cat1');
+    expect(cat1Tools.length).toBe(2);
+    expect(cat1Tools.map(t => t.name)).toContain('tool1');
+    expect(cat1Tools.map(t => t.name)).toContain('tool2');
+
+    const cat2Tools = registry.getToolsByCategory('cat2');
+    expect(cat2Tools.length).toBe(1);
+    expect(cat2Tools[0].name).toBe('tool3');
+
+    const emptyCategory = registry.getToolsByCategory('nonexistent');
+    expect(emptyCategory.length).toBe(0);
+  });
+
+  it('should get all categories', () => {
+    const tool1: CliTool = { 
+      name: 'tool1', 
+      description: 'Tool 1', 
+      version: '>=1.0.0', 
+      category: 'cat1', 
+      commands: {} 
+    };
+    const tool2: CliTool = { 
+      name: 'tool2', 
+      description: 'Tool 2', 
+      version: '>=1.0.0', 
+      category: 'cat2', 
+      commands: {} 
+    };
+    const tool3: CliTool = { 
+      name: 'tool3', 
+      description: 'Tool 3', 
+      version: '>=1.0.0', 
+      // no category
+      commands: {} 
+    };
+
+    registry.register(tool1);
+    registry.register(tool2);
+    registry.register(tool3);
+
+    const categories = registry.getAllCategories();
+    expect(categories.length).toBe(2);
+    expect(categories).toContain('cat1');
+    expect(categories).toContain('cat2');
+  });
+
+  it('should search tools', () => {
+    const tool1: CliTool = { 
+      name: 'git', 
+      description: 'Distributed version control system', 
+      version: '>=2.0.0', 
+      category: 'version-control',
+      tags: ['git', 'vcs'],
+      commands: {} 
+    };
+    const tool2: CliTool = { 
+      name: 'npm', 
+      description: 'Node package manager', 
+      version: '>=6.0.0', 
+      category: 'package-management',
+      tags: ['node', 'npm'],
+      commands: {} 
+    };
+
+    registry.register(tool1);
+    registry.register(tool2);
+
+    // Search by name
+    expect(registry.searchTools('git').length).toBe(1);
+    expect(registry.searchTools('npm').length).toBe(1);
+
+    // Search by description
+    expect(registry.searchTools('package').length).toBe(1);
+    expect(registry.searchTools('version').length).toBe(1);
+
+    // Search by category
+    expect(registry.searchTools('version-control').length).toBe(1);
+
+    // Search by tag
+    expect(registry.searchTools('vcs').length).toBe(1);
+    expect(registry.searchTools('node').length).toBe(1);
+
+    // Case insensitive
+    expect(registry.searchTools('GIT').length).toBe(1);
+    expect(registry.searchTools('PACKAGE').length).toBe(1);
+
+    // No match
+    expect(registry.searchTools('nonexistent').length).toBe(0);
+  });
+
+  it('should search commands', () => {
+    const tool: CliTool = { 
+      name: 'git', 
+      description: 'Git', 
+      version: '>=2.0.0', 
+      commands: {
+        status: {
+          name: 'status',
+          description: 'Show git status',
+          usage: 'git status',
+          examples: [],
+        },
+        commit: {
+          name: 'commit',
+          description: 'Commit changes',
+          usage: 'git commit',
+          examples: [],
+          tags: ['save', 'changes'],
+        },
+      } 
+    };
+
+    registry.register(tool);
+
+    // Search by command name
+    expect(registry.searchCommands('status').length).toBe(1);
+    expect(registry.searchCommands('commit').length).toBe(1);
+
+    // Search by description
+    expect(registry.searchCommands('changes').length).toBe(1);
+
+    // Search by tag
+    expect(registry.searchCommands('save').length).toBe(1);
+
+    // Case insensitive
+    expect(registry.searchCommands('STATUS').length).toBe(1);
+
+    // No match
+    expect(registry.searchCommands('nonexistent').length).toBe(0);
+  });
 });
 
 describe('Git Tool Definition', () => {
@@ -164,5 +322,53 @@ describe('Git Tool Definition', () => {
     expect(testRegistry.getTool('git')).toBe(gitTool);
     expect(testRegistry.isCommandDangerous('git', 'push --force')).toBe(true);
     expect(testRegistry.isCommandDangerous('git', 'pull')).toBe(false);
+  });
+});
+
+describe('NPM Tool Definition', () => {
+  it('should have correct structure', async () => {
+    const { npmTool } = await import('./tools/npm.js');
+
+    expect(npmTool.name).toBe('npm');
+    expect(npmTool.description).toBe('Node package manager');
+    expect(npmTool.version).toBe('>=6.0.0');
+    expect(npmTool.category).toBe('package-management');
+    expect(npmTool.tags).toContain('node');
+    expect(npmTool.tags).toContain('npm');
+    expect(npmTool.dangerousCommands).toContain('publish');
+    expect(npmTool.dangerousCommands).toContain('unpublish');
+  });
+
+  it('should have all required commands', async () => {
+    const { npmTool } = await import('./tools/npm.js');
+    const requiredCommands = ['init', 'install', 'uninstall', 'update', 'run', 'test', 'start', 'build', 'publish', 'unpublish', 'list', 'outdated', 'audit', 'cache'];
+
+    for (const cmd of requiredCommands) {
+      expect(npmTool.commands[cmd]).toBeDefined();
+      expect(npmTool.commands[cmd].name).toBe(cmd);
+      expect(npmTool.commands[cmd].description).toBeTruthy();
+      expect(npmTool.commands[cmd].usage).toBeTruthy();
+    }
+  });
+
+  it('should have dangerous commands properly marked', async () => {
+    const { npmTool } = await import('./tools/npm.js');
+
+    expect(npmTool.commands['publish']?.dangerous).toBe(true);
+    expect(npmTool.commands['publish']?.dangerLevel).toBe('high');
+    expect(npmTool.commands['publish']?.requiresConfirmation).toBe(true);
+
+    expect(npmTool.commands['unpublish']?.dangerous).toBe(true);
+    expect(npmTool.commands['unpublish']?.dangerLevel).toBe('critical');
+    expect(npmTool.commands['unpublish']?.requiresConfirmation).toBe(true);
+  });
+
+  it('should have examples', async () => {
+    const { npmTool } = await import('./tools/npm.js');
+    
+    expect(npmTool.examples).toBeDefined();
+    expect(npmTool.examples.length).toBeGreaterThan(0);
+    expect(npmTool.examples[0].description).toBeTruthy();
+    expect(npmTool.examples[0].command).toBeTruthy();
   });
 });

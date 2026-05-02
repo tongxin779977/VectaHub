@@ -4,6 +4,31 @@ export const npmTool: CliTool = {
   name: 'npm',
   description: 'Node package manager',
   version: '>=6.0.0',
+  category: 'package-management',
+  tags: ['node', 'package', 'npm', 'dependency', 'javascript', 'typescript'],
+  examples: [
+    {
+      description: 'Initialize package.json',
+      command: 'npm init -y',
+    },
+    {
+      description: 'Install a package',
+      command: 'npm install lodash',
+    },
+    {
+      description: 'Install dev dependency',
+      command: 'npm install --save-dev typescript',
+    },
+    {
+      description: 'Run build script',
+      command: 'npm run build',
+    },
+    {
+      description: 'Run tests',
+      command: 'npm test',
+    },
+  ],
+  relatedTools: ['git', 'node'],
   dangerousCommands: [
     'publish',
     'unpublish',

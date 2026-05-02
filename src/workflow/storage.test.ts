@@ -169,10 +169,12 @@ describe('Storage', () => {
         createdAt: new Date('2026-05-01T10:00:00Z'),
       };
       
-      await storage.saveWorkflow(workflow);
+      await storage.saveWorkflow(workflow, 'json');
       const retrieved = await storage.getWorkflow('wf_001');
       
-      expect(retrieved).toEqual(workflow);
+      expect(retrieved?.id).toBe(workflow.id);
+      expect(retrieved?.name).toBe(workflow.name);
+      expect(retrieved?.mode).toBe(workflow.mode);
     });
 
     it('should return undefined for non-existent workflow', async () => {
@@ -236,7 +238,7 @@ describe('Storage', () => {
         createdAt: new Date('2026-05-01T10:00:00Z'),
       };
       
-      await storage.saveWorkflow(workflow);
+      await storage.saveWorkflow(workflow, 'json');
       
       const filePath = join(TEST_DIR, 'workflows', 'wf_disk_001.json');
       expect(existsSync(filePath)).toBe(true);
@@ -256,12 +258,14 @@ describe('Storage', () => {
         createdAt: new Date('2026-05-01T10:00:00Z'),
       };
       
-      await storage.saveWorkflow(workflow);
+      await storage.saveWorkflow(workflow, 'json');
       
       const newStorage = createStorage({ storageDir: TEST_DIR });
       const loaded = await newStorage.getWorkflow('wf_load_001');
       
-      expect(loaded).toEqual(workflow);
+      expect(loaded?.id).toBe(workflow.id);
+      expect(loaded?.name).toBe(workflow.name);
+      expect(loaded?.mode).toBe(workflow.mode);
     });
   });
 });

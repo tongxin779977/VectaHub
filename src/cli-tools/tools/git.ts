@@ -4,6 +4,18 @@ export const gitTool: CliTool = {
   name: 'git',
   description: 'Distributed version control system',
   version: '>=2.0.0',
+  category: 'version-control',
+  tags: ['git', 'vcs', 'version-control', 'source-code'],
+  examples: [
+    {
+      description: 'Check git status',
+      command: 'git status',
+    },
+    {
+      description: 'Commit changes',
+      command: 'git add . && git commit -m "Update"',
+    },
+  ],
   dangerousCommands: [
     'push --force',
     'reset --hard',

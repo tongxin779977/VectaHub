@@ -196,6 +196,81 @@ function formatEvalResult(args: string[], template: string, result: any): string
   return lines.join('\n');
 }
 
+function formatCategoryList(categories: string[]): string {
+  const lines = [
+    `\n📁 工具分类（共 ${categories.length} 个）：`,
+    '─'.repeat(80),
+  ];
+
+  categories.forEach(category => {
+    lines.push(`  ${category}`);
+  });
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+function formatSearchResults(tools: any[], commands: any[]): string {
+  const lines = ['\n🔍 搜索结果：', '─'.repeat(80)];
+
+  if (tools.length > 0) {
+    lines.push(`\n📦 匹配的工具（${tools.length} 个）：`);
+    tools.forEach(tool => {
+      const category = tool.category ? ` [${tool.category}]` : '';
+      lines.push(`  ${tool.name.padEnd(20)}${category} ${tool.description}`);
+      if (tool.tags && tool.tags.length > 0) {
+        lines.push(`    Tags: ${tool.tags.join(', ')}`);
+      }
+    });
+  }
+
+  if (commands.length > 0) {
+    lines.push(`\n📋 匹配的命令（${commands.length} 个）：`);
+    commands.forEach(item => {
+      const dangerTag = item.command.dangerous ? ' ⚠️' : '';
+      // 找到命令的名称
+      let commandName = '';
+      for (const [name, cmd] of Object.entries(item.tool.commands)) {
+        if (cmd === item.command) {
+          commandName = name;
+          break;
+        }
+      }
+      lines.push(`  ${item.tool.name} ${commandName.padEnd(15)}${dangerTag} ${item.command.description}`);
+    });
+  }
+
+  if (tools.length === 0 && commands.length === 0) {
+    lines.push('\n  未找到匹配的结果');
+  }
+
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+function formatCategoryTools(category: string, tools: any[]): string {
+  const lines = [
+    `\n📁 分类：${category}`,
+    '─'.repeat(80),
+  ];
+
+  if (tools.length === 0) {
+    lines.push('\n  该分类下暂无工具');
+  } else {
+    lines.push(`\n📦 工具列表（${tools.length} 个）：`);
+    tools.forEach(tool => {
+      const cmdCount = Object.keys(tool.commands).length;
+      lines.push(`  ${tool.name.padEnd(20)} ${tool.description}`);
+      lines.push(`    Commands: ${cmdCount}`);
+    });
+  }
+
+  lines.push('');
+
+  return lines.join('\n');
+}
+
 toolsCmd
   .command('list')
   .description('List all registered CLI tools')
@@ -359,4 +434,35 @@ toolsCmd
     const result = engine.evaluate(command, cmdArgs, process.cwd());
 
     console.log(formatEvalResult(args, options.template, result));
+  });
+
+toolsCmd
+  .command('search <keyword>')
+  .description('Search tools and commands by keyword')
+  .action((keyword: string) => {
+    const registry = getCliToolRegistry();
+    const tools = registry.searchTools(keyword);
+    const commands = registry.searchCommands(keyword);
+
+    console.log(formatSearchResults(tools, commands));
+  });
+
+toolsCmd
+  .command('categories')
+  .description('List all tool categories')
+  .action(() => {
+    const registry = getCliToolRegistry();
+    const categories = registry.getAllCategories();
+
+    console.log(formatCategoryList(categories));
+  });
+
+toolsCmd
+  .command('category <name>')
+  .description('List tools in a specific category')
+  .action((categoryName: string) => {
+    const registry = getCliToolRegistry();
+    const tools = registry.getToolsByCategory(categoryName);
+
+    console.log(formatCategoryTools(categoryName, tools));
   });

@@ -1,138 +1,90 @@
-# VectaHub 全局规则（方案C）
+# VectaHub 全局规则
 
-## AI 助手核心原则
+> 优先级：**global_rules.md > project-rules.md > 其他规则文件 > AGENTS.md**
+> 当规则冲突时，以此文件为准。
 
-### 1. 真实性
-- ❌ 严禁过度意淫、编造不存在的功能
-- ✅ 基于实际代码和文档提供建议
-- ✅ 不确定时直接说明需要更多信息
-- ✅ 遵循方案C的定位：工作流编辑器 + 工作流执行引擎
+你是一个 TypeScript CLI 工程师，在 VectaHub 项目中工作。
 
-### 2. 语言规范
-- ✅ 所有沟通使用中文
-- ✅ 表达简洁、专业、准确
+## 项目
 
-### 3. 工作方式
-- ✅ 先查看相关代码和文档再给出建议
-- ✅ 遵循项目已有的代码风格和模式
-- ✅ 小步迭代，便于测试和审查
-
----
-
-## 项目简介（方案C）
-
-**一句话**：VectaHub 是一个工作流编辑器 + 工作流执行引擎。
-
-- **输入**：自然语言（5-10个高频场景）→ 生成工作流；或直接编辑 YAML/JSON
-- **核心**：工作流编排（步骤、条件、循环、并行）
-- **执行**：委托给 OpenCLI 或本地命令
-- **保障**：审计日志 + 危险命令检查
-
-| 模块 | 目录 |
-|------|------|
-| CLI 入口 | `src/cli.ts` |
-| 简化的 NL | `src/nl/`（只保留 5-10 个高频场景） |
-| 工作流引擎 | `src/workflow/`（核心） |
-| 沙盒隔离 | `src/sandbox/` |
-| CLI 工具集成 | `src/cli-tools/`（简化） |
-
-技术栈：TypeScript + Node.js + npm + Vitest + Commander.js
-
-
-## 代码规范
-
-### 命名
-- 文件/变量: `camelCase` / `kebab-case`
-- 类/接口: `PascalCase`
-- 常量: `UPPER_SNAKE_CASE`
-
-### 代码风格
-- 缩进: 2 空格
-- 分号: 必须
-- 引号: 单引号
-- 换行: 100 字符
-
-### 导入顺序
-```
-内置 → 第三方 → 内部 → 类型
-```
-
----
-
-## 安全红线
-
-- ❌ 禁止硬编码密钥
-- ❌ 禁止直接执行用户输入
-- ❌ 禁止绕过沙盒
-- ❌ 禁止日志输出敏感信息
-
----
-
-## CLI 命令（方案C）
-
-```bash
-# 工作流
-vectahub run <intent>            # 简单自然语言（5-10个高频场景）
-vectahub run -f <workflow.yaml>  # 从文件运行
-vectahub save <name>             # 保存工作流
-vectahub list                    # 列出保存的工作流
-vectahub history                 # 查看执行历史
-
-# OpenCLI 辅助
-vectahub opencli list            # 列出 OpenCLI 可用的网站
-vectahub opencli help <site>     # 查看某个网站的帮助
-
-# 执行模式
-vectahub mode                    # 查看当前模式
-vectahub mode strict/relaxed/consensus
-
-# 其他
-vectahub doctor                  # 诊断
-vectahub version                 # 版本
-```
-
----
-
-## 设计文档索引
-
-详细文档见 `docs/design/` 目录（只保留核心文档）：
-
-| 文档 | 内容 |
-|------|------|
-| [01_system_architecture.md](file:///Users/xin.tong/apps/project/test_trae/VectaHub/docs/design/01_system_architecture.md) | 系统架构 |
-| [02_sandbox_design.md](file:///Users/xin.tong/apps/project/test_trae/VectaHub/docs/design/02_sandbox_design.md) | 沙盒设计 |
-| [06_workflow_engine_design.md](file:///Users/xin.tong/apps/project/test_trae/VectaHub/docs/design/06_workflow_engine_design.md) | 工作流引擎 |
-
-方案文档见 `.trae/documents/`：
-
-| 文档 | 内容 |
-|------|------|
-| [INTEGRATION_PLAN_C.md](file:///Users/xin.tong/apps/project/test_trae/VectaHub/.trae/documents/INTEGRATION_PLAN_C.md) | 方案C：极简产品业务方案 |
-
----
-
-## Git 提交
+工作流编辑器 + 执行引擎。自然语言（5-10高频场景）或 YAML 输入 → 工作流编排 → 委托执行。
 
 ```
-[模块] 简短描述
+src/cli.ts                    # CLI 入口（Commander.js）
+src/nl/                       # 意图匹配 + 参数提取 + LLM
+src/workflow/                 # 引擎核心（调度/上下文/存储）
+src/sandbox/                  # 沙盒隔离
+src/cli-tools/                # 外部工具集成
+src/skills/                   # 技能模块（代码实现）
+src/setup/                    # 首次运行向导 + CLI 扫描
+src/security-protocol/        # 安全规则引擎
+src/command-rules/            # 命令黑白名单
+src/infrastructure/           # 审计/配置/错误/日志
+src/types/index.ts            # 所有类型定义
 ```
 
-分支: `feature/workflow` / `feature/opencli` / `fix/xxx` 等
+技术栈：TypeScript + Node.js + Commander.js + Vitest
 
----
+## 行为
 
-## 测试要求
+- ✅ 直接做：单文件改动、用户说"直接改"、跑测试/构建
+- ❌ 先问：2+ 种方案、3+ 文件改动、删文件/改接口/改架构、引入新依赖
+- 💡 不确定：说"需要确认 X"，不要猜
 
-| 模块 | 覆盖率要求 |
-|------|-----------|
+问法：`[A: xxx] vs [B: xxx]，选哪个？`
+
+## 输出
+
+- 方案：表格 + diff 级代码，不贴整个文件
+- 代码：只给变更部分
+- 不重复 AI 已知的项目事实
+- 实现任务：严格遵循 `docs/design/04_agent_tasks.md` 中的代码行级别规格
+
+## 开发方法：TDD
+
+Red → Green → Refactor 循环：
+1. 写失败的测试
+2. 写最少代码让测试通过
+3. 重构
+
+禁止：先写实现再补测试。
+
+## 代码风格
+
+- 2 空格缩进、分号必须、单引号、100 字符换行
+- 导入顺序：内置 → 第三方 → 内部 → 类型（本地导入带 `.js`）
+- 新组件用 `createXxx()` 工厂函数，不用 class
+
+## 安全
+
+- 禁止硬编码密钥
+- 禁止直接执行用户输入
+- 禁止绕过沙盒
+- 禁止日志输出敏感信息
+
+## 错误处理
+
+- 遇到类型错误：先 `npm run typecheck` 确认，再修复
+- 遇到测试失败：先 `npm test -- --run` 查看完整输出，再修复
+- 修复失败：说"尝试了 X 方法失败，需要确认"，不要无限试错
+- 不确定的 API：查阅 `src/types/index.ts` 和对应模块源码，不要猜测
+
+## 测试
+
+| 模块 | 覆盖率 |
+|------|--------|
 | Workflow Engine | ≥80% |
 | Executor | ≥75% |
 | 其他 | ≥70% |
 
+## Git
+
+格式：`[模块] 简短描述`
+分支：`feature/workflow` / `feature/opencli` / `fix/xxx`
+
 ---
 
 ```yaml
-version: 4.0.0
+version: 7.0.0
 lastUpdated: 2026-05-02
-mindset: 极简、真实、可预测、不杜撰
 ```

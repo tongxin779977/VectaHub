@@ -6,11 +6,69 @@ import { createStorage } from '../workflow/storage.js';
 import { reviewAndEditCommands } from './command-editor.js';
 import { isFirstRun, runFirstRunWizard } from '../setup/first-run-wizard.js';
 import { scanCLITools, updateCLIToolConfig } from '../setup/cli-scanner.js';
-import type { Workflow, ParseResult, Step } from '../types/index.js';
+import { createLLMConfig, createLLMEnhancedParser, type LLMResponse } from '../nl/llm.js';
+import type { Workflow, ParseResult, Step, Task, TaskList, TaskType } from '../types/index.js';
 
 import path from 'node:path';
 
 const HIGH_CONFIDENCE_THRESHOLD = 0.7;
+
+function getConfidenceLevelText(confidence: number): 'HIGH' | 'MEDIUM' | 'LOW' | 'UNCERTAIN' {
+  if (confidence >= 0.9) return 'HIGH';
+  if (confidence >= 0.7) return 'MEDIUM';
+  if (confidence >= 0.5) return 'LOW';
+  return 'UNCERTAIN';
+}
+
+function mapIntentToTaskType(intent: string): TaskType {
+  switch (intent) {
+    case 'FILE_FIND':
+    case 'QUERY_INFO':
+    case 'SYSTEM_INFO':
+      return 'QUERY_EXEC';
+    case 'GIT_WORKFLOW':
+      return 'GIT_OPERATION';
+    case 'INSTALL_PACKAGE':
+      return 'PACKAGE_INSTALL';
+    case 'RUN_SCRIPT':
+      return 'BUILD_VERIFY';
+    case 'CREATE_FILE':
+      return 'CODE_CREATE';
+    default:
+      return 'DEBUG_EXEC';
+  }
+}
+
+function convertLLMResultToTaskList(llmResult: LLMResponse, originalInput: string): ParseResult {
+  const tasks: Task[] = llmResult.workflow.steps.map((step, index) => ({
+    id: `task_${index + 1}`,
+    type: mapIntentToTaskType(llmResult.intent),
+    description: `${step.cli} ${(step.args || []).join(' ')}`,
+    status: 'PENDING',
+    commands: step.cli ? [{ cli: step.cli, args: step.args || [] }] : [{ cli: 'echo', args: [step.type || 'unknown'] }],
+    dependencies: [],
+  }));
+
+  const confidenceLevel = getConfidenceLevelText(llmResult.confidence);
+
+  const taskList: TaskList = {
+    version: '1.0',
+    generatedAt: new Date().toISOString(),
+    originalInput,
+    intent: llmResult.intent as any,
+    confidence: llmResult.confidence,
+    entities: {} as any,
+    tasks,
+    warnings: [],
+  };
+
+  return {
+    status: 'SUCCESS',
+    taskList,
+    confidenceLevel,
+    originalInput,
+  };
+}
 
 const logger = createConsoleLogger('run');
 
@@ -50,8 +108,30 @@ export const runCmd = new Command('run')
         const text = intent.join(' ');
         logger.info(`解析意图: "${text}"`);
 
-        const parser = createNLParser();
-        const taskListResult = parser.parseToTaskList(text);
+        const llmConfig = createLLMConfig();
+        let taskListResult: ParseResult;
+
+        if (llmConfig) {
+          logger.info('使用 LLM 解析意图');
+          try {
+            const llmParser = createLLMEnhancedParser(llmConfig);
+            const llmResult = await llmParser.parse(text);
+
+            if (llmResult.confidence >= 0.7 && llmResult.workflow?.steps?.length > 0) {
+              taskListResult = convertLLMResultToTaskList(llmResult, text);
+            } else {
+              logger.warn(`LLM 解析置信度低 (${llmResult.confidence})，降级为关键词匹配`);
+              taskListResult = createNLParser().parseToTaskList(text);
+            }
+          } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            logger.warn(`LLM 解析失败 (${errorMsg})，降级为关键词匹配`);
+            taskListResult = createNLParser().parseToTaskList(text);
+          }
+        } else {
+          logger.info('LLM 未配置，使用关键词匹配');
+          taskListResult = createNLParser().parseToTaskList(text);
+        }
 
         if (taskListResult.status !== 'SUCCESS' || !taskListResult.taskList) {
           logger.error('❌ 无法解析意图，请尝试更明确的输入！');

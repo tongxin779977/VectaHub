@@ -1,4 +1,4 @@
-import { audit } from '../utils/audit.js';
+import { audit } from '../infrastructure/audit/index.js';
 
 export interface ExecutionContext {
   workflowId: string;
