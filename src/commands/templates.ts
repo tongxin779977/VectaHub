@@ -4,11 +4,30 @@ import { fileURLToPath } from 'url';
 import { createConsoleLogger } from '../utils/logger.js';
 import { createStorage } from '../workflow/storage.js';
 import { listTemplates, instantiateTemplate, type WorkflowTemplate } from '../workflow/template.js';
+import { loadConfig } from '../setup/first-run-wizard.js';
 
 const logger = createConsoleLogger('templates');
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = join(__filename, '..');
-const BUILTIN_TEMPLATES_DIR = join(__dirname, '..', '..', '..', 'templates');
+
+function getTemplatesDir(): string {
+  if (process.env.VECTAHUB_TEMPLATES_DIR) {
+    return process.env.VECTAHUB_TEMPLATES_DIR;
+  }
+
+  try {
+    const config = loadConfig();
+    if (config.templates?.directory) {
+      return config.templates.directory;
+    }
+  } catch {
+    // 配置文件读取失败，使用默认路径
+  }
+
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = join(__filename, '..');
+  return join(__dirname, '..', '..', '..', 'templates');
+}
+
+const BUILTIN_TEMPLATES_DIR = getTemplatesDir();
 
 function formatTemplateTable(templates: WorkflowTemplate[]): void {
   if (templates.length === 0) {
@@ -70,11 +89,8 @@ export const templatesSaveCmd = new Command('save')
     const YAML = await import('yaml');
     const { writeFileSync } = await import('fs');
     const { join } = await import('path');
-    const { fileURLToPath } = await import('url');
 
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = join(__filename, '..');
-    const templatesDir = join(__dirname, '..', '..', '..', 'templates');
+    const templatesDir = BUILTIN_TEMPLATES_DIR;
 
     const templateYAML = {
       name: templateName,
