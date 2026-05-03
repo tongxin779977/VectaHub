@@ -1,7 +1,12 @@
 import { TaskQueueItem, DaemonResponse } from './types.js';
 
+export interface TaskProcessor {
+  (input: string): Promise<DaemonResponse>;
+}
+
 export interface TaskQueueOptions {
   maxConcurrent: number;
+  processor?: TaskProcessor;
 }
 
 export interface TaskQueue {
@@ -63,12 +68,19 @@ export function createTaskQueue(options: TaskQueueOptions): TaskQueue {
     activeTasks++;
 
     try {
-      const response: DaemonResponse = {
-        id: item.id,
-        success: true,
-        data: { processed: true, input: item.input },
-        timestamp: new Date().toISOString(),
-      };
+      let response: DaemonResponse;
+
+      if (options.processor) {
+        response = await options.processor(item.input);
+      } else {
+        response = {
+          id: item.id,
+          success: true,
+          data: { processed: true, input: item.input },
+          timestamp: new Date().toISOString(),
+        };
+      }
+
       item.resolve(response);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));

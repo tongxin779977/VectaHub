@@ -1,5 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { createTaskQueue } from './task-queue.js';
+import { describe, it, expect, vi } from 'vitest';
+import { createTaskQueue, createTaskQueue as createQueueWithProcessor, type TaskQueueOptions } from './task-queue.js';
+import type { TaskQueueItem } from './types.js';
+import type { DaemonResponse } from './types.js';
 
 describe('Task Queue', () => {
   it('enqueues and processes a task', async () => {
@@ -16,6 +18,75 @@ describe('Task Queue', () => {
     expect(response).not.toBeNull();
     expect(response?.success).toBe(true);
     expect(response?.data).toEqual({ processed: true, input: 'test input' });
+  });
+
+  it('calls the task processor with the task input', async () => {
+    const processor = vi.fn().mockResolvedValue({
+      id: 'task_1',
+      success: true,
+      data: { result: 'processed' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const queue = createQueueWithProcessor({ maxConcurrent: 1, processor });
+    const response = await queue.enqueue({
+      id: 'task_1',
+      input: 'test input',
+      priority: 0,
+      createdAt: new Date(),
+      resolve: () => {},
+      reject: () => {},
+    });
+
+    expect(processor).toHaveBeenCalledWith('test input');
+    expect(response?.data).toEqual({ result: 'processed' });
+  });
+
+  it('returns error when task processor throws', async () => {
+    const processor = vi.fn().mockRejectedValue(new Error('Processing failed'));
+    const queue = createQueueWithProcessor({ maxConcurrent: 1, processor });
+
+    await expect(queue.enqueue({
+      id: 'task_1',
+      input: 'test input',
+      priority: 0,
+      createdAt: new Date(),
+      resolve: () => {},
+      reject: () => {},
+    })).rejects.toThrow('Processing failed');
+  });
+
+  it('processes multiple tasks sequentially', async () => {
+    const processor = vi.fn().mockImplementation(async (input: string) => ({
+      id: `task_${input}`,
+      success: true,
+      data: { input },
+      timestamp: new Date().toISOString(),
+    }));
+
+    const queue = createQueueWithProcessor({ maxConcurrent: 1, processor });
+
+    const response1 = await queue.enqueue({
+      id: 'task_1',
+      input: 'input1',
+      priority: 0,
+      createdAt: new Date(),
+      resolve: () => {},
+      reject: () => {},
+    });
+
+    const response2 = await queue.enqueue({
+      id: 'task_2',
+      input: 'input2',
+      priority: 0,
+      createdAt: new Date(),
+      resolve: () => {},
+      reject: () => {},
+    });
+
+    expect(processor).toHaveBeenCalledTimes(2);
+    expect(processor).toHaveBeenNthCalledWith(1, 'input1');
+    expect(processor).toHaveBeenNthCalledWith(2, 'input2');
   });
 
   it('tracks pending and active counts', async () => {
