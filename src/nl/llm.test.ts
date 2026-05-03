@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LLMClient, createLLMConfig, createLLMEnhancedParser } from './llm.js';
+import { loadConfig } from '../setup/first-run-wizard.js';
+
+vi.mock('../setup/first-run-wizard.js', () => ({
+  loadConfig: vi.fn(),
+}));
+
+const mockedLoadConfig = vi.mocked(loadConfig);
 
 vi.mock('../utils/audit.js', () => ({
   audit: {
@@ -12,19 +19,36 @@ vi.mock('./templates/index.js', () => ({
 }));
 
 describe('LLM Client', () => {
+  beforeEach(() => {
+    // 重置 mock
+    mockedLoadConfig.mockReturnValue({
+      ai_providers: {
+        vectahub_llm: {
+          provider: '',
+          enabled: false,
+        },
+      },
+    } as any);
+  });
+
   describe('createLLMConfig', () => {
     it('returns null when no API key is set', () => {
       const originalOpenAI = process.env.OPENAI_API_KEY;
       const originalAnthropic = process.env.ANTHROPIC_API_KEY;
+      const originalOllama = process.env.OLLAMA_API_KEY;
+      const originalGroq = process.env.GROQ_API_KEY;
       delete process.env.OPENAI_API_KEY;
       delete process.env.ANTHROPIC_API_KEY;
       delete process.env.OLLAMA_API_KEY;
+      delete process.env.GROQ_API_KEY;
 
       const config = createLLMConfig();
       expect(config).toBeNull();
 
       process.env.OPENAI_API_KEY = originalOpenAI as string;
       process.env.ANTHROPIC_API_KEY = originalAnthropic as string;
+      process.env.OLLAMA_API_KEY = originalOllama as string;
+      process.env.GROQ_API_KEY = originalGroq as string;
     });
 
     it('returns config with API key', () => {
@@ -37,6 +61,44 @@ describe('LLM Client', () => {
       expect(config?.model).toBeDefined();
 
       process.env.OPENAI_API_KEY = original as string;
+    });
+
+    it('returns config for groq with API key', () => {
+      const originalProvider = process.env.VECTAHUB_LLM_PROVIDER;
+      const originalGroq = process.env.GROQ_API_KEY;
+      process.env.VECTAHUB_LLM_PROVIDER = 'groq';
+      process.env.GROQ_API_KEY = 'test-groq-key';
+
+      const config = createLLMConfig();
+      expect(config).not.toBeNull();
+      expect(config?.provider).toBe('groq');
+
+      process.env.VECTAHUB_LLM_PROVIDER = originalProvider as string;
+      process.env.GROQ_API_KEY = originalGroq as string;
+    });
+
+    it('returns null for groq without API key', () => {
+      const originalProvider = process.env.VECTAHUB_LLM_PROVIDER;
+      const originalGroq = process.env.GROQ_API_KEY;
+      process.env.VECTAHUB_LLM_PROVIDER = 'groq';
+      delete process.env.GROQ_API_KEY;
+
+      const config = createLLMConfig();
+      expect(config).toBeNull();
+
+      process.env.VECTAHUB_LLM_PROVIDER = originalProvider as string;
+      process.env.GROQ_API_KEY = originalGroq as string;
+    });
+
+    it('returns config for ollama without API key', () => {
+      const originalProvider = process.env.VECTAHUB_LLM_PROVIDER;
+      process.env.VECTAHUB_LLM_PROVIDER = 'ollama';
+
+      const config = createLLMConfig();
+      expect(config).not.toBeNull();
+      expect(config?.provider).toBe('ollama');
+
+      process.env.VECTAHUB_LLM_PROVIDER = originalProvider as string;
     });
 
     it('uses environment variables for configuration', () => {
@@ -57,6 +119,47 @@ describe('LLM Client', () => {
       process.env.VECTAHUB_LLM_PROVIDER = originalProvider as string;
       process.env.VECTAHUB_LLM_MODEL = originalModel as string;
       process.env.VECTAHUB_LLM_BASE_URL = originalBaseUrl as string;
+    });
+
+    it('loads config from config file when available', () => {
+      // 模拟配置文件
+      mockedLoadConfig.mockReturnValue({
+        ai_providers: {
+          vectahub_llm: {
+            provider: 'openai',
+            baseUrl: 'https://custom-api.example.com/v1',
+            apiKey: 'sk-custom-key',
+            model: 'custom-model',
+            enabled: true,
+          },
+        },
+      } as any);
+
+      const config = createLLMConfig();
+      expect(config).not.toBeNull();
+      expect(config?.provider).toBe('openai');
+      expect(config?.baseUrl).toBe('https://custom-api.example.com/v1');
+      expect(config?.apiKey).toBe('sk-custom-key');
+      expect(config?.model).toBe('custom-model');
+    });
+
+    it('loads ollama config from config file', () => {
+      mockedLoadConfig.mockReturnValue({
+        ai_providers: {
+          vectahub_llm: {
+            provider: 'ollama',
+            baseUrl: 'http://localhost:11434/v1',
+            model: 'llama3',
+            enabled: true,
+          },
+        },
+      } as any);
+
+      const config = createLLMConfig();
+      expect(config).not.toBeNull();
+      expect(config?.provider).toBe('ollama');
+      expect(config?.baseUrl).toBe('http://localhost:11434/v1');
+      expect(config?.model).toBe('llama3');
     });
   });
 
@@ -128,6 +231,64 @@ describe('LLM Client', () => {
 
       expect(result.intent).toBe('GIT_WORKFLOW');
       expect(result.confidence).toBe(0.85);
+    });
+
+    it('parses Groq response correctly', async () => {
+      const mockResponse = {
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              intent: 'FETCH_HOT_NEWS',
+              confidence: 0.88,
+              params: {},
+              workflow: {
+                name: 'Fetch News',
+                steps: [{ type: 'exec', cli: 'curl', args: ['https://news.example.com'] }],
+              },
+            }),
+          },
+        }],
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      });
+
+      const client = new LLMClient({ provider: 'groq', model: 'llama3-8b-8192', apiKey: 'test-groq-key' });
+      const result = await client.complete('system prompt', 'fetch hot news');
+
+      expect(result.intent).toBe('FETCH_HOT_NEWS');
+      expect(result.confidence).toBe(0.88);
+    });
+
+    it('parses Ollama response correctly', async () => {
+      const mockResponse = {
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              intent: 'SYSTEM_INFO',
+              confidence: 0.9,
+              params: {},
+              workflow: {
+                name: 'System Info',
+                steps: [{ type: 'exec', cli: 'df', args: ['-h'] }],
+              },
+            }),
+          },
+        }],
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      });
+
+      const client = new LLMClient({ provider: 'ollama', model: 'llama3', baseUrl: 'http://localhost:11434/v1' });
+      const result = await client.complete('system prompt', 'show disk usage');
+
+      expect(result.intent).toBe('SYSTEM_INFO');
+      expect(result.confidence).toBe(0.9);
     });
 
     it('handles network errors gracefully', async () => {

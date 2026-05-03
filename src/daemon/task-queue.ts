@@ -13,12 +13,13 @@ export interface TaskQueue {
   enqueue(item: TaskQueueItem): Promise<DaemonResponse | null>;
   getPendingCount(): number;
   getActiveCount(): number;
-  clear(): void;
+  clear(rejectPending?: boolean): void;
 }
 
 export function createTaskQueue(options: TaskQueueOptions): TaskQueue {
   const queue: TaskQueueItem[] = [];
   let activeTasks = 0;
+  let isProcessing = false;
 
   return {
     async enqueue(item: TaskQueueItem): Promise<DaemonResponse | null> {
@@ -26,16 +27,12 @@ export function createTaskQueue(options: TaskQueueOptions): TaskQueue {
         const wrappedItem: TaskQueueItem = {
           ...item,
           resolve: (response) => {
-            activeTasks--;
             item.resolve(response);
             resolve(response);
-            processNext();
           },
           reject: (error) => {
-            activeTasks--;
             item.reject(error);
             reject(error);
-            processNext();
           },
         };
 
@@ -52,21 +49,39 @@ export function createTaskQueue(options: TaskQueueOptions): TaskQueue {
       return activeTasks;
     },
 
-    clear(): void {
-      queue.length = 0;
+    clear(rejectPending = true): void {
+      if (rejectPending) {
+        const error = new Error('Task queue cleared, task cancelled');
+        while (queue.length > 0) {
+          const item = queue.shift();
+          if (item) {
+            item.reject(error);
+          }
+        }
+      } else {
+        queue.length = 0;
+      }
     },
   };
 
   async function processNext(): Promise<void> {
-    if (activeTasks >= options.maxConcurrent || queue.length === 0) {
-      return;
+    if (isProcessing) return;
+    isProcessing = true;
+
+    try {
+      while (activeTasks < options.maxConcurrent && queue.length > 0) {
+        const item = queue.shift();
+        if (!item) break;
+
+        activeTasks++;
+        executeTask(item);
+      }
+    } finally {
+      isProcessing = false;
     }
+  }
 
-    const item = queue.shift();
-    if (!item) return;
-
-    activeTasks++;
-
+  async function executeTask(item: TaskQueueItem): Promise<void> {
     try {
       let response: DaemonResponse;
 
@@ -85,6 +100,9 @@ export function createTaskQueue(options: TaskQueueOptions): TaskQueue {
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       item.reject(error);
+    } finally {
+      activeTasks--;
+      processNext();
     }
   }
 }

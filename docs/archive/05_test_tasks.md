@@ -1,5 +1,7 @@
 # VectaHub Agent 测试任务
 
+> ⚠️ **归档文档** - 此为历史规划，测试已完成
+> 版本: 1.0.0 | 最后更新: 2026-05-03 | 状态: ✅ 已完成
 > 此文档为 AI agent 测试使用，精确到测试用例和预期结果
 > 遵循 TDD 流程：Red → Green → Refactor
 > 测试规则详见 [.trae/rules/test-rules.md](../../.trae/rules/test-rules.md)

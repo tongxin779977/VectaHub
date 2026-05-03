@@ -1,4 +1,5 @@
 import type { IntentPattern } from '../intent-matcher.js';
+import type { IntentName } from '../../types/index.js';
 
 export interface IntentTemplate {
   name: string;
@@ -715,7 +716,7 @@ export function getAllIntentNames(): string[] {
 
 export function convertTemplateToPattern(template: IntentTemplate): IntentPattern {
   return {
-    intent: template.name as any,
+    intent: template.name as IntentName,
     keywords: template.keywords,
     weight: template.weight
   };

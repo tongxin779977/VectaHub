@@ -1,0 +1,264 @@
+version: '1.0.0'
+intents:
+  GIT_WORKFLOW:
+    taskType: GIT_OPERATION
+    selection:
+      - when:
+          keywords: [clone]
+        pick: clone
+      - when:
+          keywords: [pull]
+        pick: pull
+      - when:
+          keywords: [push]
+          exclude: [add, commit]
+        pick: push
+      - when:
+          keywords: [commit]
+          exclude: [add]
+        pick: commit
+      - default: true
+        pick: [add, commit]
+
+  FILE_FIND:
+    taskType: QUERY_EXEC
+    selection:
+      - default: true
+        pick: ls
+        override:
+          cli: find
+          args: ['.', '-type', 'f', '-name', '*.ts']
+
+  SYSTEM_INFO:
+    taskType: QUERY_EXEC
+    selection:
+      - when:
+          keywords: [磁盘, disk]
+        pick: ls
+        override:
+          cli: df
+          args: ['-h']
+      - when:
+          keywords: [内存, memory]
+        pick: ls
+        override:
+          cli: top
+          args: ['-l', '1', '-s', '0']
+      - when:
+          keywords: [计算, 目录, size]
+        pick: ls
+        override:
+          cli: du
+          args: ['-sh', 'src/']
+      - default: true
+        pick: ls
+        override:
+          cli: uname
+          args: ['-a']
+
+  PROCESS_LIST:
+    taskType: QUERY_EXEC
+    selection:
+      - default: true
+        pick: ls
+        override:
+          cli: ps
+          args: ['aux']
+
+  NETWORK_CHECK:
+    taskType: QUERY_EXEC
+    selection:
+      - default: true
+        pick: ls
+        override:
+          cli: ping
+          args: ['-c', '3', 'baidu.com']
+
+  INSTALL_PACKAGE:
+    taskType: PACKAGE_INSTALL
+    selection:
+      - default: true
+        pick: install
+        params:
+          package: lodash
+
+  RUN_SCRIPT:
+    taskType: TEST_RUN
+    selection:
+      - when:
+          keywords: [构建, build]
+        pick: test
+        override:
+          cli: npm
+          args: ['run', 'build']
+      - when:
+          keywords: [清理, cache, clean]
+        pick: test
+        override:
+          cli: npm
+          args: ['cache', 'clean', '--force']
+      - when:
+          keywords: [过期, outdated]
+        pick: test
+        override:
+          cli: npm
+          args: ['outdated']
+      - default: true
+        pick: test
+        override:
+          cli: echo
+          args: ['Hello from RUN_SCRIPT']
+
+  IMAGE_COMPRESS:
+    taskType: CODE_TRANSFORM
+    selection:
+      - default: true
+        pick: mv
+        override:
+          cli: echo
+          args: ['Image compression task']
+
+  BATCH_RENAME:
+    taskType: CODE_TRANSFORM
+    selection:
+      - default: true
+        pick: mv
+        override:
+          cli: echo
+          args: ['Batch rename task']
+
+  GIT_BRANCH:
+    taskType: GIT_OPERATION
+    selection:
+      - default: true
+        pick: add
+        override:
+          cli: git
+          args: ['checkout', '-b', 'feature/auth']
+
+  DELETE_FILE:
+    taskType: CODE_DELETE
+    selection:
+      - default: true
+        pick: rm
+        override:
+          cli: echo
+          args: ['Delete file task']
+
+  FILE_ARCHIVE:
+    taskType: CODE_TRANSFORM
+    selection:
+      - when:
+          keywords: [解压, unzip, extract]
+        pick: mv
+        override:
+          cli: tar
+          args: ['-xzf', '${filePath}', '-C', '.']
+      - default: true
+        pick: mv
+        override:
+          cli: tar
+          args: ['-czf', 'archive.tar.gz', '${filePath}']
+        params:
+          filePath: .
+
+  NETWORK_INFO:
+    taskType: QUERY_EXEC
+    selection:
+      - when:
+          keywords: [ping, 连通]
+        pick: ls
+        override:
+          cli: ping
+          args: ['-c', '3', '${host}']
+        params:
+          host: localhost
+      - when:
+          keywords: [dns, 解析]
+        pick: ls
+        override:
+          cli: nslookup
+          args: ['${host}']
+        params:
+          host: baidu.com
+      - when:
+          keywords: [端口, port]
+        pick: ls
+        override:
+          cli: curl
+          args: ['-s', '-o', '/dev/null', '-w', '%{http_code}', 'http://localhost:${port}']
+        params:
+          port: '80'
+      - default: true
+        pick: ls
+        override:
+          cli: ifconfig
+          args: []
+
+  SYSTEM_MONITOR:
+    taskType: QUERY_EXEC
+    selection:
+      - when:
+          keywords: [cpu, 负载, load]
+        pick: ls
+        override:
+          cli: top
+          args: ['-bn', '1']
+      - when:
+          keywords: [内存, memory]
+        pick: ls
+        override:
+          cli: ps
+          args: ['aux', '--sort', '-%mem', '|', 'head', '-20']
+      - when:
+          keywords: [进程, process]
+        pick: ls
+        override:
+          cli: ps
+          args: ['aux', '|', 'wc', '-l']
+      - default: true
+        pick: ls
+        override:
+          cli: df
+          args: ['-h']
+
+  FILE_PERMISSION:
+    taskType: CODE_TRANSFORM
+    selection:
+      - when:
+          keywords: [查看, check, ls]
+        pick: mv
+        override:
+          cli: ls
+          args: ['-la', '${filePath}']
+        params:
+          filePath: .
+      - when:
+          keywords: [owner, chown]
+        pick: mv
+        override:
+          cli: chown
+          args: ['${owner}', '${filePath}']
+        params:
+          owner: user
+          filePath: .
+      - default: true
+        pick: mv
+        override:
+          cli: chmod
+          args: ['${mode}', '${filePath}']
+        params:
+          mode: '644'
+          filePath: .
+
+  FILE_DIFF:
+    taskType: QUERY_EXEC
+    selection:
+      - default: true
+        pick: grep
+        override:
+          cli: diff
+          args: ['-u', '${file1}', '${file2}']
+        params:
+          file1: file1
+          file2: file2

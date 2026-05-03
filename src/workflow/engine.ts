@@ -1,6 +1,8 @@
 import type { Workflow, Step, ExecutionRecord, StepRecord, ExecutionStatus } from '../types/index.js';
 import { createExecutor, type Executor, type ExecutorOptions, type ExecutionContext } from './executor.js';
 import { createStorage, type Storage } from './storage.js';
+import { interpolateStep, type InterpolationContext } from './interpolation.js';
+import { createExecutionStateManager, type ExecutionStateManager } from './state-manager.js';
 import { audit } from '../utils/audit.js';
 
 export interface ExecuteOptions {
@@ -26,8 +28,6 @@ export interface WorkflowEngine {
   getExecution(id: string): Promise<ExecutionRecord | undefined>;
   resumeFromFailure(executionId: string, options?: ExecuteOptions): Promise<ExecutionRecord>;
 }
-
-type ExecutionState = string;
 
 let workflowCounter = 0;
 let executionCounter = 0;
@@ -78,204 +78,199 @@ function topologicalSort(steps: Step[]): Step[] {
 
   if (sorted.length !== steps.length) {
     const remaining = steps.filter(s => !sorted.includes(s));
+    const remainingIds = remaining.map(s => s.id);
+    console.warn(
+      `Warning: Cyclic dependency detected in steps: ${remainingIds.join(', ')}. These steps will be executed at the end but may fail.`
+    );
     return [...sorted, ...remaining];
   }
 
   return sorted;
 }
 
-function interpolateStep(step: Step, context: ExecutionContext): Step {
-  const resolveVariable = (value: string): string => {
-    return value.replace(/\$\{([^}]+)\}/g, (_, varName) => {
-      if (context.previousOutputs[varName]) {
-        const output = context.previousOutputs[varName];
-        return Array.isArray(output) ? output.join('\n') : String(output);
-      }
-      if (context.variables[varName]) {
-        return String(context.variables[varName]);
-      }
-      return `\${${varName}}`;
-    });
+interface RunLoopOptions {
+  workflow: Workflow;
+  steps: Step[];
+  executorOptions: ExecutorOptions;
+  initialContext?: ExecutionContext;
+  initialSteps?: StepRecord[];
+  initialWarnings?: string[];
+  sessionId?: string;
+}
+
+function toInterpolationContext(ctx: ExecutionContext): InterpolationContext {
+  return {
+    variables: ctx.variables,
+    previousOutputs: ctx.previousOutputs,
+  };
+}
+
+async function runExecutionLoop(
+  sm: ExecutionStateManager,
+  executor: Executor,
+  storage: Storage,
+  options: RunLoopOptions
+): Promise<ExecutionRecord> {
+  const {
+    workflow,
+    steps,
+    executorOptions,
+    initialContext,
+    initialSteps,
+    initialWarnings,
+    sessionId = 'unknown',
+  } = options;
+
+  const newExecutionId = `exec_${++executionCounter}`;
+  const startedAt = new Date();
+
+  const context: ExecutionContext = initialContext || { variables: {}, previousOutputs: {} };
+
+  sm.currentExecution = {
+    executionId: newExecutionId,
+    workflowId: workflow.id,
+    workflowName: workflow.name,
+    status: 'RUNNING',
+    mode: workflow.mode,
+    startedAt,
+    steps: [...(initialSteps || [])],
+    warnings: [...(initialWarnings || [])],
+    logs: [],
   };
 
-  return {
-    ...step,
-    cli: step.cli ? resolveVariable(step.cli) : undefined,
-    args: step.args?.map(arg => resolveVariable(arg)),
-  };
+  sm.setState('RUNNING');
+
+  audit.workflowStart(workflow.id, workflow.name, sessionId, {
+    stepCount: steps.length,
+    mode: workflow.mode,
+  });
+
+  const sortedSteps = topologicalSort(steps);
+
+  for (let i = 0; i < sortedSteps.length; i++) {
+    sm.currentStepIndex = i;
+    const step = sortedSteps[i];
+
+    if (sm.state === 'ABORTING' || sm.state === 'ABORTED') {
+      sm.currentExecution.warnings.push(`Workflow aborted at step ${i + 1}`);
+      break;
+    }
+
+    let shouldContinuePausing = sm.state === 'PAUSED';
+    let loopAborted = false;
+    while (shouldContinuePausing) {
+      await new Promise<void>((resolve) => {
+        sm.pauseResolver = resolve;
+      });
+      sm.pauseResolver = null;
+
+      if (sm.state === 'ABORTING' || sm.state === 'ABORTED') {
+        sm.currentExecution.warnings.push(`Workflow aborted at step ${i + 1}`);
+        loopAborted = true;
+        break;
+      }
+      shouldContinuePausing = sm.state === 'PAUSED';
+    }
+
+    if (loopAborted) break;
+
+    try {
+      const interpolatedStep = interpolateStep(step, toInterpolationContext(context));
+      const result = await executor.execute(interpolatedStep, executorOptions, context);
+
+      const stepRecord: StepRecord = {
+        stepId: step.id,
+        status: result.status as ExecutionStatus,
+        startAt: new Date(startedAt.getTime() + (result.duration || 0)),
+        endAt: new Date(),
+        output: result.output,
+        error: result.error,
+        iterations: result.iterations,
+      };
+
+      sm.currentExecution.steps.push(stepRecord);
+
+      audit.workflowStep(
+        step.id,
+        step.cli || '',
+        step.args || [],
+        sessionId,
+        { status: result.status, iterations: result.iterations }
+      );
+
+      const storageKey = (step as unknown as Record<string, unknown>).outputVar as string || step.id;
+      if (result.output) {
+        context.previousOutputs[storageKey] = result.output;
+      }
+
+      if (result.status === 'FAILED') {
+        sm.setState('FAILED');
+        sm.currentExecution.warnings.push(`Step ${i + 1} failed: ${result.error}`);
+        break;
+      }
+    } catch (error) {
+      const stepRecord: StepRecord = {
+        stepId: step.id,
+        status: 'FAILED',
+        error: error instanceof Error ? error.message : String(error),
+      };
+      sm.currentExecution.steps.push(stepRecord);
+      sm.setState('FAILED');
+      break;
+    }
+  }
+
+  if (sm.state === 'RUNNING') {
+    sm.setState('COMPLETED');
+  }
+
+  sm.currentExecution.endedAt = new Date();
+  sm.currentExecution.duration = sm.currentExecution.endedAt.getTime() - startedAt.getTime();
+
+  await storage.save(sm.currentExecution);
+
+  audit.workflowEnd(
+    workflow.id,
+    sm.currentExecution.status,
+    sm.currentExecution.duration || 0,
+    sessionId
+  );
+
+  if (sm.completionResolver) {
+    sm.completionResolver(sm.currentExecution);
+    sm.completionResolver = null;
+    sm.completionPromise = null;
+  }
+
+  return sm.currentExecution;
 }
 
 export function createWorkflowEngine(): WorkflowEngine {
   const workflows = new Map<string, Workflow>();
   const executor = createExecutor();
   const storage = createStorage();
+  const sm = createExecutionStateManager();
 
-  let currentExecution: ExecutionRecord | undefined;
-  let executionState: ExecutionState = 'IDLE';
-  let pauseResolver: (() => void) | null = null;
-  let completionPromise: Promise<ExecutionRecord> | null = null;
-  let completionResolver: ((record: ExecutionRecord) => void) | null = null;
-  let currentStepIndex = 0;
-
-  function setState(newState: ExecutionState): void {
-    executionState = newState;
-    if (currentExecution) {
-      switch (newState) {
-        case 'RUNNING':
-          currentExecution.status = 'RUNNING';
-          break;
-        case 'PAUSED':
-          currentExecution.status = 'PAUSED';
-          break;
-        case 'COMPLETED':
-          currentExecution.status = 'COMPLETED';
-          break;
-        case 'FAILED':
-          currentExecution.status = 'FAILED';
-          break;
-        case 'ABORTING':
-        case 'ABORTED':
-          currentExecution.status = 'ABORTED';
-          break;
-      }
-    }
+  function buildExecutorOptions(
+    workflow: Workflow,
+    options: ExecuteOptions = {}
+  ): ExecutorOptions {
+    return {
+      mode: workflow.mode === 'strict' ? 'STRICT' : workflow.mode === 'consensus' ? 'CONSENSUS' : 'RELAXED',
+      dryRun: options.dryRun,
+      timeout: options.timeout || 30000,
+    };
   }
 
   async function executeWorkflowInternal(
     workflow: Workflow,
     options: ExecuteOptions = {}
   ): Promise<ExecutionRecord> {
-    const executionId = `exec_${++executionCounter}`;
-    const startedAt = new Date();
-    currentStepIndex = 0;
-
-    currentExecution = {
-      executionId,
-      workflowId: workflow.id,
-      workflowName: workflow.name,
-      status: 'RUNNING',
-      mode: workflow.mode,
-      startedAt,
-      steps: [],
-      warnings: [],
-      logs: [],
-    };
-
-    setState('RUNNING');
-
-    const sessionId = 'unknown';
-    audit.workflowStart(workflow.id, workflow.name, sessionId, {
-      stepCount: workflow.steps.length,
-      mode: workflow.mode,
+    return runExecutionLoop(sm, executor, storage, {
+      workflow,
+      steps: workflow.steps,
+      executorOptions: buildExecutorOptions(workflow, options),
     });
-
-    const executorOptions: ExecutorOptions = {
-      mode: workflow.mode === 'strict' ? 'STRICT' : workflow.mode === 'consensus' ? 'CONSENSUS' : 'RELAXED',
-      dryRun: options.dryRun,
-      timeout: options.timeout || 30000,
-    };
-
-    const sortedSteps = topologicalSort(workflow.steps);
-    const context: ExecutionContext = { variables: {}, previousOutputs: {} };
-
-    for (let i = 0; i < sortedSteps.length; i++) {
-      currentStepIndex = i;
-      const step = sortedSteps[i];
-
-      if (executionState === 'ABORTING' || executionState === 'ABORTED') {
-        currentExecution.warnings.push(`Workflow aborted at step ${i + 1}`);
-        break;
-      }
-
-      let shouldContinuePausing = executionState === 'PAUSED';
-      let loopAborted = false;
-      while (shouldContinuePausing) {
-        await new Promise<void>((resolve) => {
-          pauseResolver = resolve;
-        });
-        pauseResolver = null;
-
-        if (executionState === 'ABORTING' || executionState === 'ABORTED') {
-          currentExecution.warnings.push(`Workflow aborted at step ${i + 1}`);
-          loopAborted = true;
-          break;
-        }
-        shouldContinuePausing = executionState === 'PAUSED';
-      }
-
-      if (loopAborted) {
-        break;
-      }
-
-      try {
-        const interpolatedStep = interpolateStep(step, context);
-        const result = await executor.execute(interpolatedStep, executorOptions, context);
-
-        const stepRecord: StepRecord = {
-          stepId: step.id,
-          status: result.status as ExecutionStatus,
-          startAt: new Date(startedAt.getTime() + (result.duration || 0)),
-          endAt: new Date(),
-          output: result.output,
-          error: result.error,
-          iterations: result.iterations,
-        };
-
-        currentExecution.steps.push(stepRecord);
-
-        audit.workflowStep(
-          step.id,
-          step.cli || '',
-          step.args || [],
-          sessionId,
-          { status: result.status, iterations: result.iterations }
-        );
-
-        const storageKey = (step as any).outputVar || step.id;
-        if (result.output) {
-          context.previousOutputs[storageKey] = result.output;
-        }
-
-        if (result.status === 'FAILED') {
-          setState('FAILED');
-          currentExecution.warnings.push(`Step ${i + 1} failed: ${result.error}`);
-          break;
-        }
-      } catch (error) {
-        const stepRecord: StepRecord = {
-          stepId: step.id,
-          status: 'FAILED',
-          error: error instanceof Error ? error.message : String(error),
-        };
-        currentExecution.steps.push(stepRecord);
-        setState('FAILED');
-        break;
-      }
-    }
-
-    if (executionState === 'RUNNING') {
-      setState('COMPLETED');
-    }
-
-    currentExecution.endedAt = new Date();
-    currentExecution.duration = currentExecution.endedAt.getTime() - startedAt.getTime();
-
-    await storage.save(currentExecution);
-
-    audit.workflowEnd(
-      workflow.id,
-      currentExecution.status,
-      currentExecution.duration || 0,
-      sessionId
-    );
-
-    if (completionResolver) {
-      completionResolver(currentExecution);
-      completionResolver = null;
-      completionPromise = null;
-    }
-
-    return currentExecution;
   }
 
   return {
@@ -332,88 +327,78 @@ export function createWorkflowEngine(): WorkflowEngine {
     },
 
     executeAsync(workflow: Workflow, options: ExecuteOptions = {}): void {
-      completionPromise = new Promise((resolve) => {
-        completionResolver = resolve;
+      sm.completionPromise = new Promise((resolve) => {
+        sm.completionResolver = resolve;
       });
       executeWorkflowInternal(workflow, options).then((record) => {
-        if (completionResolver) {
-          completionResolver(record);
+        if (sm.completionResolver) {
+          sm.completionResolver(record);
         }
       });
     },
 
     pause(): boolean {
-      if (executionState !== 'RUNNING') {
+      if (sm.state !== 'RUNNING') {
         return false;
       }
 
-      setState('PAUSING');
-
-      if (currentExecution) {
-        currentExecution.status = 'PAUSED';
-      }
-
+      sm.setState('PAUSING');
       executor.killCurrentProcess();
+      sm.setState('PAUSED');
 
-      setState('PAUSED');
       return true;
     },
 
     resume(): boolean {
-      if (executionState !== 'PAUSED') {
+      if (sm.state !== 'PAUSED') {
         return false;
       }
 
-      setState('RUNNING');
+      sm.setState('RUNNING');
 
-      if (pauseResolver) {
-        pauseResolver();
-      }
+      (sm.pauseResolver as (() => void) | null)?.();
 
       return true;
     },
 
     abort(): boolean {
-      if (executionState !== 'RUNNING' && executionState !== 'PAUSED' && executionState !== 'PAUSING') {
+      if (sm.state !== 'RUNNING' && sm.state !== 'PAUSED' && sm.state !== 'PAUSING') {
         return false;
       }
 
-      setState('ABORTING');
-
+      sm.setState('ABORTING');
       executor.killCurrentProcess();
 
-      if (pauseResolver) {
-        pauseResolver();
+      (sm.pauseResolver as (() => void) | null)?.();
+
+      if (sm.currentExecution) {
+        sm.currentExecution.status = 'FAILED';
+        sm.currentExecution.endedAt = new Date();
       }
 
-      if (currentExecution) {
-        currentExecution.status = 'FAILED';
-        currentExecution.endedAt = new Date();
-      }
-
-      setState('ABORTED');
+      sm.setState('ABORTED');
       return true;
     },
 
     getStatus(): ExecutionRecord | undefined {
-      return currentExecution;
+      return sm.currentExecution;
     },
 
     waitForCompletion(): Promise<ExecutionRecord> {
-      if (executionState === 'IDLE' || executionState === 'COMPLETED' || executionState === 'FAILED' || executionState === 'ABORTED') {
-        if (currentExecution) {
-          return Promise.resolve(currentExecution);
+      if (sm.state === 'IDLE' || sm.state === 'COMPLETED' || sm.state === 'FAILED' || sm.state === 'ABORTED') {
+        if (sm.currentExecution) {
+          return Promise.resolve(sm.currentExecution);
         }
         return Promise.reject(new Error('No execution in progress'));
       }
 
-      if (!completionPromise) {
-        completionPromise = new Promise((resolve) => {
-          completionResolver = resolve;
+      if (!sm.completionPromise) {
+        sm.completionPromise = new Promise((resolve) => {
+          sm.completionResolver = resolve;
         });
       }
 
-      return completionPromise;
+      return sm.completionPromise;
     },
 
     async getExecution(id: string): Promise<ExecutionRecord | undefined> {
@@ -426,7 +411,7 @@ export function createWorkflowEngine(): WorkflowEngine {
         throw new Error(`Execution ${executionId} not found`);
       }
 
-      const workflow = await this.getWorkflow(previousExecution.workflowId);
+      const workflow = workflows.get(previousExecution.workflowId);
       if (!workflow) {
         throw new Error(`Workflow ${previousExecution.workflowId} not found`);
       }
@@ -444,7 +429,6 @@ export function createWorkflowEngine(): WorkflowEngine {
         throw new Error(`No remaining steps to execute after step ${failedStepIndex + 1}`);
       }
 
-      const newExecutionId = `exec_${++executionCounter}`;
       const context: ExecutionContext = { variables: {}, previousOutputs: {} };
       for (const stepRecord of previousExecution.steps) {
         if (stepRecord.output) {
@@ -452,115 +436,14 @@ export function createWorkflowEngine(): WorkflowEngine {
         }
       }
 
-      const startedAt = new Date();
-
-      currentExecution = {
-        executionId: newExecutionId,
-        workflowId: workflow.id,
-        workflowName: workflow.name,
-        status: 'RUNNING',
-        mode: workflow.mode,
-        startedAt,
-        steps: [...previousExecution.steps],
-        warnings: [...previousExecution.warnings],
-        logs: [],
-      };
-
-      setState('RUNNING');
-
-      const sessionId = 'unknown';
-      audit.workflowStart(workflow.id, workflow.name, sessionId, {
-        stepCount: remainingSteps.length,
-        mode: workflow.mode,
-        resumedFrom: executionId,
+      return runExecutionLoop(sm, executor, storage, {
+        workflow,
+        steps: remainingSteps,
+        executorOptions: buildExecutorOptions(workflow, options || {}),
+        initialContext: context,
+        initialSteps: [...previousExecution.steps],
+        initialWarnings: [...previousExecution.warnings],
       });
-
-      const executorOptions: ExecutorOptions = {
-        mode: workflow.mode === 'strict' ? 'STRICT' : workflow.mode === 'consensus' ? 'CONSENSUS' : 'RELAXED',
-        dryRun: options?.dryRun,
-        timeout: options?.timeout || 30000,
-      };
-
-      const sortedSteps = topologicalSort(remainingSteps);
-
-      for (let i = 0; i < sortedSteps.length; i++) {
-        const stepIndex = failedStepIndex + 1 + i;
-        const step = sortedSteps[i];
-
-        if (executionState === 'ABORTING' || executionState === 'ABORTED') {
-          currentExecution.warnings.push(`Workflow aborted at step ${stepIndex + 1}`);
-          break;
-        }
-
-        try {
-          const interpolatedStep = interpolateStep(step, context);
-          const result = await executor.execute(interpolatedStep, executorOptions, context);
-
-          const stepRecord: StepRecord = {
-            stepId: step.id,
-            status: result.status as ExecutionStatus,
-            startAt: new Date(startedAt.getTime() + (result.duration || 0)),
-            endAt: new Date(),
-            output: result.output,
-            error: result.error,
-            iterations: result.iterations,
-          };
-
-          currentExecution.steps.push(stepRecord);
-
-          audit.workflowStep(
-            step.id,
-            step.cli || '',
-            step.args || [],
-            sessionId,
-            { status: result.status, iterations: result.iterations, resumedFrom: executionId }
-          );
-
-          const storageKey = (step as any).outputVar || step.id;
-          if (result.output) {
-            context.previousOutputs[storageKey] = result.output;
-          }
-
-          if (result.status === 'FAILED') {
-            setState('FAILED');
-            currentExecution.warnings.push(`Step ${stepIndex + 1} failed: ${result.error}`);
-            break;
-          }
-        } catch (error) {
-          const stepRecord: StepRecord = {
-            stepId: step.id,
-            status: 'FAILED',
-            error: error instanceof Error ? error.message : String(error),
-          };
-          currentExecution.steps.push(stepRecord);
-          setState('FAILED');
-          break;
-        }
-      }
-
-      if (executionState === 'RUNNING') {
-        setState('COMPLETED');
-      }
-
-      currentExecution.endedAt = new Date();
-      currentExecution.duration = currentExecution.endedAt.getTime() - startedAt.getTime();
-
-      await storage.save(currentExecution);
-
-      audit.workflowEnd(
-        workflow.id,
-        currentExecution.status,
-        currentExecution.duration || 0,
-        sessionId
-      );
-
-      if (completionResolver) {
-        completionResolver(currentExecution);
-        completionResolver = null;
-        completionPromise = null;
-      }
-
-      return currentExecution;
     },
   };
 }

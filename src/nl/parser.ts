@@ -1,7 +1,8 @@
-import type { IntentMatch, IntentName, ParseResult, TaskList, ConfidenceLevel } from '../types/index.js';
+import type { IntentMatch, IntentName, ParseResult, TaskList, ConfidenceLevel, UserPreferences, ProjectContext } from '../types/index.js';
 import { createIntentMatcher, type IntentMatcher } from './intent-matcher.js';
 import { createTaskFromIntent } from './command-synthesizer.js';
 import { INTENT_TEMPLATES, convertTemplateToPattern, getAllIntentNames } from './templates/index.js';
+import type { Skill, SkillContext, SkillResult, CompositeSkill } from '../skills/types.js';
 
 const INTENT_PATTERNS = Object.values(INTENT_TEMPLATES).map(convertTemplateToPattern);
 
@@ -11,11 +12,79 @@ export interface NLParser {
   addPattern(intent: string, keywords: string[], weight?: number): void;
 }
 
+export interface EnhancedNLParser {
+  parse(input: string, sessionId?: string): Promise<ParseResult>;
+}
+
 function getConfidenceLevel(confidence: number): ConfidenceLevel {
   if (confidence >= 0.9) return 'HIGH';
   if (confidence >= 0.7) return 'MEDIUM';
   if (confidence >= 0.5) return 'LOW';
   return 'UNCERTAIN';
+}
+
+export function createTaskListFromWorkflow(workflowYAML: string, userInput: string): TaskList {
+  const allIntentNames = getAllIntentNames();
+  let detectedIntent: IntentName = 'QUERY_INFO';
+  for (const intentName of allIntentNames) {
+    if (workflowYAML.includes(intentName)) {
+      detectedIntent = intentName as IntentName;
+      break;
+    }
+  }
+
+  const groupedEntities: any = {
+    FILE_PATH: [],
+    CLI_TOOL: [],
+    PACKAGE_NAME: [],
+    FUNCTION_NAME: [],
+    BRANCH_NAME: [],
+    ENV: [],
+    OPTIONS: [],
+  };
+
+  const task = createTaskFromIntent(detectedIntent, groupedEntities, userInput);
+
+  return {
+    version: '1.0',
+    generatedAt: new Date().toISOString(),
+    originalInput: userInput,
+    intent: detectedIntent,
+    confidence: 0.8,
+    entities: groupedEntities,
+    tasks: [task],
+    warnings: [],
+  };
+}
+
+export function createEnhancedNLParser(
+  pipelineSkill: CompositeSkill,
+  fallbackParser: NLParser
+): EnhancedNLParser {
+  return {
+    async parse(input: string, sessionId?: string): Promise<ParseResult> {
+      const context: SkillContext = {
+        userInput: input,
+        sessionId: sessionId,
+      };
+
+      try {
+        const result = await pipelineSkill.execute(input, context);
+        if (result.success && result.data && result.confidence >= 0.7) {
+          const taskList = createTaskListFromWorkflow((result.data as { workflowYAML?: string })?.workflowYAML ?? '', input);
+          return {
+            status: 'SUCCESS',
+            taskList,
+            confidenceLevel: getConfidenceLevel(result.confidence),
+            originalInput: input,
+          };
+        }
+      } catch {
+      }
+
+      return fallbackParser.parseToTaskList(input, sessionId);
+    },
+  };
 }
 
 export function createNLParser(): NLParser {
@@ -48,7 +117,6 @@ export function createNLParser(): NLParser {
         };
       }
 
-      // 简化：直接创建任务，不做复杂实体提取
       const groupedEntities: any = {
         FILE_PATH: [],
         CLI_TOOL: [],

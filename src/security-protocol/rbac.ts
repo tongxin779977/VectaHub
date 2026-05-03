@@ -87,8 +87,24 @@ export function createRBACManager(): RBACManager {
   function canExecute(role: RoleName, command: string, tool?: string): boolean {
     const roleConfig = getRole(role);
 
-    if (roleConfig.blocked_commands.some((blocked) => command.includes(blocked))) {
-      return false;
+    // 使用更严格的模式匹配检查被阻止的命令
+    for (const blocked of roleConfig.blocked_commands) {
+      const normalizedBlocked = blocked.trim().toLowerCase();
+      const normalizedCommand = command.trim().toLowerCase();
+
+      // 检查命令是否精确匹配或以模式匹配
+      if (normalizedCommand === normalizedBlocked) {
+        return false;
+      }
+
+      // 检查命令是否包含被阻止的模式（使用单词边界）
+      const regexPattern = new RegExp(
+        `(^|\\s)${normalizedBlocked.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}(\\s|$)`,
+        'i'
+      );
+      if (regexPattern.test(normalizedCommand)) {
+        return false;
+      }
     }
 
     if (tool && roleConfig.allowed_tools.length > 0 && !roleConfig.allowed_tools.includes('*')) {

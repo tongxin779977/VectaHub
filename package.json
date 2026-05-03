@@ -1,6 +1,6 @@
 {
   "name": "vectahub",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "VectaHub - Natural Language Workflow Engine",
   "main": "dist/index.js",

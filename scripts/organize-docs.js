@@ -14,8 +14,13 @@ const newDirs = ['guides', 'reference', 'archive'];
 for (const dir of newDirs) {
   const dirPath = path.join(docsDir, dir);
   if (!fs.existsSync(dirPath)) {
-    fs.mkdirSync(dirPath, { recursive: true });
-    console.log(`✅ 创建目录: ${dir}/`);
+    try {
+      fs.mkdirSync(dirPath, { recursive: true });
+      console.log(`✅ 创建目录: ${dir}/`);
+    } catch (error) {
+      console.error(`❌ 创建目录失败: ${dir}/`);
+      console.error(`   错误: ${error.message}`);
+    }
   }
 }
 
@@ -30,8 +35,17 @@ for (const file of toGuides) {
   const src = path.join(docsDir, file);
   const dest = path.join(docsDir, 'guides/cli-commands.md');
   if (fs.existsSync(src)) {
-    fs.renameSync(src, dest);
-    console.log(`  ${file} → guides/cli-commands.md`);
+    if (fs.existsSync(dest)) {
+      console.warn(`⚠️ 目标文件已存在，跳过: guides/cli-commands.md`);
+      continue;
+    }
+    try {
+      fs.renameSync(src, dest);
+      console.log(`✅ ${file} → guides/cli-commands.md`);
+    } catch (error) {
+      console.error(`❌ 移动文件失败: ${file}`);
+      console.error(`   错误: ${error.message}`);
+    }
   }
 }
 
@@ -46,8 +60,17 @@ for (const file of toReference) {
   const src = path.join(docsDir, file);
   const dest = path.join(docsDir, 'reference', path.basename(file));
   if (fs.existsSync(src)) {
-    fs.renameSync(src, dest);
-    console.log(`  ${file} → reference/${path.basename(file)}`);
+    if (fs.existsSync(dest)) {
+      console.warn(`⚠️ 目标文件已存在，跳过: reference/${path.basename(file)}`);
+      continue;
+    }
+    try {
+      fs.renameSync(src, dest);
+      console.log(`✅ ${file} → reference/${path.basename(file)}`);
+    } catch (error) {
+      console.error(`❌ 移动文件失败: ${file}`);
+      console.error(`   错误: ${error.message}`);
+    }
   }
 }
 
@@ -65,8 +88,17 @@ for (const file of toArchive) {
   const src = path.join(docsDir, file);
   const dest = path.join(docsDir, 'archive', path.basename(file));
   if (fs.existsSync(src)) {
-    fs.renameSync(src, dest);
-    console.log(`  ${file} → archive/${path.basename(file)}`);
+    if (fs.existsSync(dest)) {
+      console.warn(`⚠️ 目标文件已存在，跳过: archive/${path.basename(file)}`);
+      continue;
+    }
+    try {
+      fs.renameSync(src, dest);
+      console.log(`✅ ${file} → archive/${path.basename(file)}`);
+    } catch (error) {
+      console.error(`❌ 移动文件失败: ${file}`);
+      console.error(`   错误: ${error.message}`);
+    }
   }
 }
 

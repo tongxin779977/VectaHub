@@ -445,9 +445,8 @@ ${username} ALL=(ALL) NOPASSWD: /usr/bin/unshare
 
     const sandboxArgs = [
       '-f', '-',
-      'bash',
-      '-c',
-      `cd "${cwd}" && "${cmd}" ${args.map(a => `'${a}'`).join(' ')}`
+      cmd,
+      ...args
     ];
 
     return new Promise((resolve) => {
@@ -516,11 +515,7 @@ ${username} ALL=(ALL) NOPASSWD: /usr/bin/unshare
       unshareArgs.push('--net');
     }
 
-    unshareArgs.push(
-      'bash',
-      '-c',
-      `cd "${cwd}" && "${cmd}" ${args.map(a => `'${a}'`).join(' ')}`
-    );
+    unshareArgs.push(cmd, ...args);
 
     return new Promise((resolve) => {
       const child = spawn(unshareCmd, unshareArgs, {
@@ -584,9 +579,8 @@ ${username} ALL=(ALL) NOPASSWD: /usr/bin/unshare
     bwrapArgs.push(
       '--dir', cwd,
       '--tmpfs', cwd,
-      'bash',
-      '-c',
-      `cd "${cwd}" && "${cmd}" ${args.map(a => `'${a}'`).join(' ')}`
+      cmd,
+      ...args
     );
 
     return new Promise((resolve) => {

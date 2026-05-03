@@ -1,0 +1,435 @@
+{
+  "timestamp": "2026-05-03T03:52:55.287Z",
+  "version": "1.0.0",
+  "summary": {
+    "passed": 20,
+    "failed": 33,
+    "total": 53
+  },
+  "results": [
+    {
+      "name": "查看版本",
+      "command": "vectahub --version",
+      "success": true,
+      "code": 0,
+      "stdout": "1.0.0\n",
+      "stderr": ""
+    },
+    {
+      "name": "查看帮助",
+      "command": "vectahub --help",
+      "success": true,
+      "code": 0,
+      "stdout": "Usage: vectahub [options] [command]\n\nVectaHub - Workflow Editor & Engine + OpenCLI\n\nOptions:\n  -V, --version                     output the version number\n  -h, --help                        display help for command\n\nCommands:\n  dev                               Development commands for multi-agent\n                                    collaboration\n  serve [options]                   Start VectaHub as a background service\n  client                            Interact with VectaHub service\n  security                          Security protocol management commands\n  audit                             Audit log management commands\n  tools                             CLI tools management commands\n  run [options] [intent...]         Run a workflow from natural language or file\n  list               ",
+      "stderr": ""
+    },
+    {
+      "name": "查看命令列表",
+      "command": "vectahub --help",
+      "success": true,
+      "code": 0,
+      "stdout": "Usage: vectahub [options] [command]\n\nVectaHub - Workflow Editor & Engine + OpenCLI\n\nOptions:\n  -V, --version                     output the version number\n  -h, --help                        display help for command\n\nCommands:\n  dev                               Development commands for multi-agent\n                                    collaboration\n  serve [options]                   Start VectaHub as a background service\n  client                            Interact with VectaHub service\n  security                          Security protocol management commands\n  audit                             Audit log management commands\n  tools                             CLI tools management commands\n  run [options] [intent...]         Run a workflow from natural language or file\n  list               ",
+      "stderr": ""
+    },
+    {
+      "name": "运行 doctor",
+      "command": "vectahub doctor",
+      "success": true,
+      "code": 0,
+      "stdout": "\n🔍 VectaHub Doctor\n──────────────────────────────────────────────────\n✅ Node.js              v25.9.0 (requires >=21.0.0)\n✅ TypeScript           Available\n✅ tsx                  Available\n✅ Vitest               Available\n✅ Directory structure  src/\n✅ Project files        All required files present\n\n──────────────────────────────────────────────────\nResults: 6 passed, 0 warnings, 0 failed\n\n✅ All checks passed! VectaHub is ready to use.\n\n",
+      "stderr": ""
+    },
+    {
+      "name": "doctor --verbose",
+      "command": "vectahub doctor --verbose",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--verbose'\n"
+    },
+    {
+      "name": "dev --help",
+      "command": "vectahub dev --help",
+      "success": true,
+      "code": 0,
+      "stdout": "Usage: vectahub dev [options] [command]\n\nDevelopment commands for multi-agent collaboration\n\nOptions:\n  -h, --help                      display help for command\n\nCommands:\n  check                           Check project configuration and dependencies\n  status [options]                View project development progress\n  module [options] <module-name>  Generate module template\n  validate                        Validate module interface contracts\n  test [options] [module-name]    Run module unit tests\n  build [options]                 Build the project\n  help [command]                  display help for command\n",
+      "stderr": ""
+    },
+    {
+      "name": "dev check",
+      "command": "vectahub dev check",
+      "success": true,
+      "code": 0,
+      "stdout": "\n🔍 Checking VectaHub project...\n\n✅ TypeScript configuration: OK\n✅ Package.json: OK\n✅ Source directory: OK\n\n✅ All checks passed!\n\n",
+      "stderr": ""
+    },
+    {
+      "name": "dev status",
+      "command": "vectahub dev status",
+      "success": true,
+      "code": 0,
+      "stdout": "\n📊 VectaHub Development Progress\n\nModule       | Agent    | Status       | Progress\n-------------|----------|--------------|----------\ncli          | Agent A  | completed    | ██████████ 100%\nnl           | Agent B  | completed    | ██████████ 100%\nworkflow     | Agent C  | completed    | ██████████ 100%\nexecutor     | Agent D  | completed    | ██████████ 100%\nsandbox      | Agent E  | completed    | ██████████ 100%\nstorage      | Agent F  | completed    | ██████████ 100%\nutils        | Agent G  | completed    | ██████████ 100%\n\nOverall Progress: 100%\n",
+      "stderr": ""
+    },
+    {
+      "name": "dev validate",
+      "command": "vectahub dev validate",
+      "success": false,
+      "code": 1,
+      "stdout": "\n🔍 Validating module interfaces...\n\n✅ nl: All 2 required methods present\n  ✅ parse\n  ✅ parseToTaskList\n\n✅ intent-matcher: All 3 required methods present\n  ✅ match\n  ✅ registerPattern\n  ✅ getPatterns\n\n✅ workflow: All 4 required methods present\n  ✅ createWorkflow\n  ✅ execute\n  ✅ getWorkflow\n  ✅ listWorkflows\n\n✅ executor: All 4 required methods present\n  ✅ exec\n  ✅ execute\n  ✅ executeWorkflow\n  ✅ validateStep\n\n✅ storage: All 4 required methods present\n  ✅ save\n  ✅ get\n  ✅ list\n  ✅ delete\n\n✅ sandbox: All 2 required methods present\n  ✅ detect\n  ✅ isDangerous\n\n❌ utils: Missing methods: createLogger, createConsoleLogger\n  ❌ createLogger (missing)\n  ❌ createConsoleLogger (missing)\n\n──────────────────────────────────────────────────\n\n📊 Validation Summary:\n   ✅ Passed:  6\n   ❌ Failed:  1\n   ⚠️  Wa",
+      "stderr": ""
+    },
+    {
+      "name": "dev module list",
+      "command": "vectahub dev module list",
+      "success": false,
+      "code": 1,
+      "stdout": "Available modules: nl, workflow, executor, storage, sandbox, utils, cli, types\n",
+      "stderr": "Unknown module: list\n"
+    },
+    {
+      "name": "tools --help",
+      "command": "vectahub tools --help",
+      "success": true,
+      "code": 0,
+      "stdout": "Usage: vectahub tools [options] [command]\n\nCLI tools management commands\n\nOptions:\n  -h, --help                        display help for command\n\nCommands:\n  list                              List all registered CLI tools\n  info <toolName>                   Show tool information\n  commands <toolName>               List all commands for a tool\n  command <toolName> <commandName>  Show detailed command information\n  test <toolName> <command>         Test if a command is dangerous\n  known                             List all known tools that can be registered\n  register <toolName>               Register a known tool (or all known tools\n                                    with \"all\")\n  rules [options]                   Show command rule engine status and default\n                                 ",
+      "stderr": ""
+    },
+    {
+      "name": "tools list",
+      "command": "vectahub tools list",
+      "success": true,
+      "code": 0,
+      "stdout": "\n📦 Registered CLI Tools:\n────────────────────────────────────────────────────────────────────────────────\ngit                  Distributed version control system\n  Commands: 22 | Dangerous: 5\nnpm                  Node package manager\n  Commands: 14 | Dangerous: 3\ndocker               Containerization platform\n  Commands: 12 | Dangerous: 3\ncurl                 Command-line tool for transferring data\n  Commands: 6 | Dangerous: 0\n\n",
+      "stderr": ""
+    },
+    {
+      "name": "tools categories",
+      "command": "vectahub tools categories",
+      "success": true,
+      "code": 0,
+      "stdout": "\n📁 工具分类（共 4 个）：\n────────────────────────────────────────────────────────────────────────────────\n  containerization\n  networking\n  package-management\n  version-control\n\n",
+      "stderr": ""
+    },
+    {
+      "name": "tools info git",
+      "command": "vectahub tools info git",
+      "success": true,
+      "code": 0,
+      "stdout": "\n📦 git\n────────────────────────────────────────────────────────────────────────────────\nDescription: Distributed version control system\nVersion: >=2.0.0\nCommands: 22\n\n⚠️  Dangerous Commands:\n  - push --force\n  - reset --hard\n  - clean -fd\n  - filter-branch\n  - push --delete\n\n",
+      "stderr": ""
+    },
+    {
+      "name": "tools info npm",
+      "command": "vectahub tools info npm",
+      "success": true,
+      "code": 0,
+      "stdout": "\n📦 npm\n────────────────────────────────────────────────────────────────────────────────\nDescription: Node package manager\nVersion: >=6.0.0\nCommands: 14\n\n⚠️  Dangerous Commands:\n  - publish\n  - unpublish\n  - access owner drop\n\n",
+      "stderr": ""
+    },
+    {
+      "name": "tools search version",
+      "command": "vectahub tools search version",
+      "success": true,
+      "code": 0,
+      "stdout": "\n🔍 搜索结果：\n────────────────────────────────────────────────────────────────────────────────\n\n📦 匹配的工具（1 个）：\n  git                  [version-control] Distributed version control system\n    Tags: git, vcs, version-control, source-code\n\n📋 匹配的命令（1 个）：\n  npm update          Update packages to the latest version\n\n",
+      "stderr": ""
+    },
+    {
+      "name": "security --help",
+      "command": "vectahub security --help",
+      "success": true,
+      "code": 0,
+      "stdout": "Usage: vectahub security [options] [command]\n\nSecurity protocol management commands\n\nOptions:\n  -h, --help                   display help for command\n\nCommands:\n  list [options]               List all security rules\n  add [options]                Add a new security rule\n  update [options] <ruleId>    Update an existing security rule\n  delete <ruleId>              Delete a security rule\n  enable <ruleId>              Enable a security rule\n  disable <ruleId>             Disable a security rule\n  import <filePath>            Import security rules from a JSON file\n  export [options] <filePath>  Export security rules to a JSON file\n  test [options] <command>     Test if a command is dangerous\n  reset [options]              Reset all rules to defaults\n  config                       Show current",
+      "stderr": ""
+    },
+    {
+      "name": "security status",
+      "command": "vectahub security status",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown command 'status'\n"
+    },
+    {
+      "name": "security policy",
+      "command": "vectahub security policy",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown command 'policy'\n"
+    },
+    {
+      "name": "audit --help",
+      "command": "vectahub audit --help",
+      "success": true,
+      "code": 0,
+      "stdout": "Usage: vectahub audit [options] [command]\n\nAudit log management commands\n\nOptions:\n  -h, --help       display help for command\n\nCommands:\n  query [options]  Query audit logs\n  stats            Show audit statistics\n  help [command]   display help for command\n",
+      "stderr": ""
+    },
+    {
+      "name": "audit list",
+      "command": "vectahub audit list",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown command 'list'\n"
+    },
+    {
+      "name": "mode --help",
+      "command": "vectahub mode --help",
+      "success": true,
+      "code": 0,
+      "stdout": "Usage: vectahub mode [options] [mode]\n\nGet or set execution mode\n\nArguments:\n  mode        Mode to set (strict|relaxed|consensus)\n\nOptions:\n  -h, --help  display help for command\n",
+      "stderr": ""
+    },
+    {
+      "name": "mode show",
+      "command": "vectahub mode show",
+      "success": false,
+      "code": 1,
+      "stdout": "[03:52:22] \u001b[31mERROR\u001b[39m (mode): \u001b[36mInvalid mode: show\u001b[39m\n[03:52:22] \u001b[32mINFO\u001b[39m (mode): \u001b[36mValid modes: strict, relaxed, consensus\u001b[39m\n",
+      "stderr": ""
+    },
+    {
+      "name": "history --help",
+      "command": "vectahub history --help",
+      "success": true,
+      "code": 0,
+      "stdout": "Usage: vectahub history [options]\n\nView workflow execution history\n\nOptions:\n  -l, --limit <number>  Limit number of entries (default: \"20\")\n  -h, --help            display help for command\n",
+      "stderr": ""
+    },
+    {
+      "name": "history list",
+      "command": "vectahub history list",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: too many arguments for 'history'. Expected 0 arguments but got 1.\n"
+    },
+    {
+      "name": "list --help",
+      "command": "vectahub list --help",
+      "success": true,
+      "code": 0,
+      "stdout": "Usage: vectahub list [options]\n\nList saved workflows\n\nOptions:\n  -h, --help  display help for command\n",
+      "stderr": ""
+    },
+    {
+      "name": "list",
+      "command": "vectahub list",
+      "success": true,
+      "code": 0,
+      "stdout": "[03:52:26] \u001b[32mINFO\u001b[39m (list): \u001b[36mNo saved workflows\u001b[39m\n",
+      "stderr": ""
+    },
+    {
+      "name": "generate --help",
+      "command": "vectahub generate --help",
+      "success": true,
+      "code": 0,
+      "stdout": "Usage: vectahub generate [options] <description>\n\n使用 LLM 生成 YAML 工作流\n\nArguments:\n  description          工作流描述\n\nOptions:\n  -o, --output <file>  输出文件路径（默认自动生成）\n  -s, --save           保存到工作流库\n  -e, --execute        生成后立即执行\n  -h, --help           display help for command\n",
+      "stderr": ""
+    },
+    {
+      "name": "generate \"list project files\"",
+      "command": "vectahub generate list project files",
+      "success": false,
+      "code": 1,
+      "stdout": "[03:52:28] \u001b[31mERROR\u001b[39m (generate): \u001b[36mLLM 不可用，请先配置环境变量\u001b[39m\n[03:52:28] \u001b[32mINFO\u001b[39m (generate): \u001b[36m   - OpenAI: OPENAI_API_KEY\u001b[39m\n[03:52:28] \u001b[32mINFO\u001b[39m (generate): \u001b[36m   - Anthropic: ANTHROPIC_API_KEY\u001b[39m\n[03:52:28] \u001b[32mINFO\u001b[39m (generate): \u001b[36m   - Ollama: OLLAMA_API_KEY 和 VECTAHUB_LLM_BASE_URL\u001b[39m\n",
+      "stderr": ""
+    },
+    {
+      "name": "NL: \"查看当前目录\"",
+      "command": "vectahub run 查看当前目录 --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"列出所有文件\"",
+      "command": "vectahub run 列出所有文件 --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"显示目录树\"",
+      "command": "vectahub run 显示目录树 --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"查看 README\"",
+      "command": "vectahub run 查看 README --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"查看 package.json\"",
+      "command": "vectahub run 查看 package.json --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"查看 git 状态\"",
+      "command": "vectahub run 查看 git 状态 --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"显示 git 日志\"",
+      "command": "vectahub run 显示 git 日志 --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"查看当前分支\"",
+      "command": "vectahub run 查看当前分支 --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"检查 git 配置\"",
+      "command": "vectahub run 检查 git 配置 --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"查看已安装包\"",
+      "command": "vectahub run 查看已安装包 --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"显示 npm 配置\"",
+      "command": "vectahub run 显示 npm 配置 --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"查看 package.json 内容\"",
+      "command": "vectahub run 查看 package.json 内容 --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"显示当前时间\"",
+      "command": "vectahub run 显示当前时间 --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"显示系统信息\"",
+      "command": "vectahub run 显示系统信息 --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"查看内存使用\"",
+      "command": "vectahub run 查看内存使用 --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"查看磁盘使用\"",
+      "command": "vectahub run 查看磁盘使用 --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"显示网络信息\"",
+      "command": "vectahub run 显示网络信息 --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"检查系统环境\"",
+      "command": "vectahub run 检查系统环境 --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"运行 typecheck\"",
+      "command": "vectahub run 运行 typecheck --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"查看项目结构\"",
+      "command": "vectahub run 查看项目结构 --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"列出 src 目录\"",
+      "command": "vectahub run 列出 src 目录 --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"列出 docs 目录\"",
+      "command": "vectahub run 列出 docs 目录 --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"查看配置文件\"",
+      "command": "vectahub run 查看配置文件 --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    },
+    {
+      "name": "NL: \"显示当前设置\"",
+      "command": "vectahub run 显示当前设置 --no-edit --dry-run",
+      "success": false,
+      "code": 1,
+      "stdout": "",
+      "stderr": "error: unknown option '--dry-run'\n"
+    }
+  ]
+}

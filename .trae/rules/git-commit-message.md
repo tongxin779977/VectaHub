@@ -2,8 +2,8 @@
 alwaysApply: false
 description: "生成 git commit message 时遵循此规范"
 scene: "git_commit"
-version: 2.0.0
-lastUpdated: 2026-05-02
+version: 3.0.0
+lastUpdated: 2026-05-03
 ---
 
 # Git Commit Message
@@ -11,7 +11,7 @@ lastUpdated: 2026-05-02
 ## 格式
 
 ```
-[模块] 动词 + 做了什么（≤50字，不用句号）
+[模块] 动词 + 做了什么（≤50字，无句号）
 ```
 
 ## 模块名
@@ -24,4 +24,3 @@ lastUpdated: 2026-05-02
 - `[workflow] 修复并行步骤执行顺序问题`
 - `[sandbox] 新增 macOS 沙盒检测`
 - `[test] 补充 executor 单元测试`
-- `[config] 更新默认沙盒策略为 block`

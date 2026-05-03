@@ -1,18 +1,24 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createWorkflowEngine, type WorkflowEngine } from './engine.js';
-import type { Step } from '../types/index.js';
+import type { Step, ExecutionRecord } from '../types/index.js';
 
 let shouldFail = false;
 
+const mockSave = vi.fn().mockResolvedValue(undefined);
+const mockGet = vi.fn().mockResolvedValue(undefined);
+const mockList = vi.fn().mockResolvedValue([]);
+const mockSaveWorkflow = vi.fn().mockResolvedValue(undefined);
+const mockListWorkflows = vi.fn().mockResolvedValue([]);
+
 vi.mock('./storage.js', () => ({
   createStorage: () => ({
-    save: vi.fn().mockResolvedValue(undefined),
-    get: vi.fn().mockResolvedValue(undefined),
-    list: vi.fn().mockResolvedValue([]),
+    save: mockSave,
+    get: mockGet,
+    list: mockList,
     delete: vi.fn().mockResolvedValue(undefined),
-    saveWorkflow: vi.fn().mockResolvedValue(undefined),
+    saveWorkflow: mockSaveWorkflow,
     getWorkflow: vi.fn().mockResolvedValue(undefined),
-    listWorkflows: vi.fn().mockResolvedValue([]),
+    listWorkflows: mockListWorkflows,
     deleteWorkflow: vi.fn().mockResolvedValue(undefined),
   }),
 }));
@@ -53,6 +59,11 @@ describe('WorkflowEngine', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    mockSave.mockResolvedValue(undefined);
+    mockGet.mockResolvedValue(undefined);
+    mockList.mockResolvedValue([]);
+    mockSaveWorkflow.mockResolvedValue(undefined);
+    mockListWorkflows.mockResolvedValue([]);
     shouldFail = false;
     engine = await createWorkflowEngine();
   });
@@ -176,5 +187,316 @@ describe('WorkflowEngine', () => {
     await executionPromise;
     const statusAfter = engine.getStatus();
     expect(statusAfter?.status).toBe('COMPLETED');
+  });
+
+  describe('topologicalSort (via execution)', () => {
+    it('should execute steps with dependsOn in correct order', async () => {
+      const steps: Step[] = [
+        { id: 'step2', type: 'exec', cli: 'echo', args: ['second'], dependsOn: ['step1'] },
+        { id: 'step1', type: 'exec', cli: 'echo', args: ['first'] },
+      ];
+      const workflow = await engine.createWorkflow('dep-workflow', steps);
+      const result = await engine.execute(workflow);
+
+      expect(result.status).toBe('COMPLETED');
+      expect(result.steps.length).toBe(2);
+      expect(result.steps[0].stepId).toBe('step1');
+      expect(result.steps[1].stepId).toBe('step2');
+    });
+
+    it('should handle multi-level dependencies', async () => {
+      const steps: Step[] = [
+        { id: 'step3', type: 'exec', cli: 'echo', args: ['third'], dependsOn: ['step2'] },
+        { id: 'step1', type: 'exec', cli: 'echo', args: ['first'] },
+        { id: 'step2', type: 'exec', cli: 'echo', args: ['second'], dependsOn: ['step1'] },
+      ];
+      const workflow = await engine.createWorkflow('multi-dep', steps);
+      const result = await engine.execute(workflow);
+
+      expect(result.status).toBe('COMPLETED');
+      expect(result.steps[0].stepId).toBe('step1');
+      expect(result.steps[1].stepId).toBe('step2');
+      expect(result.steps[2].stepId).toBe('step3');
+    });
+
+    it('should execute independent steps in original order', async () => {
+      const steps: Step[] = [
+        { id: 'step1', type: 'exec', cli: 'echo', args: ['first'] },
+        { id: 'step2', type: 'exec', cli: 'echo', args: ['second'] },
+        { id: 'step3', type: 'exec', cli: 'echo', args: ['third'] },
+      ];
+      const workflow = await engine.createWorkflow('no-dep', steps);
+      const result = await engine.execute(workflow);
+
+      expect(result.steps[0].stepId).toBe('step1');
+      expect(result.steps[1].stepId).toBe('step2');
+      expect(result.steps[2].stepId).toBe('step3');
+    });
+  });
+
+  describe('resumeFromFailure', () => {
+    it('should resume from failed step and execute remaining steps', async () => {
+      const steps: Step[] = [
+        { id: 's1', type: 'exec', cli: 'echo', args: ['first'] },
+        { id: 's2', type: 'exec', cli: 'echo', args: ['second'] },
+        { id: 's3', type: 'exec', cli: 'echo', args: ['third'] },
+      ];
+      const workflow = await engine.createWorkflow('resume-wf', steps);
+
+      const previousExecution: ExecutionRecord = {
+        executionId: 'exec_1',
+        workflowId: workflow.id,
+        workflowName: 'resume-wf',
+        status: 'FAILED',
+        mode: 'relaxed',
+        startedAt: new Date(),
+        steps: [
+          { stepId: 's1', status: 'COMPLETED' },
+          { stepId: 's2', status: 'FAILED', error: 'killed' },
+        ],
+        warnings: ['Step 2 failed'],
+        logs: [],
+      };
+      mockGet.mockResolvedValue(previousExecution);
+
+      const result = await engine.resumeFromFailure('exec_1');
+
+      expect(result.status).toBe('COMPLETED');
+      expect(result.steps.length).toBe(3);
+      expect(result.steps[0].stepId).toBe('s1');
+      expect(result.steps[1].stepId).toBe('s2');
+      expect(result.steps[2].stepId).toBe('s3');
+    });
+
+    it('should preserve previousOutputs from earlier steps', async () => {
+      const steps: Step[] = [
+        { id: 's1', type: 'exec', cli: 'echo', args: ['data'] },
+        { id: 's2', type: 'exec', cli: 'echo', args: ['second'] },
+        { id: 's3', type: 'exec', cli: 'echo', args: ['third'] },
+      ];
+      const workflow = await engine.createWorkflow('ctx-wf', steps);
+
+      const previousExecution: ExecutionRecord = {
+        executionId: 'exec_2',
+        workflowId: workflow.id,
+        workflowName: 'ctx-wf',
+        status: 'FAILED',
+        mode: 'relaxed',
+        startedAt: new Date(),
+        steps: [
+          { stepId: 's1', status: 'COMPLETED', output: ['output-data'] },
+          { stepId: 's2', status: 'FAILED', error: 'killed' },
+        ],
+        warnings: [],
+        logs: [],
+      };
+      mockGet.mockResolvedValue(previousExecution);
+
+      const result = await engine.resumeFromFailure('exec_2');
+      expect(result.status).toBe('COMPLETED');
+      expect(result.steps.length).toBe(3);
+    });
+
+    it('should throw when execution not found', async () => {
+      mockGet.mockResolvedValue(undefined);
+      await expect(engine.resumeFromFailure('nonexistent')).rejects.toThrow('not found');
+    });
+
+    it('should throw when no failed step found', async () => {
+      const steps: Step[] = [{ id: 's1', type: 'exec', cli: 'echo', args: ['ok'] }];
+      const workflow = await engine.createWorkflow('no-fail', steps);
+
+      const previousExecution: ExecutionRecord = {
+        executionId: 'exec_3',
+        workflowId: workflow.id,
+        workflowName: 'no-fail',
+        status: 'COMPLETED',
+        mode: 'relaxed',
+        startedAt: new Date(),
+        steps: [{ stepId: 's1', status: 'COMPLETED' }],
+        warnings: [],
+        logs: [],
+      };
+      mockGet.mockResolvedValue(previousExecution);
+
+      await expect(engine.resumeFromFailure('exec_3')).rejects.toThrow('No failed step');
+    });
+
+    it('should throw when no remaining steps after failed step', async () => {
+      const steps: Step[] = [{ id: 's1', type: 'exec', cli: 'echo', args: ['only'] }];
+      const workflow = await engine.createWorkflow('last-fail', steps);
+
+      const previousExecution: ExecutionRecord = {
+        executionId: 'exec_4',
+        workflowId: workflow.id,
+        workflowName: 'last-fail',
+        status: 'FAILED',
+        mode: 'relaxed',
+        startedAt: new Date(),
+        steps: [{ stepId: 's1', status: 'FAILED', error: 'failed' }],
+        warnings: [],
+        logs: [],
+      };
+      mockGet.mockResolvedValue(previousExecution);
+
+      await expect(engine.resumeFromFailure('exec_4')).rejects.toThrow('No remaining steps');
+    });
+
+    it('should throw when workflow no longer exists', async () => {
+      const previousExecution: ExecutionRecord = {
+        executionId: 'exec_5',
+        workflowId: 'wf_deleted',
+        workflowName: 'deleted',
+        status: 'FAILED',
+        mode: 'relaxed',
+        startedAt: new Date(),
+        steps: [{ stepId: 's1', status: 'FAILED', error: 'failed' }],
+        warnings: [],
+        logs: [],
+      };
+      mockGet.mockResolvedValue(previousExecution);
+
+      await expect(engine.resumeFromFailure('exec_5')).rejects.toThrow('not found');
+    });
+  });
+
+  describe('executeAsync and waitForCompletion', () => {
+    it('should resolve waitForCompletion after async execution finishes', async () => {
+      const steps: Step[] = [{ id: 'step1', type: 'exec', cli: 'echo', args: ['hello'] }];
+      const workflow = await engine.createWorkflow('async-wf', steps);
+
+      engine.executeAsync(workflow);
+      const result = await engine.waitForCompletion();
+
+      expect(result.status).toBe('COMPLETED');
+    });
+
+    it('should resolve immediately when already completed', async () => {
+      const steps: Step[] = [{ id: 'step1', type: 'exec', cli: 'echo', args: ['hello'] }];
+      const workflow = await engine.createWorkflow('done-wf', steps);
+
+      await engine.execute(workflow);
+      const result = await engine.waitForCompletion();
+
+      expect(result.status).toBe('COMPLETED');
+    });
+
+    it('should reject when no execution exists', async () => {
+      await expect(engine.waitForCompletion()).rejects.toThrow('No execution in progress');
+    });
+  });
+
+  describe('loadWorkflows', () => {
+    it('should load workflows from storage', async () => {
+      const storedWorkflow = {
+        id: 'wf_100',
+        name: 'loaded-wf',
+        mode: 'relaxed' as const,
+        steps: [{ id: 's1', type: 'exec' as const, cli: 'echo', args: ['loaded'] }],
+        createdAt: new Date(),
+      };
+      mockListWorkflows.mockResolvedValue([storedWorkflow]);
+
+      await engine.loadWorkflows();
+
+      const loaded = await engine.getWorkflow('wf_100');
+      expect(loaded).toBeDefined();
+      expect(loaded?.name).toBe('loaded-wf');
+    });
+
+    it('should return loaded workflows in listWorkflows', async () => {
+      const storedWorkflow = {
+        id: 'wf_200',
+        name: 'another-wf',
+        mode: 'strict' as const,
+        steps: [],
+        createdAt: new Date(),
+      };
+      mockListWorkflows.mockResolvedValue([storedWorkflow]);
+
+      await engine.loadWorkflows();
+      const all = await engine.listWorkflows();
+
+      expect(all.length).toBeGreaterThanOrEqual(1);
+      expect(all.some(w => w.id === 'wf_200')).toBe(true);
+    });
+  });
+
+  describe('workflow execution failure', () => {
+    it('should mark workflow as FAILED when step fails', async () => {
+      const steps: Step[] = [
+        { id: 's1', type: 'exec', cli: 'echo', args: ['fail'] },
+        { id: 's2', type: 'exec', cli: 'echo', args: ['never'] },
+      ];
+      const workflow = await engine.createWorkflow('fail-wf', steps);
+
+      shouldFail = true;
+      const result = await engine.execute(workflow);
+
+      expect(result.status).toBe('FAILED');
+      expect(result.steps.length).toBe(1);
+      expect(result.steps[0].stepId).toBe('s1');
+      expect(result.steps[0].status).toBe('FAILED');
+    });
+
+    it('should not execute steps after failure', async () => {
+      const steps: Step[] = [
+        { id: 's1', type: 'exec', cli: 'echo', args: ['fail'] },
+        { id: 's2', type: 'exec', cli: 'echo', args: ['never'] },
+        { id: 's3', type: 'exec', cli: 'echo', args: ['never-either'] },
+      ];
+      const workflow = await engine.createWorkflow('partial-fail', steps);
+
+      shouldFail = true;
+      const result = await engine.execute(workflow);
+
+      expect(result.steps.length).toBe(1);
+      expect(result.steps[0].stepId).toBe('s1');
+    });
+  });
+
+  describe('multiple workflow management', () => {
+    it('should manage multiple workflows independently', async () => {
+      const wf1 = await engine.createWorkflow('wf-a', [
+        { id: 'a1', type: 'exec', cli: 'echo', args: ['a'] },
+      ]);
+      const wf2 = await engine.createWorkflow('wf-b', [
+        { id: 'b1', type: 'exec', cli: 'echo', args: ['b'] },
+      ]);
+
+      expect(wf1.id).not.toBe(wf2.id);
+
+      const all = await engine.listWorkflows();
+      expect(all.length).toBe(2);
+    });
+
+    it('should execute different workflows independently', async () => {
+      const wf1 = await engine.createWorkflow('wf1', [
+        { id: 's1', type: 'exec', cli: 'echo', args: ['one'] },
+      ]);
+      const wf2 = await engine.createWorkflow('wf2', [
+        { id: 's1', type: 'exec', cli: 'echo', args: ['two'] },
+      ]);
+
+      const r1 = await engine.execute(wf1);
+      const r2 = await engine.execute(wf2);
+
+      expect(r1.status).toBe('COMPLETED');
+      expect(r2.status).toBe('COMPLETED');
+    });
+  });
+
+  describe('pause and resume integration', () => {
+    it('should reject pause when not running', () => {
+      expect(engine.pause()).toBe(false);
+    });
+
+    it('should reject resume when not paused', () => {
+      expect(engine.resume()).toBe(false);
+    });
+
+    it('should reject abort when idle', () => {
+      expect(engine.abort()).toBe(false);
+    });
   });
 });

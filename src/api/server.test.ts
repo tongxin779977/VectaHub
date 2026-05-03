@@ -1,6 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createAPIServer } from './server.js';
 import type { Server } from 'http';
+
+vi.mock('../nl/llm.js', async () => {
+  const actual = await vi.importActual('../nl/llm.js');
+  return {
+    ...actual,
+    isLLMAvailable: vi.fn(() => false),
+    createLLMConfig: vi.fn(() => null),
+  };
+});
 
 describe('API Server', () => {
   let server: Server;

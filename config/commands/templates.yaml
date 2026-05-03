@@ -1,0 +1,97 @@
+version: '1.0.0'
+templates:
+  CODE_TRANSFORM:
+    - name: mv
+      cli: mv
+      args: ['${from}', '${to}']
+    - name: cp
+      cli: cp
+      args: ['${from}', '${to}']
+
+  CODE_CREATE:
+    - name: touch
+      cli: touch
+      args: ['${path}']
+    - name: mkdir
+      cli: mkdir
+      args: ['-p', '${path}']
+
+  CODE_DELETE:
+    - name: rm
+      cli: rm
+      args: ['${path}']
+      condition:
+        type: param
+        param: recursive
+        then: ['-rf', '${path}']
+        else: ['${path}']
+
+  BUILD_VERIFY:
+    - name: build
+      cli: '${detectedCLI}'
+      args: ['run', 'build']
+
+  TEST_RUN:
+    - name: test
+      cli: '${detectedCLI}'
+      args: ['run', 'test']
+
+  PACKAGE_INSTALL:
+    - name: install
+      cli: '${detectedCLI}'
+      args: ['install', '${flags}', '${package}']
+      params:
+        flags: ''
+
+  GIT_OPERATION:
+    - name: add
+      cli: git
+      args: ['add', '-A']
+    - name: commit
+      cli: git
+      args: ['commit', '-m', '${message}']
+      params:
+        message: auto commit
+    - name: push
+      cli: git
+      args: ['push', 'origin', '${branch}']
+      params:
+        branch: main
+    - name: pull
+      cli: git
+      args: ['pull']
+    - name: clone
+      cli: git
+      args: ['clone', '${url}', '${path}']
+      params:
+        path: '.'
+
+  DOCKER_OPERATION:
+    - name: build
+      cli: docker
+      args: ['build', '-t', '${tag}', '${path}']
+      params:
+        path: '.'
+    - name: run
+      cli: docker
+      args: ['run', '${flags}', '${image}']
+
+  QUERY_EXEC:
+    - name: ls
+      cli: ls
+      args: ['${path}']
+      params:
+        path: .
+    - name: cat
+      cli: cat
+      args: ['${file}']
+    - name: grep
+      cli: grep
+      args: ['${pattern}', '${path}']
+      params:
+        path: .
+
+  DEBUG_EXEC:
+    - name: inspect
+      cli: node
+      args: ['--inspect', '${script}']

@@ -92,5 +92,80 @@ describe('CommandSynthesizer', () => {
       expect(task.commands[0].args).toEqual(['add', '-A']);
       expect(task.commands[1].args[0]).toEqual('commit');
     });
+
+    it('should create FILE_ARCHIVE task with zip', () => {
+      const task = createTaskFromIntent('FILE_ARCHIVE', EMPTY_ENTITIES, '压缩文件');
+      expect(task.commands[0].cli).toBe('tar');
+      expect(task.commands[0].args).toContain('-czf');
+    });
+
+    it('should create FILE_ARCHIVE task with unzip', () => {
+      const task = createTaskFromIntent('FILE_ARCHIVE', EMPTY_ENTITIES, '解压文件');
+      expect(task.commands[0].cli).toBe('tar');
+      expect(task.commands[0].args).toContain('-xzf');
+    });
+
+    it('should create NETWORK_INFO task with ping', () => {
+      const entities = { ...EMPTY_ENTITIES, HOST: ['example.com'] };
+      const task = createTaskFromIntent('NETWORK_INFO', entities, 'ping example.com');
+      expect(task.commands[0].cli).toBe('ping');
+    });
+
+    it('should create NETWORK_INFO task with dns', () => {
+      const entities = { ...EMPTY_ENTITIES, HOST: ['example.com'] };
+      const task = createTaskFromIntent('NETWORK_INFO', entities, 'dns解析 example.com');
+      expect(task.commands[0].cli).toBe('nslookup');
+    });
+
+    it('should create SYSTEM_MONITOR task for cpu', () => {
+      const task = createTaskFromIntent('SYSTEM_MONITOR', EMPTY_ENTITIES, '查看cpu使用率');
+      expect(task.commands[0].cli).toBe('top');
+    });
+
+    it('should create SYSTEM_MONITOR task default', () => {
+      const task = createTaskFromIntent('SYSTEM_MONITOR', EMPTY_ENTITIES, '系统监控');
+      expect(task.commands[0].cli).toBe('df');
+    });
+
+    it('should create FILE_PERMISSION task with check', () => {
+      const task = createTaskFromIntent('FILE_PERMISSION', EMPTY_ENTITIES, '查看文件权限');
+      expect(task.commands[0].cli).toBe('ls');
+      expect(task.commands[0].args).toContain('-la');
+    });
+
+    it('should create FILE_DIFF task', () => {
+      const entities = { ...EMPTY_ENTITIES, FILE1: ['a.txt'], FILE2: ['b.txt'] };
+      const task = createTaskFromIntent('FILE_DIFF', entities, '比较文件');
+      expect(task.commands[0].cli).toBe('diff');
+      expect(task.commands[0].args).toContain('-u');
+    });
+
+    it('should create SYSTEM_INFO task for disk', () => {
+      const task = createTaskFromIntent('SYSTEM_INFO', EMPTY_ENTITIES, '查看磁盘使用');
+      expect(task.commands[0].cli).toBe('df');
+    });
+
+    it('should create SYSTEM_INFO task for memory', () => {
+      const task = createTaskFromIntent('SYSTEM_INFO', EMPTY_ENTITIES, '查看内存');
+      expect(task.commands[0].cli).toBe('top');
+    });
+
+    it('should create RUN_SCRIPT task for build', () => {
+      const task = createTaskFromIntent('RUN_SCRIPT', EMPTY_ENTITIES, '运行构建');
+      expect(task.commands[0].cli).toBe('npm');
+      expect(task.commands[0].args).toContain('build');
+    });
+
+    it('should create default task for unknown intent', () => {
+      const task = createTaskFromIntent('UNKNOWN', EMPTY_ENTITIES, '随便做点什么');
+      expect(task.commands.length).toBeGreaterThan(0);
+    });
+
+    it('should generate commit with extracted message from input', () => {
+      const entities = { ...EMPTY_ENTITIES, OPTIONS: ['commit'] };
+      const task = createTaskFromIntent('GIT_WORKFLOW', entities, 'commit修复登录bug');
+      expect(task.commands[0].args).toContain('-m');
+      expect(task.commands[0].args).toContain('修复登录bug');
+    });
   });
 });
