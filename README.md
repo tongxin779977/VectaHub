@@ -8,7 +8,7 @@
 
 ---
 
-## 一句话定位
+## 🎯 一句话介绍
 
 说人话，自动编排工作流，安全执行。
 
@@ -20,28 +20,80 @@
 
 ---
 
-## 快速开始
+## 🚀 快速开始
 
-### 安装
+### 1. 安装
 
 ```bash
 npm install -g vectahub
 ```
 
-### 首次配置
+### 2. 首次配置（可选但推荐）
 
 ```bash
 vectahub setup
 ```
 
-首次运行会引导你配置 LLM 提供商（OpenAI / Anthropic / Ollama）。如果跳过配置，VectaHub 会降级使用关键词匹配模式。
+首次运行会引导你配置 LLM 提供商（OpenAI / Anthropic / Ollama）。如果跳过配置，VectaHub 会降级使用关键词匹配模式，依然可以使用！
 
-### 使用自然语言执行
+### 3. 检查环境
 
 ```bash
+vectahub doctor
+```
+
+确保所有依赖都正常安装。
+
+### 4. 你的第一条命令
+
+```bash
+vectahub run "查看当前目录文件"
+```
+
+---
+
+## ✨ 核心功能
+
+### 🤖 自然语言理解
+
+- **LLM 优先**: 使用大语言模型理解你的意图
+- **智能降级**: LLM 不可用时自动使用关键词匹配
+- **16种意图**: 覆盖常见自动化场景
+
+### 🔄 工作流引擎
+
+- **五种步骤类型**: `exec`（本地命令）、`if`（条件）、`for_each`（循环）、`parallel`（并行）、`opencli`（网站适配器）
+- **拓扑排序**: 自动处理步骤依赖
+- **暂停/恢复**: 中断后从断点继续
+- **DryRun 模式**: 预览不执行
+
+### 🔒 安全执行
+
+- **三层检测**: 安全协议引擎 + 命令黑白名单 + 危险命令正则匹配
+- **多平台沙箱**: macOS sandbox-exec / Linux bubblewrap
+- **三种模式**: `strict`（严格）、`relaxed`（宽松）、`consensus`（协商确认）
+
+### 🔧 工具集成
+
+内置工具元数据注册（git/npm/docker/curl），以及 OpenCLI 适配器基础集成。
+
+---
+
+## 💡 常用示例
+
+### 自然语言执行
+
+```bash
+# 简单查询
 vectahub run "查看 git 状态"
 vectahub run "查找昨天修改的所有 .ts 文件"
+
+# 复合任务
 vectahub run "跑测试，通过了就构建"
+vectahub run "压缩图片，然后备份到桌面"
+
+# Dry Run（预览）
+vectahub run --dry-run "删除缓存文件"
 ```
 
 ### 使用 YAML 工作流
@@ -80,60 +132,19 @@ vectahub generate "每天早上获取热榜并保存"
 
 ---
 
-## 核心功能
+## 📚 文档索引
 
-### 工作流引擎
-
-- **五种步骤类型**: `exec`（本地命令）、`if`（条件）、`for_each`（循环）、`parallel`（并行）、`opencli`（网站适配器）
-- **拓扑排序**: 自动处理步骤依赖
-- **暂停/恢复**: 中断后从断点继续
-- **DryRun 模式**: 预览不执行
-
-### 安全执行
-
-- **三层检测**: 安全协议引擎 + 命令黑白名单 + 危险命令正则匹配
-- **多平台沙箱**: macOS sandbox-exec / Linux bubblewrap
-- **三种模式**: `strict`（严格）、`relaxed`（宽松）、`consensus`（协商确认）
-
-### 工具集成
-
-内置工具元数据注册（git/npm/docker/curl），以及 OpenCLI 适配器基础集成。
-
-### LLM 集成
-
-支持 OpenAI / Anthropic / Ollama 三大提供商，用于自然语言意图解析和 YAML 工作流生成。
+| 文档 | 说明 |
+|------|------|
+| **[快速开始](./docs/getting-started.md)** | 新手必读，3分钟上手 |
+| **[常见问题](./docs/faq.md)** | 遇到问题？先看这里 |
+| **[CLI 命令](./docs/guides/cli-commands.md)** | 完整命令参考 |
+| **[用户场景](./docs/guides/user-scenarios.md)** | 20个真实使用场景 |
+| **[产品定位](./docs/product/01_product_positioning.md)** | 了解 VectaHub 适合谁 |
 
 ---
 
-## CLI 命令
-
-```bash
-# 工作流
-vectahub run <intent>            # 自然语言执行
-vectahub run -f <file>           # 从 YAML 文件执行
-vectahub generate <desc>         # LLM 生成 YAML 工作流
-vectahub list                    # 列出保存的工作流
-vectahub history                 # 查看执行历史
-
-# 工具管理
-vectahub tools list              # 列出所有工具
-vectahub tools search <keyword>  # 搜索工具
-vectahub tools categories        # 查看工具分类
-vectahub tools info <name>       # 查看工具详情
-
-# 执行模式
-vectahub mode                    # 查看/切换模式
-
-# 其他
-vectahub doctor                  # 系统诊断
-vectahub setup                   # 首次配置向导
-vectahub security                # 安全管理
-vectahub audit                   # 查看审计日志
-```
-
----
-
-## 技术栈
+## 🛠️ 技术栈
 
 - **语言**: TypeScript
 - **运行时**: Node.js 21+
@@ -143,6 +154,17 @@ vectahub audit                   # 查看审计日志
 
 ---
 
-## 开源协议
+## 📊 项目状态
+
+✅ **VectaHub 1.0.0 已发布！**
+
+- 650 个测试用例全部通过
+- 完整的 CLI 命令体系
+- 安全沙箱隔离
+- LLM 优先 + 关键词降级
+
+---
+
+## 📄 开源协议
 
 基于 [MIT License](./LICENSE) 开源。
