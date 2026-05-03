@@ -52,6 +52,9 @@ export interface VectaHubConfig {
     has_permission: boolean;
   }>;
   priority: string[];
+  templates?: {
+    directory?: string;
+  };
 }
 
 const DEFAULT_CONFIG: VectaHubConfig = {
