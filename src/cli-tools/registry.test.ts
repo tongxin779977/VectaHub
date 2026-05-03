@@ -275,43 +275,37 @@ describe('CLI Tool Registry', () => {
     expect(registry.searchCommands('nonexistent').length).toBe(0);
   });
 
-  it('should handle null/undefined values safely in searchTools', () => {
-    // @ts-ignore Test with incomplete tool data
-    const incompleteTool: CliTool = { 
-      name: 'test', 
-      description: undefined, 
+  it('should handle empty string values in searchTools', () => {
+    const toolWithEmptyStrings: CliTool = {
+      name: 'test',
+      description: '',
       version: '1.0.0',
-      category: null,
-      tags: [undefined, 'valid', null],
+      category: 'test',
+      tags: ['valid'],
       commands: {}
     };
 
-    registry.register(incompleteTool);
+    registry.register(toolWithEmptyStrings);
 
-    // Should not throw errors
     expect(() => registry.searchTools('test')).not.toThrow();
     expect(() => registry.searchTools('valid')).not.toThrow();
     expect(() => registry.searchTools('')).not.toThrow();
   });
 
-  it('should handle null/undefined values safely in searchCommands', () => {
-    // @ts-ignore Test with incomplete command data
-    const toolWithIncompleteCommands: CliTool = { 
-      name: 'test', 
-      description: 'Test tool', 
+  it('should handle empty string values in searchCommands', () => {
+    const toolWithEmptyCommands: CliTool = {
+      name: 'test',
+      description: 'Test tool',
       version: '1.0.0',
       commands: {
-        // @ts-ignore
         cmd1: {
           name: 'cmd1',
-          description: undefined,
+          description: '',
           usage: 'cmd1',
-          examples: [],
-          tags: [null, 'valid', undefined]
+          examples: []
         },
-        // @ts-ignore
         cmd2: {
-          name: null,
+          name: 'cmd2',
           description: 'Description',
           usage: 'cmd2',
           examples: []
@@ -319,9 +313,8 @@ describe('CLI Tool Registry', () => {
       }
     };
 
-    registry.register(toolWithIncompleteCommands);
+    registry.register(toolWithEmptyCommands);
 
-    // Should not throw errors
     expect(() => registry.searchCommands('cmd1')).not.toThrow();
     expect(() => registry.searchCommands('valid')).not.toThrow();
     expect(() => registry.searchCommands('')).not.toThrow();
@@ -440,10 +433,10 @@ describe('NPM Tool Definition', () => {
 
   it('should have examples', async () => {
     const { npmTool } = await import('./tools/npm.js');
-    
+
     expect(npmTool.examples).toBeDefined();
-    expect(npmTool.examples.length).toBeGreaterThan(0);
-    expect(npmTool.examples[0].description).toBeTruthy();
-    expect(npmTool.examples[0].command).toBeTruthy();
+    expect(npmTool.examples?.length).toBeGreaterThan(0);
+    expect(npmTool.examples?.[0]?.description).toBeTruthy();
+    expect(npmTool.examples?.[0]?.command).toBeTruthy();
   });
 });

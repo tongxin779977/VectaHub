@@ -56,7 +56,8 @@ export type ExecutionStatus =
   | 'RUNNING'
   | 'PAUSED'
   | 'COMPLETED'
-  | 'FAILED';
+  | 'FAILED'
+  | 'ABORTED';
 
 export interface ExecutionRecord {
   executionId: string;

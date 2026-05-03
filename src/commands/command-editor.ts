@@ -1,6 +1,6 @@
 import type { TaskList, Task } from '../types/index.js';
 import { createInterface } from 'readline';
-import { createConsoleLogger } from './logger.js';
+import { createConsoleLogger } from '../utils/logger.js';
 
 const logger = createConsoleLogger('command-editor');
 

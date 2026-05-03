@@ -1,6 +1,10 @@
 import type { CliTool, CliToolRegistry } from './types.js';
 import { getCliToolRegistry } from './registry.js';
 import { KNOWN_TOOLS } from './discovery/index.js';
+import { gitTool } from './tools/git.js';
+import { npmTool } from './tools/npm.js';
+import { dockerTool } from './tools/docker.js';
+import { curlTool } from './tools/curl.js';
 
 export interface ToolServiceOptions {
   autoRegister?: boolean;
@@ -70,13 +74,14 @@ export class ToolService {
   }
 
   private registerBuiltinTools(): void {
-    try {
-      const gitTool = (require('./tools/git.js') as any).gitTool;
-      if (gitTool) {
-        this.registry.register(gitTool);
+    const builtinTools = [gitTool, npmTool, dockerTool, curlTool];
+    
+    for (const tool of builtinTools) {
+      try {
+        this.registry.register(tool);
+      } catch (e) {
+        console.warn(`Failed to load builtin ${tool?.name} tool:`, e);
       }
-    } catch (e) {
-      console.warn('Failed to load builtin git tool:', e);
     }
   }
 

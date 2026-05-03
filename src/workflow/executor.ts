@@ -2,7 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import type { Step, ExecutionStatus, SandboxMode } from '../types/index.js';
 import { createDetector, type Detector } from '../sandbox/detector.js';
 import { createSandboxManager, type SandboxManager } from '../sandbox/sandbox.js';
-import { audit } from '../utils/audit.js';
+import { audit, getCurrentSessionId } from '../utils/audit.js';
 import { createRBACManager, type RoleName } from '../security-protocol/rbac.js';
 
 const DEFAULT_TIMEOUT = 60000;
@@ -81,7 +81,8 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
       const rbac = createRBACManager();
       const fullCommand = `${cli} ${args.join(' ')}`;
       if (!rbac.canExecute(options.role, fullCommand, cli)) {
-        audit.securityAction('RBAC_DENIED', fullCommand, `Role ${options.role} blocked command: ${fullCommand}`, '');
+        const sessionId = getCurrentSessionId();
+        audit.securityAction('RBAC_DENIED', fullCommand, `Role ${options.role} blocked command`, sessionId);
         return {
           success: false,
           exitCode: 1,

@@ -52,15 +52,27 @@ export function createStorage(options: StorageOptions = {}): Storage {
     async get(id: string): Promise<ExecutionRecord | undefined> {
       const filePath = path.join(executionsDir, `${id}.json`);
       if (!fs.existsSync(filePath)) return undefined;
-      return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      return {
+        ...data,
+        startedAt: new Date(data.startedAt),
+        endedAt: data.endedAt ? new Date(data.endedAt) : undefined,
+      };
     },
 
     async list(): Promise<ExecutionRecord[]> {
       if (!fs.existsSync(executionsDir)) return [];
       return fs.readdirSync(executionsDir)
         .filter(f => f.endsWith('.json'))
-        .map(f => JSON.parse(fs.readFileSync(path.join(executionsDir, f), 'utf-8')))
-        .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+        .map(f => {
+          const data = JSON.parse(fs.readFileSync(path.join(executionsDir, f), 'utf-8'));
+          return {
+            ...data,
+            startedAt: new Date(data.startedAt),
+            endedAt: data.endedAt ? new Date(data.endedAt) : undefined,
+          };
+        })
+        .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
     },
 
     async delete(id: string): Promise<void> {

@@ -7,7 +7,7 @@ import { randomUUID } from 'crypto';
 import { createNLParser } from '../nl/parser.js';
 import { createSandboxManager } from '../sandbox/sandbox.js';
 import type { SandboxMode } from '../types/index.js';
-import { audit, getCurrentSessionId, AuditEventType } from './audit.js';
+import { audit, getCurrentSessionId, AuditEventType } from '../utils/audit.js';
 
 interface Task {
   id: string;

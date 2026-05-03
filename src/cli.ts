@@ -2,23 +2,24 @@
 
 import { Command } from 'commander';
 import { initAuditLogger, getCurrentSessionId, audit } from './utils/audit.js';
-import { check } from './utils/check.js';
-import { status } from './utils/status.js';
-import { moduleCmd } from './utils/module.js';
-import { validate } from './utils/validate.js';
-import { test } from './utils/test.js';
-import { build } from './utils/build.js';
-import { serveCmd, clientCmd } from './utils/serve.js';
-import { securityCmd } from './utils/security.js';
-import { auditCmd } from './utils/audit-cmd.js';
-import { toolsCmd } from './utils/tools.js';
-import { runCmd } from './utils/run.js';
-import { listCmd } from './utils/list.js';
-import { modeCmd } from './utils/mode.js';
-import { historyCmd } from './utils/history.js';
-import { doctorCmd } from './utils/doctor.js';
-import { generateCmd } from './utils/generate.js';
-import { scheduleCmd } from './utils/schedule.js';
+import { check } from './commands/check.js';
+import { status } from './commands/status.js';
+import { moduleCmd } from './commands/module.js';
+import { validate } from './commands/validate.js';
+import { test } from './commands/test.js';
+import { build } from './commands/build.js';
+import { serveCmd, clientCmd } from './commands/serve.js';
+import { securityCmd } from './commands/security.js';
+import { auditCmd } from './commands/audit-cmd.js';
+import { toolsCmd } from './commands/tools.js';
+import { runCmd } from './commands/run.js';
+import { listCmd } from './commands/list.js';
+import { modeCmd } from './commands/mode.js';
+import { historyCmd } from './commands/history.js';
+import { doctorCmd } from './commands/doctor.js';
+import { generateCmd } from './commands/generate.js';
+import { scheduleCmd } from './commands/schedule.js';
+import { daemonCmd } from './commands/daemon.js';
 import { getCliToolRegistry } from './cli-tools/index.js';
 import { gitTool } from './cli-tools/tools/git.js';
 import { npmTool } from './cli-tools/tools/npm.js';
@@ -98,7 +99,7 @@ const program = new Command();
 program
   .name('vectahub')
   .description('VectaHub - Workflow Editor & Engine + OpenCLI')
-  .version('4.0.0')
+  .version('1.0.0')
   .hook('preAction', (thisCommand) => {
     displayPolicyWarning();
     
@@ -134,7 +135,8 @@ program
   .addCommand(historyCmd)
   .addCommand(doctorCmd)
   .addCommand(generateCmd)
-  .addCommand(scheduleCmd);
+  .addCommand(scheduleCmd)
+  .addCommand(daemonCmd);
 
 // Setup 命令
 const setupCmd = new Command('setup')

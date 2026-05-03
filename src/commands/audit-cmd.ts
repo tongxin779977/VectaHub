@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { queryAuditLogs } from './audit.js';
+import { queryAuditLogs } from '../utils/audit.js';
 
 export const auditCmd = new Command('audit')
   .description('Audit log management commands');

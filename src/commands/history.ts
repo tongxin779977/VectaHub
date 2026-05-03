@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { createConsoleLogger } from './logger.js';
+import { createConsoleLogger } from '../utils/logger.js';
 
 const logger = createConsoleLogger('history');
 

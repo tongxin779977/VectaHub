@@ -82,7 +82,12 @@ describe('CLI Module', () => {
       'list',
       'mode',
       'history',
-      'doctor'
+      'doctor',
+      'generate',
+      'schedule',
+      'daemon',
+      'setup',
+      'config'
     ];
 
     const code = await new Promise<number>((resolve) => {

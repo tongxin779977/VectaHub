@@ -1,13 +1,4 @@
 export { createLogger, LogLevel, type Logger } from './logger.js';
 export { loadConfig, type Config } from './config.js';
-export { check } from './check.js';
-export { build } from './build.js';
-export { validate } from './validate.js';
-export { test } from './test.js';
-export { moduleCmd } from './module.js';
-export { status } from './status.js';
-export { runCmd } from './run.js';
-export { listCmd } from './list.js';
-export { modeCmd } from './mode.js';
-export { historyCmd } from './history.js';
-export { doctorCmd } from './doctor.js';
+export { formatErrorMessage } from './errors.js';
+export { audit } from './audit.js';

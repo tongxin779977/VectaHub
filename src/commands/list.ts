@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { createStorage } from '../workflow/storage.js';
-import { createConsoleLogger } from './logger.js';
+import { createConsoleLogger } from '../utils/logger.js';
 
 const logger = createConsoleLogger('list');
 

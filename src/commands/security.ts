@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { getSecurityManager } from '../security-protocol/index.js';
-import { audit, getCurrentSessionId, AuditEventType } from './audit.js';
+import { audit, getCurrentSessionId, AuditEventType } from '../utils/audit.js';
 
 export const securityCmd = new Command('security')
   .description('Security protocol management commands');

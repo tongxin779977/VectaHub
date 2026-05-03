@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { createConsoleLogger } from './logger.js';
+import { createConsoleLogger } from '../utils/logger.js';
 import { createStorage } from '../workflow/storage.js';
 import { writeFileSync } from 'fs';
 import { Workflow } from '../types/index.js';

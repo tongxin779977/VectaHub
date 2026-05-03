@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { createScheduleManager } from '../workflow/scheduler.js';
-import { createConsoleLogger } from './logger.js';
+import { createConsoleLogger } from '../utils/logger.js';
 
 const logger = createConsoleLogger('schedule');
 
@@ -9,7 +9,7 @@ export const scheduleCmd = new Command('schedule')
   .option('-n, --name <name>', 'Schedule name')
   .option('-c, --cron <cron>', 'Cron expression')
   .option('-w, --workflow-file <file>', 'Workflow file path')
-  .option('-cmd, --command <command>', 'Command to execute')
+  .option('-e, --command <command>', 'Command to execute')
   .option('-a, --args <args>', 'Command arguments (comma separated)', (v) => v.split(','))
   .option('--id <id>', 'Schedule ID');
 
@@ -19,7 +19,7 @@ scheduleCmd
   .requiredOption('-n, --name <name>', 'Schedule name')
   .requiredOption('-c, --cron <cron>', 'Cron expression')
   .option('-w, --workflow-file <file>', 'Workflow file path')
-  .option('-cmd, --command <command>', 'Command to execute')
+  .option('-e, --command <command>', 'Command to execute')
   .option('-a, --args <args>', 'Command arguments (comma separated)', (v) => v.split(','))
   .action((opts) => {
     const manager = createScheduleManager();

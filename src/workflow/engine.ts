@@ -131,8 +131,11 @@ export function createWorkflowEngine(): WorkflowEngine {
           currentExecution.status = 'COMPLETED';
           break;
         case 'FAILED':
-        case 'ABORTED':
           currentExecution.status = 'FAILED';
+          break;
+        case 'ABORTING':
+        case 'ABORTED':
+          currentExecution.status = 'ABORTED';
           break;
       }
     }

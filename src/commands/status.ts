@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { homedir } from 'os';
 import { parse } from 'yaml';
 
 interface ModuleStatus {
@@ -16,14 +17,34 @@ interface Config {
   overallProgress: number;
 }
 
+function findConfigFile(): string | null {
+  const searchPaths = [
+    join(process.cwd(), 'config/vectahub-dev.config.yaml'),
+    join(process.cwd(), 'vectahub-dev.config.yaml'),
+    join(homedir(), '.vectahub/vectahub-dev.config.yaml'),
+  ];
+  
+  for (const path of searchPaths) {
+    if (existsSync(path)) {
+      return path;
+    }
+  }
+  
+  return null;
+}
+
 export const status = new Command('status')
   .description('View project development progress')
   .option('--json', 'Output in JSON format')
   .action(async (options) => {
-    const configPath = join(process.cwd(), 'vectahub-dev.config.yaml');
+    const configPath = findConfigFile();
 
-    if (!existsSync(configPath)) {
-      console.log('No vectahub-dev.config.yaml found. Run "vectahub dev init" first.');
+    if (!configPath) {
+      console.log('No vectahub-dev.config.yaml found. Search paths:');
+      console.log('  - ./config/vectahub-dev.config.yaml');
+      console.log('  - ./vectahub-dev.config.yaml');
+      console.log('  - ~/.vectahub/vectahub-dev.config.yaml');
+      console.log('\nRun "vectahub dev init" first.');
       return;
     }
 
