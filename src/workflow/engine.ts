@@ -79,10 +79,9 @@ function topologicalSort(steps: Step[]): Step[] {
   if (sorted.length !== steps.length) {
     const remaining = steps.filter(s => !sorted.includes(s));
     const remainingIds = remaining.map(s => s.id);
-    console.warn(
-      `Warning: Cyclic dependency detected in steps: ${remainingIds.join(', ')}. These steps will be executed at the end but may fail.`
+    throw new Error(
+      `Cyclic dependency detected in steps: ${remainingIds.join(', ')}. Workflow execution aborted.`
     );
-    return [...sorted, ...remaining];
   }
 
   return sorted;

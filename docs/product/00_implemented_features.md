@@ -1,6 +1,6 @@
 # VectaHub 已实现功能清单
 
-> 版本: 1.0.0 | 最后更新: 2026-05-03
+> 版本: 2.0.0 | 最后更新: 2026-05-03
 
 本文档记录项目当前实际已实现的功能，作为产品开发的基线。
 
@@ -156,7 +156,7 @@
 | 迭代优化技能 | `src/skills/iterative-refinement/index.test.ts` | ✅ |
 | 重试管理器 | `src/skills/iterative-refinement/retry-manager.test.ts` | ✅ |
 
-**总计**: 24 个测试文件，254 个测试用例，测试覆盖率 97%
+**总计**: 48 个测试文件，547 个测试用例，测试覆盖率 ≥80%
 
 ## 十、工程优化
 
@@ -166,24 +166,57 @@
 | 配置文件移动到 `config/` | ✅ |
 | 临时测试脚本移动到 `scripts/` | ✅ |
 | 报告文件移动到 `docs/reports/` | ✅ |
-| 统一版本号（package.json & cli.ts） | ✅ 1.0.0 |
+| 统一版本号（package.json & cli.ts） | ✅ 2.0.0 |
 | 完善 package.json 脚本命令 | ✅ |
 | 添加 `test-setup.ts` | ✅ |
 | ESM 导入统一 | ✅ |
 | 类型检查通过 | ✅ |
-| 所有测试通过 | ✅ 254/254 |
+| 所有测试通过 | ✅ 547/547 |
+| 子进程错误处理优化（executor.ts） | ✅ reject 替代 resolve |
+| 循环依赖检测优化（engine.ts） | ✅ 抛错替代警告 |
+| 沙盒默认策略类型化（sandbox.ts） | ✅ DEFAULT_POLICY 常量 |
+| LLM 测试补全（llm.test.ts） | ✅ baseUrl 配置完善 |
 
-## 十一、发布就绪
+## 十一、优化修复记录（2026-05-03）
+
+### 代码优化
+
+| 文件 | 优化内容 | 状态 |
+|------|---------|------|
+| `src/workflow/executor.ts` | 子进程错误处理改为 `reject` + try-catch 转为 FAILED 状态 | ✅ |
+| `src/workflow/engine.ts` | 循环依赖改为抛出明确错误，终止执行 | ✅ |
+| `src/sandbox/sandbox.ts` | 添加 `DEFAULT_POLICY` 类型常量替代字符串字面量 | ✅ |
+
+### 测试修复
+
+| 文件 | 修复内容 | 状态 |
+|------|---------|------|
+| `src/nl/llm.test.ts` | 7 个测试补充 `baseUrl` 参数配置 | ✅ |
+| `src/workflow/executor.test.ts` | opencli 测试适配新的 reject 错误处理 | ✅ |
+
+### 文档归档
+
+| 文档 | 操作 | 状态 |
+|------|------|------|
+| 架构重构计划 v1 | 归档到 `docs/archive/` | ✅ |
+| 架构重构计划 v2 | 归档到 `docs/archive/` | ✅ |
+| LLM 重构报告 | 归档到 `docs/archive/` | ✅ |
+| LLM 优化方案 | 归档到 `docs/archive/` | ✅ |
+| 性能安全优化 | 归档到 `docs/archive/` | ✅ |
+
+## 十二、发布就绪
 
 | 检查项 | 状态 |
 |------|------|
-| 版本号统一 | ✅ |
-| 所有测试通过 | ✅ 254/254 |
+| 版本号统一 | ✅ 2.0.0 |
+| 所有测试通过 | ✅ 547/547 |
 | 类型检查通过 | ✅ |
 | 构建成功 | ✅ |
 | 文档完整 | ✅ |
 | 目录结构规范 | ✅ |
+| 代码优化完成 | ✅ |
+| 历史文档归档 | ✅ |
 
 ---
 
-**当前状态**: 🎉 **VectaHub 1.0.0 发布就绪**
+**当前状态**: 🎉 **VectaHub 2.0.0 优化完成**

@@ -94,7 +94,7 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
       }
     }
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const child = spawn(cli, args, {
         cwd: options.cwd || process.cwd(),
         env: { ...process.env, ...options.env },
@@ -141,13 +141,7 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
         if (timeoutHandle) {
           clearTimeout(timeoutHandle);
         }
-        resolve({
-          success: false,
-          exitCode: -1,
-          stdout,
-          stderr: err.message,
-          duration: Date.now() - startTime,
-        });
+        reject(new Error(`Child process error: ${err.message}`));
       });
     });
   }
@@ -217,30 +211,40 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
       };
     }
 
-    const result = options.useSandbox && sandboxManager
-      ? await execInSandbox(interpolatedCli, interpolatedArgs, options)
-      : await exec(interpolatedCli, interpolatedArgs, options);
+    try {
+      const result = options.useSandbox && sandboxManager
+        ? await execInSandbox(interpolatedCli, interpolatedArgs, options)
+        : await exec(interpolatedCli, interpolatedArgs, options);
 
-    audit.executorResult(
-      step.id,
-      interpolatedCli,
-      result.exitCode,
-      result.duration,
-      'unknown',
-      { stdoutLength: result.stdout.length, stderrLength: result.stderr.length }
-    );
+      audit.executorResult(
+        step.id,
+        interpolatedCli,
+        result.exitCode,
+        result.duration,
+        'unknown',
+        { stdoutLength: result.stdout.length, stderrLength: result.stderr.length }
+      );
 
-    const outputs = result.stdout ? [result.stdout] : [];
-    context.previousOutputs[step.id] = outputs;
+      const outputs = result.stdout ? [result.stdout] : [];
+      context.previousOutputs[step.id] = outputs;
 
-    return {
-      stepId: step.id,
-      status: result.success ? 'COMPLETED' : 'FAILED',
-      output: outputs,
-      error: result.success ? undefined : result.stderr,
-      duration: Date.now() - startTime,
-      sandboxed: options.useSandbox && sandboxManager ? true : undefined,
-    };
+      return {
+        stepId: step.id,
+        status: result.success ? 'COMPLETED' : 'FAILED',
+        output: outputs,
+        error: result.success ? undefined : result.stderr,
+        duration: Date.now() - startTime,
+        sandboxed: options.useSandbox && sandboxManager ? true : undefined,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        stepId: step.id,
+        status: 'FAILED',
+        error: errorMessage,
+        duration: Date.now() - startTime,
+      };
+    }
   }
 
   async function handleOpenCli(step: Step, options: ExecutorOptions, context: ExecutionContext, startTime: number): Promise<ExecutionResult> {
@@ -259,31 +263,41 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
       'unknown'
     );
 
-    const result = options.useSandbox && sandboxManager
-      ? await execInSandbox('opencli', fullArgs, options)
-      : await exec('opencli', fullArgs, options);
+    try {
+      const result = options.useSandbox && sandboxManager
+        ? await execInSandbox('opencli', fullArgs, options)
+        : await exec('opencli', fullArgs, options);
 
-    audit.executorResult(
-      step.id,
-      'opencli',
-      result.exitCode,
-      result.duration,
-      'unknown',
-      { stdoutLength: result.stdout.length, stderrLength: result.stderr.length }
-    );
+      audit.executorResult(
+        step.id,
+        'opencli',
+        result.exitCode,
+        result.duration,
+        'unknown',
+        { stdoutLength: result.stdout.length, stderrLength: result.stderr.length }
+      );
 
-    const outputs = result.stdout ? [result.stdout] : [];
-    const storageKey = (step as any).outputVar || step.id;
-    context.previousOutputs[storageKey] = outputs;
+      const outputs = result.stdout ? [result.stdout] : [];
+      const storageKey = (step as any).outputVar || step.id;
+      context.previousOutputs[storageKey] = outputs;
 
-    return {
-      stepId: step.id,
-      status: result.success ? 'COMPLETED' : 'FAILED',
-      output: outputs,
-      error: result.success ? undefined : result.stderr,
-      duration: Date.now() - startTime,
-      sandboxed: options.useSandbox && sandboxManager ? true : undefined,
-    };
+      return {
+        stepId: step.id,
+        status: result.success ? 'COMPLETED' : 'FAILED',
+        output: outputs,
+        error: result.success ? undefined : result.stderr,
+        duration: Date.now() - startTime,
+        sandboxed: options.useSandbox && sandboxManager ? true : undefined,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        stepId: step.id,
+        status: 'FAILED',
+        error: errorMessage,
+        duration: Date.now() - startTime,
+      };
+    }
   }
 
   async function handleForEach(step: Step, options: ExecutorOptions, context: ExecutionContext, startTime: number): Promise<ExecutionResult> {

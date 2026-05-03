@@ -91,20 +91,12 @@ export class LLMClient {
   }
 
   private async callOpenAICompatible(userInput: string, systemPrompt: string): Promise<Response> {
-    let apiKey: string | undefined;
-    if (this.config.provider === 'groq') {
-      apiKey = this.config.apiKey || process.env.GROQ_API_KEY;
-    } else if (this.config.provider === 'ollama') {
-      apiKey = this.config.apiKey || process.env.OLLAMA_API_KEY;
-    } else {
-      apiKey = this.config.apiKey || process.env.OPENAI_API_KEY;
+    const apiKey = this.config.apiKey;
+    const baseUrl = this.config.baseUrl;
+
+    if (!baseUrl) {
+      throw new Error('Base URL is not configured');
     }
-    
-    const baseUrl = this.config.baseUrl || (
-      this.config.provider === 'groq' ? 'https://api.groq.com/openai/v1' :
-      this.config.provider === 'ollama' ? 'http://localhost:11434/v1' :
-      'https://api.openai.com/v1'
-    );
 
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
@@ -132,10 +124,10 @@ export class LLMClient {
   }
 
   private async callAnthropic(userInput: string, systemPrompt: string): Promise<Response> {
-    const apiKey = this.config.apiKey || process.env.ANTHROPIC_API_KEY;
+    const apiKey = this.config.apiKey;
 
     if (!apiKey) {
-      throw new Error('ANTHROPIC_API_KEY environment variable is not set');
+      throw new Error('API key is not configured');
     }
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -232,22 +224,42 @@ export function createLLMConfig(): LLMConfig | null {
     const llmConfig = config.ai_providers?.vectahub_llm;
     
     if (llmConfig?.enabled && llmConfig.provider) {
-      // 验证提供商是否支持
       const supportedProviders = ['openai', 'anthropic', 'ollama', 'groq'];
       const provider = llmConfig.provider.toLowerCase();
       
       if (supportedProviders.includes(provider)) {
-        // 检查必要的 API key
-        if ((provider === 'openai' || provider === 'groq') && !llmConfig.apiKey) {
-          // API key 缺失，尝试环境变量
-        } else if (provider === 'anthropic' && !llmConfig.apiKey) {
-          // API key 缺失，尝试环境变量
+        let apiKey = llmConfig.apiKey;
+        let baseUrl = llmConfig.baseUrl;
+        
+        if (!apiKey) {
+          if (provider === 'openai') {
+            apiKey = process.env.OPENAI_API_KEY;
+          } else if (provider === 'anthropic') {
+            apiKey = process.env.ANTHROPIC_API_KEY;
+          } else if (provider === 'groq') {
+            apiKey = process.env.GROQ_API_KEY;
+          } else if (provider === 'ollama') {
+            apiKey = process.env.OLLAMA_API_KEY;
+          }
+        }
+        
+        if (!baseUrl) {
+          if (provider === 'groq') {
+            baseUrl = 'https://api.groq.com/openai/v1';
+          } else if (provider === 'ollama') {
+            baseUrl = 'http://localhost:11434/v1';
+          } else if (provider === 'openai') {
+            baseUrl = 'https://api.openai.com/v1';
+          }
+        }
+        
+        if ((provider === 'openai' || provider === 'groq' || provider === 'anthropic') && !apiKey) {
+          // 需要 API key 但没有找到
         } else {
-          // Ollama 不需要 API key，或者其他提供商已有配置
           return {
             provider: provider as any,
-            apiKey: llmConfig.apiKey,
-            baseUrl: llmConfig.baseUrl,
+            apiKey,
+            baseUrl,
             model: llmConfig.model || getDefaultModel(provider),
           };
         }
@@ -257,35 +269,33 @@ export function createLLMConfig(): LLMConfig | null {
     // 配置文件读取失败，回退到环境变量
   }
 
-  // 从环境变量读取配置
   const provider = process.env.VECTAHUB_LLM_PROVIDER as LLMConfig['provider'] || 'openai';
   const model = process.env.VECTAHUB_LLM_MODEL || getDefaultModel(provider);
-  const baseUrl = process.env.VECTAHUB_LLM_BASE_URL;
+  let baseUrl = process.env.VECTAHUB_LLM_BASE_URL;
+  let apiKey: string | undefined;
 
-  // OpenAI 需要 API key
-  if (provider === 'openai' && !process.env.OPENAI_API_KEY) {
-    return null;
+  if (provider === 'openai') {
+    apiKey = process.env.OPENAI_API_KEY;
+    if (!baseUrl) baseUrl = 'https://api.openai.com/v1';
+  } else if (provider === 'anthropic') {
+    apiKey = process.env.ANTHROPIC_API_KEY;
+  } else if (provider === 'groq') {
+    apiKey = process.env.GROQ_API_KEY;
+    if (!baseUrl) baseUrl = 'https://api.groq.com/openai/v1';
+  } else if (provider === 'ollama') {
+    apiKey = process.env.OLLAMA_API_KEY;
+    if (!baseUrl) baseUrl = 'http://localhost:11434/v1';
   }
 
-  // Anthropic 需要 API key
-  if (provider === 'anthropic' && !process.env.ANTHROPIC_API_KEY) {
+  if ((provider === 'openai' || provider === 'groq' || provider === 'anthropic') && !apiKey) {
     return null;
-  }
-
-  // Groq 需要 API key
-  if (provider === 'groq' && !process.env.GROQ_API_KEY) {
-    return null;
-  }
-
-  // Ollama 不需要 API key（本地运行），但推荐配置 baseUrl
-  if (provider === 'ollama' && !baseUrl) {
-    // Ollama 默认使用 http://localhost:11434
   }
 
   return {
     provider,
     model,
     baseUrl,
+    apiKey,
   };
 }
 

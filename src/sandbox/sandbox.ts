@@ -8,6 +8,8 @@ import { CommandRuleEngine, createCommandRuleEngine, loadGlobalBlocklist, loadGl
 import type { SandboxMode, CommandDetection } from '../types/index.js';
 import type { DefaultPolicy } from '../command-rules/types.js';
 
+const DEFAULT_POLICY: DefaultPolicy = 'passthrough';
+
 interface SandboxConfig {
   root: string;
   workspace: string;

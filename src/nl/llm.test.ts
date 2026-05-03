@@ -197,7 +197,7 @@ describe('LLM Client', () => {
         json: async () => mockResponse,
       });
 
-      const client = new LLMClient({ provider: 'openai', model: 'gpt-4' });
+      const client = new LLMClient({ provider: 'openai', model: 'gpt-4', apiKey: 'test-key', baseUrl: 'https://api.openai.com/v1' });
       const result = await client.complete('system prompt', 'find *.ts files');
 
       expect(result.intent).toBe('FILE_FIND');
@@ -255,7 +255,7 @@ describe('LLM Client', () => {
         json: async () => mockResponse,
       });
 
-      const client = new LLMClient({ provider: 'groq', model: 'llama3-8b-8192', apiKey: 'test-groq-key' });
+      const client = new LLMClient({ provider: 'groq', model: 'llama3-8b-8192', apiKey: 'test-groq-key', baseUrl: 'https://api.groq.com/openai/v1' });
       const result = await client.complete('system prompt', 'fetch hot news');
 
       expect(result.intent).toBe('FETCH_HOT_NEWS');
@@ -294,7 +294,7 @@ describe('LLM Client', () => {
     it('handles network errors gracefully', async () => {
       mockFetch.mockRejectedValueOnce(new Error('Network error'));
 
-      const client = new LLMClient({ provider: 'openai', model: 'gpt-4' });
+      const client = new LLMClient({ provider: 'openai', model: 'gpt-4', apiKey: 'test-key', baseUrl: 'https://api.openai.com/v1' });
       
       await expect(client.complete('system prompt', 'test')).rejects.toThrow('LLM call failed');
     });
@@ -306,7 +306,7 @@ describe('LLM Client', () => {
         text: async () => 'Unauthorized',
       });
 
-      const client = new LLMClient({ provider: 'openai', model: 'gpt-4' });
+      const client = new LLMClient({ provider: 'openai', model: 'gpt-4', apiKey: 'test-key', baseUrl: 'https://api.openai.com/v1' });
       
       await expect(client.complete('system prompt', 'test')).rejects.toThrow('OpenAI API error');
     });
@@ -325,13 +325,13 @@ describe('LLM Client', () => {
         json: async () => mockResponse,
       });
 
-      const client = new LLMClient({ provider: 'openai', model: 'gpt-4' });
+      const client = new LLMClient({ provider: 'openai', model: 'gpt-4', apiKey: 'test-key', baseUrl: 'https://api.openai.com/v1' });
       
       await expect(client.complete('system prompt', 'test')).rejects.toThrow('Failed to parse LLM response');
     });
 
     it('sets session ID on client', async () => {
-      const client = new LLMClient({ provider: 'openai', model: 'gpt-4' });
+      const client = new LLMClient({ provider: 'openai', model: 'gpt-4', apiKey: 'test-key', baseUrl: 'https://api.openai.com/v1' });
       client.setSessionId('test-session-123');
     });
 
@@ -353,7 +353,7 @@ describe('LLM Client', () => {
         json: async () => mockResponse,
       });
 
-      const client = new LLMClient({ provider: 'openai', model: 'gpt-4' });
+      const client = new LLMClient({ provider: 'openai', model: 'gpt-4', apiKey: 'test-key', baseUrl: 'https://api.openai.com/v1' });
       const result = await client.complete('system prompt', 'test');
 
       expect(result.intent).toBe('UNKNOWN');
@@ -392,9 +392,8 @@ describe('LLM Client', () => {
         json: async () => mockResponse,
       });
 
-      const parser = createLLMEnhancedParser({ provider: 'openai', model: 'gpt-4' });
+      const parser = createLLMEnhancedParser({ provider: 'openai', model: 'gpt-4', apiKey: 'test-key', baseUrl: 'https://api.openai.com/v1' });
       const result = await parser.parse('show system info', 'session-123');
-
       expect(result.intent).toBe('SYSTEM_INFO');
       expect(mockFetch).toHaveBeenCalled();
     });
