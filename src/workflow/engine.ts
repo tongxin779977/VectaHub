@@ -40,7 +40,7 @@ export interface WorkflowEngine {
 let workflowCounter = 0;
 let executionCounter = 0;
 
-function topologicalSort(steps: Step[]): Step[] {
+function topologicalSort(steps: Step[], mode: 'strict' | 'relaxed' | 'consensus' = 'relaxed'): Step[] {
   const stepMap = new Map<string, Step>();
   const inDegree = new Map<string, number>();
   const dependents = new Map<string, string[]>();
@@ -87,9 +87,15 @@ function topologicalSort(steps: Step[]): Step[] {
   if (sorted.length !== steps.length) {
     const remaining = steps.filter(s => !sorted.includes(s));
     const remainingIds = remaining.map(s => s.id);
-    throw new Error(
-      `Cyclic dependency detected in steps: ${remainingIds.join(', ')}. Workflow execution aborted.`
-    );
+    
+    if (mode === 'strict') {
+      throw new Error(
+        `Cyclic dependency detected in steps: ${remainingIds.join(', ')}. Workflow execution aborted.`
+      );
+    } else {
+      console.warn(`Warning: Cyclic dependency detected in steps: ${remainingIds.join(', ')}. Continuing execution with remaining steps.`);
+      return [...sorted, ...remaining];
+    }
   }
 
   return sorted;
@@ -152,7 +158,7 @@ async function runExecutionLoop(
     mode: workflow.mode,
   });
 
-  const sortedSteps = topologicalSort(steps);
+  const sortedSteps = topologicalSort(steps, workflow.mode);
 
   for (let i = 0; i < sortedSteps.length; i++) {
     sm.currentStepIndex = i;
