@@ -1,0 +1,22 @@
+name: git-commit
+description: "Stage all changes and commit with a message"
+category: git
+tags: [git, commit, version-control]
+parameters:
+  - name: message
+    description: "Commit message"
+    required: true
+    default: "auto commit"
+  - name: files
+    description: "Files to stage (default: all)"
+    required: false
+    default: "."
+steps:
+  - id: stage
+    type: exec
+    cli: git
+    args: ["add", "${files}"]
+  - id: commit
+    type: exec
+    cli: git
+    args: ["commit", "-m", "${message}"]

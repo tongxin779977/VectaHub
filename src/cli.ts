@@ -20,6 +20,8 @@ import { doctorCmd } from './commands/doctor.js';
 import { generateCmd } from './commands/generate.js';
 import { scheduleCmd } from './commands/schedule.js';
 import { daemonCmd } from './commands/daemon.js';
+import { templatesCmd, templatesUseCmd, templatesSaveCmd } from './commands/templates.js';
+import { rollbackCmd } from './commands/list.js';
 import { getCliToolRegistry } from './cli-tools/index.js';
 import { gitTool } from './cli-tools/tools/git.js';
 import { npmTool } from './cli-tools/tools/npm.js';
@@ -136,7 +138,9 @@ program
   .addCommand(doctorCmd)
   .addCommand(generateCmd)
   .addCommand(scheduleCmd)
-  .addCommand(daemonCmd);
+  .addCommand(daemonCmd)
+  .addCommand(templatesCmd.addCommand(templatesUseCmd).addCommand(templatesSaveCmd))
+  .addCommand(rollbackCmd);
 
 // Setup 命令
 const setupCmd = new Command('setup')

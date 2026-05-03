@@ -499,4 +499,28 @@ describe('WorkflowEngine', () => {
       expect(engine.abort()).toBe(false);
     });
   });
+
+  describe('dry-run mode', () => {
+    it('should return DRY RUN output without executing', async () => {
+      const steps: Step[] = [
+        { id: 's1', type: 'exec', cli: 'echo', args: ['hello'] },
+        { id: 's2', type: 'exec', cli: 'rm', args: ['-rf', '/'] },
+      ];
+      const workflow = await engine.createWorkflow('dry-wf', steps);
+      const result = await engine.execute(workflow, { dryRun: true });
+
+      expect(result.status).toBe('COMPLETED');
+      expect(result.steps.length).toBe(2);
+      expect(result.steps[0].status).toBe('COMPLETED');
+      expect(result.steps[0].output?.[0]).toContain('[DRY RUN]');
+    });
+
+    it('should include command info in dry-run output', async () => {
+      const steps: Step[] = [{ id: 's1', type: 'exec', cli: 'rm', args: ['-rf', '/'] }];
+      const workflow = await engine.createWorkflow('dry-wf2', steps);
+      const result = await engine.execute(workflow, { dryRun: true });
+
+      expect(result.steps[0].output?.[0]).toContain('[DRY RUN]');
+    });
+  });
 });

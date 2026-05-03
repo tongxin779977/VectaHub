@@ -43,6 +43,44 @@ auditCmd
   });
 
 auditCmd
+  .command('list')
+  .description('List recent audit logs')
+  .option('--event <type>', 'Filter by event type')
+  .option('--module <name>', 'Filter by module')
+  .option('--limit <number>', 'Maximum number of results', '20')
+  .action(async (options) => {
+    const logs = queryAuditLogs({
+      eventType: options.event,
+      module: options.module,
+      limit: parseInt(options.limit, 10) || 20,
+    });
+
+    if (logs.length === 0) {
+      console.log('\n📋 No audit logs found matching the criteria.\n');
+      return;
+    }
+
+    console.log('\n📋 Audit Logs (Most Recent):');
+    console.log('─'.repeat(120));
+    console.log('Timestamp'.padEnd(30) + 'Event'.padEnd(20) + 'Module'.padEnd(12) + 'Action'.padEnd(25) + 'Status');
+    console.log('─'.repeat(120));
+
+    for (const log of logs) {
+      const timestamp = log.timestamp.split('T')[1]?.substring(0, 8) || log.timestamp;
+      const status = log.success ? '✅' : '❌';
+      console.log(
+        timestamp.padEnd(30) +
+        (log.event as string).padEnd(20) +
+        log.module.padEnd(12) +
+        (log.action || '').padEnd(25) +
+        status
+      );
+    }
+    console.log('─'.repeat(120));
+    console.log(`Total: ${logs.length} logs\n`);
+  });
+
+auditCmd
   .command('stats')
   .description('Show audit statistics')
   .action(async () => {

@@ -1,0 +1,26 @@
+name: ci-check
+description: "Run lint, type check, and tests in sequence"
+category: ci
+tags: [ci, test, lint, typecheck]
+parameters:
+  - name: packageManager
+    description: "Package manager command (npm/pnpm/yarn)"
+    required: false
+    default: "npm"
+steps:
+  - id: install
+    type: exec
+    cli: "${packageManager}"
+    args: ["install"]
+  - id: lint
+    type: exec
+    cli: "${packageManager}"
+    args: ["run", "lint"]
+  - id: typecheck
+    type: exec
+    cli: "${packageManager}"
+    args: ["run", "typecheck"]
+  - id: test
+    type: exec
+    cli: "${packageManager}"
+    args: ["test"]

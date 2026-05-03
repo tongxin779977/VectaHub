@@ -86,6 +86,8 @@ describe('CLI Module', () => {
       'generate',
       'schedule',
       'daemon',
+      'templates',
+      'rollback',
       'setup',
       'config'
     ];

@@ -6,6 +6,50 @@ export const securityCmd = new Command('security')
   .description('Security protocol management commands');
 
 securityCmd
+  .command('status')
+  .description('Show current security status')
+  .action(async () => {
+    const sessionId = getCurrentSessionId();
+    const manager = getSecurityManager();
+    const config = manager.getConfig();
+    const db = manager.getDatabase();
+    const enabledRules = manager.getEnabledRules();
+
+    const output: string[] = [];
+    output.push('\n🔒 Security Status:');
+    output.push('─'.repeat(60));
+    output.push(`Total Rules: ${db.rules.length}`);
+    output.push(`Enabled Rules: ${enabledRules.length}`);
+    output.push(`Disabled Rules: ${db.rules.length - enabledRules.length}`);
+    output.push(`Database Version: ${db.version}`);
+    output.push(`Last Updated: ${db.lastUpdated}`);
+    output.push(`Auto Update: ${config.autoUpdate ? 'Enabled' : 'Disabled'}`);
+    output.push('');
+
+    console.log(output.join('\n'));
+    audit.cliOutput('security status', output.join('\n'), sessionId);
+  });
+
+securityCmd
+  .command('policy')
+  .description('Show current security policy details')
+  .action(async () => {
+    const sessionId = getCurrentSessionId();
+    const manager = getSecurityManager();
+    const config = manager.getConfig();
+
+    const output: string[] = [];
+    output.push('\n📋 Security Policy:');
+    output.push('─'.repeat(60));
+    output.push(`Auto Update: ${config.autoUpdate ? 'Enabled' : 'Disabled'}`);
+    output.push(`Database Path: ${config.databasePath}`);
+    output.push('');
+
+    console.log(output.join('\n'));
+    audit.cliOutput('security policy', output.join('\n'), sessionId);
+  });
+
+securityCmd
   .command('list')
   .description('List all security rules')
   .option('--enabled', 'Show only enabled rules')

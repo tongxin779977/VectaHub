@@ -1,0 +1,26 @@
+name: git-flow
+description: "Create a feature branch, commit, and push"
+category: git
+tags: [git, branch, feature]
+parameters:
+  - name: branch
+    description: "Feature branch name"
+    required: true
+    default: "feature/new-feature"
+steps:
+  - id: create-branch
+    type: exec
+    cli: git
+    args: ["checkout", "-b", "${branch}"]
+  - id: stage
+    type: exec
+    cli: git
+    args: ["add", "-A"]
+  - id: commit
+    type: exec
+    cli: git
+    args: ["commit", "-m", "feat: ${branch}"]
+  - id: push
+    type: exec
+    cli: git
+    args: ["push", "-u", "origin", "${branch}"]

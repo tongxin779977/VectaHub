@@ -4,11 +4,19 @@ import { createStorage, type Storage } from './storage.js';
 import { interpolateStep, type InterpolationContext } from './interpolation.js';
 import { createExecutionStateManager, type ExecutionStateManager } from './state-manager.js';
 import { audit } from '../utils/audit.js';
+import { createRetryManager } from '../skills/iterative-refinement/retry-manager.js';
+
+export interface RetryOptions {
+  maxAttempts?: number;
+  backoffMultiplier?: number;
+  initialBackoff?: number;
+}
 
 export interface ExecuteOptions {
   dryRun?: boolean;
   timeout?: number;
   mode?: 'strict' | 'relaxed' | 'consensus';
+  retry?: RetryOptions;
 }
 
 export interface WorkflowEngine {
@@ -311,7 +319,21 @@ export function createWorkflowEngine(): WorkflowEngine {
     },
 
     async execute(workflow: Workflow, options: ExecuteOptions = {}): Promise<ExecutionRecord> {
-      return executeWorkflowInternal(workflow, options);
+      const retryMgr = createRetryManager({
+        maxAttempts: options.retry?.maxAttempts || 1,
+        backoffMultiplier: options.retry?.backoffMultiplier || 2,
+        initialBackoff: options.retry?.initialBackoff || 1000,
+      });
+
+      const executeOnce = async () => {
+        return executeWorkflowInternal(workflow, options);
+      };
+
+      const result = await retryMgr.executeWithRetry(executeOnce);
+      if (result.result) {
+        return result.result;
+      }
+      throw new Error(result.finalError || 'Execution failed after retries');
     },
 
     async loadWorkflows(): Promise<void> {

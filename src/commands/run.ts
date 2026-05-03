@@ -23,6 +23,7 @@ export const runCmd = new Command('run')
   .option('-s, --save', 'Save workflow after execution')
   .option('-y, --yes', 'Skip confirmation')
   .option('--no-edit', 'Skip command review')
+  .option('--dry-run', 'Show what would be executed without running')
   .action(async (intent: string[], options: any) => {
     try {
       if (isFirstRun()) {
@@ -145,7 +146,7 @@ export const runCmd = new Command('run')
 
       logger.info('执行工作流...');
       const mode = options.mode || 'relaxed';
-      const result = await workflowEngine.execute(workflow, { mode: mode as any });
+      const result = await workflowEngine.execute(workflow, { mode: mode as any, dryRun: options.dryRun });
 
       logger.info(`\n执行${result.status === 'COMPLETED' ? '✅ 成功' : '❌ 失败'}`);
       logger.info(`耗时: ${result.duration}ms`);

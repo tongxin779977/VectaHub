@@ -1,0 +1,18 @@
+name: docker-build
+description: "Build and optionally run a Docker image"
+category: docker
+tags: [docker, build, container]
+parameters:
+  - name: tag
+    description: "Image tag name"
+    required: true
+    default: "app"
+  - name: path
+    description: "Build context path"
+    required: false
+    default: "."
+steps:
+  - id: build
+    type: exec
+    cli: docker
+    args: ["build", "-t", "${tag}", "${path}"]

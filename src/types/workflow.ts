@@ -43,6 +43,12 @@ export type ExecutionStatus =
   | 'FAILED'
   | 'ABORTED';
 
+export interface StepTiming {
+  startTime: Date;
+  endTime?: Date;
+  durationMs?: number;
+}
+
 export interface ExecutionRecord {
   executionId: string;
   workflowId: string;
@@ -65,11 +71,28 @@ export interface StepRecord {
   output?: unknown[];
   error?: string;
   iterations?: number;
+  timing?: StepTiming;
 }
 
 export type SandboxMode = 'STRICT' | 'RELAXED' | 'CONSENSUS';
 
 export type DangerCategory = 'SYSTEM' | 'FS' | 'NETWORK' | 'RESOURCE';
+
+export interface DebugConfig {
+  enabled: boolean;
+  stepByStep: boolean;
+  breakpoints: string[];
+}
+
+export interface VersionDiff {
+  added: string[];
+  removed: string[];
+  modified: string[];
+}
+
+export interface VersioningSystem {
+  diffVersions(workflowId: string, v1: string, v2: string): VersionDiff;
+}
 
 export interface CommandDetection {
   isDangerous: boolean;

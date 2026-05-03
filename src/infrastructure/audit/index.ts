@@ -51,19 +51,21 @@ function ensureDir(dir: string): void {
   }
 }
 
-function getAuditFilePath(date: Date = new Date()): string {
+function getAuditFilePath(baseDir: string, date: Date = new Date()): string {
   const dateStr = date.toISOString().split('T')[0];
-  return join(AUDIT_DIR, `${dateStr}.jsonl`);
+  return join(baseDir, `${dateStr}.jsonl`);
 }
 
 class AuditLogger {
   private sessionId: string;
+  private baseDir: string;
   private filePath: string;
 
-  constructor(sessionId?: string) {
+  constructor(sessionId?: string, baseDir?: string) {
     this.sessionId = sessionId || generateSessionId();
-    ensureDir(AUDIT_DIR);
-    this.filePath = getAuditFilePath();
+    this.baseDir = baseDir ?? AUDIT_DIR;
+    ensureDir(this.baseDir);
+    this.filePath = getAuditFilePath(this.baseDir);
   }
 
   getSessionId(): string {
@@ -130,11 +132,11 @@ class AuditLogger {
   }
 
   private listAuditFiles(): string[] {
-    if (!existsSync(AUDIT_DIR)) return [];
+    if (!existsSync(this.baseDir)) return [];
 
-    const files = readdirSync(AUDIT_DIR)
+    const files = readdirSync(this.baseDir)
       .filter((f: string) => f.endsWith('.jsonl'))
-      .map((f: string) => join(AUDIT_DIR, f))
+      .map((f: string) => join(this.baseDir, f))
       .sort();
 
     return files;
@@ -145,8 +147,8 @@ function generateSessionId(): string {
   return `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 }
 
-export function initAuditLogger(sessionId?: string): AuditLogger {
-  auditInstance = new AuditLogger(sessionId);
+export function initAuditLogger(sessionId?: string, baseDir?: string): AuditLogger {
+  auditInstance = new AuditLogger(sessionId, baseDir);
   return auditInstance;
 }
 

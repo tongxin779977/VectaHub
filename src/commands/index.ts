@@ -16,3 +16,4 @@ export { doctorCmd } from './doctor.js';
 export { generateCmd } from './generate.js';
 export { scheduleCmd } from './schedule.js';
 export { daemonCmd } from './daemon.js';
+export { templatesCmd, templatesUseCmd, templatesSaveCmd } from './templates.js';

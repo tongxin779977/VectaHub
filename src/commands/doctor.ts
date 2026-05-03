@@ -33,7 +33,7 @@ function formatDoctorResults(checks: { name: string; status: 'pass' | 'fail' | '
   return lines.join('\n');
 }
 
-async function runChecks(): Promise<{ name: string; status: 'pass' | 'fail' | 'warn'; message: string }[]> {
+async function runChecks(verbose = false): Promise<{ name: string; status: 'pass' | 'fail' | 'warn'; message: string }[]> {
   const checks: { name: string; status: 'pass' | 'fail' | 'warn'; message: string }[] = [];
 
   try {
@@ -46,27 +46,60 @@ async function runChecks(): Promise<{ name: string; status: 'pass' | 'fail' | 'w
       status: nodeMajor >= 21 ? 'pass' : 'fail',
       message: `${nodeVersion} (requires >=21.0.0)`
     });
+
+    if (verbose) {
+      checks.push({
+        name: '  Node Platform',
+        status: 'pass',
+        message: `${process.platform} ${process.arch}`,
+      });
+      checks.push({
+        name: '  Node Env',
+        status: 'pass',
+        message: `NODE_ENV=${process.env.NODE_ENV || 'undefined'}`,
+      });
+    }
   } catch {
     checks.push({ name: 'Node.js', status: 'fail', message: 'Could not detect' });
   }
 
   try {
-    await execAsync('npx tsc --version');
-    checks.push({ name: 'TypeScript', status: 'pass', message: 'Available' });
+    const { stdout } = await execAsync('npx tsc --version');
+    checks.push({ name: 'TypeScript', status: 'pass', message: stdout.trim() });
+
+    if (verbose) {
+      const tsConfigPath = join(process.cwd(), 'tsconfig.json');
+      const tsConfigExists = existsSync(tsConfigPath);
+      checks.push({
+        name: '  tsconfig.json',
+        status: tsConfigExists ? 'pass' : 'warn',
+        message: tsConfigExists ? 'Found' : 'Not found',
+      });
+    }
   } catch {
     checks.push({ name: 'TypeScript', status: 'fail', message: 'Not found' });
   }
 
   try {
-    await execAsync('npx tsx --version');
-    checks.push({ name: 'tsx', status: 'pass', message: 'Available' });
+    const { stdout } = await execAsync('npx tsx --version');
+    checks.push({ name: 'tsx', status: 'pass', message: stdout.trim() });
   } catch {
     checks.push({ name: 'tsx', status: 'fail', message: 'Not found' });
   }
 
   try {
-    await execAsync('npx vitest --version');
-    checks.push({ name: 'Vitest', status: 'pass', message: 'Available' });
+    const { stdout } = await execAsync('npx vitest --version');
+    checks.push({ name: 'Vitest', status: 'pass', message: stdout.trim() });
+
+    if (verbose) {
+      const vitestConfigPath = join(process.cwd(), 'vitest.config.ts');
+      const vitestConfigExists = existsSync(vitestConfigPath);
+      checks.push({
+        name: '  vitest.config',
+        status: vitestConfigExists ? 'pass' : 'warn',
+        message: vitestConfigExists ? 'Found' : 'Not found',
+      });
+    }
   } catch {
     checks.push({ name: 'Vitest', status: 'warn', message: 'Not found (optional)' });
   }
@@ -87,6 +120,28 @@ async function runChecks(): Promise<{ name: string; status: 'pass' | 'fail' | 'w
       status: 'pass',
       message: 'All required files present'
     });
+
+    if (verbose) {
+      const srcFiles = await readdir(join(process.cwd(), 'src'));
+      checks.push({
+        name: '  Source modules',
+        status: 'pass',
+        message: `${srcFiles.length} top-level modules`,
+      });
+
+      const { readFileSync } = await import('fs');
+      const packageJson = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf-8'));
+      checks.push({
+        name: '  Package version',
+        status: 'pass',
+        message: packageJson.version || 'unknown',
+      });
+      checks.push({
+        name: '  Dependencies',
+        status: 'pass',
+        message: `${Object.keys(packageJson.dependencies || {}).length} deps, ${Object.keys(packageJson.devDependencies || {}).length} devDeps`,
+      });
+    }
   } else {
     const missing: string[] = [];
     if (!srcExists) missing.push('src/');
@@ -104,7 +159,8 @@ async function runChecks(): Promise<{ name: string; status: 'pass' | 'fail' | 'w
 
 export const doctorCmd = new Command('doctor')
   .description('Run diagnostics to check system requirements')
-  .action(async () => {
-    const checks = await runChecks();
+  .option('--verbose', 'Show detailed diagnostic information')
+  .action(async (options: { verbose?: boolean }) => {
+    const checks = await runChecks(options.verbose || false);
     console.log(formatDoctorResults(checks));
   });

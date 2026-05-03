@@ -1,6 +1,6 @@
-import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
-import { parse } from 'yaml';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { join, dirname } from 'path';
+import { parse, stringify } from 'yaml';
 import type { DefaultPolicy } from '../../command-rules/types.js';
 
 export interface AIConfig {
@@ -143,4 +143,20 @@ export function loadConfig(configPath?: string): Config {
 
 export function getDefaultConfig(): Config {
   return { ...DEFAULT_CONFIG };
+}
+
+export function saveConfig(config: Config, configPath?: string): void {
+  const path = configPath || getConfigPath();
+  const dir = dirname(path);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  writeFileSync(path, stringify(config, { indent: 2 }), 'utf-8');
+}
+
+export function updateConfig(patch: Partial<Config>, configPath?: string): Config {
+  const current = loadConfig(configPath);
+  const updated = { ...current, ...patch };
+  saveConfig(updated, configPath);
+  return updated;
 }

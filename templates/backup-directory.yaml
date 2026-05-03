@@ -1,0 +1,18 @@
+name: backup-directory
+description: "Create a timestamped backup of a directory"
+category: utility
+tags: [backup, files, utility]
+parameters:
+  - name: source
+    description: "Source directory to backup"
+    required: false
+    default: "."
+steps:
+  - id: create-backup-dir
+    type: exec
+    cli: mkdir
+    args: ["-p", "../backup"]
+  - id: copy
+    type: exec
+    cli: cp
+    args: ["-r", "${source}", "../backup/backup-$(date +%Y%m%d-%H%M%S)"]
