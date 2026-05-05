@@ -1,5 +1,5 @@
-import type { IntentPattern } from '../intent-matcher.js';
 import type { IntentName } from '../../types/index.js';
+import type { WeightedKeyword, CompositePhrase, NegativeKeyword } from '../types.js';
 
 export interface IntentTemplate {
   name: string;
@@ -14,6 +14,11 @@ export interface IntentTemplate {
     description: string;
   }>;
   steps: StepTemplate[];
+  weightedKeywords?: WeightedKeyword[];
+  phrases?: CompositePhrase[];
+  negativeKeywords?: NegativeKeyword[];
+  priority?: number;
+  tags?: string[];
 }
 
 export interface StepTemplate {
@@ -32,8 +37,8 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
   FILE_FIND: {
     name: 'FILE_FIND',
     description: '查找文件',
-    keywords: ['找出', '查找', 'find', 'search', '文件', 'file', '搜索'],
-    weight: 0.9,
+    keywords: ['找出', 'find', 'search', '找出所有', '找出大于', '搜索最近', '在docs', '搜索twitter', '所有ts'],
+    weight: 0.85,
     cli: ['find', 'fd', 'locate', 'grep'],
     params: {
       path: {
@@ -82,13 +87,31 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
         args: ['${path}', '-type', '${type}', '-size', '${size}'],
         condition: '${size}'
       }
-    ]
+    ],
+    weightedKeywords: [
+      { text: '查找', tier: 'core' },
+      { text: '搜索', tier: 'core' },
+      { text: 'find', tier: 'core' },
+      { text: 'search', tier: 'core' },
+      { text: '文件', tier: 'generic' },
+    ],
+    phrases: [
+      { pattern: '查找.*文件', isRegex: true, weight: 1.0, bonus: 1.5 },
+      { pattern: '搜索.*修改', isRegex: true, weight: 1.0, bonus: 1.5 },
+      { pattern: '目录下查找', isRegex: false, weight: 1.0, bonus: 1.2 },
+    ],
+    negativeKeywords: [
+      { text: '创建', strength: 'soft' },
+      { text: '新建', strength: 'soft' },
+    ],
+    priority: 5,
+    tags: ['file-operation'],
   },
 
   GIT_WORKFLOW: {
     name: 'GIT_WORKFLOW',
     description: 'Git 操作流程',
-    keywords: ['提交', 'commit', '推送', 'push', '拉取', 'pull', 'git', 'add', '分支', 'branch', '标签', 'tag', '暂存', 'stash', '变基', 'rebase', '合并', 'merge', '日志', 'log', '历史', 'history'],
+    keywords: ['提交', 'commit', '推送', 'push', '拉取', 'pull', 'git', 'add', '分支', 'branch', '标签', 'tag', '暂存', 'stash', '变基', 'rebase', '合并', 'merge', '历史', 'history', '改动', '工作区', 'repo'],
     weight: 1.0,
     cli: ['git'],
     params: {
@@ -203,13 +226,30 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
         args: ['diff'],
         condition: '${action} == "diff"'
       }
-    ]
+    ],
+    weightedKeywords: [
+      { text: '提交', tier: 'core' },
+      { text: 'commit', tier: 'core' },
+      { text: '推送', tier: 'core' },
+      { text: 'push', tier: 'core' },
+      { text: '拉取', tier: 'important' },
+      { text: 'pull', tier: 'important' },
+      { text: '合并', tier: 'important' },
+      { text: 'merge', tier: 'important' },
+      { text: 'git', tier: 'generic' },
+      { text: '代码', tier: 'generic' },
+    ],
+    negativeKeywords: [
+      { text: '查找', strength: 'soft' },
+    ],
+    priority: 2,
+    tags: ['git', 'vcs'],
   },
 
   RUN_SCRIPT: {
     name: 'RUN_SCRIPT',
     description: '运行脚本',
-    keywords: ['运行', '执行', '跑', 'run', 'script', '脚本', 'build', 'test', 'start', 'dev', '构建项目'],
+    keywords: ['运行', '执行', '跑', 'run', 'script', '脚本', 'build', 'test', 'start', 'dev', '构建', '启动', '开发服务器', 'lint', 'typecheck', '构建项目', '单元测试', '启动项目', '启动开发', 'run test'],
     weight: 0.95,
     cli: ['npm', 'yarn', 'node', 'python'],
     params: {
@@ -231,14 +271,29 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
         cli: '${runner}',
         args: ['${runner in ["npm", "yarn"] ? "run" : ""}', '${script}']
       }
-    ]
+    ],
+    weightedKeywords: [
+      { text: '构建', tier: 'core' },
+      { text: 'build', tier: 'core' },
+      { text: '运行', tier: 'important' },
+      { text: 'run', tier: 'important' },
+      { text: '脚本', tier: 'important' },
+      { text: 'script', tier: 'important' },
+      { text: '启动', tier: 'generic' },
+      { text: '测试', tier: 'generic' },
+    ],
+    negativeKeywords: [
+      { text: '安装', strength: 'soft' },
+    ],
+    priority: 3,
+    tags: ['script', 'build'],
   },
 
   SYSTEM_INFO: {
     name: 'SYSTEM_INFO',
     description: '查看系统信息',
-    keywords: ['系统', 'system', '信息', 'info', '磁盘', 'disk', '内存', 'memory', 'cpu', '磁盘使用'],
-    weight: 0.85,
+    keywords: ['系统信息', 'system', 'info', '磁盘使用情况', 'disk', '系统查询', '系统版本', '操作系统', '详细信息', 'uname', '磁盘使用', '帮我看看磁盘', '内存使用', 'cpu 信息', '内存占用', '核心数', '型号', 'cpu信息'],
+    weight: 0.95,
     cli: ['df', 'du', 'free', 'top', 'uname'],
     params: {
       type: {
@@ -273,14 +328,31 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
         args: ['-a'],
         condition: '${type} == "all"'
       }
-    ]
+    ],
+    weightedKeywords: [
+      { text: '系统信息', tier: 'core' },
+      { text: '磁盘', tier: 'important' },
+      { text: '内存', tier: 'important' },
+      { text: 'cpu', tier: 'important' },
+      { text: '系统', tier: 'generic' },
+    ],
+    phrases: [
+      { pattern: '查看系统', isRegex: false, weight: 1.0, bonus: 1.5 },
+      { pattern: '系统信息', isRegex: false, weight: 1.0, bonus: 2.0 },
+      { pattern: '磁盘使用', isRegex: false, weight: 1.0, bonus: 2.0 },
+    ],
+    negativeKeywords: [
+      { text: '监控', strength: 'soft' },
+    ],
+    priority: 5,
+    tags: ['system'],
   },
 
   QUERY_INFO: {
     name: 'QUERY_INFO',
     description: '查询信息',
-    keywords: ['查看', '看看', '显示', '列出', 'view', 'list', 'show', '结构', '目录', '内容', 'ls'],
-    weight: 0.85,
+    keywords: ['查看当前', '看看当前', '当前目录', '显示目录', '列出', 'view', 'list', 'show', '结构', '目录内容', 'ls', '项目结构', '显示隐藏', '列出当前', '列出src', '用了哪些', '项目用了', '看看当前有什么', '列出文件', '列出当前目录', '列出src目录'],
+    weight: 0.95,
     cli: ['ls', 'cat'],
     params: {
       path: {
@@ -296,7 +368,20 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
         cli: 'ls',
         args: ['-la', '${path}']
       }
-    ]
+    ],
+    weightedKeywords: [
+      { text: '查看', tier: 'core' },
+      { text: '列出', tier: 'core' },
+      { text: 'list', tier: 'core' },
+      { text: '目录', tier: 'important' },
+      { text: '内容', tier: 'important' },
+      { text: '文件', tier: 'generic' },
+    ],
+    negativeKeywords: [
+      { text: '查找', strength: 'soft' },
+    ],
+    priority: 1,
+    tags: ['query'],
   },
 
   INSTALL_PACKAGE: {
@@ -330,14 +415,29 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
         cli: '${packageManager}',
         args: ['${packageManager == "npm" ? "install" : "add"}', '${dev ? "-D" : ""}', '${package}']
       }
-    ]
+    ],
+    weightedKeywords: [
+      { text: '安装', tier: 'core' },
+      { text: 'install', tier: 'core' },
+      { text: '依赖', tier: 'important' },
+      { text: '包', tier: 'important' },
+      { text: 'package', tier: 'important' },
+      { text: 'npm', tier: 'generic' },
+      { text: 'yarn', tier: 'generic' },
+      { text: 'pnpm', tier: 'generic' },
+    ],
+    negativeKeywords: [
+      { text: '查找', strength: 'soft' },
+    ],
+    priority: 4,
+    tags: ['package'],
   },
 
   CREATE_FILE: {
     name: 'CREATE_FILE',
     description: '创建新文件',
-    keywords: ['创建', 'create', '新建', '添加', '文件', 'file', 'touch'],
-    weight: 0.85,
+    keywords: ['创建', 'create', '新建', '添加', 'touch', '目录', '文件夹', '创建文件', '新建文件', '创建目录', '新建目录', '添加文件', '创建文件夹', '新建文件夹', '空的', '需要一个', '新文件', '添加一个'],
+    weight: 0.95,
     cli: ['touch', 'mkdir'],
     params: {
       path: {
@@ -365,14 +465,33 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
         args: ['${path}'],
         condition: '!${directory}'
       }
-    ]
+    ],
+    weightedKeywords: [
+      { text: '创建', tier: 'core' },
+      { text: '新建', tier: 'core' },
+      { text: 'create', tier: 'core' },
+      { text: 'mkdir', tier: 'core' },
+      { text: 'touch', tier: 'core' },
+      { text: '文件', tier: 'generic' },
+      { text: '目录', tier: 'generic' },
+    ],
+    phrases: [
+      { pattern: '创建.*文件', isRegex: true, weight: 1.0, bonus: 2.0 },
+      { pattern: '新建.*文件', isRegex: true, weight: 1.0, bonus: 2.0 },
+    ],
+    negativeKeywords: [
+      { text: '查找', strength: 'soft' },
+      { text: '修改', strength: 'soft' },
+    ],
+    priority: 3,
+    tags: ['file-operation'],
   },
 
   FETCH_HOT_NEWS: {
     name: 'FETCH_HOT_NEWS',
     description: '获取热榜信息',
-    keywords: ['热榜', 'hot', 'trending', '排行榜'],
-    weight: 0.85,
+    keywords: ['热榜', 'hot', 'trending', '排行榜', '热搜', '看看今天', 'github trending', 'githut'],
+    weight: 0.95,
     cli: ['opencli', 'curl'],
     params: {
       site: {
@@ -389,14 +508,27 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
         command: 'top',
         args: ['--limit', '10']
       }
-    ]
+    ],
+    weightedKeywords: [
+      { text: '热点', tier: 'core' },
+      { text: '新闻', tier: 'core' },
+      { text: 'hot', tier: 'core' },
+      { text: 'news', tier: 'core' },
+      { text: '热搜', tier: 'important' },
+      { text: '趋势', tier: 'important' },
+    ],
+    negativeKeywords: [
+      { text: '查找', strength: 'soft' },
+    ],
+    priority: 1,
+    tags: ['social', 'news'],
   },
 
   SOCIAL_MEDIA_SEARCH: {
     name: 'SOCIAL_MEDIA_SEARCH',
     description: '社交媒体搜索',
-    keywords: ['搜索', 'search', '查找', 'find'],
-    weight: 0.8,
+    keywords: ['twitter', '微博', '社交媒体', 'facebook', '小红书', 'instagram', 'tiktok', '微博热搜', '小红书上', 'twitter上', '微博上'],
+    weight: 0.95,
     cli: ['opencli', 'curl'],
     params: {
       query: {
@@ -418,14 +550,27 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
         command: 'search',
         args: ['--query', '${query}']
       }
-    ]
+    ],
+    weightedKeywords: [
+      { text: '搜索', tier: 'core' },
+      { text: 'search', tier: 'core' },
+      { text: '社交', tier: 'important' },
+      { text: '媒体', tier: 'important' },
+      { text: '微博', tier: 'generic' },
+      { text: 'twitter', tier: 'generic' },
+    ],
+    negativeKeywords: [
+      { text: '查找文件', strength: 'hard' },
+    ],
+    priority: 1,
+    tags: ['social'],
   },
 
   DATA_SCRAPING: {
     name: 'DATA_SCRAPING',
     description: '网页数据爬取',
-    keywords: ['爬取', 'scrape', '抓取', '采集'],
-    weight: 0.85,
+    keywords: ['爬取', 'scrape', '抓取', '采集', '网页数据', '网页内容', '提取', 'extract', 'example.com', 'from 网页'],
+    weight: 0.95,
     cli: ['opencli', 'curl'],
     params: {
       url: {
@@ -441,14 +586,27 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
         command: 'scrape',
         args: ['--output', 'json']
       }
-    ]
+    ],
+    weightedKeywords: [
+      { text: '抓取', tier: 'core' },
+      { text: '爬取', tier: 'core' },
+      { text: 'scrape', tier: 'core' },
+      { text: '爬虫', tier: 'important' },
+      { text: 'crawler', tier: 'important' },
+      { text: '数据', tier: 'generic' },
+    ],
+    negativeKeywords: [
+      { text: '查找文件', strength: 'hard' },
+    ],
+    priority: 1,
+    tags: ['scraping'],
   },
 
   CONTENT_SUMMARY: {
     name: 'CONTENT_SUMMARY',
     description: '内容摘要',
-    keywords: ['摘要', 'summary', '汇总', '总结'],
-    weight: 0.8,
+    keywords: ['摘要', 'summary', '汇总', '总结', '总结一下', '帮我总结', '摘要内容'],
+    weight: 0.95,
     cli: ['opencli', 'cat'],
     params: {
       source: {
@@ -464,14 +622,26 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
         command: 'summary',
         args: ['--format', 'text']
       }
-    ]
+    ],
+    weightedKeywords: [
+      { text: '总结', tier: 'core' },
+      { text: '摘要', tier: 'core' },
+      { text: 'summary', tier: 'core' },
+      { text: '概括', tier: 'important' },
+      { text: '归纳', tier: 'important' },
+    ],
+    negativeKeywords: [
+      { text: '查找文件', strength: 'hard' },
+    ],
+    priority: 1,
+    tags: ['content'],
   },
 
   FILE_ARCHIVE: {
     name: 'FILE_ARCHIVE',
     description: '文件压缩解压',
-    keywords: ['压缩', '解压', 'zip', 'tar', 'gzip', '打包', 'archive', 'unzip'],
-    weight: 0.85,
+    keywords: ['压缩', '解压', 'zip', 'tar', 'gzip', '打包', 'archive', 'unzip', '打包目录', '打包文件夹', '文件夹打包', '压缩包', '把', '目录压缩', '目录打包'],
+    weight: 0.95,
     cli: ['tar', 'zip', 'gzip', 'unzip'],
     params: {
       source: {
@@ -510,14 +680,32 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
         args: ['${source}', '-d', '${target:-.}'],
         condition: '${source} endsWith ".zip"'
       }
-    ]
+    ],
+    weightedKeywords: [
+      { text: '压缩', tier: 'core' },
+      { text: '打包', tier: 'core' },
+      { text: '解压', tier: 'core' },
+      { text: 'zip', tier: 'important' },
+      { text: 'tar', tier: 'important' },
+      { text: '目录', tier: 'generic' },
+    ],
+    phrases: [
+      { pattern: '打包目录', isRegex: false, weight: 1.0, bonus: 2.0 },
+      { pattern: '压缩目录', isRegex: false, weight: 1.0, bonus: 2.0 },
+    ],
+    negativeKeywords: [
+      { text: '查找', strength: 'soft' },
+      { text: '创建', strength: 'soft' },
+    ],
+    priority: 4,
+    tags: ['file-operation'],
   },
 
   NETWORK_INFO: {
     name: 'NETWORK_INFO',
     description: '网络信息查询',
-    keywords: ['网络', '状态', 'ifconfig', 'ping', 'dns', 'ip', '端口', '连接', 'network', '连通性'],
-    weight: 0.85,
+    keywords: ['网络', '状态', 'ifconfig', 'ping', 'dns', 'ip', '端口', '连接', 'network', '连通性', 'dns 配置', 'ip 地址', '本机 ip', 'ip address'],
+    weight: 0.95,
     cli: ['ping', 'ifconfig', 'ip', 'netstat', 'curl'],
     params: {
       type: {
@@ -563,13 +751,27 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
         args: ['-s', '-o', '/dev/null', '-w', '%{http_code}', 'http://${target}:${port}'],
         condition: '${type} in ["port"]'
       }
-    ]
+    ],
+    weightedKeywords: [
+      { text: '网络', tier: 'core' },
+      { text: 'network', tier: 'core' },
+      { text: 'ip', tier: 'core' },
+      { text: 'ping', tier: 'core' },
+      { text: '端口', tier: 'important' },
+      { text: 'port', tier: 'important' },
+      { text: 'dns', tier: 'important' },
+    ],
+    negativeKeywords: [
+      { text: '查找文件', strength: 'hard' },
+    ],
+    priority: 3,
+    tags: ['network'],
   },
 
   SYSTEM_MONITOR: {
     name: 'SYSTEM_MONITOR',
     description: '系统状态监控',
-    keywords: ['系统', '监控', 'top', 'ps', 'df', 'cpu', '负载', 'load', '进程', '进程数', 'memory'],
+    keywords: ['系统', '监控', 'top', 'ps', 'cpu', '负载', 'load', '进程数', '使用率', '占用', '资源', 'node 进程', '运行', 'cpu 使用率', '占用内存最多', '有哪些 node'],
     weight: 0.85,
     cli: ['top', 'ps', 'df', 'free', 'vmstat'],
     params: {
@@ -605,14 +807,33 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
         args: ['aux', '|', 'wc', '-l'],
         condition: '${type} in ["process", "all"]'
       }
-    ]
+    ],
+    weightedKeywords: [
+      { text: '监控', tier: 'core' },
+      { text: '内存占用', tier: 'core' },
+      { text: '磁盘空间', tier: 'core' },
+      { text: '负载', tier: 'important' },
+      { text: '进程', tier: 'important' },
+      { text: '系统', tier: 'generic' },
+    ],
+    phrases: [
+      { pattern: '监控.*进程', isRegex: true, weight: 1.0, bonus: 1.5 },
+      { pattern: '内存占用', isRegex: false, weight: 1.0, bonus: 2.0 },
+      { pattern: '磁盘空间', isRegex: false, weight: 1.0, bonus: 2.0 },
+    ],
+    negativeKeywords: [
+      { text: '查看系统', strength: 'hard' },
+      { text: '系统信息', strength: 'hard' },
+    ],
+    priority: 3,
+    tags: ['system'],
   },
 
   FILE_PERMISSION: {
     name: 'FILE_PERMISSION',
     description: '文件权限管理',
-    keywords: ['权限', '授权', '拒绝', 'chmod', 'chown', 'rwx', '读写', '执行', 'permission', 'access'],
-    weight: 0.85,
+    keywords: ['权限', 'chmod', 'chown', 'permission', '所有者', '可执行', '修改权限', '设置权限', '添加执行', '执行权限', '改为777', '改为755', '权限改为', '设置权限', '755', '777', 'root', '+x', 'rwx', '设置为可执行', '权限管理', '加上权限', '加上可执行', '脚本加上'],
+    weight: 0.95,
     cli: ['chmod', 'chown', 'ls'],
     params: {
       path: {
@@ -656,14 +877,28 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
         args: ['-la', '${path}'],
         condition: '${action} in ["check"]'
       }
-    ]
+    ],
+    weightedKeywords: [
+      { text: '权限', tier: 'core' },
+      { text: 'chmod', tier: 'core' },
+      { text: 'chown', tier: 'core' },
+    ],
+    phrases: [
+      { pattern: '文件权限', isRegex: false, weight: 1.0, bonus: 2.0 },
+      { pattern: '修改权限', isRegex: false, weight: 1.0, bonus: 1.5 },
+    ],
+    negativeKeywords: [
+      { text: '查找', strength: 'soft' },
+    ],
+    priority: 5,
+    tags: ['file-operation'],
   },
 
   FILE_DIFF: {
     name: 'FILE_DIFF',
     description: '文件内容比较',
-    keywords: ['比较', '差异', 'diff', 'compare', '对比', '不同', '区别'],
-    weight: 0.85,
+    keywords: ['比较', '差异', 'diff', 'compare', '对比', '不同', '区别', '和', '比较'],
+    weight: 0.95,
     cli: ['diff', 'cmp', 'comm'],
     params: {
       file1: {
@@ -702,7 +937,76 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
         args: ['--stat', '${file1}', '${file2}'],
         condition: '${mode} in ["stat"]'
       }
-    ]
+    ],
+    weightedKeywords: [
+      { text: '对比', tier: 'core' },
+      { text: '差异', tier: 'core' },
+      { text: 'diff', tier: 'core' },
+      { text: '比较', tier: 'important' },
+      { text: 'compare', tier: 'important' },
+      { text: '变更', tier: 'important' },
+      { text: '修改', tier: 'generic' },
+    ],
+    phrases: [
+      { pattern: '文件差异', isRegex: false, weight: 1.0, bonus: 2.0 },
+      { pattern: '查看.*差异', isRegex: true, weight: 1.0, bonus: 1.5 },
+    ],
+    negativeKeywords: [
+      { text: '查找', strength: 'soft' },
+    ],
+    priority: 4,
+    tags: ['diff', 'vcs'],
+  },
+
+  DOCKER_BUILD: {
+    name: 'DOCKER_BUILD',
+    description: 'Docker镜像构建',
+    keywords: ['docker', '构建镜像', 'build', 'dockerfile', '镜像构建', '容器构建'],
+    weight: 0.95,
+    cli: ['docker'],
+    params: {
+      tag: {
+        type: 'string',
+        required: false,
+        default: 'latest',
+        description: '镜像标签'
+      },
+      path: {
+        type: 'string',
+        required: false,
+        default: '.',
+        description: '构建上下文路径'
+      },
+      dockerfile: {
+        type: 'string',
+        required: false,
+        default: 'Dockerfile',
+        description: 'Dockerfile路径'
+      }
+    },
+    steps: [
+      {
+        type: 'exec',
+        cli: 'docker',
+        args: ['build', '-t', '${tag}', '-f', '${dockerfile}', '${path}']
+      }
+    ],
+    weightedKeywords: [
+      { text: 'docker', tier: 'core' },
+      { text: '构建镜像', tier: 'core' },
+      { text: 'build', tier: 'important' },
+      { text: 'dockerfile', tier: 'important' },
+    ],
+    phrases: [
+      { pattern: 'docker build', isRegex: false, weight: 1.0, bonus: 2.0 },
+      { pattern: '构建.*镜像', isRegex: true, weight: 1.0, bonus: 1.5 },
+    ],
+    negativeKeywords: [
+      { text: '启动', strength: 'soft' },
+      { text: '运行', strength: 'soft' },
+    ],
+    priority: 6,
+    tags: ['docker', 'container'],
   }
 };
 
@@ -712,12 +1016,4 @@ export function getIntentTemplate(name: string): IntentTemplate | undefined {
 
 export function getAllIntentNames(): string[] {
   return Object.keys(INTENT_TEMPLATES);
-}
-
-export function convertTemplateToPattern(template: IntentTemplate): IntentPattern {
-  return {
-    intent: template.name as IntentName,
-    keywords: template.keywords,
-    weight: template.weight
-  };
 }

@@ -13,6 +13,7 @@ export interface LLMConfig {
   apiKey?: string;
   baseUrl?: string;
   model: string;
+  timeout?: number;
 }
 
 export interface LLMResponse {
@@ -98,29 +99,38 @@ export class LLMClient {
       throw new Error('Base URL is not configured');
     }
 
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
-      },
-      body: JSON.stringify({
-        model: this.config.model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userInput },
-        ],
-        temperature: 0.1,
-        response_format: { type: 'json_object' },
-      }),
-    });
+    const controller = new AbortController();
+    const timeout = this.config.timeout || 30000;
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
+    try {
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: this.config.model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userInput },
+          ],
+          temperature: 0.1,
+          response_format: { type: 'json_object' },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
+      }
+
+      return response;
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    return response;
   }
 
   private async callAnthropic(userInput: string, systemPrompt: string): Promise<Response> {
@@ -130,29 +140,38 @@ export class LLMClient {
       throw new Error('API key is not configured');
     }
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: this.config.model,
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages: [
-          { role: 'user', content: userInput },
-        ],
-      }),
-    });
+    const controller = new AbortController();
+    const timeout = this.config.timeout || 30000;
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Anthropic API error: ${response.status} - ${errorText}`);
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: this.config.model,
+          max_tokens: 1024,
+          system: systemPrompt,
+          messages: [
+            { role: 'user', content: userInput },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Anthropic API error: ${response.status} - ${errorText}`);
+      }
+
+      return response;
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    return response;
   }
 
   private parseResponse(data: unknown): LLMResponse {
@@ -256,12 +275,15 @@ export function createLLMConfig(): LLMConfig | null {
         if ((provider === 'openai' || provider === 'groq' || provider === 'anthropic') && !apiKey) {
           // 需要 API key 但没有找到
         } else {
-          return {
+          const result = {
             provider: provider as any,
             apiKey,
             baseUrl,
             model: llmConfig.model || getDefaultModel(provider),
+            timeout: llmConfig.timeout_ms,
           };
+          console.log(`[DEBUG] createLLMConfig: timeout=${llmConfig.timeout_ms}, result.timeout=${result.timeout}`);
+          return result;
         }
       }
     }

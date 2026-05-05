@@ -5,6 +5,7 @@ import { homedir, platform } from 'os';
 import { createHash } from 'crypto';
 import { createDetector } from './detector.js';
 import { CommandRuleEngine, createCommandRuleEngine, loadGlobalBlocklist, loadGlobalAllowlist, loadProjectBlocklist, loadProjectAllowlist } from '../command-rules/index.js';
+import { SANDBOX_EXEC_PATH, BWRAP_PATH, UNSHARE_PATH, SUDOERS_PATH, FALLBACK_PATH, DEFAULT_PROTECTED_DIRS } from './constants.js';
 import type { SandboxMode, CommandDetection } from '../types/index.js';
 import type { DefaultPolicy } from '../command-rules/types.js';
 
@@ -21,6 +22,7 @@ interface SandboxConfig {
   allowedEnvVars: string[];
   namespaceIsolation: boolean;
   defaultPolicy?: DefaultPolicy;
+  protectedDirs?: string[];
 }
 
 interface ExecOptions {
@@ -118,7 +120,7 @@ export class SandboxManager {
     
     if (os === 'darwin') {
       try {
-        accessSync('/usr/bin/sandbox-exec', constants.X_OK);
+        accessSync(SANDBOX_EXEC_PATH, constants.X_OK);
         return 'sandbox-exec';
       } catch {
         return 'directory';
@@ -127,11 +129,11 @@ export class SandboxManager {
     
     if (os === 'linux') {
       try {
-        accessSync('/usr/bin/bwrap', constants.X_OK);
+        accessSync(BWRAP_PATH, constants.X_OK);
         return 'bubblewrap';
       } catch {
         try {
-          accessSync('/usr/bin/unshare', constants.X_OK);
+          accessSync(UNSHARE_PATH, constants.X_OK);
           return 'unshare';
         } catch {
           return 'directory';
@@ -203,13 +205,13 @@ export class SandboxManager {
   private async testBwrapSudo(): Promise<boolean> {
     return new Promise((resolve) => {
       try {
-        accessSync('/usr/bin/bwrap', constants.X_OK);
+        accessSync(BWRAP_PATH, constants.X_OK);
       } catch {
         resolve(false);
         return;
       }
 
-      const child = spawn('sudo', ['-n', '/usr/bin/bwrap', '--version'], {
+      const child = spawn('sudo', ['-n', BWRAP_PATH, '--version'], {
         timeout: 5000,
       });
 
@@ -226,13 +228,13 @@ export class SandboxManager {
   private async testUnshareSudo(): Promise<boolean> {
     return new Promise((resolve) => {
       try {
-        accessSync('/usr/bin/unshare', constants.X_OK);
+        accessSync(UNSHARE_PATH, constants.X_OK);
       } catch {
         resolve(false);
         return;
       }
 
-      const child = spawn('sudo', ['-n', '/usr/bin/unshare', '--help'], {
+      const child = spawn('sudo', ['-n', UNSHARE_PATH, '--help'], {
         timeout: 5000,
       });
 
@@ -266,14 +268,12 @@ export class SandboxManager {
     const username = process.env.USER || 'unknown';
     const sudoersContent = `# VectaHub sudoers configuration
 # Allow ${username} to run bwrap and unshare without password
-${username} ALL=(ALL) NOPASSWD: /usr/bin/bwrap
-${username} ALL=(ALL) NOPASSWD: /usr/bin/unshare
+${username} ALL=(ALL) NOPASSWD: ${BWRAP_PATH}
+${username} ALL=(ALL) NOPASSWD: ${UNSHARE_PATH}
 `;
 
-    const sudoersPath = '/etc/sudoers.d/vectahub';
-
     return new Promise((resolve) => {
-      const child = spawn('sudo', ['tee', sudoersPath], {
+      const child = spawn('sudo', ['tee', SUDOERS_PATH], {
         timeout: 10000,
       });
 
@@ -290,7 +290,7 @@ ${username} ALL=(ALL) NOPASSWD: /usr/bin/unshare
         if (code === 0) {
           resolve({
             success: true,
-            message: `sudoers 配置已写入 ${sudoersPath}`,
+            message: `sudoers 配置已写入 ${SUDOERS_PATH}`,
           });
         } else {
           resolve({
@@ -384,7 +384,7 @@ ${username} ALL=(ALL) NOPASSWD: /usr/bin/unshare
   }
 
   private resolveCommandPath(cmd: string): string | null {
-    const paths = (process.env.PATH || '/usr/bin:/bin:/usr/local/bin').split(':');
+    const paths = (process.env.PATH || FALLBACK_PATH).split(':');
     
     for (const path of paths) {
       const fullPath = join(path, cmd);
@@ -430,14 +430,14 @@ ${username} ALL=(ALL) NOPASSWD: /usr/bin/unshare
     const startTime = Date.now();
     const fullCmd = `${cmd} ${args.join(' ')}`;
 
+    const protectedDirs = this.config.protectedDirs ?? DEFAULT_PROTECTED_DIRS;
+    const denyRules = protectedDirs
+      .map(dir => `(deny file-write* (regex "^${dir}"))`)
+      .join('\n');
+
     const sandboxProfile = `(version 1)
 (allow default)
-(deny file-write* (regex "^/etc/"))
-(deny file-write* (regex "^/usr/"))
-(deny file-write* (regex "^/System/"))
-(deny file-write* (regex "^/bin/"))
-(deny file-write* (regex "^/sbin/"))
-(deny file-write* (regex "^/Library/"))
+${denyRules}
 (deny mount)
 (deny sysctl-write)
 (allow file-write* (regex "^${cwd}/"))

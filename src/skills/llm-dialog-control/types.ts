@@ -7,6 +7,7 @@ export interface LLMConfig {
   model: string;
   temperature?: number;
   maxTokens?: number;
+  timeout?: number;
 }
 
 export interface Message {

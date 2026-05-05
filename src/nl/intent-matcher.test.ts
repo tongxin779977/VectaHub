@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createIntentMatcher, type IntentPattern } from './intent-matcher.js';
+import { createIntentMatcher, type LegacyIntentPattern } from './intent-matcher.js';
 import { audit } from '../utils/audit.js';
 
 vi.mock('../utils/audit.js', () => ({
@@ -9,7 +9,7 @@ vi.mock('../utils/audit.js', () => ({
 }));
 
 describe('Intent Matcher', () => {
-  const patterns: IntentPattern[] = [
+  const patterns: LegacyIntentPattern[] = [
     { intent: 'FILE_FIND', keywords: ['查找文件', '找文件', '搜索文件', 'find', 'search'], weight: 0.2 },
     { intent: 'GIT_WORKFLOW', keywords: ['提交代码', '创建分支', '推送', 'commit', 'branch', 'push'], weight: 0.25 },
     { intent: 'FETCH_HOT_NEWS', keywords: ['热榜', 'trending', '排行榜', '热门'], weight: 0.3 },
@@ -109,7 +109,7 @@ describe('Intent Matcher', () => {
 
   describe('registerPattern', () => {
     it('registers new pattern', () => {
-      const newPattern: IntentPattern = {
+      const newPattern: LegacyIntentPattern = {
         intent: 'CUSTOM_INTENT',
         keywords: ['custom', 'test'],
         weight: 0.5,
@@ -152,13 +152,13 @@ describe('Intent Matcher', () => {
 
   describe('confidence calculation', () => {
     it('higher weight produces higher confidence', () => {
-      const highWeightPattern: IntentPattern = {
+      const highWeightPattern: LegacyIntentPattern = {
         intent: 'HIGH_WEIGHT',
         keywords: ['highweight'],
         weight: 0.8,
       };
 
-      const lowWeightPattern: IntentPattern = {
+      const lowWeightPattern: LegacyIntentPattern = {
         intent: 'LOW_WEIGHT',
         keywords: ['lowweight'],
         weight: 0.1,
@@ -174,7 +174,7 @@ describe('Intent Matcher', () => {
     });
 
     it('multiple keyword matches increase confidence', () => {
-      const pattern: IntentPattern = {
+      const pattern: LegacyIntentPattern = {
         intent: 'MULTI',
         keywords: ['keyword1', 'keyword2', 'keyword3'],
         weight: 0.2,

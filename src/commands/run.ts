@@ -6,12 +6,13 @@ import { reviewAndEditCommands } from './command-editor.js';
 import { isFirstRun, runFirstRunWizard } from '../setup/first-run-wizard.js';
 import { scanCLITools, updateCLIToolConfig } from '../setup/cli-scanner.js';
 import { createLLMConfig } from '../nl/llm.js';
-import { createNLProcessor, createKeywordAdapter } from '../nl/core/index.js';
-import { createSkillRegistry } from '../skills/registry.js';
-import { createSkillExecutor } from '../skills/executor.js';
+import { createNLProcessor } from '../nl/core/index.js';
+import { createSkillSystem } from '../skills/init.js';
 import type { Workflow, Step, TaskList } from '../types/index.js';
 
 import path from 'node:path';
+import fs from 'node:fs';
+import { homedir } from 'node:os';
 
 const logger = createConsoleLogger('run');
 
@@ -37,9 +38,18 @@ export const runCmd = new Command('run')
       let workflow: Workflow | null = null;
 
       if (options.file) {
-        const filepath = path.resolve(options.file);
-        logger.info(`从文件加载工作流: ${filepath}`);
         const storage = createStorage();
+        let filepath = path.resolve(options.file);
+        
+        if (!fs.existsSync(filepath)) {
+          const workflowsDir = path.join(homedir(), '.vectahub', 'workflows');
+          const fallbackPath = path.join(workflowsDir, options.file);
+          if (fs.existsSync(fallbackPath)) {
+            filepath = fallbackPath;
+          }
+        }
+        
+        logger.info(`从文件加载工作流: ${filepath}`);
         workflow = await storage.loadWorkflowFromFile(filepath);
         
         if (!workflow) {
@@ -57,16 +67,18 @@ export const runCmd = new Command('run')
 
         if (useLLM) {
           logger.info('使用 LLM 解析意图');
+          logger.info(`LLM 配置: provider=${llmConfig?.provider}, model=${llmConfig?.model}, timeout=${llmConfig?.timeout}ms`);
         } else {
           logger.info('LLM 未配置，使用关键词匹配');
         }
 
+        const { registry, executor } = createSkillSystem();
         const nlProcessor = createNLProcessor(
-          createSkillRegistry(),
-          createKeywordAdapter(),
+          registry,
+          { parse: async () => ({ success: false, intent: 'UNKNOWN' as const, confidence: 0, metadata: { path: 'keyword-fallback' as const } }) },
           {
             confidenceThreshold: 0.7,
-            executor: createSkillExecutor({ maxRetries: 2, timeout: 30000 }),
+            executor,
           }
         );
 
@@ -74,6 +86,10 @@ export const runCmd = new Command('run')
           input: text,
           options: { useLLM },
         });
+
+        const matchedIntent = nlResult.intent || nlResult.taskList?.intent || 'UNKNOWN';
+        const matchPath = nlResult.metadata.path;
+        logger.info(`意图: ${matchedIntent} (路径: ${matchPath})`);
 
         let taskListResult: TaskList | undefined = nlResult.taskList;
 
@@ -92,7 +108,7 @@ export const runCmd = new Command('run')
           process.exit(1);
         }
 
-        if (options.edit !== false && taskListResult.tasks.length > 0) {
+        if (options.edit !== false && !options.dryRun && taskListResult.tasks.length > 0) {
           try {
             taskListResult = await reviewAndEditCommands(taskListResult);
           } catch (error) {

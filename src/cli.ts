@@ -22,6 +22,7 @@ import { scheduleCmd } from './commands/schedule.js';
 import { daemonCmd } from './commands/daemon.js';
 import { templatesCmd, templatesUseCmd, templatesSaveCmd } from './commands/templates.js';
 import { rollbackCmd } from './commands/list.js';
+import { verifyCmd } from './commands/verify.js';
 import { getCliToolRegistry } from './cli-tools/index.js';
 import { gitTool } from './cli-tools/tools/git.js';
 import { npmTool } from './cli-tools/tools/npm.js';
@@ -140,7 +141,8 @@ program
   .addCommand(scheduleCmd)
   .addCommand(daemonCmd)
   .addCommand(templatesCmd.addCommand(templatesUseCmd).addCommand(templatesSaveCmd))
-  .addCommand(rollbackCmd);
+  .addCommand(rollbackCmd)
+  .addCommand(verifyCmd);
 
 // Setup 命令
 const setupCmd = new Command('setup')

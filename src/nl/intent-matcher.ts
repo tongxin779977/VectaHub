@@ -1,20 +1,28 @@
 import type { IntentMatch, IntentName } from '../types/index.js';
+import type { MultiIntentResult } from './types.js';
 import { audit, AuditEventType } from '../utils/audit.js';
 
-export interface IntentPattern {
+/**
+ * @deprecated Use IntentPattern (src/nl/types.ts) with WeightedKeywords
+ * and CompositePhrases for richer matching. Will be removed in v2.0.
+ */
+export interface LegacyIntentPattern {
   intent: string;
   keywords: string[];
   weight: number;
   cli?: string[];
 }
 
-export interface IntentMatcher {
+export interface LegacyIntentMatcher {
   match(input: string, sessionId?: string): IntentMatch;
-  registerPattern(pattern: IntentPattern): void;
-  getPatterns(): IntentPattern[];
+  matchMultiIntent(input: string, sessionId?: string): MultiIntentResult;
+  registerPattern(pattern: LegacyIntentPattern): void;
+  getPatterns(): LegacyIntentPattern[];
 }
 
-export function createIntentMatcher(patterns: IntentPattern[]): IntentMatcher {
+export function createIntentMatcher(patterns: LegacyIntentPattern[], coordinator?: {
+  match(input: string): MultiIntentResult;
+}): LegacyIntentMatcher {
   return {
     match(input: string, sessionId?: string): IntentMatch {
       const lowerInput = input.toLowerCase();
@@ -52,11 +60,29 @@ export function createIntentMatcher(patterns: IntentPattern[]): IntentMatcher {
       return bestMatch;
     },
 
-    registerPattern(pattern: IntentPattern): void {
+    matchMultiIntent(input: string, sessionId?: string): MultiIntentResult {
+      if (coordinator) {
+        return coordinator.match(input);
+      }
+
+      const single = this.match(input, sessionId);
+      return {
+        isMultiIntent: false,
+        intents: [{
+          intent: single.intent,
+          confidence: single.confidence,
+          params: single.params,
+          matchedKeywords: [],
+        }],
+        rawInput: input,
+      };
+    },
+
+    registerPattern(pattern: LegacyIntentPattern): void {
       patterns.push(pattern);
     },
 
-    getPatterns(): IntentPattern[] {
+    getPatterns(): LegacyIntentPattern[] {
       return [...patterns];
     },
   };

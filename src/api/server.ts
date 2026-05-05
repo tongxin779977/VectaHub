@@ -2,7 +2,8 @@ import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
-import { createNLParser } from '../nl/parser.js';
+import { createCoordinator, adaptAllTemplates } from '../nl/core/index.js';
+import { INTENT_TEMPLATES } from '../nl/templates/index.js';
 import { createLLMConfig, createLLMEnhancedParser } from '../nl/llm.js';
 import { createWorkflowEngine } from '../workflow/engine.js';
 import { createStorage } from '../workflow/storage.js';
@@ -118,14 +119,16 @@ export function createAPIServer(port = 3000): ReturnType<typeof createServer> {
                 const result = await engine.execute(workflow);
                 executionResult = { status: result.status, steps: result.steps, warnings: result.warnings };
               } else {
-                const parser = createNLParser();
-                const taskList = parser.parseToTaskList(input);
-                executionResult = { status: taskList.status, steps: [], warnings: ['Low confidence, no workflow generated'] };
+                const coordinator = createCoordinator(adaptAllTemplates(INTENT_TEMPLATES));
+                const result = coordinator.match(input);
+                const status = result.intents[0]?.intent !== 'UNKNOWN' ? 'SUCCESS' : 'NEEDS_CLARIFICATION';
+                executionResult = { status, steps: [], warnings: ['Low confidence, no workflow generated'] };
               }
             } else {
-              const parser = createNLParser();
-              const taskList = parser.parseToTaskList(input);
-              executionResult = { status: taskList.status, steps: [], warnings: ['LLM not configured'] };
+              const coordinator = createCoordinator(adaptAllTemplates(INTENT_TEMPLATES));
+              const result = coordinator.match(input);
+              const status = result.intents[0]?.intent !== 'UNKNOWN' ? 'SUCCESS' : 'NEEDS_CLARIFICATION';
+              executionResult = { status, steps: [], warnings: ['LLM not configured'] };
             }
           }
         }

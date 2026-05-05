@@ -38,6 +38,7 @@ export interface LLMProviderConfig {
   apiKey?: string;
   model?: string;
   baseUrl?: string;
+  timeout_ms?: number;
   enabled: boolean;
 }
 

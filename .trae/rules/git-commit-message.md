@@ -1,11 +1,8 @@
 ---
 alwaysApply: false
-description: "生成 git commit message 时遵循此规范"
+description: "生成 git commit message 时遵循"
 scene: "git_commit"
-version: 3.0.0
-lastUpdated: 2026-05-03
 ---
-
 # Git Commit Message
 
 ## 格式

@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, unlink
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { createNLParser } from '../nl/parser.js';
+import { createCoordinator, adaptAllTemplates } from '../nl/core/index.js';
+import { INTENT_TEMPLATES } from '../nl/templates/index.js';
 import { createSandboxManager } from '../sandbox/sandbox.js';
 import type { SandboxMode } from '../types/index.js';
 import { audit, getCurrentSessionId, AuditEventType } from '../utils/audit.js';
@@ -131,8 +132,9 @@ async function executeGitWorkflow(input: string): Promise<string> {
 }
 
 async function executeTask(input: string): Promise<string> {
-  const parser = createNLParser();
-  const intent = parser.parse(input);
+  const coordinator = createCoordinator(adaptAllTemplates(INTENT_TEMPLATES));
+  const result = coordinator.match(input);
+  const intent = result.intents[0];
   const sessionId = getCurrentSessionId();
 
   audit.intentMatch(intent.intent, intent.confidence, intent.params as Record<string, unknown>, sessionId);

@@ -1,8 +1,11 @@
 
 import type { Skill, SkillContext, SkillResult, CompositeSkill } from './types.js';
 import type { IntentSkillOutput } from './intent-skill.js';
-import type { CommandSkillOutput } from './command-skill.js';
 import type { WorkflowSkillOutput } from './workflow-skill.js';
+
+interface PipelineCommandResult {
+  commands: string[];
+}
 
 export interface PipelineSkillInput {
   intent: string;
@@ -12,7 +15,7 @@ export interface PipelineSkillInput {
 
 export function createPipelineSkill(
   intentSkill: Skill<string, IntentSkillOutput>,
-  commandSkill: Skill<any, CommandSkillOutput>,
+  commandSkill: Skill<any, PipelineCommandResult>,
   workflowSkill: Skill<any, WorkflowSkillOutput>
 ): CompositeSkill {
   return {

@@ -1,4 +1,5 @@
 import type { IntentName, TaskList, Workflow } from '../../types/index.js';
+import type { MultiIntentResult } from '../types.js';
 
 export interface NLContext {
   input: string;
@@ -17,9 +18,10 @@ export interface NLResult {
   taskList?: TaskList;
   workflow?: Workflow;
   metadata: {
-    path: 'skill-pipeline' | 'keyword-fallback';
-    usedSkills: string[];
+    path: 'skill-pipeline' | 'keyword-fallback' | 'keyword-match' | 'coordinator' | 'coordinator-multi';
+    usedSkills?: string[];
     fallbackReason?: string;
+    multiIntent?: MultiIntentResult;
   };
 }
 

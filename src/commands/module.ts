@@ -12,30 +12,28 @@ interface ModuleConfig {
 const MODULE_CONFIGS: Record<string, ModuleConfig> = {
   nl: {
     name: 'nl',
-    description: 'Natural Language Parser',
+    description: 'Natural Language Intent Matching',
     designDoc: 'docs/design/04_nl_parser_skill_design.md',
     files: [
       {
-        path: 'src/nl/parser.ts',
-        content: `export interface NLParser {
-  parse(input: string): IntentMatch;
-  parseToTaskList(input: string): ParseResult;
-  addPattern(intent: string, keywords: string[], weight?: number): void;
-}
-
-export function createNLParser(): NLParser {
-  throw new Error('Not implemented');
+        path: 'src/nl/types.ts',
+        content: `export interface IntentPattern {
+  intent: string;
+  keywords: WeightedKeyword[];
+  phrases?: CompositePhrase[];
+  negativeKeywords?: NegativeKeyword[];
+  weight: number;
+  priority?: number;
+  tags?: string[];
 }`
       },
       {
-        path: 'src/nl/intent-matcher.ts',
-        content: `export interface IntentMatcher {
-  match(input: string): IntentMatch;
-  registerPattern(pattern: IntentPattern): void;
-  getPatterns(): IntentPattern[];
+        path: 'src/nl/core/coordinator.ts',
+        content: `export interface Coordinator {
+  match(input: string): MultiIntentResult;
 }
 
-export function createIntentMatcher(patterns: IntentPattern[]): IntentMatcher {
+export function createCoordinator(patterns: IntentPattern[]): Coordinator {
   throw new Error('Not implemented');
 }`
       },

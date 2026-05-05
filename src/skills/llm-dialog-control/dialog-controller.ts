@@ -142,28 +142,37 @@ export function createDialogController(
   ): Promise<string> {
     const apiKey = config.apiKey || process.env.OPENAI_API_KEY || process.env.OLLAMA_API_KEY;
     const baseUrl = config.baseUrl || 'https://api.openai.com/v1';
+    const timeout = config.timeout || 30000;
     
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {})
-      },
-      body: JSON.stringify({
-        model: config.model,
-        messages,
-        temperature: config.temperature || 0.3,
-        max_tokens: config.maxTokens || 2048
-      })
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
     
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`API error: ${response.status} - ${errorText}`);
+    try {
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {})
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: config.model,
+          messages,
+          temperature: config.temperature || 0.3,
+          max_tokens: config.maxTokens || 2048
+        })
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API error: ${response.status} - ${errorText}`);
+      }
+      
+      const data = await response.json() as any;
+      return data.choices?.[0]?.message?.content || '';
+    } finally {
+      clearTimeout(timeoutId);
     }
-    
-    const data = await response.json() as any;
-    return data.choices?.[0]?.message?.content || '';
   }
   
   async function callAnthropic(
@@ -175,31 +184,40 @@ export function createDialogController(
       throw new Error('ANTHROPIC_API_KEY environment variable is not set');
     }
     
+    const timeout = config.timeout || 30000;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    
     const systemMessage = messages.find(m => m.role === 'system');
     const userMessages = messages.filter(m => m.role !== 'system');
     
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: config.model,
-        max_tokens: config.maxTokens || 2048,
-        ...(systemMessage ? { system: systemMessage.content } : {}),
-        messages: userMessages
-      })
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`API error: ${response.status} - ${errorText}`);
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: config.model,
+          max_tokens: config.maxTokens || 2048,
+          ...(systemMessage ? { system: systemMessage.content } : {}),
+          messages: userMessages
+        })
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API error: ${response.status} - ${errorText}`);
+      }
+      
+      const data = await response.json() as any;
+      return data.content?.[0]?.text || '';
+    } finally {
+      clearTimeout(timeoutId);
     }
-    
-    const data = await response.json() as any;
-    return data.content?.[0]?.text || '';
   }
   
   function sleep(ms: number): Promise<void> {

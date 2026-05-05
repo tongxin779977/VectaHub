@@ -15,6 +15,7 @@ export type IntentName =
   | 'SYSTEM_MONITOR'
   | 'FILE_PERMISSION'
   | 'FILE_DIFF'
+  | 'DOCKER_BUILD'
   | 'UNKNOWN';
 
 export interface IntentMatch {

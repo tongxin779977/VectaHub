@@ -1,131 +1,92 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createCommandSkill } from './command-skill.js';
-import type { SkillContext } from './types.js';
-import type { LLMDialogControlSkill } from './llm-dialog-control/index.js';
-import type { CommandSkillInput } from './command-skill.js';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createCommandSkill, CommandSkill } from './command-skill.js';
+import { join } from 'path';
+import { homedir } from 'os';
 
-function createMockLLM(output = '{"commands":[{"cli":"vecta","args":["crawl","${url}"]}]}') {
-  return {
-    id: 'llm-dialog',
-    name: 'LLM Dialog Control',
-    description: 'mock',
-    category: 'utility',
-    tags: [],
-    version: '1.0.0',
-    canHandle: async () => true,
-    execute: async () => ({ success: true, output: [] }),
-    generateJSON: vi.fn().mockResolvedValue({
-      success: true,
-      output,
-      rawResponse: output,
-      attemptCount: 1,
-      duration: 100,
-    }),
-    chat: vi.fn(),
-    getHistory: vi.fn(),
-    clearHistory: vi.fn(),
-    getConfig: vi.fn(),
-  } as unknown as LLMDialogControlSkill;
-}
-
-function createMockRegistry() {
-  return {
-    build: vi.fn().mockResolvedValue({ system: 'sys', user: 'usr' }),
-    prompts: new Map(),
-    register: vi.fn(),
-    unregister: vi.fn(),
-    get: vi.fn(),
-    has: vi.fn().mockReturnValue(false),
-    list: vi.fn().mockReturnValue([]),
-    listByTag: vi.fn().mockReturnValue([]),
-    listByCategory: vi.fn().mockReturnValue([]),
-    search: vi.fn().mockReturnValue([]),
-    exportAll: vi.fn().mockReturnValue(''),
-    importFromYAML: vi.fn(),
-    importFromDirectory: vi.fn(),
-    evaluate: vi.fn(),
-    saveToFile: vi.fn(),
-  };
-}
+vi.mock('child_process', () => ({
+  execSync: vi.fn((cmd: string) => {
+    if (cmd.includes('ls')) return 'file1.txt\nfile2.txt';
+    if (cmd.includes('git')) return 'On branch main';
+    return '';
+  }),
+}));
 
 describe('CommandSkill', () => {
-  let skill: ReturnType<typeof createCommandSkill>;
-  let mockLLM: ReturnType<typeof createMockLLM>;
-  let mockRegistry: ReturnType<typeof createMockRegistry>;
-  let context: SkillContext;
-  let validInput: CommandSkillInput;
+  let skill: CommandSkill;
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    mockLLM = createMockLLM();
-    mockRegistry = createMockRegistry();
-    skill = createCommandSkill(mockRegistry as any, mockLLM);
-    context = { userInput: 'crawl my website' };
-    validInput = { intent: 'EXECUTE_TASK', params: { taskType: 'crawl' }, userInput: 'crawl my website' };
+    skill = createCommandSkill();
   });
 
   it('should have correct metadata', () => {
-    expect(skill.id).toBe('vectahub.command');
-    expect(skill.name).toBe('Command Generation');
-    expect(skill.tags).toContain('command');
+    expect(skill.id).toBe('vectahub.file-ops');
+    expect(skill.name).toBe('File Operations');
+    expect(skill.tags).toContain('file');
   });
 
-  it('should handle any context', async () => {
-    expect(await skill.canHandle(context)).toBe(true);
-  });
-
-  it('should generate commands via LLM', async () => {
-    const result = await skill.execute(validInput, context);
-
-    expect(result.success).toBe(true);
-    expect(result.data).toBeDefined();
-    expect(result.data!.commands).toHaveLength(1);
-    expect(result.data!.commands[0].cli).toBe('vecta');
-    expect(mockRegistry.build).toHaveBeenCalledWith('command-generator-v1', expect.objectContaining({
-      intent: 'EXECUTE_TASK',
-    }));
-  });
-
-  it('should fallback to keyword matching when LLM fails', async () => {
-    (mockLLM.generateJSON as any).mockResolvedValue({
-      success: false, output: '', rawResponse: '', attemptCount: 1, duration: 100, error: 'err',
+  it('should execute file read command', async () => {
+    const result = await skill.execute('read file /path/to/file.txt', {
+      userInput: 'read file /path/to/file.txt',
+      sessionId: 'test-session',
     });
-
-    const result = await skill.execute(validInput, context);
-
-    expect(result.success).toBe(true);
-    expect(result.metadata?.fallback).toBe(true);
-    expect(result.confidence).toBe(0.5);
+    expect(result).toBeDefined();
+    expect(result.confidence).toBeGreaterThan(0);
   });
 
-  it('should fallback when LLM returns invalid JSON', async () => {
-    (mockLLM.generateJSON as any).mockResolvedValue({
-      success: true, output: 'not json', rawResponse: '', attemptCount: 1, duration: 100,
+  it('should list files', async () => {
+    const result = await skill.execute('list files in /tmp', {
+      userInput: 'list files in /tmp',
+      sessionId: 'test-session',
     });
-
-    const result = await skill.execute(validInput, context);
-
+    expect(result).toBeDefined();
     expect(result.success).toBe(true);
-    expect(result.metadata?.fallback).toBe(true);
   });
 
-  it('should fallback when LLM returns empty commands', async () => {
-    (mockLLM.generateJSON as any).mockResolvedValue({
-      success: true, output: JSON.stringify({ commands: [] }), rawResponse: '', attemptCount: 1, duration: 100,
+  it('should handle search files', async () => {
+    const result = await skill.execute('search for *.ts files', {
+      userInput: 'search for *.ts files',
+      sessionId: 'test-session',
     });
-
-    const result = await skill.execute(validInput, context);
-
-    expect(result.success).toBe(true);
-    expect(result.metadata?.fallback).toBe(true);
+    expect(result).toBeDefined();
   });
 
-  it('should fallback when promptRegistry.build fails', async () => {
-    (mockRegistry.build as any).mockRejectedValue(new Error('registry error'));
+  it('should search files by query', () => {
+    const results = skill.searchFiles('package', [join(homedir())]);
+    expect(Array.isArray(results)).toBe(true);
+  });
 
-    const result = await skill.execute(validInput, context);
+  it('should execute system commands', async () => {
+    const result = await skill.execute('run ls -la', {
+      userInput: 'run ls -la',
+      sessionId: 'test-session',
+    });
+    expect(result).toBeDefined();
+    expect(result.confidence).toBeGreaterThan(0);
+  });
 
+  it('should handle git operations', async () => {
+    const result = await skill.execute('git commit', {
+      userInput: 'git commit',
+      sessionId: 'test-session',
+    });
+    expect(result).toBeDefined();
     expect(result.success).toBe(true);
-    expect(result.metadata?.fallback).toBe(true);
+  });
+
+  it('should provide help when asked', async () => {
+    const result = await skill.execute('what can you do?', {
+      userInput: 'what can you do?',
+      sessionId: 'test-session',
+    });
+    expect(result).toBeDefined();
+    expect(result.confidence).toBeGreaterThan(0);
+  });
+
+  it('should handle clarify intent', async () => {
+    const result = await skill.execute('how to use this?', {
+      userInput: 'how to use this?',
+      sessionId: 'test-session',
+    });
+    expect(result).toBeDefined();
   });
 });
