@@ -16,6 +16,7 @@ vi.mock('../utils/audit.js', () => ({
 
 vi.mock('./templates/index.js', () => ({
   getAllIntentNames: () => ['FILE_FIND', 'GIT_WORKFLOW', 'FETCH_HOT_NEWS', 'SYSTEM_INFO'],
+  buildKeywordSummary: () => 'FILE_FIND:\n  核心词: 查找, 找出, 搜索\n  短语: 查找.*文件\n\n',
 }));
 
 describe('LLM Client', () => {

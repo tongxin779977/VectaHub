@@ -1,30 +1,15 @@
-import { createNLProcessor, type NLProcessorOptions } from './pipeline.js';
-import type { NLProcessor } from './types.js';
-import { createMatchingPipeline, type MatchingPipeline } from './matching-pipeline.js';
-import { createCoordinator, type Coordinator } from './coordinator.js';
-import { createIntentSplitter, type IntentSplitter } from './intent-splitter.js';
-import { createPrecedenceResolver, type PrecedenceResolver } from './precedence-rules.js';
-import { adaptTemplateToPattern, adaptAllTemplates } from './adapter.js';
-import type { IntentPattern, IntentMatch, MultiIntentResult } from '../types.js';
-
+export { createMatchingPipeline, type MatchingPipeline, type MatchingPipelineOptions, DEFAULT_CONFIDENCE_THRESHOLDS } from './matching-pipeline.js';
+export { createIntentSplitter, type IntentSplitter } from './intent-splitter.js';
+export { createCoordinator, type Coordinator } from './coordinator.js';
+export { createPrecedenceResolver, type PrecedenceResolver } from './precedence-rules.js';
+export { createNLProcessor, NLProcessorOptions } from './pipeline.js';
+export { adaptAllTemplates, adaptTemplateToPattern } from './adapter.js';
+export { CHINESE_ACTION_VERBS, containsActionVerb, isShortNounPhrase } from './verb-list.js';
 export {
-  createNLProcessor,
-  createMatchingPipeline,
-  createCoordinator,
-  createIntentSplitter,
-  createPrecedenceResolver,
-  adaptTemplateToPattern,
-  adaptAllTemplates,
-};
-
-export type {
-  NLProcessorOptions,
-  NLProcessor,
-  MatchingPipeline,
-  Coordinator,
-  IntentSplitter,
-  PrecedenceResolver,
-  IntentPattern,
-  IntentMatch,
-  MultiIntentResult,
-};
+  detectNegation,
+  shouldSuppressDueToNegation,
+  createNoopLLMRecognizer,
+  type LLMBasedIntentRecognizer,
+} from './llm-fallback.js';
+export type { IntentPattern, IntentMatch, MultiIntentResult } from '../types.js';
+export type { NLProcessor } from './types.js';

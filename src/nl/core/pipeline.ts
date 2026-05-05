@@ -218,14 +218,42 @@ function parseWithCoordinator(context: NLContext, coordinator: Coordinator): NLR
   }
 
   const primary = result.intents[0];
+  const taskList = createTaskListFromIntent(primary.intent as IntentName, input, primary.confidence);
+
   return {
     success: true,
     intent: primary.intent as NLResult['intent'],
     confidence: primary.confidence,
+    taskList,
     metadata: {
       path: result.isMultiIntent ? 'coordinator-multi' : 'coordinator',
       multiIntent: result.isMultiIntent ? result : undefined,
     },
+  };
+}
+
+function createTaskListFromIntent(intent: IntentName, userInput: string, confidence: number): TaskList {
+  const groupedEntities: Record<string, string[]> = {
+    FILE_PATH: [],
+    CLI_TOOL: [],
+    PACKAGE_NAME: [],
+    FUNCTION_NAME: [],
+    BRANCH_NAME: [],
+    ENV: [],
+    OPTIONS: [],
+  };
+
+  const task = createTaskFromIntent(intent, groupedEntities, userInput);
+
+  return {
+    version: '1.0',
+    generatedAt: new Date().toISOString(),
+    originalInput: userInput,
+    intent,
+    confidence,
+    entities: groupedEntities,
+    tasks: [task],
+    warnings: [],
   };
 }
 

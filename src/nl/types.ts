@@ -32,11 +32,13 @@ export interface IntentPattern {
 export interface IntentMatch {
   intent: string;
   confidence: number;
+  confidenceLevel?: 'HIGH' | 'MEDIUM' | 'LOW' | 'UNCERTAIN';
   params: Record<string, unknown>;
   matchedKeywords: string[];
   matchedPhrases?: string[];
   triggeredNegatives?: string[];
   matchPath?: 'phrase' | 'keyword' | 'llm' | 'context';
+  needsClarification?: boolean;
 }
 
 export interface MultiIntentResult {

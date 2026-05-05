@@ -1,6 +1,6 @@
 # VectaHub 技术架构设计
 
-> 版本: 6.0.0 | 最后更新: 2026-05-02
+> 版本: 7.0.0 | 最后更新: 2026-05-05
 > 定位: 本地自然语言工作流引擎
 
 ---
@@ -191,15 +191,78 @@ interface LLMResponse {
 
 ## 3. NL 解析系统
 
-### 3.1 当前实现：关键词匹配
+> NL 意图识别系统已进行 v1.1 深度重构，详见 [NL 意图识别架构文档](./03_nl_architecture.md)
+
+### 3.1 架构概述
+
+NL 系统采用三阶段流水线架构：
 
 ```
-输入文本 → 转小写 → 分词 → 匹配关键词 → 计算置信度 → 返回最高分意图
+用户输入 → IntentSplitter（分句） → MatchingPipeline（多意图匹配） → Coordinator（多意图协调） → TaskList
 ```
 
-**局限**：无法理解语义，只能匹配预定义关键词。
+**核心改进**：
+- 分阶段处理：分句 → 匹配 → 协调
+- 多意图支持：通过 Coordinator 支持单一/多意图
+- 规范化评分公式：confidence ∈ [0,1]
+- 置信度分级：HIGH / MEDIUM / LOW / UNCERTAIN
+- 优先级裁决：PrecedenceResolver 解决意图冲突
 
-### 3.2 LLM 增强解析（待接入）
+### 3.2 评分公式
+
+```
+confidence = kwWeight × keywordScore × templateWeight 
+           + phWeight × phraseScore 
+           + btWeight × paramBoost 
+           - softPenalty × penaltyScale(0.05)
+```
+
+**信号权重**（可配置）：
+- keywordWeight: 0.55（55%）
+- phraseWeight: 0.35（35%）
+- boostWeight: 0.10（10%）
+
+**关键词分级权重**：
+- core: 1.0
+- important: 0.8
+- generic: 0.5
+
+### 3.3 置信度分级
+
+| 级别 | 阈值 | 行为 |
+|------|------|------|
+| HIGH | ≥ 0.7 | 直接执行 |
+| MEDIUM | ≥ 0.5 | 执行，显示提示 |
+| LOW | ≥ 0.3 | 执行，建议确认 |
+| UNCERTAIN | < 0.3 | 触发 LLM 回退或提示用户 |
+
+### 3.4 意图模板系统
+
+意图模板支持以下字段：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| keywords | string[] | 传统关键词（向后兼容） |
+| weightedKeywords | WeightedKeyword[] | 分级关键词（core/important/generic） |
+| phrases | string[] | 完整句式正则 |
+| cliPatterns | string[] | CLI 命令模式 |
+| negativeKeywords | string[] | 否定关键词（排除干扰） |
+
+### 3.5 高级特性
+
+**上下文感知分句**：
+- 参数列表 vs 多意图区分
+- 动词列表 + 上下文检查器
+
+**LLM 回退接口**：
+- LLMBasedIntentRecognizer 接口
+- 可接入任意 LLM 提供商
+
+**否定意图检测**：
+- detectNegation() 函数
+- shouldSuppressDueToNegation() 抑制动作意图
+
+### 3.6 LLM 增强解析（待接入）
 
 **流程**：
 ```
@@ -339,12 +402,17 @@ VECTAHUB_LLM_BASE_URL=https://api.openai.com/v1
 ```
 src/
 ├── cli.ts                      # CLI 入口
-├── nl/                         # 自然语言解析
-│   ├── parser.ts               # NL Parser（关键词匹配）
-│   ├── intent-matcher.ts       # 意图匹配
-│   ├── command-synthesizer.ts  # 命令合成
-│   ├── llm.ts                  # LLM 客户端（已实现）
-│   └── templates/              # 意图模板
+├── nl/                         # 自然语言解析（v1.1 重构）
+│   ├── core/                   # 核心模块
+│   │   ├── adapter.ts          # 模板适配器（关键词合并）
+│   │   ├── coordinator.ts      # 多意图协调器
+│   │   ├── intent-splitter.ts  # 上下文感知分句器
+│   │   ├── matching-pipeline.ts # 规范化评分管道
+│   │   ├── precedence.ts       # 优先级裁决器
+│   │   ├── verb-list.ts        # 动作动词列表
+│   │   └── llm-fallback.ts     # LLM 回退接口
+│   ├── templates/              # 意图模板定义
+│   └── types.ts                # 类型定义
 ├── workflow/                   # 工作流引擎
 │   ├── engine.ts               # 引擎核心
 │   ├── executor.ts             # 执行器
@@ -392,6 +460,6 @@ src/
 ---
 
 ```yaml
-version: 6.0.0
-lastUpdated: 2026-05-02
+version: 7.0.0
+lastUpdated: 2026-05-05
 ```

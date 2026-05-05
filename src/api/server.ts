@@ -122,13 +122,13 @@ export function createAPIServer(port = 3000): ReturnType<typeof createServer> {
                 const coordinator = createCoordinator(adaptAllTemplates(INTENT_TEMPLATES));
                 const result = coordinator.match(input);
                 const status = result.intents[0]?.intent !== 'UNKNOWN' ? 'SUCCESS' : 'NEEDS_CLARIFICATION';
-                executionResult = { status, steps: [], warnings: ['Low confidence, no workflow generated'] };
+                executionResult = { status, steps: [], warnings: result.isMultiIntent ? [`Multi-intent: ${result.intents.map(i => i.intent).join(', ')}`] : ['Low confidence, no workflow generated'] };
               }
             } else {
               const coordinator = createCoordinator(adaptAllTemplates(INTENT_TEMPLATES));
               const result = coordinator.match(input);
               const status = result.intents[0]?.intent !== 'UNKNOWN' ? 'SUCCESS' : 'NEEDS_CLARIFICATION';
-              executionResult = { status, steps: [], warnings: ['LLM not configured'] };
+              executionResult = { status, steps: [], warnings: result.isMultiIntent ? [`Multi-intent: ${result.intents.map(i => i.intent).join(', ')}`] : ['LLM not configured'] };
             }
           }
         }

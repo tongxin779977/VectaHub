@@ -1,7 +1,7 @@
 # VectaHub 文档
 
-> 版本: 1.0.0
-> 最后更新: 2026-05-03
+> 版本: 1.1.0
+> 最后更新: 2026-05-05
 
 ---
 
@@ -22,6 +22,7 @@
 | **[CLI 命令](./guides/cli-commands.md)** | 完整命令参考 |
 | **[系统架构](./reference/01_system_architecture.md)** | 系统架构设计 |
 | **[沙箱设计](./reference/02_sandbox_design.md)** | 沙箱隔离机制设计 |
+| **[NL 意图识别架构](./reference/03_nl_architecture.md)** | 自然语言意图识别系统架构（v1.1 新增）|
 | **[工作流引擎设计](./reference/06_workflow_engine_design.md)** | 工作流引擎设计文档 |
 
 ---

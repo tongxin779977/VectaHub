@@ -134,16 +134,23 @@ async function executeGitWorkflow(input: string): Promise<string> {
 async function executeTask(input: string): Promise<string> {
   const coordinator = createCoordinator(adaptAllTemplates(INTENT_TEMPLATES));
   const result = coordinator.match(input);
-  const intent = result.intents[0];
   const sessionId = getCurrentSessionId();
 
-  audit.intentMatch(intent.intent, intent.confidence, intent.params as Record<string, unknown>, sessionId);
-
-  if (intent.intent === 'GIT_WORKFLOW') {
-    return executeGitWorkflow(input);
+  const intentLines: string[] = [];
+  for (const intent of result.intents) {
+    audit.intentMatch(intent.intent, intent.confidence, intent.params as Record<string, unknown>, sessionId);
+    intentLines.push(`Intent: ${intent.intent} (confidence: ${intent.confidence.toFixed(2)})`);
   }
 
-  return `Intent matched: ${intent.intent}\nExecution not yet implemented for this intent type.`;
+  const multiIntentHeader = result.isMultiIntent
+    ? `Multi-Intent Detected (${result.intents.length} intents)\n${'─'.repeat(40)}\n`
+    : '';
+
+  if (result.intents[0]?.intent === 'GIT_WORKFLOW') {
+    return `${multiIntentHeader}${intentLines.join('\n')}\n\n${await executeGitWorkflow(input)}`;
+  }
+
+  return `${multiIntentHeader}${intentLines.join('\n')}\nExecution not yet implemented for these intent types.`;
 }
 
 async function processTask(task: Task): Promise<Task> {

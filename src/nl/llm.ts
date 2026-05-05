@@ -1,5 +1,5 @@
 import { audit } from '../utils/audit.js';
-import { getAllIntentNames } from './templates/index.js';
+import { getAllIntentNames, buildKeywordSummary } from './templates/index.js';
 import createLLMDialogControlSkill from '../skills/llm-dialog-control/index.js';
 import { loadConfig } from '../setup/first-run-wizard.js';
 import {
@@ -226,6 +226,7 @@ export function createLLMEnhancedParser(config: LLMConfig): NLParserWithLLM {
   const client = new LLMClient(config);
   const promptContext = {
     intentList: INTENT_LIST.map(i => `- ${i}`).join('\n'),
+    intentKeywords: buildKeywordSummary(),
   };
 
   return {

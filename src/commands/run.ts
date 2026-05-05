@@ -6,7 +6,8 @@ import { reviewAndEditCommands } from './command-editor.js';
 import { isFirstRun, runFirstRunWizard } from '../setup/first-run-wizard.js';
 import { scanCLITools, updateCLIToolConfig } from '../setup/cli-scanner.js';
 import { createLLMConfig } from '../nl/llm.js';
-import { createNLProcessor } from '../nl/core/index.js';
+import { createNLProcessor, createCoordinator, adaptAllTemplates } from '../nl/core/index.js';
+import { INTENT_TEMPLATES } from '../nl/templates/index.js';
 import { createSkillSystem } from '../skills/init.js';
 import type { Workflow, Step, TaskList } from '../types/index.js';
 
@@ -73,12 +74,15 @@ export const runCmd = new Command('run')
         }
 
         const { registry, executor } = createSkillSystem();
+        const coordinator = createCoordinator(adaptAllTemplates(INTENT_TEMPLATES));
         const nlProcessor = createNLProcessor(
           registry,
           { parse: async () => ({ success: false, intent: 'UNKNOWN' as const, confidence: 0, metadata: { path: 'keyword-fallback' as const } }) },
           {
             confidenceThreshold: 0.7,
             executor,
+            coordinator,
+            useNewMatcher: true,
           }
         );
 
@@ -87,9 +91,17 @@ export const runCmd = new Command('run')
           options: { useLLM },
         });
 
-        const matchedIntent = nlResult.intent || nlResult.taskList?.intent || 'UNKNOWN';
-        const matchPath = nlResult.metadata.path;
-        logger.info(`意图: ${matchedIntent} (路径: ${matchPath})`);
+        const multiIntent = nlResult.metadata.multiIntent;
+        if (multiIntent && multiIntent.isMultiIntent) {
+          logger.info(`多意图识别 (${multiIntent.intents.length} 个):`);
+          for (const intent of multiIntent.intents) {
+            logger.info(`  - ${intent.intent} (confidence: ${intent.confidence.toFixed(2)})`);
+          }
+        } else {
+          const matchedIntent = nlResult.intent || nlResult.taskList?.intent || 'UNKNOWN';
+          const matchPath = nlResult.metadata.path;
+          logger.info(`意图: ${matchedIntent} (路径: ${matchPath})`);
+        }
 
         let taskListResult: TaskList | undefined = nlResult.taskList;
 

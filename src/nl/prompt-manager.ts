@@ -21,6 +21,9 @@ const BUILTIN_PROMPTS: Prompt[] = [
 支持的意图类型：
 {intentList}
 
+参考关键词模板：
+{intentKeywords}
+
 请以 JSON 格式输出：
 {
   "intent": "意图名称",
