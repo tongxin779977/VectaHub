@@ -1,17 +1,34 @@
 export { createIntentMatcher } from './intent-matcher.js';
 export * from './command-synthesizer.js';
 export * from './llm.js';
-export * from './prompt-manager.js';
-export { PromptRegistry, createPromptRegistry } from './prompt/registry.js';
+
+export {
+  PromptManager,
+  createPromptManager,
+  DEFAULT_INTENT_PARSER_ID,
+  DEFAULT_WORKFLOW_YAML_ID,
+} from './prompt-manager.js';
+
+export {
+  createPromptRegistry,
+  PromptRegistryImpl,
+  PromptRegistryV3,
+  createPromptRegistryV3,
+} from './prompt/v3.js';
+
 export type {
   PromptVariable,
   PromptExample,
   PromptConstraint,
+  PromptMetadata,
   Prompt,
+  PromptBuildResult,
   EvaluationResult,
+  PromptRegistry,
+  PromptRepository,
+  PromptCategory,
 } from './prompt/types.js';
-export { PromptRegistryV3, createPromptRegistryV3 } from './prompt/v3.js';
-export type { PromptV3, EvaluationResultV3 } from './prompt/v3.js';
+
 export {
   createNLProcessor,
   createMatchingPipeline,

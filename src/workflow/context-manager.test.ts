@@ -241,4 +241,57 @@ describe('ContextManager', () => {
       expect(manager.listContexts().length).toBe(0);
     });
   });
+
+  describe('toExecutorContext', () => {
+    it('should return empty context for non-existent execution', () => {
+      const result = manager.toExecutorContext('non-existent');
+      expect(result).toEqual({ variables: {}, previousOutputs: {} });
+    });
+
+    it('should convert variables to string arrays', () => {
+      manager.createContext('wf-1', 'exec-1', 'sess-1');
+      manager.setVariable('exec-1', 'name', 'test');
+      manager.setVariable('exec-1', 'count', 42);
+      manager.setVariable('exec-1', 'items', ['a', 'b', 'c']);
+      
+      const result = manager.toExecutorContext('exec-1');
+      
+      expect(result.variables['name']).toEqual(['test']);
+      expect(result.variables['count']).toEqual(['42']);
+      expect(result.variables['items']).toEqual(['a', 'b', 'c']);
+    });
+
+    it('should convert step outputs to previousOutputs', () => {
+      manager.createContext('wf-1', 'exec-1', 'sess-1');
+      manager.setStepOutput('exec-1', 'step-1', ['line1', 'line2']);
+      manager.setStepOutput('exec-1', 'step-2', 'single-result');
+      
+      const result = manager.toExecutorContext('exec-1');
+      
+      expect(result.previousOutputs['step-1']).toEqual(['line1', 'line2']);
+      expect(result.previousOutputs['step-2']).toEqual(['single-result']);
+    });
+
+    it('should use stdout for previousOutputs when available', () => {
+      manager.createContext('wf-1', 'exec-1', 'sess-1');
+      manager.setStepOutput('exec-1', 'step-1', 'result', { stdout: 'line1\nline2\nline3' });
+      
+      const result = manager.toExecutorContext('exec-1');
+      
+      expect(result.previousOutputs['step-1']).toEqual(['line1', 'line2', 'line3']);
+    });
+
+    it('should handle null and undefined values', () => {
+      manager.createContext('wf-1', 'exec-1', 'sess-1');
+      manager.setVariable('exec-1', 'nullVal', null);
+      manager.setVariable('exec-1', 'undefinedVal', undefined);
+      manager.setStepOutput('exec-1', 'empty-step', null);
+      
+      const result = manager.toExecutorContext('exec-1');
+      
+      expect(result.variables['nullVal']).toEqual([]);
+      expect(result.variables['undefinedVal']).toEqual([]);
+      expect(result.previousOutputs['empty-step']).toEqual([]);
+    });
+  });
 });

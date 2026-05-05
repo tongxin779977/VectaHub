@@ -366,20 +366,20 @@ metadata:
   });
 
   describe('builtin prompts', () => {
-    it('should have intent-parser-v3', () => {
-      const p = registry.get('intent-parser-v3');
+    it('should have intent-parser-v1', () => {
+      const p = registry.get('intent-parser-v1');
       expect(p).toBeDefined();
       expect(p!.category).toBe('parsing');
     });
 
-    it('should have command-generator-v3', () => {
-      const p = registry.get('command-generator-v3');
+    it('should have command-generator-v1', () => {
+      const p = registry.get('command-generator-v1');
       expect(p).toBeDefined();
       expect(p!.category).toBe('generation');
     });
 
-    it('should have workflow-generator-v3', () => {
-      const p = registry.get('workflow-generator-v3');
+    it('should have workflow-generator-v1', () => {
+      const p = registry.get('workflow-generator-v1');
       expect(p).toBeDefined();
       expect(p!.category).toBe('workflow');
     });

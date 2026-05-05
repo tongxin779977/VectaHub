@@ -56,8 +56,12 @@ test('should add and update prompts', () => {
     description: 'A test prompt',
     category: 'assistant' as const,
     tags: ['test'],
-    system: 'Test system prompt {testVar}',
-    userTemplate: '{userInput}',
+    systemTemplate: 'Test system prompt {{testVar}}',
+    userTemplate: '{{userInput}}',
+    variables: [
+      { name: 'testVar', type: 'string' as const, required: true },
+      { name: 'userInput', type: 'string' as const, required: true },
+    ],
     examples: [],
     constraints: [],
     metadata: {

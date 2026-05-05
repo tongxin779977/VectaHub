@@ -3,6 +3,8 @@ import { createExecutor, type Executor, type ExecutorOptions, type ExecutionCont
 import { createStorage, type Storage } from './storage.js';
 import { interpolateStep, type InterpolationContext } from './interpolation.js';
 import { createExecutionStateManager, type ExecutionStateManager } from './state-manager.js';
+import { createContextManager, type ContextManager, type ExecutorContext } from './context-manager.js';
+import { topologicalSort } from './dag.js';
 import { audit } from '../utils/audit.js';
 import { createRetryManager } from '../skills/iterative-refinement/retry-manager.js';
 
@@ -40,81 +42,21 @@ export interface WorkflowEngine {
 let workflowCounter = 0;
 let executionCounter = 0;
 
-function topologicalSort(steps: Step[], mode: 'strict' | 'relaxed' | 'consensus' = 'relaxed'): Step[] {
-  const stepMap = new Map<string, Step>();
-  const inDegree = new Map<string, number>();
-  const dependents = new Map<string, string[]>();
-
-  for (const step of steps) {
-    stepMap.set(step.id, step);
-    inDegree.set(step.id, 0);
-    dependents.set(step.id, []);
-  }
-
-  for (const step of steps) {
-    if (step.dependsOn) {
-      for (const depId of step.dependsOn) {
-        if (stepMap.has(depId)) {
-          inDegree.set(step.id, (inDegree.get(step.id) || 0) + 1);
-          dependents.get(depId)?.push(step.id);
-        }
-      }
-    }
-  }
-
-  const queue: string[] = [];
-  for (const [id, degree] of inDegree) {
-    if (degree === 0) {
-      queue.push(id);
-    }
-  }
-
-  const sorted: Step[] = [];
-  while (queue.length > 0) {
-    const id = queue.shift()!;
-    const step = stepMap.get(id)!;
-    sorted.push(step);
-
-    for (const dependentId of dependents.get(id) || []) {
-      const newDegree = (inDegree.get(dependentId) || 1) - 1;
-      inDegree.set(dependentId, newDegree);
-      if (newDegree === 0) {
-        queue.push(dependentId);
-      }
-    }
-  }
-
-  if (sorted.length !== steps.length) {
-    const remaining = steps.filter(s => !sorted.includes(s));
-    const remainingIds = remaining.map(s => s.id);
-    
-    if (mode === 'strict') {
-      throw new Error(
-        `Cyclic dependency detected in steps: ${remainingIds.join(', ')}. Workflow execution aborted.`
-      );
-    } else {
-      console.warn(`Warning: Cyclic dependency detected in steps: ${remainingIds.join(', ')}. Continuing execution with remaining steps.`);
-      return [...sorted, ...remaining];
-    }
-  }
-
-  return sorted;
-}
-
 interface RunLoopOptions {
   workflow: Workflow;
   steps: Step[];
   executorOptions: ExecutorOptions;
-  initialContext?: ExecutionContext;
+  contextManager: ContextManager;
+  initialVariables?: Record<string, unknown>;
   initialSteps?: StepRecord[];
   initialWarnings?: string[];
   sessionId?: string;
 }
 
-function toInterpolationContext(ctx: ExecutionContext): InterpolationContext {
+function toInterpolationContext(executorCtx: ExecutorContext): InterpolationContext {
   return {
-    variables: ctx.variables,
-    previousOutputs: ctx.previousOutputs,
+    variables: executorCtx.variables,
+    previousOutputs: executorCtx.previousOutputs,
   };
 }
 
@@ -128,7 +70,8 @@ async function runExecutionLoop(
     workflow,
     steps,
     executorOptions,
-    initialContext,
+    contextManager,
+    initialVariables,
     initialSteps,
     initialWarnings,
     sessionId = 'unknown',
@@ -137,7 +80,12 @@ async function runExecutionLoop(
   const newExecutionId = `exec_${++executionCounter}`;
   const startedAt = new Date();
 
-  const context: ExecutionContext = initialContext || { variables: {}, previousOutputs: {} };
+  const context = contextManager.createContext(
+    workflow.id,
+    newExecutionId,
+    sessionId,
+    initialVariables || {}
+  );
 
   sm.currentExecution = {
     executionId: newExecutionId,
@@ -188,8 +136,9 @@ async function runExecutionLoop(
     if (loopAborted) break;
 
     try {
-      const interpolatedStep = interpolateStep(step, toInterpolationContext(context));
-      const result = await executor.execute(interpolatedStep, executorOptions, context);
+      const executorContext = contextManager.toExecutorContext(newExecutionId);
+      const interpolatedStep = interpolateStep(step, toInterpolationContext(executorContext));
+      const result = await executor.execute(interpolatedStep, executorOptions, executorContext);
 
       const stepRecord: StepRecord = {
         stepId: step.id,
@@ -213,7 +162,9 @@ async function runExecutionLoop(
 
       const storageKey = (step as unknown as Record<string, unknown>).outputVar as string || step.id;
       if (result.output) {
-        context.previousOutputs[storageKey] = result.output;
+        contextManager.setStepOutput(newExecutionId, storageKey, result.output, {
+          stdout: result.output.join('\n'),
+        });
       }
 
       if (result.status === 'FAILED') {
@@ -255,6 +206,8 @@ async function runExecutionLoop(
     sm.completionPromise = null;
   }
 
+  contextManager.deleteContext(newExecutionId);
+
   return sm.currentExecution;
 }
 
@@ -263,6 +216,7 @@ export function createWorkflowEngine(): WorkflowEngine {
   const executor = createExecutor();
   const storage = createStorage();
   const sm = createExecutionStateManager();
+  const contextManager = createContextManager();
 
   function buildExecutorOptions(
     workflow: Workflow,
@@ -283,6 +237,7 @@ export function createWorkflowEngine(): WorkflowEngine {
       workflow,
       steps: workflow.steps,
       executorOptions: buildExecutorOptions(workflow, options),
+      contextManager,
     });
   }
 
@@ -456,10 +411,10 @@ export function createWorkflowEngine(): WorkflowEngine {
         throw new Error(`No remaining steps to execute after step ${failedStepIndex + 1}`);
       }
 
-      const context: ExecutionContext = { variables: {}, previousOutputs: {} };
+      const initialVariables: Record<string, unknown> = {};
       for (const stepRecord of previousExecution.steps) {
         if (stepRecord.output) {
-          context.previousOutputs[stepRecord.stepId] = stepRecord.output.map(String);
+          initialVariables[stepRecord.stepId] = stepRecord.output;
         }
       }
 
@@ -467,7 +422,8 @@ export function createWorkflowEngine(): WorkflowEngine {
         workflow,
         steps: remainingSteps,
         executorOptions: buildExecutorOptions(workflow, options || {}),
-        initialContext: context,
+        contextManager,
+        initialVariables,
         initialSteps: [...previousExecution.steps],
         initialWarnings: [...previousExecution.warnings],
       });

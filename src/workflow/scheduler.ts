@@ -5,6 +5,7 @@ import { spawn } from 'child_process';
 import type { WorkflowEngine } from './engine.js';
 import type { Workflow } from '../types/index.js';
 import { getAuditInstance, AuditEventType, audit } from '../infrastructure/audit/index.js';
+import { createDetector } from '../sandbox/detector.js';
 
 const SCHEDULES_FILE = join(homedir(), '.vectahub', 'schedules.json');
 
@@ -39,6 +40,22 @@ export interface ScheduleManager {
 async function executeCommand(entry: ScheduleEntry): Promise<{ success: boolean; error?: string }> {
   const command = entry.command;
   if (!command) return { success: false, error: 'No command to execute' };
+
+  const detector = createDetector();
+  const detection = detector.detect(command);
+  
+  if (detection.isDangerous) {
+    audit.sandboxDetect(
+      detection.isDangerous,
+      detection.level,
+      command,
+      getAuditInstance().getSessionId()
+    );
+    return { 
+      success: false, 
+      error: `Dangerous command blocked: ${detection.reason} (level: ${detection.level})` 
+    };
+  }
 
   return new Promise((resolve) => {
     const child = spawn(command, entry.args || [], { stdio: 'pipe' });

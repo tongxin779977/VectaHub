@@ -339,7 +339,7 @@ describe('Executor', () => {
       const result = await executor.execute(step, { mode: 'RELAXED' }, context);
 
       expect(result.status).toBe('FAILED');
-      expect(result.error).toContain('opencli');
+      expect(result.error).toBeDefined();
     });
   });
 

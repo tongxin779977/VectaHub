@@ -1,87 +1,22 @@
 import fs from 'fs';
 import path from 'path';
 import { parse as parseYAML } from 'yaml';
-import type { PromptVariable, PromptExample, PromptConstraint } from './types.js';
+import type {
+  Prompt,
+  PromptVariable,
+  PromptExample,
+  PromptConstraint,
+  PromptMetadata,
+  PromptBuildResult,
+  EvaluationResult,
+  PromptRegistry,
+} from './types.js';
 
-export interface PromptV3 {
-  id: string;
-  name: string;
-  version: string;
-  description: string;
-  category: string;
-  tags: string[];
-  systemTemplate: string;
-  userTemplate: string;
-  variables: PromptVariable[];
-  examples?: PromptExample[];
-  constraints?: PromptConstraint[];
-  metadata: {
-    author: string;
-    createdAt: Date;
-    lastUpdated: Date;
-    effectiveness: number;
-    uses: number;
-  };
-}
-
-export interface EvaluationResultV3 {
-  success: boolean;
-  totalTests: number;
-  passedTests: number;
-  failedTests: number;
-  details: {
-    example: PromptExample;
-    success: boolean;
-    output?: unknown;
-    error?: string;
-  }[];
-}
-
-function renderTemplate(template: string, variables: Record<string, unknown>): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-    const value = variables[key];
-    if (value === undefined) {
-      return '';
-    }
-    if (typeof value === 'object') {
-      return JSON.stringify(value, null, 2);
-    }
-    return String(value);
-  });
-}
-
-function validateVariables(prompt: PromptV3, variables: Record<string, unknown>): void {
-  for (const variable of prompt.variables) {
-    if (variable.required && !(variable.name in variables)) {
-      throw new Error(`Required variable ${variable.name} not provided`);
-    }
-  }
-}
-
-function walkDirectory(dir: string): string[] {
-  const files: string[] = [];
-  try {
-    const items = fs.readdirSync(dir);
-    for (const item of items) {
-      const fullPath = path.join(dir, item);
-      const stat = fs.statSync(fullPath);
-      if (stat.isDirectory()) {
-        files.push(...walkDirectory(fullPath));
-      } else {
-        files.push(fullPath);
-      }
-    }
-  } catch {
-    return [];
-  }
-  return files;
-}
-
-const BUILTIN_PROMPTS_V3: PromptV3[] = [
+const BUILTIN_PROMPTS: Prompt[] = [
   {
-    id: 'intent-parser-v3',
+    id: 'intent-parser-v1',
     name: 'Intent Parser',
-    version: '3.0.0',
+    version: '1.0.0',
     description: 'Parse user input, identify intent and extract parameters',
     category: 'parsing',
     tags: ['intent', 'parsing', 'core'],
@@ -122,9 +57,9 @@ Always respond with a JSON object in this format:
     },
   },
   {
-    id: 'command-generator-v3',
+    id: 'command-generator-v1',
     name: 'Command Generator',
-    version: '3.0.0',
+    version: '1.0.0',
     description: 'Generate CLI commands based on intent and parameters',
     category: 'generation',
     tags: ['command', 'generation'],
@@ -155,9 +90,9 @@ User input: {{userInput}}`,
     },
   },
   {
-    id: 'workflow-generator-v3',
+    id: 'workflow-generator-v1',
     name: 'Workflow Generator',
-    version: '3.0.0',
+    version: '1.0.0',
     description: 'Generate complete VectaHub workflow YAML',
     category: 'workflow',
     tags: ['workflow', 'yaml', 'generation'],
@@ -303,24 +238,64 @@ Provide review feedback in a friendly and professional tone.`,
   },
 ];
 
-export class PromptRegistryV3 {
-  private prompts: Map<string, PromptV3> = new Map();
+function renderTemplate(template: string, variables: Record<string, unknown>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+    const value = variables[key];
+    if (value === undefined) {
+      return '';
+    }
+    if (typeof value === 'object') {
+      return JSON.stringify(value, null, 2);
+    }
+    return String(value);
+  });
+}
+
+function validateVariables(prompt: Prompt, variables: Record<string, unknown>): void {
+  for (const variable of prompt.variables) {
+    if (variable.required && !(variable.name in variables)) {
+      throw new Error(`Required variable ${variable.name} not provided`);
+    }
+  }
+}
+
+function walkDirectory(dir: string): string[] {
+  const files: string[] = [];
+  try {
+    const items = fs.readdirSync(dir);
+    for (const item of items) {
+      const fullPath = path.join(dir, item);
+      const stat = fs.statSync(fullPath);
+      if (stat.isDirectory()) {
+        files.push(...walkDirectory(fullPath));
+      } else {
+        files.push(fullPath);
+      }
+    }
+  } catch {
+    return [];
+  }
+  return files;
+}
+
+export class PromptRegistryImpl implements PromptRegistry {
+  private prompts: Map<string, Prompt> = new Map();
 
   constructor() {
-    for (const prompt of BUILTIN_PROMPTS_V3) {
+    for (const prompt of BUILTIN_PROMPTS) {
       this.prompts.set(prompt.id, prompt);
     }
   }
 
-  register(prompt: PromptV3): void {
+  register(prompt: Prompt): void {
     this.prompts.set(prompt.id, prompt);
   }
 
-  get(id: string): PromptV3 | undefined {
+  get(id: string): Prompt | undefined {
     return this.prompts.get(id);
   }
 
-  list(category?: string): PromptV3[] {
+  list(category?: string): Prompt[] {
     const all = Array.from(this.prompts.values());
     return category ? all.filter(p => p.category === category) : all;
   }
@@ -328,7 +303,7 @@ export class PromptRegistryV3 {
   async build(
     promptId: string,
     variables: Record<string, unknown>
-  ): Promise<{ system: string; user: string }> {
+  ): Promise<PromptBuildResult> {
     const prompt = this.get(promptId);
     if (!prompt) {
       throw new Error(`Prompt ${promptId} not found`);
@@ -373,7 +348,7 @@ export class PromptRegistryV3 {
         }
 
         const meta = data.metadata as Record<string, unknown> | undefined;
-        const prompt: PromptV3 = {
+        const prompt: Prompt = {
           id: data.id as string,
           name: data.name as string,
           version: data.version as string,
@@ -404,13 +379,13 @@ export class PromptRegistryV3 {
   async evaluate(
     promptId: string,
     testCases: PromptExample[]
-  ): Promise<EvaluationResultV3> {
+  ): Promise<EvaluationResult> {
     const prompt = this.get(promptId);
     if (!prompt) {
       throw new Error(`Prompt ${promptId} not found`);
     }
 
-    const details: EvaluationResultV3['details'] = [];
+    const details: EvaluationResult['details'] = [];
     let passedTests = 0;
 
     for (const example of testCases) {
@@ -453,6 +428,11 @@ export class PromptRegistryV3 {
   }
 }
 
-export function createPromptRegistryV3(): PromptRegistryV3 {
-  return new PromptRegistryV3();
+export function createPromptRegistry(): PromptRegistryImpl {
+  return new PromptRegistryImpl();
 }
+
+export { PromptRegistryImpl as PromptRegistryV3 };
+export const createPromptRegistryV3 = createPromptRegistry;
+
+export type { Prompt, PromptBuildResult, EvaluationResult, PromptRegistry } from './types.js';

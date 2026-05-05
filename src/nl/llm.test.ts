@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { LLMClient, createLLMConfig, createLLMEnhancedParser } from './llm.js';
+import { LLMClient, createLLMConfig, createLLMEnhancedParser, LLMTool, LLMToolCall } from './llm.js';
 import { loadConfig } from '../setup/first-run-wizard.js';
 
 vi.mock('../setup/first-run-wizard.js', () => ({
@@ -397,6 +397,343 @@ describe('LLM Client', () => {
       const result = await parser.parse('show system info', 'session-123');
       expect(result.intent).toBe('SYSTEM_INFO');
       expect(mockFetch).toHaveBeenCalled();
+    });
+  });
+
+  describe('LLMClient.embed()', () => {
+    let mockFetch: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      mockFetch = vi.fn();
+      global.fetch = mockFetch;
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('calls OpenAI embeddings endpoint and returns embedding vector', async () => {
+      const embeddingVector = [0.1, 0.2, 0.3, 0.4];
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ embedding: embeddingVector, index: 0 }],
+        }),
+      });
+
+      const client = new LLMClient({ provider: 'openai', model: 'text-embedding-ada-002', apiKey: 'test-key', baseUrl: 'https://api.openai.com/v1' });
+      const result = await client.embed('hello world');
+
+      expect(result).toEqual(embeddingVector);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const callArgs = mockFetch.mock.calls[0];
+      expect(callArgs[0]).toBe('https://api.openai.com/v1/embeddings');
+      const body = JSON.parse(callArgs[1].body);
+      expect(body.model).toBe('text-embedding-ada-002');
+      expect(body.input).toBe('hello world');
+    });
+
+    it('works with ollama provider', async () => {
+      const embeddingVector = [0.5, 0.6];
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ embedding: embeddingVector, index: 0 }],
+        }),
+      });
+
+      const client = new LLMClient({ provider: 'ollama', model: 'nomic-embed-text', baseUrl: 'http://localhost:11434/v1' });
+      const result = await client.embed('test text');
+
+      expect(result).toEqual(embeddingVector);
+      const callArgs = mockFetch.mock.calls[0];
+      expect(callArgs[0]).toBe('http://localhost:11434/v1/embeddings');
+    });
+
+    it('works with groq provider', async () => {
+      const embeddingVector = [0.7, 0.8];
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ embedding: embeddingVector, index: 0 }],
+        }),
+      });
+
+      const client = new LLMClient({ provider: 'groq', model: 'embedding-model', apiKey: 'test-key', baseUrl: 'https://api.groq.com/openai/v1' });
+      const result = await client.embed('groq text');
+
+      expect(result).toEqual(embeddingVector);
+    });
+
+    it('throws error for anthropic provider', async () => {
+      const client = new LLMClient({ provider: 'anthropic', model: 'claude-3', apiKey: 'test-key' });
+
+      await expect(client.embed('test')).rejects.toThrow('Embedding is not supported by provider: anthropic');
+    });
+
+    it('caches results and does not make duplicate calls', async () => {
+      const embeddingVector = [0.1, 0.2];
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: [{ embedding: embeddingVector, index: 0 }],
+        }),
+      });
+
+      const client = new LLMClient({ provider: 'openai', model: 'text-embedding-ada-002', apiKey: 'test-key', baseUrl: 'https://api.openai.com/v1' });
+
+      const result1 = await client.embed('same text');
+      const result2 = await client.embed('same text');
+
+      expect(result1).toEqual(embeddingVector);
+      expect(result2).toEqual(embeddingVector);
+      // Only one fetch call should have been made due to caching
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('makes separate calls for different texts', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ embedding: [0.1, 0.2], index: 0 }],
+        }),
+      });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ embedding: [0.3, 0.4], index: 0 }],
+        }),
+      });
+
+      const client = new LLMClient({ provider: 'openai', model: 'text-embedding-ada-002', apiKey: 'test-key', baseUrl: 'https://api.openai.com/v1' });
+
+      const result1 = await client.embed('text A');
+      const result2 = await client.embed('text B');
+
+      expect(result1).toEqual([0.1, 0.2]);
+      expect(result2).toEqual([0.3, 0.4]);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('uses AbortController timeout pattern', async () => {
+      const embeddingVector = [0.1];
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ embedding: embeddingVector, index: 0 }],
+        }),
+      });
+
+      const client = new LLMClient({ provider: 'openai', model: 'text-embedding-ada-002', apiKey: 'test-key', baseUrl: 'https://api.openai.com/v1', timeout: 5000 });
+      await client.embed('test');
+
+      const callArgs = mockFetch.mock.calls[0];
+      expect(callArgs[1].signal).toBeDefined();
+    });
+  });
+
+  describe('LLMClient complete() with tools', () => {
+    let mockFetch: ReturnType<typeof vi.fn>;
+
+    const sampleTools: LLMTool[] = [
+      {
+        type: 'function',
+        function: {
+          name: 'get_weather',
+          description: 'Get current weather',
+          parameters: {
+            type: 'object',
+            properties: {
+              location: { type: 'string', description: 'City name' },
+            },
+            required: ['location'],
+          },
+        },
+      },
+    ];
+
+    beforeEach(() => {
+      mockFetch = vi.fn();
+      global.fetch = mockFetch;
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('passes tools in OpenAI-compatible request body', async () => {
+      const mockResponse = {
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              intent: 'FILE_FIND',
+              confidence: 0.9,
+              params: {},
+              workflow: { name: 'Test', steps: [] },
+            }),
+          },
+        }],
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      });
+
+      const client = new LLMClient({ provider: 'openai', model: 'gpt-4', apiKey: 'test-key', baseUrl: 'https://api.openai.com/v1' });
+      await client.complete('system prompt', 'test', undefined, { tools: sampleTools });
+
+      const callArgs = mockFetch.mock.calls[0];
+      const body = JSON.parse(callArgs[1].body);
+      expect(body.tools).toEqual(sampleTools);
+      expect(body.tools[0].function.name).toBe('get_weather');
+    });
+
+    it('passes tool_choice in OpenAI-compatible request body', async () => {
+      const mockResponse = {
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              intent: 'FILE_FIND',
+              confidence: 0.9,
+              params: {},
+              workflow: { name: 'Test', steps: [] },
+            }),
+          },
+        }],
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      });
+
+      const client = new LLMClient({ provider: 'openai', model: 'gpt-4', apiKey: 'test-key', baseUrl: 'https://api.openai.com/v1' });
+      await client.complete('system prompt', 'test', undefined, { tools: sampleTools, toolChoice: 'auto' });
+
+      const callArgs = mockFetch.mock.calls[0];
+      const body = JSON.parse(callArgs[1].body);
+      expect(body.tool_choice).toBe('auto');
+    });
+
+    it('passes tools in Anthropic format', async () => {
+      const mockResponse = {
+        content: [{
+          text: JSON.stringify({
+            intent: 'FILE_FIND',
+            confidence: 0.9,
+            params: {},
+            workflow: { name: 'Test', steps: [] },
+          }),
+        }],
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      });
+
+      const client = new LLMClient({ provider: 'anthropic', model: 'claude-3', apiKey: 'test-key' });
+      await client.complete('system prompt', 'test', undefined, { tools: sampleTools });
+
+      const callArgs = mockFetch.mock.calls[0];
+      const body = JSON.parse(callArgs[1].body);
+      expect(body.tools).toBeDefined();
+      expect(body.tools).toHaveLength(1);
+      expect(body.tools[0].name).toBe('get_weather');
+      expect(body.tools[0].description).toBe('Get current weather');
+      expect(body.tools[0].input_schema).toEqual(sampleTools[0].function.parameters);
+    });
+
+    it('parses tool_calls from OpenAI response', async () => {
+      const toolCalls: LLMToolCall[] = [
+        {
+          id: 'call_123',
+          type: 'function',
+          function: {
+            name: 'get_weather',
+            arguments: '{"location":"Tokyo"}',
+          },
+        },
+      ];
+
+      const mockResponse = {
+        choices: [{
+          message: {
+            content: null,
+            tool_calls: toolCalls,
+          },
+        }],
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      });
+
+      const client = new LLMClient({ provider: 'openai', model: 'gpt-4', apiKey: 'test-key', baseUrl: 'https://api.openai.com/v1' });
+      const result = await client.complete('system prompt', 'test', undefined, { tools: sampleTools });
+
+      expect(result.tool_calls).toBeDefined();
+      expect(result.tool_calls).toHaveLength(1);
+      expect(result.tool_calls![0].id).toBe('call_123');
+      expect(result.tool_calls![0].function.name).toBe('get_weather');
+      expect(result.tool_calls![0].function.arguments).toBe('{"location":"Tokyo"}');
+    });
+
+    it('returns tool_calls as undefined when not present in response', async () => {
+      const mockResponse = {
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              intent: 'FILE_FIND',
+              confidence: 0.9,
+              params: {},
+              workflow: { name: 'Test', steps: [] },
+            }),
+          },
+        }],
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      });
+
+      const client = new LLMClient({ provider: 'openai', model: 'gpt-4', apiKey: 'test-key', baseUrl: 'https://api.openai.com/v1' });
+      const result = await client.complete('system prompt', 'test');
+
+      expect(result.tool_calls).toBeUndefined();
+    });
+
+    it('does not break existing complete() behavior when tools not provided', async () => {
+      const mockResponse = {
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              intent: 'FILE_FIND',
+              confidence: 0.9,
+              params: { pattern: '*.ts' },
+              workflow: {
+                name: 'Find TypeScript Files',
+                steps: [{ type: 'exec', cli: 'find', args: ['.', '-name', '*.ts'] }],
+              },
+            }),
+          },
+        }],
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse,
+      });
+
+      const client = new LLMClient({ provider: 'openai', model: 'gpt-4', apiKey: 'test-key', baseUrl: 'https://api.openai.com/v1' });
+      const result = await client.complete('system prompt', 'find *.ts files');
+
+      expect(result.intent).toBe('FILE_FIND');
+      expect(result.confidence).toBe(0.9);
+      expect(result.params.pattern).toBe('*.ts');
     });
   });
 });

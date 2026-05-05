@@ -8,6 +8,7 @@ export {
   ContextManager,
   type ContextVariable,
   type ExecutionContext as WorkflowExecutionContext,
+  type ExecutorContext,
   type StepOutput,
 } from './context-manager.js';
 export {

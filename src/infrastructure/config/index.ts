@@ -51,6 +51,11 @@ export interface CLIToolsConfig {
   };
 }
 
+export interface AIModuleConfig {
+  enabled: boolean;
+  config?: Record<string, unknown>;
+}
+
 export interface Config {
   version: number;
   first_run_completed: boolean;
@@ -61,6 +66,7 @@ export interface Config {
   };
   ai: AIConfig;
   ai_providers: Record<string, AIProviderConfig>;
+  ai_modules: Record<string, AIModuleConfig>;
   external_cli: Record<string, ExternalCLIConfig>;
   cli_tools: CLIToolsConfig;
   storage: {
@@ -103,6 +109,7 @@ const DEFAULT_CONFIG: Config = {
     },
   },
   ai_providers: {},
+  ai_modules: {},
   external_cli: {
     gemini: { enabled: true, has_permission: true },
     claude: { enabled: true, has_permission: true },

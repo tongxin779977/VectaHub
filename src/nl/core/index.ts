@@ -2,7 +2,7 @@ export { createMatchingPipeline, type MatchingPipeline, type MatchingPipelineOpt
 export { createIntentSplitter, type IntentSplitter } from './intent-splitter.js';
 export { createCoordinator, type Coordinator } from './coordinator.js';
 export { createPrecedenceResolver, type PrecedenceResolver } from './precedence-rules.js';
-export { createNLProcessor, NLProcessorOptions } from './pipeline.js';
+export { createNLProcessor, type NLProcessorOptions } from './pipeline.js';
 export { adaptAllTemplates, adaptTemplateToPattern } from './adapter.js';
 export { CHINESE_ACTION_VERBS, containsActionVerb, isShortNounPhrase } from './verb-list.js';
 export {

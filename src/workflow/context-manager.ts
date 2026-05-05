@@ -30,6 +30,11 @@ export interface ContextVariable {
   timestamp: Date;
 }
 
+export interface ExecutorContext {
+  variables: Record<string, string[]>;
+  previousOutputs: Record<string, string[]>;
+}
+
 export class ContextManager {
   private contexts: Map<string, ExecutionContext> = new Map();
 
@@ -270,6 +275,41 @@ export class ContextManager {
 
   clear(): void {
     this.contexts.clear();
+  }
+
+  toExecutorContext(executionId: string): ExecutorContext {
+    const context = this.contexts.get(executionId);
+    if (!context) {
+      return { variables: {}, previousOutputs: {} };
+    }
+
+    const variables: Record<string, string[]> = {};
+    for (const [key, value] of context.variables) {
+      if (Array.isArray(value)) {
+        variables[key] = value.map(String);
+      } else if (value !== undefined && value !== null) {
+        variables[key] = [String(value)];
+      } else {
+        variables[key] = [];
+      }
+    }
+
+    const previousOutputs: Record<string, string[]> = {};
+    for (const [stepId, output] of context.stepOutputs) {
+      const result = output.result;
+      if (Array.isArray(result)) {
+        previousOutputs[stepId] = result.map(String);
+      } else if (result !== undefined && result !== null) {
+        previousOutputs[stepId] = [String(result)];
+      } else {
+        previousOutputs[stepId] = [];
+      }
+      if (output.stdout) {
+        previousOutputs[stepId] = output.stdout.split('\n').filter(Boolean);
+      }
+    }
+
+    return { variables, previousOutputs };
   }
 }
 

@@ -1,10 +1,9 @@
 import type {
   Prompt,
   PromptRepository,
-} from '../types/index.js';
+} from './prompt/types.js';
 import { SessionManager } from './session-manager.js';
 
-// 内置 Prompt 定义
 const BUILTIN_PROMPTS: Prompt[] = [
   {
     id: 'intent-parser-v1',
@@ -13,16 +12,16 @@ const BUILTIN_PROMPTS: Prompt[] = [
     description: '解析用户输入，识别意图并提取参数',
     category: 'parsing',
     tags: ['intent', 'parsing', 'core'],
-    system: `你是一个工作流解析专家。用户输入一段自然语言，你需要：
+    systemTemplate: `你是一个工作流解析专家。用户输入一段自然语言，你需要：
 1. 识别用户意图（从以下列表中选择最匹配的）
 2. 提取关键参数
 3. 生成标准化的工作流步骤
 
 支持的意图类型：
-{intentList}
+{{intentList}}
 
 参考关键词模板：
-{intentKeywords}
+{{intentKeywords}}
 
 请以 JSON 格式输出：
 {
@@ -36,7 +35,12 @@ const BUILTIN_PROMPTS: Prompt[] = [
     ]
   }
 }`,
-    userTemplate: '{userInput}',
+    userTemplate: '{{userInput}}',
+    variables: [
+      { name: 'intentList', type: 'string', required: true },
+      { name: 'intentKeywords', type: 'string', required: true },
+      { name: 'userInput', type: 'string', required: true },
+    ],
     examples: [],
     constraints: [
       { type: 'format', rule: '输出必须是合法的 JSON' },
@@ -58,7 +62,7 @@ const BUILTIN_PROMPTS: Prompt[] = [
     description: '生成 VectaHub 工作流 YAML',
     category: 'workflow',
     tags: ['yaml', 'workflow', 'generation'],
-    system: `你是一个专业的工作流 YAML 生成专家，专门为 VectaHub 平台生成工作流。
+    systemTemplate: `你是一个专业的工作流 YAML 生成专家，专门为 VectaHub 平台生成工作流。
 
 ## VectaHub 工作流规范：
 - 步骤类型：
@@ -116,7 +120,10 @@ steps:
 ---
 
 现在请根据用户需求生成对应的 YAML 工作流！`,
-    userTemplate: '{userInput}',
+    userTemplate: '{{userInput}}',
+    variables: [
+      { name: 'userInput', type: 'string', required: true },
+    ],
     examples: [],
     constraints: [
       { type: 'format', rule: '输出必须是合法的 YAML' },
@@ -138,7 +145,7 @@ steps:
     description: '帮助生成 Git 相关的工作流，包括提交、推送、拉取等',
     category: 'assistant',
     tags: ['git', 'workflow', 'assistant'],
-    system: `你是一个专业的 Git 助手，帮助用户生成正确的 Git 命令和工作流。
+    systemTemplate: `你是一个专业的 Git 助手，帮助用户生成正确的 Git 命令和工作流。
 
 ## 常见 Git 任务：
 - 提交更改：git add、git commit
@@ -151,7 +158,10 @@ steps:
 
 ## 输出格式要求：
 请直接输出 VectaHub 可执行的 YAML 工作流格式，与 workflow-yaml-v1 格式一致。`,
-    userTemplate: '{userInput}',
+    userTemplate: '{{userInput}}',
+    variables: [
+      { name: 'userInput', type: 'string', required: true },
+    ],
     examples: [],
     constraints: [
       { type: 'format', rule: '输出必须是合法的 YAML' },
@@ -171,7 +181,7 @@ steps:
     description: '帮助运行 npm scripts，安装依赖，发布包等',
     category: 'assistant',
     tags: ['npm', 'scripts', 'assistant'],
-    system: `你是一个专业的 NPM 助手，帮助用户执行 npm 相关任务。
+    systemTemplate: `你是一个专业的 NPM 助手，帮助用户执行 npm 相关任务。
 
 ## 常见 NPM 任务：
 - 安装依赖：npm install、npm ci
@@ -183,7 +193,10 @@ steps:
 
 ## 输出格式要求：
 请直接输出 VectaHub 可执行的 YAML 工作流格式，与 workflow-yaml-v1 格式一致。`,
-    userTemplate: '{userInput}',
+    userTemplate: '{{userInput}}',
+    variables: [
+      { name: 'userInput', type: 'string', required: true },
+    ],
     examples: [],
     constraints: [
       { type: 'format', rule: '输出必须是合法的 YAML' },
@@ -203,7 +216,7 @@ steps:
     description: '帮助审查代码，发现问题并提供建议',
     category: 'assistant',
     tags: ['code-review', 'review', 'assistant'],
-    system: `你是一个专业的代码审查助手，能够帮助用户审查代码并提供建议。
+    systemTemplate: `你是一个专业的代码审查助手，能够帮助用户审查代码并提供建议。
 
 ## 代码审查重点：
 - 代码风格和规范
@@ -214,7 +227,10 @@ steps:
 - 最佳实践
 
 请用友好且专业的语气提供审查意见。`,
-    userTemplate: '{userInput}',
+    userTemplate: '{{userInput}}',
+    variables: [
+      { name: 'userInput', type: 'string', required: true },
+    ],
     examples: [],
     constraints: [],
     metadata: {
@@ -271,7 +287,6 @@ export class PromptManager implements PromptRepository {
     }
   }
 
-  // 构建完整的系统 prompt，包含示例等
   buildSystemPrompt(
     promptId: string,
     context?: Record<string, string>,
@@ -281,47 +296,41 @@ export class PromptManager implements PromptRepository {
     let fullPrompt: string;
     
     if (prompt) {
-      fullPrompt = prompt.system;
+      fullPrompt = prompt.systemTemplate;
     } else {
-      // 兼容旧版 API：如果 promptId 不是已知的 ID，就直接当作 system prompt 使用
       fullPrompt = promptId;
     }
 
-    // 替换模板变量
     if (context) {
       for (const [key, value] of Object.entries(context)) {
-        fullPrompt = fullPrompt.replace(`{${key}}`, value);
+        fullPrompt = fullPrompt.replace(`{{${key}}}`, value);
       }
     }
 
-    // 添加会话上下文（如果提供 sessionId）
     if (sessionId) {
       fullPrompt = this.sessionManager.buildContextAwarePrompt(fullPrompt, sessionId);
     }
 
-    // 添加示例
-    if (prompt && prompt.examples.length > 0) {
+    if (prompt && prompt.examples && prompt.examples.length > 0) {
       fullPrompt += `\n\n## 示例：\n`;
       for (let i = 0; i < prompt.examples.length; i++) {
         const ex = prompt.examples[i];
         fullPrompt += `\n### 示例 ${i + 1}\n`;
-        fullPrompt += `输入: ${ex.input}\n`;
-        fullPrompt += `输出: ${ex.output}\n`;
+        fullPrompt += `输入: ${JSON.stringify(ex.input)}\n`;
+        fullPrompt += `输出: ${JSON.stringify(ex.output)}\n`;
         if (ex.explanation) {
           fullPrompt += `说明: ${ex.explanation}\n`;
         }
       }
     }
 
-    // 添加约束
-    if (prompt && prompt.constraints.length > 0) {
+    if (prompt && prompt.constraints && prompt.constraints.length > 0) {
       fullPrompt += `\n\n## 约束：\n`;
       for (const constraint of prompt.constraints) {
-        fullPrompt += `- [${constraint.type}] ${constraint.rule}\n`;
+        fullPrompt += `- [${constraint.type}] ${typeof constraint.rule === 'string' ? constraint.rule : JSON.stringify(constraint.rule)}\n`;
       }
     }
 
-    // 更新使用计数
     if (prompt) {
       prompt.metadata.uses++;
       this.update(prompt);

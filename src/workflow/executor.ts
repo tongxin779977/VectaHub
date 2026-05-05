@@ -36,6 +36,10 @@ export interface CLIResult {
   duration: number;
 }
 
+/**
+ * @deprecated Use ExecutorContext from context-manager.ts instead.
+ * This interface is kept for backward compatibility.
+ */
 export interface ExecutionContext {
   variables: Record<string, string[]>;
   previousOutputs: Record<string, string[]>;
@@ -49,6 +53,7 @@ export interface Executor {
   killCurrentProcess(): void;
   getCurrentProcess(): ChildProcess | null;
   interpolateString(template: string, context: ExecutionContext): string;
+  registerStepHandler(type: string, handler: StepHandler): void;
 }
 
 let currentChildProcess: ChildProcess | null = null;
@@ -69,6 +74,8 @@ function shouldAllow(
   }
   return true;
 }
+
+export type StepHandler = (step: Step, options: ExecutorOptions, context: ExecutionContext, startTime: number) => Promise<ExecutionResult>;
 
 export function createExecutor(sandboxManager?: SandboxManager): Executor {
   const detector: Detector = createDetector();
@@ -372,8 +379,6 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     };
   }
 
-  type StepHandler = (step: Step, options: ExecutorOptions, context: ExecutionContext, startTime: number) => Promise<ExecutionResult>;
-
   const stepHandlers: Record<string, StepHandler> = {
     opencli: handleOpenCli,
     for_each: handleForEach,
@@ -381,12 +386,23 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     parallel: handleParallel,
   };
 
+  const extendedStepHandlers: Record<string, StepHandler> = {};
+
   async function executeStep(step: Step, options: ExecutorOptions, context: ExecutionContext): Promise<ExecutionResult> {
     const startTime = Date.now();
-    const handler = stepHandlers[step.type] || (step.cli ? handleExec : null);
+    const handler = extendedStepHandlers[step.type] || stepHandlers[step.type] || (step.cli ? handleExec : null);
 
     if (handler) {
       return handler(step, options, context, startTime);
+    }
+
+    if (step.type === 'delegate') {
+      return {
+        stepId: step.id,
+        status: 'FAILED',
+        error: `No handler registered for step type: ${step.type}`,
+        duration: Date.now() - startTime,
+      };
     }
 
     return {
@@ -459,7 +475,7 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
 
       if (!step.id) { errors.push('Step must have an id'); }
 
-      if (!['exec', 'for_each', 'if', 'parallel', 'opencli'].includes(step.type)) {
+      if (!['exec', 'for_each', 'if', 'parallel', 'opencli', 'delegate'].includes(step.type)) {
         errors.push(`Invalid step type: ${step.type}`);
       }
 
@@ -479,7 +495,15 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
         errors.push('if step must have a condition');
       }
 
+      if (step.type === 'delegate' && (!step.delegateTo || !step.delegatePrompt)) {
+        errors.push('delegate step must have delegateTo and delegatePrompt');
+      }
+
       return { valid: errors.length === 0, errors };
+    },
+
+    registerStepHandler(type: string, handler: StepHandler): void {
+      extendedStepHandlers[type] = handler;
     },
   };
 }

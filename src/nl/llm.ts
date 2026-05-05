@@ -16,6 +16,24 @@ export interface LLMConfig {
   timeout?: number;
 }
 
+export interface LLMTool {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
+export interface LLMToolCall {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
 export interface LLMResponse {
   intent: string;
   confidence: number;
@@ -31,6 +49,7 @@ export interface LLMResponse {
       body?: unknown[];
     }[];
   };
+  tool_calls?: LLMToolCall[];
 }
 
 const INTENT_LIST = getAllIntentNames();
@@ -39,6 +58,7 @@ export class LLMClient {
   private config: LLMConfig;
   private sessionId?: string;
   private promptManager;
+  private embeddingCache: Map<string, number[]> = new Map();
 
   constructor(config: LLMConfig) {
     this.config = config;
@@ -56,7 +76,7 @@ export class LLMClient {
     return this.promptManager.sessionManager;
   }
 
-  async complete(promptId: string, userInput: string, context?: Record<string, string>): Promise<LLMResponse> {
+  async complete(promptId: string, userInput: string, context?: Record<string, string>, options?: { tools?: LLMTool[]; toolChoice?: string }): Promise<LLMResponse> {
     const startTime = Date.now();
 
     try {
@@ -68,9 +88,9 @@ export class LLMClient {
       let response: Response;
 
       if (this.config.provider === 'openai' || this.config.provider === 'ollama' || this.config.provider === 'groq') {
-        response = await this.callOpenAICompatible(userInput, systemPrompt);
+        response = await this.callOpenAICompatible(userInput, systemPrompt, options?.tools, options?.toolChoice);
       } else if (this.config.provider === 'anthropic') {
-        response = await this.callAnthropic(userInput, systemPrompt);
+        response = await this.callAnthropic(userInput, systemPrompt, options?.tools);
       } else {
         throw new Error(`Unsupported provider: ${this.config.provider}`);
       }
@@ -91,7 +111,7 @@ export class LLMClient {
     }
   }
 
-  private async callOpenAICompatible(userInput: string, systemPrompt: string): Promise<Response> {
+  private async callOpenAICompatible(userInput: string, systemPrompt: string, tools?: LLMTool[], toolChoice?: string): Promise<Response> {
     const apiKey = this.config.apiKey;
     const baseUrl = this.config.baseUrl;
 
@@ -104,6 +124,23 @@ export class LLMClient {
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     try {
+      const requestBody: Record<string, unknown> = {
+        model: this.config.model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userInput },
+        ],
+        temperature: 0.1,
+        response_format: { type: 'json_object' },
+      };
+
+      if (tools) {
+        requestBody.tools = tools;
+      }
+      if (toolChoice) {
+        requestBody.tool_choice = toolChoice;
+      }
+
       const response = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -111,15 +148,7 @@ export class LLMClient {
           ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
         },
         signal: controller.signal,
-        body: JSON.stringify({
-          model: this.config.model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userInput },
-          ],
-          temperature: 0.1,
-          response_format: { type: 'json_object' },
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -133,7 +162,7 @@ export class LLMClient {
     }
   }
 
-  private async callAnthropic(userInput: string, systemPrompt: string): Promise<Response> {
+  private async callAnthropic(userInput: string, systemPrompt: string, tools?: LLMTool[]): Promise<Response> {
     const apiKey = this.config.apiKey;
 
     if (!apiKey) {
@@ -145,6 +174,23 @@ export class LLMClient {
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     try {
+      const requestBody: Record<string, unknown> = {
+        model: this.config.model,
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: [
+          { role: 'user', content: userInput },
+        ],
+      };
+
+      if (tools) {
+        requestBody.tools = tools.map(tool => ({
+          name: tool.function.name,
+          description: tool.function.description,
+          input_schema: tool.function.parameters,
+        }));
+      }
+
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -153,14 +199,7 @@ export class LLMClient {
           'anthropic-version': '2023-06-01',
         },
         signal: controller.signal,
-        body: JSON.stringify({
-          model: this.config.model,
-          max_tokens: 1024,
-          system: systemPrompt,
-          messages: [
-            { role: 'user', content: userInput },
-          ],
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -176,13 +215,26 @@ export class LLMClient {
 
   private parseResponse(data: unknown): LLMResponse {
     let content: string;
+    let toolCalls: LLMToolCall[] | undefined;
 
     if (this.config.provider === 'anthropic') {
-      const anthropicData = data as { content?: { text?: string }[] };
+      const anthropicData = data as { content?: { text?: string; type?: string }[] };
       content = anthropicData.content?.[0]?.text || '';
     } else {
-      const openAIData = data as { choices?: { message?: { content?: string } }[] };
+      const openAIData = data as { choices?: { message?: { content?: string; tool_calls?: LLMToolCall[] } }[] };
       content = openAIData.choices?.[0]?.message?.content || '';
+      toolCalls = openAIData.choices?.[0]?.message?.tool_calls;
+    }
+
+    // 当存在 tool_calls 时直接返回，无需解析 content 为 JSON
+    if (toolCalls && toolCalls.length > 0) {
+      return {
+        intent: 'UNKNOWN',
+        confidence: 0,
+        params: {},
+        workflow: { name: '', steps: [] },
+        tool_calls: toolCalls,
+      };
     }
 
     // 记录助手消息
@@ -201,6 +253,59 @@ export class LLMClient {
       return parsed;
     } catch {
       throw new Error(`Failed to parse LLM response as JSON: ${content.substring(0, 100)}...`);
+    }
+  }
+
+  async embed(text: string): Promise<number[]> {
+    if (this.config.provider === 'anthropic') {
+      throw new Error('Embedding is not supported by provider: anthropic');
+    }
+
+    // Check cache
+    const cached = this.embeddingCache.get(text);
+    if (cached) {
+      return cached;
+    }
+
+    const apiKey = this.config.apiKey;
+    const baseUrl = this.config.baseUrl;
+
+    if (!baseUrl) {
+      throw new Error('Base URL is not configured');
+    }
+
+    const controller = new AbortController();
+    const timeout = this.config.timeout || 30000;
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    try {
+      const response = await fetch(`${baseUrl}/embeddings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: this.config.model,
+          input: text,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Embedding API error: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json() as { data: { embedding: number[] }[] };
+      const embedding = data.data[0].embedding;
+
+      // Cache the result
+      this.embeddingCache.set(text, embedding);
+
+      return embedding;
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
