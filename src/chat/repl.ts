@@ -1,6 +1,6 @@
 import * as readline from 'node:readline';
 import { spawn } from 'node:child_process';
-import type { ChatInput, ChatOutput, ReplDeps, SlashCommand, SlashCommandContext } from './types.js';
+import type { ChatInput, ChatOutput, ReplDeps, SlashCommand, SlashCommandContext, Repl } from './types.js';
 
 export function parseInput(raw: string): ChatInput {
   if (raw.startsWith('!')) {
@@ -44,7 +44,7 @@ function formatConfig(config: Record<string, unknown>, indent = ''): string {
   return lines.join('\n');
 }
 
-export function createRepl(deps: ReplDeps, options?: { sessionId?: string; sessionManager?: unknown }) {
+export function createRepl(deps: ReplDeps, options?: { sessionId?: string; sessionManager?: unknown }): Repl {
   const prompt = deps.config?.prompt ?? 'vectahub> ';
   const sessionId = options?.sessionId;
   const sessionManager = options?.sessionManager;
@@ -200,25 +200,42 @@ export function createRepl(deps: ReplDeps, options?: { sessionId?: string; sessi
 
     rl.prompt();
 
-    for await (const line of rl) {
-      const trimmed = line.trim();
+    try {
+      for await (const line of rl) {
+        const trimmed = line.trim();
 
-      if (trimmed === 'exit' || trimmed === 'quit') {
-        console.log('Goodbye!');
-        rl.close();
-        break;
+        if (trimmed === 'exit' || trimmed === 'quit') {
+          console.log('Goodbye!');
+          rl.close();
+          break;
+        }
+
+        if (!trimmed) {
+          rl.prompt();
+          continue;
+        }
+
+        try {
+          const output = await processInput(trimmed);
+          console.log(output.content);
+
+          if (output.metadata?.exit) {
+            console.log('Goodbye!');
+            rl.close();
+            break;
+          }
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          console.error(`Error: ${errorMsg}`);
+        }
+
+        rl.prompt();
       }
-
-      const output = await processInput(trimmed);
-      console.log(output.content);
-
-      if (output.metadata?.exit) {
-        console.log('Goodbye!');
-        rl.close();
-        break;
-      }
-
-      rl.prompt();
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`Fatal error in REPL: ${errorMsg}`);
+      rl.close();
+      throw error;
     }
   }
 

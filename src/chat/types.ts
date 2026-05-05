@@ -44,3 +44,9 @@ export interface ReplDeps {
   sandboxManager?: unknown;
   config?: Partial<ChatConfig>;
 }
+
+export interface Repl {
+  start: () => Promise<void>;
+  processInput: (input: string) => Promise<ChatOutput>;
+  getSlashCommands: () => Map<string, SlashCommand>;
+}

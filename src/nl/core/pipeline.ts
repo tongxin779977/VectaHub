@@ -28,7 +28,10 @@ export function createNLProcessor(
 
   async function parse(context: NLContext): Promise<NLResult> {
     if (useNewMatcher && coordinator) {
-      return parseWithCoordinator(context, coordinator);
+      const coordinatorResult = parseWithCoordinator(context, coordinator);
+      if (coordinatorResult.success) {
+        return coordinatorResult;
+      }
     }
 
     const keywordResult = await keywordFallback.parse(context);
