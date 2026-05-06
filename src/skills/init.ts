@@ -4,6 +4,7 @@ import { createCommandSkill } from './command-skill.js';
 import type { SkillExecutorOptions } from './executor.js';
 import type { AIModuleRegistry as IAIModuleRegistry, AIModule, AIModuleMetadata } from './ai-modules/types.js';
 import type { AIModuleConfig } from '../infrastructure/config/index.js';
+import type { LLMConfig } from '../nl/llm.js';
 import { createSemanticMatchingModule } from './ai-modules/semantic-matching/semantic-matcher.js';
 import { createAgentDelegateModule } from './ai-modules/agent-delegate/agent-loop.js';
 import { createIntelligentDiagnosisModule } from './ai-modules/intelligent-diagnosis/diagnoser.js';
@@ -18,6 +19,7 @@ export interface SkillSystem {
 }
 
 export interface SkillSystemOptions extends SkillExecutorOptions {
+  llmConfig?: LLMConfig | null;
 }
 
 export function createSkillSystem(options?: SkillSystemOptions): SkillSystem {
@@ -26,6 +28,29 @@ export function createSkillSystem(options?: SkillSystemOptions): SkillSystem {
 
   const commandSkill = createCommandSkill();
   registry.register(commandSkill);
+
+  if (options?.llmConfig) {
+    try {
+      const { createIntentSkill } = require('./intent-skill.js');
+      const { createWorkflowSkill } = require('./workflow-skill.js');
+      const { createPipelineSkill } = require('./pipeline-skill.js');
+      const { createPromptRegistry } = require('../nl/prompt/v3.js');
+      const { createLLMDialogControlSkill } = require('./llm-dialog-control/index.js');
+
+      const promptRegistry = createPromptRegistry();
+      const llmDialogSkill = createLLMDialogControlSkill(options.llmConfig, { maxRetries: 3 });
+
+      const intentSkill = createIntentSkill(promptRegistry, llmDialogSkill);
+      const workflowSkill = createWorkflowSkill(promptRegistry, llmDialogSkill);
+      const pipelineSkill = createPipelineSkill(intentSkill, commandSkill, workflowSkill);
+
+      registry.register(intentSkill);
+      registry.register(workflowSkill);
+      registry.register(pipelineSkill);
+    } catch (error) {
+      console.error('Failed to register LLM skills:', error instanceof Error ? error.message : String(error));
+    }
+  }
 
   return { registry, executor };
 }

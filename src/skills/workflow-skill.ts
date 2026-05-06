@@ -32,7 +32,7 @@ export function createWorkflowSkill(
 
     async execute(input: WorkflowSkillInput, context: SkillContext): Promise<SkillResult<WorkflowSkillOutput>> {
       try {
-        const { system, user } = await promptRegistry.build('workflow-generator-v2', {
+        const { system, user } = await promptRegistry.build('workflow-generator-v1', {
           userInput: input.userInput,
           intent: input.intent,
           commands: JSON.stringify(input.commands)

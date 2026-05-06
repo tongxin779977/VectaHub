@@ -27,7 +27,8 @@ export const chatCmd = new Command('chat')
 
       const contextBuilder = createContextBuilder(sessionManager);
 
-      const { registry, executor } = createSkillSystem();
+      const llmConfig = createLLMConfig();
+      const { registry, executor } = createSkillSystem({ llmConfig });
       const patterns = adaptAllTemplates(INTENT_TEMPLATES);
       const coordinator = createCoordinator(patterns);
       const keywordFallback = createKeywordFallback(patterns);
