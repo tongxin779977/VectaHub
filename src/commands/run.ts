@@ -112,16 +112,60 @@ export const runCmd = new Command('run')
         let taskListResult: TaskList | undefined = nlResult.taskList;
 
         if (!taskListResult) {
+          if (useLLM && llmConfig) {
+            const { createLLMEnhancedParser } = await import('../nl/llm.js');
+            const llmParser = createLLMEnhancedParser(llmConfig);
+            try {
+              const llmResponse = await llmParser.parse(text);
+              if (llmResponse.intent !== 'UNKNOWN' && llmResponse.workflow?.steps?.length > 0) {
+                logger.info('意图解析: LLM 补充解析成功');
+                const steps: Step[] = llmResponse.workflow.steps
+                  .filter(s => s.type === 'exec' && s.cli)
+                  .map((s, i) => ({
+                    id: `step_${i + 1}`,
+                    type: 'exec' as const,
+                    cli: s.cli!,
+                    args: (s.args ?? []).filter((a): a is string => a != null),
+                  }));
+                if (steps.length > 0) {
+                  workflow = await workflowEngine.createWorkflow(
+                    `intent_${Date.now()}`,
+                    steps
+                  );
+                  logger.info(`LLM 生成工作流，包含 ${steps.length} 个步骤`);
+                  if (options.dryRun) {
+                    for (const s of steps) {
+                      logger.info(`[DRY RUN] Would execute: ${s.cli} ${(s.args ?? []).join(' ')}`);
+                    }
+                    process.exit(0);
+                  }
+                  if (options.save) {
+                    await storage.saveWorkflow(workflow);
+                  }
+                  logger.info('执行工作流...');
+                  const mode = options.mode || 'relaxed';
+                  const result = await workflowEngine.execute(workflow, { mode: mode as any, dryRun: options.dryRun });
+                  logger.info(`\n执行${result.status === 'COMPLETED' ? '✅ 成功' : '❌ 失败'}`);
+                  logger.info(`耗时: ${result.duration}ms`);
+                  if (result.status === 'FAILED') {
+                    process.exit(1);
+                  }
+                  process.exit(0);
+                }
+              }
+              if (llmResponse.intent === 'UNKNOWN') {
+                logger.info('💡 LLM 无法识别操作意图，请描述具体的开发任务。');
+                process.exit(1);
+              }
+            } catch {
+              logger.error('❌ LLM 响应失败，无法解析意图');
+              process.exit(1);
+            }
+          }
+
           logger.error('❌ 无法解析意图，请尝试更明确的输入！');
           if (nlResult.metadata.fallbackReason) {
             logger.info(`💡 降级原因: ${nlResult.metadata.fallbackReason}`);
-          } else {
-            logger.info('\n📋 可用的意图示例:');
-            logger.info('  - "查找当前目录下的文件"');
-            logger.info('  - "显示磁盘使用情况"');
-            logger.info('  - "构建项目"');
-            logger.info('  - "运行测试"');
-            logger.info('  - "查看 git 状态"');
           }
           process.exit(1);
         }
