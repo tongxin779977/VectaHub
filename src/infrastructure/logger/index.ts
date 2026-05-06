@@ -1,10 +1,10 @@
 import pino from 'pino';
 import { mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
-import { fileURLToPath } from 'url';
+import { homedir } from 'os';
 
-const PROJECT_ROOT = join(fileURLToPath(import.meta.url), '../../../..');
-const LOG_DIR = join(PROJECT_ROOT, 'logs');
+const VECTAHUB_DIR = join(homedir(), '.vectahub');
+const LOG_DIR = join(VECTAHUB_DIR, 'logs');
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) {

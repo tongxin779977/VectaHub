@@ -18,14 +18,14 @@ const DEFAULT_ROLES: RoleConfig[] = [
   {
     name: 'developer',
     allowed_tools: ['git', 'npm', 'node', 'tsx', 'opencli', 'curl', 'docker'],
-    blocked_commands: ['rm -rf /', 'mkfs', 'dd of=/dev/', 'shutdown', 'reboot'],
+    blocked_commands: ['rm -rf /', 'mkfs', 'dd of=/dev/*', 'shutdown', 'reboot', 'chmod -R 777 /'],
     max_timeout: 300000,
     sandbox_mode: 'RELAXED',
   },
   {
     name: 'ci-runner',
     allowed_tools: ['npm', 'node', 'git', 'tsx'],
-    blocked_commands: ['rm -rf /', 'chmod 777', 'sudo', 'mkfs', 'dd', 'shutdown', 'reboot', 'init'],
+    blocked_commands: ['rm -rf /', 'chmod 777', 'sudo', 'mkfs', 'dd', 'shutdown', 'reboot', 'init', 'rm -rf /*'],
     max_timeout: 600000,
     sandbox_mode: 'STRICT',
   },
@@ -53,6 +53,51 @@ function ensureRbacDir(): void {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
+}
+
+function patternToRegex(pattern: string): RegExp {
+  const escaped = pattern
+    .replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+    .replace(/\\\*/g, '[^\\s]*')
+    .replace(/\\\?/g, '.');
+  
+  return new RegExp(`^(\\S+\\s+)*${escaped}(\\s+.*)?$`);
+}
+
+function matchBlockedCommand(command: string, blockedPattern: string): boolean {
+  const normalizedCommand = command.trim().toLowerCase();
+  const normalizedPattern = blockedPattern.trim().toLowerCase();
+
+  if (normalizedCommand === normalizedPattern) {
+    return true;
+  }
+
+  if (normalizedPattern.includes('*') || normalizedPattern.includes('?')) {
+    const regex = patternToRegex(normalizedPattern);
+    return regex.test(normalizedCommand);
+  }
+
+  const commandParts = normalizedCommand.split(/\s+/);
+  const patternParts = normalizedPattern.split(/\s+/);
+
+  if (patternParts.length > commandParts.length) {
+    return false;
+  }
+
+  for (let i = 0; i < patternParts.length; i++) {
+    const patternPart = patternParts[i];
+    const commandPart = commandParts[i];
+
+    if (patternPart === '*') {
+      continue;
+    }
+
+    if (patternPart !== commandPart) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 export function createRBACManager(): RBACManager {
@@ -87,28 +132,30 @@ export function createRBACManager(): RBACManager {
   function canExecute(role: RoleName, command: string, tool?: string): boolean {
     const roleConfig = getRole(role);
 
-    // 使用更严格的模式匹配检查被阻止的命令
+    const normalizedCommand = command.trim().toLowerCase();
+
     for (const blocked of roleConfig.blocked_commands) {
-      const normalizedBlocked = blocked.trim().toLowerCase();
-      const normalizedCommand = command.trim().toLowerCase();
-
-      // 检查命令是否精确匹配或以模式匹配
-      if (normalizedCommand === normalizedBlocked) {
-        return false;
-      }
-
-      // 检查命令是否包含被阻止的模式（使用单词边界）
-      const regexPattern = new RegExp(
-        `(^|\\s)${normalizedBlocked.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}(\\s|$)`,
-        'i'
-      );
-      if (regexPattern.test(normalizedCommand)) {
+      if (matchBlockedCommand(normalizedCommand, blocked)) {
         return false;
       }
     }
 
-    if (tool && roleConfig.allowed_tools.length > 0 && !roleConfig.allowed_tools.includes('*')) {
-      return roleConfig.allowed_tools.includes(tool);
+    if (tool) {
+      const normalizedTool = tool.toLowerCase();
+      
+      if (roleConfig.allowed_tools.length === 0) {
+        return false;
+      }
+
+      if (roleConfig.allowed_tools.includes('*')) {
+        return true;
+      }
+
+      if (roleConfig.allowed_tools.some(t => t.toLowerCase() === normalizedTool)) {
+        return true;
+      }
+
+      return false;
     }
 
     return true;

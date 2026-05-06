@@ -1,6 +1,92 @@
 import { createConsoleLogger } from '../utils/logger.js';
 import { type Workflow } from '../workflow/types.js';
 import { type Breakpoint, type DebugState, type StepFrame, type ErrorInfo, type ExecutionHistory, type StepExecution, type WatchExpression, type DebugEvent, BreakpointType } from './debugger-api.js';
+import vm from 'vm';
+
+const ALLOWED_EXPRESSION_CHARS = /^[\w\s.+\-*/%<>=!&|()\[\]'"?:]*$/;
+
+function sanitizeExpression(expression: string): { valid: boolean; message?: string } {
+  const trimmed = expression.trim();
+  
+  if (!trimmed) {
+    return { valid: false, message: 'Empty expression' };
+  }
+
+  if (trimmed.length > 500) {
+    return { valid: false, message: 'Expression too long' };
+  }
+
+  if (!ALLOWED_EXPRESSION_CHARS.test(trimmed)) {
+    return { valid: false, message: 'Expression contains invalid characters' };
+  }
+
+  const dangerousPatterns = [
+    /(?:^|\s)eval\s*\(/,
+    /(?:^|\s)Function\s*\(/,
+    /(?:^|\s)require\s*\(/,
+    /(?:^|\s)process\s*\./,
+    /(?:^|\s)global\s*\./,
+    /(?:^|\s)Buffer\s*\(/,
+    /(?:^|\s)__dirname/,
+    /(?:^|\s)__filename/,
+    /\$\{.*\}/,
+    /`.*`/,
+    /(?:^|\s)new\s+Function\s*\(/,
+  ];
+
+  for (const pattern of dangerousPatterns) {
+    if (pattern.test(trimmed)) {
+      return { valid: false, message: 'Expression contains dangerous code' };
+    }
+  }
+
+  return { valid: true };
+}
+
+export interface SandboxOptions {
+  timeout?: number;
+  memoryLimit?: number;
+}
+
+const DEFAULT_TIMEOUT = 1000;
+const DEFAULT_MEMORY_LIMIT = 1024 * 1024 * 10; 
+
+function freezeObject(obj: unknown): void {
+  if (typeof obj === 'object' && obj !== null) {
+    Object.freeze(obj);
+    Object.getOwnPropertyNames(obj).forEach((prop) => {
+      const value = (obj as Record<string, unknown>)[prop];
+      if (typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
+        freezeObject(value);
+      }
+    });
+  }
+}
+
+function createSandboxContext(
+  variables: Record<string, unknown>,
+  options: SandboxOptions = {},
+): { context: vm.Context; timeout: number; memoryLimit: number } {
+  const safeGlobals = {
+    Math: Math,
+    Date: Date,
+    JSON: JSON,
+    Object: Object.freeze(Object),
+    Array: Object.freeze(Array),
+    String: Object.freeze(String),
+    Number: Object.freeze(Number),
+    Boolean: Object.freeze(Boolean),
+    ...variables,
+  };
+
+  freezeObject(safeGlobals);
+
+  return {
+    context: vm.createContext(safeGlobals),
+    timeout: options.timeout ?? DEFAULT_TIMEOUT,
+    memoryLimit: options.memoryLimit ?? DEFAULT_MEMORY_LIMIT,
+  };
+}
 
 export class WorkflowDebugger {
   private logger = createConsoleLogger('debugger');
@@ -14,6 +100,14 @@ export class WorkflowDebugger {
 
   setBreakpoint(stepId: string, type: BreakpointType = 'step', condition?: string): string {
     const id = `bp-${stepId}-${Date.now()}`;
+    
+    if (type === 'condition' && condition) {
+      const sanitizeResult = sanitizeExpression(condition);
+      if (!sanitizeResult.valid) {
+        throw new Error(`Invalid breakpoint condition: ${sanitizeResult.message}`);
+      }
+    }
+
     const breakpoint: Breakpoint = {
       id,
       stepId,
@@ -53,6 +147,11 @@ export class WorkflowDebugger {
   }
 
   addWatchExpression(expression: string): string {
+    const sanitizeResult = sanitizeExpression(expression);
+    if (!sanitizeResult.valid) {
+      throw new Error(`Invalid watch expression: ${sanitizeResult.message}`);
+    }
+
     const id = `watch-${Date.now()}`;
     const watch: WatchExpression = { id, expression };
     this.watchExpressions.set(id, watch);
@@ -68,10 +167,15 @@ export class WorkflowDebugger {
   }
 
   async evaluateWatchExpressions(variables: Record<string, unknown>): void {
+    const { context: sandbox, timeout } = createSandboxContext(variables);
+
     for (const [id, watch] of this.watchExpressions) {
       try {
-        const fn = new Function(...Object.keys(variables), `return ${watch.expression};`);
-        watch.value = fn(...Object.values(variables));
+        const result = vm.runInNewContext(`(${watch.expression})`, sandbox, {
+          timeout,
+          displayErrors: false,
+        });
+        watch.value = result;
         watch.error = undefined;
       } catch (error) {
         watch.error = (error as Error).message;
@@ -191,6 +295,8 @@ export class WorkflowDebugger {
   }
 
   private async checkBreakpoint(stepId: string, variables: Record<string, unknown>): Promise<boolean> {
+    const { context: sandbox, timeout } = createSandboxContext(variables);
+
     for (const bp of this.breakpoints.values()) {
       if (!bp.enabled || bp.stepId !== stepId) continue;
 
@@ -202,8 +308,11 @@ export class WorkflowDebugger {
 
       if (bp.type === 'condition' && bp.condition) {
         try {
-          const fn = new Function(...Object.keys(variables), `return ${bp.condition};`);
-          if (fn(...Object.values(variables))) {
+          const result = vm.runInNewContext(`(${bp.condition})`, sandbox, {
+            timeout,
+            displayErrors: false,
+          });
+          if (result) {
             return true;
           }
         } catch {

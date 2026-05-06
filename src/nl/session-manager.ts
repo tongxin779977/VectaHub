@@ -12,16 +12,60 @@ import {
 
 const execAsync = promisify(exec);
 
+const DEFAULT_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+const DEFAULT_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
+
+export interface SessionManagerOptions {
+  sessionTimeoutMs?: number;
+  cleanupIntervalMs?: number;
+  maxSessions?: number;
+}
+
 export class SessionManager {
-  private sessions: Map<string, SessionContext> = new Map();
+  private sessions: Map<string, { context: SessionContext; lastActivity: number }> = new Map();
   private defaultUserPreferences: UserPreferences = {
     executionMode: 'relaxed',
     preferredTools: [],
     verbose: false,
     autoConfirm: false,
   };
+  private sessionTimeoutMs: number;
+  private cleanupIntervalMs: number;
+  private maxSessions: number;
+  private cleanupIntervalId: ReturnType<typeof setInterval> | null = null;
+  private onSessionExpired?: (sessionId: string) => void;
+
+  constructor(options: SessionManagerOptions = {}) {
+    this.sessionTimeoutMs = options.sessionTimeoutMs ?? DEFAULT_SESSION_TIMEOUT_MS;
+    this.cleanupIntervalMs = options.cleanupIntervalMs ?? DEFAULT_CLEANUP_INTERVAL_MS;
+    this.maxSessions = options.maxSessions ?? 50;
+    this.startCleanupScheduler();
+  }
+
+  private startCleanupScheduler(): void {
+    this.cleanupIntervalId = setInterval(() => {
+      this.cleanupExpiredSessions();
+    }, this.cleanupIntervalMs);
+  }
+
+  private cleanupExpiredSessions(): void {
+    const now = Date.now();
+    
+    for (const [sessionId, data] of this.sessions) {
+      if (now - data.lastActivity > this.sessionTimeoutMs) {
+        this.sessions.delete(sessionId);
+        this.onSessionExpired?.(sessionId);
+      }
+    }
+  }
+
+  setSessionExpiredCallback(callback: (sessionId: string) => void): void {
+    this.onSessionExpired = callback;
+  }
 
   createSession(sessionId: string): SessionContext {
+    this.enforceMaxSessions();
+    
     const defaultProjectContext = this.getSyncDefaultProjectContext();
     const context: SessionContext = {
       sessionId,
@@ -30,10 +74,28 @@ export class SessionManager {
       projectContext: defaultProjectContext,
       recentActions: [],
     };
-    this.sessions.set(sessionId, context);
-    // 异步刷新完整的项目上下文
+    this.sessions.set(sessionId, { context, lastActivity: Date.now() });
     this.refreshProjectContext(sessionId).catch(() => {});
     return context;
+  }
+
+  private enforceMaxSessions(): void {
+    if (this.sessions.size >= this.maxSessions) {
+      const oldestSession = Array.from(this.sessions.entries())
+        .sort((a, b) => a[1].lastActivity - b[1].lastActivity)[0];
+      
+      if (oldestSession) {
+        this.sessions.delete(oldestSession[0]);
+        this.onSessionExpired?.(oldestSession[0]);
+      }
+    }
+  }
+
+  private updateActivity(sessionId: string): void {
+    const data = this.sessions.get(sessionId);
+    if (data) {
+      data.lastActivity = Date.now();
+    }
   }
 
   private getSyncDefaultProjectContext(): ProjectContext {
@@ -42,7 +104,12 @@ export class SessionManager {
   }
 
   getSession(sessionId: string): SessionContext | undefined {
-    return this.sessions.get(sessionId);
+    const data = this.sessions.get(sessionId);
+    if (data) {
+      this.updateActivity(sessionId);
+      return data.context;
+    }
+    return undefined;
   }
 
   getOrCreateSession(sessionId: string): SessionContext {
@@ -56,10 +123,10 @@ export class SessionManager {
   addMessage(sessionId: string, message: Message): void {
     const session = this.getOrCreateSession(sessionId);
     session.history.push(message);
-    // 保留最近 50 条消息
     if (session.history.length > 50) {
       session.history = session.history.slice(-50);
     }
+    this.updateActivity(sessionId);
   }
 
   addUserMessage(sessionId: string, content: string): void {
@@ -76,10 +143,10 @@ export class SessionManager {
       ...action,
       timestamp: new Date(),
     });
-    // 保留最近 20 条操作
     if (session.recentActions.length > 20) {
       session.recentActions = session.recentActions.slice(0, 20);
     }
+    this.updateActivity(sessionId);
   }
 
   updateUserPreferences(sessionId: string, preferences: Partial<UserPreferences>): void {
@@ -88,6 +155,7 @@ export class SessionManager {
       ...session.userPreferences,
       ...preferences,
     };
+    this.updateActivity(sessionId);
   }
 
   updateProjectContext(sessionId: string, projectContext: Partial<ProjectContext>): void {
@@ -96,6 +164,7 @@ export class SessionManager {
       ...session.projectContext,
       ...projectContext,
     };
+    this.updateActivity(sessionId);
   }
 
   async refreshProjectContext(sessionId: string): Promise<void> {
@@ -108,7 +177,6 @@ export class SessionManager {
     let gitStatus;
     let packageJson;
 
-    // 尝试获取 Git 状态
     try {
       const { stdout: branchOutput } = await execAsync('git branch --show-current', { cwd });
       const { stdout: statusOutput } = await execAsync('git status --porcelain', { cwd });
@@ -138,7 +206,6 @@ export class SessionManager {
       // Git 不可用，忽略
     }
 
-    // 尝试获取 package.json
     const packagePath = join(cwd, 'package.json');
     if (existsSync(packagePath)) {
       try {
@@ -161,7 +228,6 @@ export class SessionManager {
     const session = this.getOrCreateSession(sessionId);
     let prompt = basePrompt;
 
-    // 添加项目上下文
     prompt += '\n\n## 当前项目上下文\n';
     prompt += `- 工作目录: ${session.projectContext.cwd}\n`;
     if (session.projectContext.gitStatus) {
@@ -177,7 +243,6 @@ export class SessionManager {
       prompt += `- 项目名称: ${session.projectContext.packageJson.name}\n`;
     }
 
-    // 添加用户偏好
     prompt += '\n## 用户偏好\n';
     prompt += `- 执行模式: ${session.userPreferences.executionMode}\n`;
     if (session.userPreferences.preferredTools.length > 0) {
@@ -186,7 +251,6 @@ export class SessionManager {
     prompt += `- 详细输出: ${session.userPreferences.verbose ? '是' : '否'}\n`;
     prompt += `- 自动确认: ${session.userPreferences.autoConfirm ? '是' : '否'}\n`;
 
-    // 添加最近操作
     if (session.recentActions.length > 0) {
       prompt += '\n## 最近操作\n';
       const recent = session.recentActions.slice(0, 5);
@@ -195,20 +259,49 @@ export class SessionManager {
       }
     }
 
-    // 添加历史对话（最近 5 条）
-    if (session.history.length > 0) {
-      prompt += '\n## 历史对话\n';
-      const recentHistory = session.history.slice(-5);
-      for (const msg of recentHistory) {
-        const prefix = msg.role === 'user' ? '用户' : '助手';
-        prompt += `${prefix}: ${msg.content.substring(0, 100)}${msg.content.length > 100 ? '...' : ''}\n`;
-      }
-    }
-
     return prompt;
+  }
+
+  deleteSession(sessionId: string): void {
+    this.sessions.delete(sessionId);
+  }
+
+  getAllSessionIds(): string[] {
+    return Array.from(this.sessions.keys());
+  }
+
+  getSessionCount(): number {
+    return this.sessions.size;
+  }
+
+  getSessionActivity(sessionId: string): number | undefined {
+    const data = this.sessions.get(sessionId);
+    return data?.lastActivity;
+  }
+
+  isSessionActive(sessionId: string): boolean {
+    const activity = this.getSessionActivity(sessionId);
+    if (activity === undefined) return false;
+    return Date.now() - activity <= this.sessionTimeoutMs;
+  }
+
+  shutdown(): void {
+    if (this.cleanupIntervalId) {
+      clearInterval(this.cleanupIntervalId);
+      this.cleanupIntervalId = null;
+    }
+    this.sessions.clear();
+  }
+
+  setTimeout(timeoutMs: number): void {
+    this.sessionTimeoutMs = timeoutMs;
+  }
+
+  getTimeout(): number {
+    return this.sessionTimeoutMs;
   }
 }
 
-export function createSessionManager(): SessionManager {
-  return new SessionManager();
+export function createSessionManager(options?: SessionManagerOptions): SessionManager {
+  return new SessionManager(options);
 }

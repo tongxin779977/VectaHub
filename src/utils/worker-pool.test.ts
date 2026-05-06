@@ -23,7 +23,7 @@ describe('WorkerPool', () => {
   it('should reject when task throws', async () => {
     const pool = new WorkerPool({ size: 1 });
     await expect(
-      pool.execute(async () => { throw new Error('test error'); })
+      pool.execute(async () => { throw new Error('test error'); }, 0)
     ).rejects.toThrow('test error');
   });
 

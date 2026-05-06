@@ -1,4 +1,5 @@
 import { performance, PerformanceObserver, PerformanceEntry } from 'perf_hooks';
+import os from 'os';
 import { createConsoleLogger } from '../utils/logger.js';
 import { type PerformanceMetric, type MetricType, type MetricRecord, type AlertConfig, type Alert, type MetricThreshold } from './metrics.js';
 
@@ -12,6 +13,11 @@ const DEFAULT_CONFIG: AlertConfig = {
   ],
   notificationChannels: ['console'],
 };
+
+const MAX_MEMORY_USAGE_PERCENT = 80;
+const MAX_HISTORY_SIZE = 1000;
+const MIN_HISTORY_SIZE = 10;
+const CLEANUP_FACTOR = 0.5;
 
 export class PerformanceMonitor {
   private logger = createConsoleLogger('monitor');
@@ -61,6 +67,7 @@ export class PerformanceMonitor {
     this.intervalId = setInterval(() => {
       this.collectSystemMetrics();
       this.checkAlerts();
+      this.checkMemoryUsage();
     }, intervalMs);
   }
 
@@ -82,21 +89,39 @@ export class PerformanceMonitor {
     const metrics: PerformanceMetric[] = [];
 
     const memUsage = process.memoryUsage();
-    const totalMem = this.getTotalMemory();
+    const totalMem = os.totalmem();
     const memUsedPercent = (memUsage.heapUsed / totalMem) * 100;
 
     metrics.push(
       { timestamp, type: 'memory_used', value: memUsage.heapUsed / 1024 / 1024, unit: 'MB' },
       { timestamp, type: 'memory_total', value: totalMem / 1024 / 1024, unit: 'MB' },
-      { timestamp, type: 'memory_usage', value: memUsedPercent, unit: '%' }
+      { timestamp, type: 'memory_usage', value: memUsedPercent, unit: '%' },
+      { timestamp, type: 'external_memory', value: memUsage.external / 1024 / 1024, unit: 'MB' },
+      { timestamp, type: 'rss_memory', value: memUsage.rss / 1024 / 1024, unit: 'MB' },
     );
 
     this.recordMetrics(metrics);
   }
 
-  private getTotalMemory(): number {
-    const os = require('os');
-    return os.totalmem();
+  private checkMemoryUsage(): void {
+    const memUsage = process.memoryUsage();
+    const totalMem = os.totalmem();
+    const memUsedPercent = (memUsage.heapUsed / totalMem) * 100;
+
+    if (memUsedPercent > MAX_MEMORY_USAGE_PERCENT && this.metrics.length > MIN_HISTORY_SIZE) {
+      this.logger.warn(`Memory usage high (${memUsedPercent.toFixed(1)}%), cleaning up history`);
+      this.cleanupOldMetrics();
+    }
+  }
+
+  private cleanupOldMetrics(): void {
+    const targetSize = Math.max(MIN_HISTORY_SIZE, Math.floor(this.metrics.length * CLEANUP_FACTOR));
+    const removedCount = this.metrics.length - targetSize;
+    
+    this.metrics = this.metrics.slice(-targetSize);
+    
+    this.logger.info(`Cleaned up ${removedCount} old metric records`);
+    this.recordMetric('memory_cleanup', removedCount, 'records');
   }
 
   recordMetric(type: MetricType, value: number, unit: string, tags?: Record<string, string>): void {
@@ -109,7 +134,7 @@ export class PerformanceMonitor {
       this.metrics.push({ timestamp: Date.now(), metrics: [metric] });
     }
 
-    if (this.metrics.length > this.maxHistorySize) {
+    if (this.metrics.length > MAX_HISTORY_SIZE) {
       this.metrics.shift();
     }
   }
@@ -118,7 +143,7 @@ export class PerformanceMonitor {
     const timestamp = Date.now();
     this.metrics.push({ timestamp, metrics });
 
-    if (this.metrics.length > this.maxHistorySize) {
+    if (this.metrics.length > MAX_HISTORY_SIZE) {
       this.metrics.shift();
     }
   }
@@ -243,7 +268,7 @@ export class PerformanceMonitor {
   private logToFile(alert: Alert): void {
     const fs = require('fs');
     const path = require('path');
-    const logDir = path.join(require('os').homedir(), '.vectahub', 'logs');
+    const logDir = path.join(os.homedir(), '.vectahub', 'logs');
     const logFile = path.join(logDir, `alerts-${new Date().toISOString().split('T')[0]}.log`);
 
     try {
@@ -305,16 +330,40 @@ export class PerformanceMonitor {
     return summary;
   }
 
-  setConfig(config: Partial<AlertConfig>): void {
-    this.config = { ...this.config, ...config };
-  }
-
   reset(): void {
     this.metrics = [];
     this.alerts = [];
     this.errorCount = 0;
     this.successCount = 0;
+    this.logger.info('Performance monitor reset');
+  }
+
+  setConfig(config: Partial<AlertConfig>): void {
+    this.config = { ...this.config, ...config };
+  }
+
+  getConfig(): AlertConfig {
+    return { ...this.config };
+  }
+
+  getMemoryUsage(): { usedMB: number; totalMB: number; percent: number } {
+    const memUsage = process.memoryUsage();
+    const totalMem = os.totalmem();
+    return {
+      usedMB: memUsage.heapUsed / 1024 / 1024,
+      totalMB: totalMem / 1024 / 1024,
+      percent: (memUsage.heapUsed / totalMem) * 100,
+    };
+  }
+
+  getHistorySize(): number {
+    return this.metrics.length;
+  }
+
+  setMaxHistorySize(size: number): void {
+    this.maxHistorySize = Math.max(MIN_HISTORY_SIZE, Math.min(MAX_HISTORY_SIZE, size));
+    if (this.metrics.length > this.maxHistorySize) {
+      this.metrics = this.metrics.slice(-this.maxHistorySize);
+    }
   }
 }
-
-export const performanceMonitor = new PerformanceMonitor();

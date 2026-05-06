@@ -2,6 +2,7 @@ import { mkdirSync, existsSync, appendFileSync, readFileSync, readdirSync } from
 import { join } from 'path';
 import { homedir } from 'os';
 import { VectaHubError, ErrorType } from '../errors/index.js';
+import { redactSensitiveData } from '../../utils/sensitive-data.js';
 
 const AUDIT_DIR = join(homedir(), '.vectahub', 'logs', 'audit');
 
@@ -74,10 +75,22 @@ class AuditLogger {
 
   write(event: AuditEvent): void {
     try {
-      const line = JSON.stringify(event) + '\n';
+      const sanitizedEvent = this.sanitizeEvent(event);
+      const line = JSON.stringify(sanitizedEvent) + '\n';
       appendFileSync(this.filePath, line, 'utf-8');
-    } catch {
+    } catch (error) {
+      console.warn('Failed to write audit log:', (error as Error).message);
     }
+  }
+
+  private sanitizeEvent(event: AuditEvent): AuditEvent {
+    return {
+      ...event,
+      input: redactSensitiveData(event.input),
+      output: redactSensitiveData(event.output),
+      error: event.error ? redactSensitiveData(event.error) as string : undefined,
+      metadata: event.metadata ? redactSensitiveData(event.metadata) as Record<string, unknown> : undefined,
+    };
   }
 
   query(options: {
@@ -301,24 +314,37 @@ export const audit = {
       timestamp: new Date().toISOString(),
       sessionId,
       module: 'Executor',
-      action: 'step_result',
-      input: { stepId, cli, exitCode },
+      action: 'step_complete',
+      input: { stepId, cli },
+      output: { exitCode },
       duration,
       success: exitCode === 0,
       metadata,
     });
   },
 
-  sandboxDetect(isDangerous: boolean, level: string, command: string, sessionId: string): void {
+  fileOperation(operation: string, path: string, sessionId: string, success: boolean, error?: string): void {
+    this.log({
+      event: AuditEventType.FILE_OPERATION,
+      timestamp: new Date().toISOString(),
+      sessionId,
+      module: 'Filesystem',
+      action: operation,
+      input: { path },
+      success,
+      error,
+    });
+  },
+
+  sandboxDetect(command: string, isDangerous: boolean, severity: string, sessionId: string): void {
     this.log({
       event: AuditEventType.SANDBOX_DETECT,
       timestamp: new Date().toISOString(),
       sessionId,
       module: 'Sandbox',
-      action: 'detect',
-      input: { command, level },
-      output: { isDangerous },
-      success: true,
+      action: 'detection',
+      input: { command, isDangerous, severity },
+      success: !isDangerous,
     });
   },
 };

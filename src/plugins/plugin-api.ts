@@ -42,11 +42,20 @@ export interface PluginConfigSchema {
   };
 }
 
+export interface PluginPermissions {
+  read: boolean;
+  write: boolean;
+  execute: boolean;
+  network: boolean;
+  hooks: boolean;
+}
+
 export interface PluginManifest {
   metadata: PluginMetadata;
   hooks?: PluginHook[];
   commands?: PluginCommand[];
   configSchema?: PluginConfigSchema;
+  permissions?: string[];
 }
 
 export interface PluginContext {
@@ -57,8 +66,10 @@ export interface PluginContext {
     debug: (message: string) => void;
   };
   config: Record<string, unknown>;
+  permissions: PluginPermissions;
   api: {
     version: string;
+    registerHook: (hookName: string, handler: () => void | Promise<void>) => void;
   };
 }
 
@@ -66,6 +77,7 @@ export interface PluginInstance {
   manifest: PluginManifest;
   status: PluginStatus;
   config: Record<string, unknown>;
+  permissions: PluginPermissions;
   hooks: Map<string, Array<() => void | Promise<void>>>;
   commands: PluginCommand[];
   activate: (context: PluginContext) => Promise<void>;
