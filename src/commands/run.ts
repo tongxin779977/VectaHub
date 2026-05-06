@@ -11,11 +11,13 @@ import { createKeywordFallback } from '../nl/core/keyword-fallback.js';
 import { INTENT_TEMPLATES } from '../nl/templates/index.js';
 import { createSkillSystem } from '../skills/init.js';
 import type { Workflow, Step, TaskList } from '../types/index.js';
+import type { ExecutionMetadata, ExecutionRecord as ExecRecord } from '../execution/types.js';
 import { IntentCategory } from '../nl/types/category.js';
 
 import path from 'node:path';
 import fs from 'node:fs';
 import { homedir } from 'node:os';
+import { createRecordManager } from '../execution/record-manager.js';
 
 const logger = createConsoleLogger('run');
 
@@ -203,46 +205,61 @@ export const runCmd = new Command('run')
               }
               
               logger.info('执行工作流...');
-              const mode = options.mode || 'relaxed';
-              const result = await workflowEngine.execute(workflow, { 
-                mode: mode as any, 
-                dryRun: options.dryRun,
-                onProgress: createProgressCallback(workflow.steps.length),
-              });
-              
-              logger.info(`\n执行${result.status === 'COMPLETED' ? '✅ 成功' : '❌ 失败'}`);
-              logger.info(`耗时: ${result.duration}ms`);
-              
-              if (result.steps.length > 0) {
-                logger.info('\n📊 步骤结果:');
-                let hasOutput = false;
-                for (const step of result.steps) {
-                  logger.info(`  ${step.stepId}: ${step.status}`);
-                  if (step.output && step.output.length > 0) {
-                    hasOutput = true;
-                    logger.info(`  输出:`);
-                    for (const line of step.output) {
-                      logger.info(`    ${String(line).trim()}`);
-                    }
-                  }
-                  if (step.error) {
-                    logger.error(`  错误: ${step.error}`);
-                  }
-                }
-                
-                if (!hasOutput && result.status === 'COMPLETED') {
-                  logger.info('\n💡 工作流执行成功但没有输出。');
-                  logger.info('您可以尝试以下命令：');
-                  logger.info('  - vectahub run "列出当前目录"');
-                  logger.info('  - vectahub run "npm test"');
-                  logger.info('  - vectahub run "git status"');
-                }
-              }
-              
-              if (result.status === 'FAILED') {
-                process.exit(1);
-              }
-              process.exit(0);
+      const mode = options.mode || 'relaxed';
+      const result = await workflowEngine.execute(workflow, { 
+        mode: mode as any, 
+        dryRun: options.dryRun,
+        onProgress: createProgressCallback(workflow.steps.length),
+      });
+
+      const recordManager = createRecordManager();
+      const metadata: ExecutionMetadata = {
+        source: options.file ? 'file' : 'nl',
+        nlInput: options.file ? undefined : (intent.length > 0 ? intent.join(' ') : undefined),
+        sourceFile: options.file ? path.resolve(options.file) : undefined,
+        cwd: process.cwd(),
+      };
+      const recordToSave: Record<string, unknown> = { ...result };
+      recordToSave.startedAt = (recordToSave.startedAt as Date).toISOString();
+      if (recordToSave.endedAt) {
+        recordToSave.endedAt = (recordToSave.endedAt as Date).toISOString();
+      }
+      recordToSave.metadata = metadata as unknown as Record<string, unknown>;
+      await recordManager.save(recordToSave as unknown as ExecRecord);
+
+      logger.info(`\n执行${result.status === 'COMPLETED' ? '✅ 成功' : '❌ 失败'}`);
+      logger.info(`耗时: ${result.duration}ms`);
+
+      if (result.steps.length > 0) {
+        logger.info('\n📊 步骤结果:');
+        let hasOutput = false;
+        for (const step of result.steps) {
+          logger.info(`  ${step.stepId}: ${step.status}`);
+          if (step.output && step.output.length > 0) {
+            hasOutput = true;
+            logger.info(`  输出:`);
+            for (const line of step.output) {
+              logger.info(`    ${String(line).trim()}`);
+            }
+          }
+          if (step.error) {
+            logger.error(`  错误: ${step.error}`);
+          }
+        }
+        
+        if (!hasOutput && result.status === 'COMPLETED') {
+          logger.info('\n💡 工作流执行成功但没有输出。');
+          logger.info('您可以尝试以下命令：');
+          logger.info('  - vectahub run "列出当前目录"');
+          logger.info('  - vectahub run "npm test"');
+          logger.info('  - vectahub run "git status"');
+        }
+      }
+      
+      if (result.status === 'FAILED') {
+        process.exit(1);
+      }
+      process.exit(0);
             } catch {
               logger.error('❌ LLM 响应失败，无法解析意图');
               process.exit(1);
@@ -320,6 +337,21 @@ export const runCmd = new Command('run')
         dryRun: options.dryRun,
         onProgress: createProgressCallback(workflow.steps.length),
       });
+
+      const recordManager = createRecordManager();
+      const metadata: ExecutionMetadata = {
+        source: options.file ? 'file' : 'nl',
+        nlInput: options.file ? undefined : (intent.length > 0 ? intent.join(' ') : undefined),
+        sourceFile: options.file ? path.resolve(options.file) : undefined,
+        cwd: process.cwd(),
+      };
+      const recordToSave2: Record<string, unknown> = { ...result };
+      recordToSave2.startedAt = (recordToSave2.startedAt as Date).toISOString();
+      if (recordToSave2.endedAt) {
+        recordToSave2.endedAt = (recordToSave2.endedAt as Date).toISOString();
+      }
+      recordToSave2.metadata = metadata as unknown as Record<string, unknown>;
+      await recordManager.save(recordToSave2 as unknown as ExecRecord);
 
       logger.info(`\n执行${result.status === 'COMPLETED' ? '✅ 成功' : '❌ 失败'}`);
       logger.info(`耗时: ${result.duration}ms`);

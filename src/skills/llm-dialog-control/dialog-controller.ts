@@ -149,9 +149,13 @@ export function createDialogController(
     messages: Message[]
   ): Promise<string> {
     const apiKey = config.apiKey || process.env.OPENAI_API_KEY || process.env.OLLAMA_API_KEY;
-    const baseUrl = config.baseUrl || 'https://api.openai.com/v1';
+    let baseUrl = config.baseUrl || 'https://api.openai.com/v1';
+
+    // Normalize baseUrl: remove trailing /chat/completions or duplicate /v1
+    baseUrl = baseUrl.replace(/\/chat\/completions\/?$/, '').replace(/\/+$/, '');
+
     const timeout = config.timeout || 30000;
-    
+
     console.debug(`[LLM DEBUG] Calling API: ${baseUrl}/chat/completions`);
     console.debug(`[LLM DEBUG] Model: ${config.model}`);
     console.debug(`[LLM DEBUG] API Key present: ${!!apiKey}`);

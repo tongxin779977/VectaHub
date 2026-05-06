@@ -35,7 +35,7 @@ export const resumeCmd = new Command('resume')
 
     try {
       const engine = createWorkflowEngine();
-      const result = await engine.resumeFromFailure(executionId, {
+      const result = await engine.resumeFromFailure(executionId, targetStep, {
         mode: options.mode as 'strict' | 'relaxed' | 'consensus',
       });
 

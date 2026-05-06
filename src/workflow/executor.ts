@@ -310,6 +310,7 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
   async function handleForEach(step: Step, options: ExecutorOptions, context: ExecutionContext, startTime: number): Promise<ExecutionResult> {
     const itemsStr = interpolateString(step.items || '', context);
     const items = itemsStr.split('\n').filter(Boolean);
+    const outputs: string[] = [];
 
     for (const item of items) {
       const itemContext: ExecutionContext = {
@@ -320,12 +321,14 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
       for (const bodyStep of step.body || []) {
         const interpolatedStep = interpolateStep(bodyStep, itemContext);
         const result = await executeStep(interpolatedStep, options, itemContext);
+        if (result.output) outputs.push(...result.output);
 
         if (result.status === 'FAILED') {
           return {
             stepId: step.id,
             status: 'FAILED',
-            iterations: items.length,
+            output: outputs,
+            iterations: items.indexOf(item) + 1,
             duration: Date.now() - startTime,
           };
         }
@@ -335,6 +338,7 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     return {
       stepId: step.id,
       status: 'COMPLETED',
+      output: outputs,
       iterations: items.length,
       duration: Date.now() - startTime,
     };
@@ -343,14 +347,17 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
   async function handleIf(step: Step, options: ExecutorOptions, context: ExecutionContext, startTime: number): Promise<ExecutionResult> {
     const condition = interpolateString(step.condition || '', context);
     const conditionMet = evaluateCondition(condition, context);
+    const outputs: string[] = [];
 
     if (conditionMet && step.body) {
       for (const bodyStep of step.body) {
         const result = await executeStep(bodyStep, options, context);
+        if (result.output) outputs.push(...result.output);
         if (result.status === 'FAILED') {
           return {
             stepId: step.id,
             status: 'FAILED',
+            output: outputs,
             duration: Date.now() - startTime,
           };
         }
@@ -360,6 +367,7 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     return {
       stepId: step.id,
       status: 'COMPLETED',
+      output: outputs,
       duration: Date.now() - startTime,
     };
   }
@@ -370,10 +378,12 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     );
     const results = await Promise.all(promises);
     const hasFailed = results.some(r => r.status === 'FAILED');
+    const outputs = results.flatMap(r => r.output || []);
 
     return {
       stepId: step.id,
       status: hasFailed ? 'FAILED' : 'COMPLETED',
+      output: outputs,
       iterations: results.length,
       duration: Date.now() - startTime,
     };
@@ -390,6 +400,16 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
 
   async function executeStep(step: Step, options: ExecutorOptions, context: ExecutionContext): Promise<ExecutionResult> {
     const startTime = Date.now();
+
+    if (options.dryRun && ['exec', 'opencli'].includes(step.type)) {
+      return {
+        stepId: step.id,
+        status: 'COMPLETED',
+        output: [`[DRY RUN] Would execute: ${step.cli || step.command} ${step.args?.join(' ') || ''}`],
+        duration: 0,
+      };
+    }
+
     const handler = extendedStepHandlers[step.type] || stepHandlers[step.type] || (step.cli ? handleExec : null);
 
     if (handler) {
@@ -433,15 +453,6 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     },
 
     async execute(step: Step, options: ExecutorOptions = { mode: 'STRICT' }, context: ExecutionContext = { variables: {}, previousOutputs: {} }): Promise<ExecutionResult> {
-      if (options.dryRun) {
-        return {
-          stepId: step.id,
-          status: 'COMPLETED',
-          output: [`[DRY RUN] Would execute: ${step.cli} ${step.args?.join(' ')}`],
-          duration: 0,
-        };
-      }
-
       const validation = this.validateStep(step);
       if (!validation.valid) {
         return {

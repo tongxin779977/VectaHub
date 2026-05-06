@@ -1,13 +1,17 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
-import type { ExecutionRecord, ExecutionFilter } from './types.js';
+import type { ExecutionRecord, ExecutionFilter, ExecutionSearchResult, ExecutionMetadata } from './types.js';
 
 export interface RecordManager {
   save(record: ExecutionRecord): Promise<void>;
   get(id: string): Promise<ExecutionRecord | undefined>;
   list(filter?: ExecutionFilter): Promise<ExecutionRecord[]>;
   delete(id: string): Promise<boolean>;
+  search(query: string, options?: { limit?: number; status?: string }): Promise<ExecutionSearchResult>;
+  getMetadata(id: string): Promise<ExecutionMetadata | undefined>;
+  getLatest(status?: string): Promise<ExecutionRecord | undefined>;
+  getRecent(limit?: number): Promise<ExecutionRecord[]>;
 }
 
 function getDayFile(baseDir: string, dateStr: string): string {
@@ -15,7 +19,11 @@ function getDayFile(baseDir: string, dateStr: string): string {
 }
 
 function parseStartedAt(record: ExecutionRecord): string {
-  return record.startedAt || '';
+  const raw = record.startedAt;
+  const startedAtStr = typeof raw === 'object' && raw !== null && 'toISOString' in raw
+    ? (raw as Date).toISOString()
+    : String(raw);
+  return startedAtStr;
 }
 
 export function createRecordManager(baseDir?: string): RecordManager {
@@ -49,9 +57,12 @@ export function createRecordManager(baseDir?: string): RecordManager {
   return {
     async save(record: ExecutionRecord): Promise<void> {
       await ensureDir();
-      const dateStr = record.startedAt
-        ? record.startedAt.slice(0, 10).replace(/-/g, '')
-        : new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const raw = record.startedAt;
+      const startedAtStr = typeof raw === 'object' && raw !== null && 'toISOString' in raw
+        ? (raw as Date).toISOString()
+        : (typeof raw === 'string' ? raw : new Date().toISOString());
+      
+      const dateStr = startedAtStr.slice(0, 10).replace(/-/g, '');
       const filePath = getDayFile(dir, dateStr);
       const line = JSON.stringify(record) + '\n';
       try {
@@ -114,9 +125,15 @@ export function createRecordManager(baseDir?: string): RecordManager {
       // Rewrite all files
       const grouped = new Map<string, ExecutionRecord[]>();
       for (const r of records) {
-        const dateStr = r.startedAt
-          ? r.startedAt.slice(0, 10).replace(/-/g, '')
+        const raw = r.startedAt;
+        const startedAtStr = typeof raw === 'object' && raw !== null && 'toISOString' in raw
+          ? (raw as Date).toISOString()
+          : (typeof raw === 'string' ? raw : 'unknown');
+        
+        const dateStr = startedAtStr !== 'unknown'
+          ? startedAtStr.slice(0, 10).replace(/-/g, '')
           : 'unknown';
+          
         if (!grouped.has(dateStr)) grouped.set(dateStr, []);
         grouped.get(dateStr)!.push(r);
       }
@@ -138,6 +155,55 @@ export function createRecordManager(baseDir?: string): RecordManager {
       }
 
       return true;
+    },
+
+    async search(query: string, options?: { limit?: number; status?: string }): Promise<ExecutionSearchResult> {
+      let records = await readAllRecords();
+      const queryLower = query.toLowerCase();
+
+      records = records.filter((r) => {
+        const searchable = [
+          r.executionId,
+          r.workflowId,
+          r.workflowName,
+          r.error || '',
+          r.triggeredBy || '',
+          ...(r.metadata ? Object.values(r.metadata).map(String) : []),
+        ].join(' ').toLowerCase();
+
+        const matchesQuery = searchable.includes(queryLower);
+        const matchesStatus = !options?.status || r.status === options.status;
+        return matchesQuery && matchesStatus;
+      });
+
+      records.sort((a, b) => parseStartedAt(b).localeCompare(parseStartedAt(a)));
+
+      const limit = options?.limit || 20;
+      const hasMore = records.length > limit;
+      const sliced = records.slice(0, limit);
+
+      return { records: sliced, total: records.length, hasMore };
+    },
+
+    async getMetadata(id: string): Promise<ExecutionMetadata | undefined> {
+      const record = await this.get(id);
+      if (!record || !record.metadata) return undefined;
+      return record.metadata as unknown as ExecutionMetadata;
+    },
+
+    async getLatest(status?: string): Promise<ExecutionRecord | undefined> {
+      let records = await readAllRecords();
+      if (status) {
+        records = records.filter((r) => r.status === status);
+      }
+      records.sort((a, b) => parseStartedAt(b).localeCompare(parseStartedAt(a)));
+      return records[0];
+    },
+
+    async getRecent(limit = 10): Promise<ExecutionRecord[]> {
+      let records = await readAllRecords();
+      records.sort((a, b) => parseStartedAt(b).localeCompare(parseStartedAt(a)));
+      return records.slice(0, limit);
     },
   };
 }

@@ -4,6 +4,7 @@ import { join, relative } from 'path';
 import { homedir, platform } from 'os';
 import { execSync } from 'child_process';
 import { createConsoleLogger } from '../utils/logger.js';
+import { createRecordManager } from '../execution/record-manager.js';
 
 const logger = createConsoleLogger('export');
 
@@ -307,7 +308,15 @@ export const exportCmd = new Command('export')
   .option('--no-executions', '不导出执行记录')
   .option('--no-config', '不导出配置')
   .option('--no-sessions', '不导出会话数据')
+  .option('--format <format>', '输出格式: json|csv (仅执行记录)', 'json')
+  .option('--status <status>', '过滤执行状态')
+  .option('--limit <number>', '限制导出数量', '100')
   .action(async (options) => {
+    if (options.format === 'csv' || options.status || options.limit !== '100') {
+      await exportExecutionsAsData(options);
+      return;
+    }
+
     const exportOptions: ExportOptions = {
       output: options.output,
       includeSecrets: options.includeSecrets,
@@ -323,6 +332,35 @@ export const exportCmd = new Command('export')
       process.exit(1);
     }
   });
+
+async function exportExecutionsAsData(options: { output: string; status?: string; limit: string; format: string }): Promise<void> {
+  const recordManager = createRecordManager();
+  const limit = parseInt(options.limit, 10) || 100;
+  const records = await recordManager.getRecent(limit);
+
+  let filtered = records;
+  if (options.status) {
+    filtered = records.filter(r => r.status === options.status!.toUpperCase());
+  }
+
+  const outputDir = options.output || process.cwd();
+
+  if (options.format === 'csv') {
+    const csvPath = join(outputDir, `executions-${Date.now()}.csv`);
+    const headers = 'executionId,workflowId,workflowName,status,startedAt,duration,stepCount,error\n';
+    const rows = filtered.map(r => {
+      const safeName = `"${(r.workflowName || '').replace(/"/g, '""')}"`;
+      const safeError = `"${(r.error || '').replace(/"/g, '""')}"`;
+      return `${r.executionId},${r.workflowId},${safeName},${r.status},${r.startedAt},${r.duration || ''},${r.steps.length},${safeError}`;
+    }).join('\n');
+    writeFileSync(csvPath, headers + rows, 'utf-8');
+    logger.info(`✅ 导出 CSV: ${csvPath} (${filtered.length} 条记录)`);
+  } else {
+    const jsonPath = join(outputDir, `executions-${Date.now()}.json`);
+    writeFileSync(jsonPath, JSON.stringify(filtered, null, 2), 'utf-8');
+    logger.info(`✅ 导出 JSON: ${jsonPath} (${filtered.length} 条记录)`);
+  }
+}
 
 export const importCmd = new Command('import')
   .description('导入 VectaHub 数据')

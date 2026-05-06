@@ -51,7 +51,7 @@ function resolveIntentFromConfig(
   if (entities.MODE?.[0]) entityParams.mode = entities.MODE[0];
 
   if (intentName === 'INSTALL_PACKAGE' && !entityParams.package) {
-    const pkgMatch = originalInput.match(/(?:安装|install|添加|add)\s+(?:--dev\s+|开发依赖\s+)?(\S+)/i);
+    const pkgMatch = originalInput.match(/(?:安装|install|添加|add)\s+(?:-g\s+|--global\s+|-D\s+|--dev\s+|开发依赖\s+)?(\S+)/i);
     if (pkgMatch?.[1]) {
       entityParams.package = pkgMatch[1];
     }

@@ -105,6 +105,10 @@ async function executePipelineSkill(
     console.log(`[PIPELINE DEBUG] Pipeline skill result:`, JSON.stringify(result));
 
     if (result.success && result.data) {
+      if ((result.confidence ?? 0) < threshold) {
+        console.debug(`[PIPELINE] Pipeline skill confidence ${result.confidence} below threshold ${threshold}`);
+        return null;
+      }
       return buildSkillResult(result, [pipelineSkill.id], context.input);
     }
   } catch (err) {
@@ -221,12 +225,15 @@ function buildSkillResult(
   }
 
   const intent = data?.intent as NLResult['intent'];
+  const confidence = typeof data?.confidence === 'number' 
+    ? data.confidence 
+    : (result.confidence ?? 0);
 
   return {
     success: true,
     intent,
     workflowYAML,
-    confidence: result.confidence ?? 0,
+    confidence,
     taskList,
     metadata: {
       path: 'skill-pipeline',

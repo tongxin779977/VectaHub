@@ -68,7 +68,7 @@ export function createLifecycleManager(options: {
         targetStep = failedIdx;
       }
 
-      return engine.resumeFromFailure(executionId, execOptions);
+      return engine.resumeFromFailure(executionId, targetStep, execOptions);
     },
   };
 }

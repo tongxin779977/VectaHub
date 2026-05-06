@@ -435,7 +435,7 @@ const lazyLoadableCommands = [
   { name: 'audit', description: 'Audit log commands' },
   { name: 'tools', description: 'CLI tools management' },
   { name: 'list', description: 'List workflows' },
-  { name: 'mode', description: 'Switch execution mode' },
+  { name: 'mode', description: 'Switch execution mode', argument: '[mode]' },
   { name: 'history', description: 'View execution history' },
   { name: 'generate', description: 'Generate workflows' },
   { name: 'schedule', description: 'Schedule workflows' },
@@ -453,7 +453,13 @@ const lazyLoadableCommands = [
 
 for (const cmdInfo of lazyLoadableCommands) {
   const placeholderCmd = new Command(cmdInfo.name)
-    .description(cmdInfo.description)
+    .description(cmdInfo.description);
+  
+  if ((cmdInfo as any).argument) {
+    placeholderCmd.argument((cmdInfo as any).argument);
+  }
+  
+  placeholderCmd
     .allowUnknownOption()
     .action(async () => {
       const cmdName = cmdInfo.name;
