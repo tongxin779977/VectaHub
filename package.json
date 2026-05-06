@@ -1,6 +1,6 @@
 {
   "name": "vectahub",
-  "version": "1.0.1",
+  "version": "1.0.0",
   "type": "module",
   "description": "VectaHub - Natural Language Workflow Engine",
   "main": "dist/index.js",
@@ -17,7 +17,13 @@
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },
-  "keywords": ["workflow", "automation", "cli", "llm", "ai"],
+  "keywords": [
+    "workflow",
+    "automation",
+    "cli",
+    "llm",
+    "ai"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
