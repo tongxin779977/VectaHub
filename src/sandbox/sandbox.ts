@@ -89,7 +89,8 @@ export class SandboxManager {
   private projectPath: string | undefined;
 
   constructor(config: Partial<SandboxConfig> & { projectPath?: string } = {}) {
-    this.config = { ...DEFAULT_CONFIG, ...config };
+    const workspaceDefault = config.workspace || process.cwd();
+    this.config = { ...DEFAULT_CONFIG, ...config, workspace: workspaceDefault };
     this.projectPath = config.projectPath;
     this.ruleEngine = createCommandRuleEngine({
       globalBlocklist: loadGlobalBlocklist(),

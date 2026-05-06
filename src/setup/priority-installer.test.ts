@@ -186,12 +186,42 @@ describe('PriorityInstaller', () => {
       const secondary1 = successStep('s1', 'secondary');
 
       const askRetry = vi.fn().mockResolvedValue(true);
-      const installer = createPriorityInstaller([retryableStep, secondary1], { askRetry });
+      const installer = createPriorityInstaller([retryableStep, secondary1], { askRetry, maxRetries: 1 });
       const result = await installer.run();
 
       expect(result.overallSuccess).toBe(false);
       expect(result.phases.critical).toEqual({ total: 1, succeeded: 0, failed: 1 });
       expect(retryableStep.execute).toHaveBeenCalledTimes(2);
+      expect(secondary1.execute).not.toHaveBeenCalled();
+    });
+
+    it('respects maxRetries limit', async () => {
+      const retryableStep = failStep('c-max-retries', 'critical', 'persistent error', true);
+      const secondary1 = successStep('s1', 'secondary');
+      const maxRetries = 3;
+
+      const askRetry = vi.fn().mockResolvedValue(true);
+      const installer = createPriorityInstaller([retryableStep, secondary1], { askRetry, maxRetries });
+      const result = await installer.run();
+
+      expect(result.overallSuccess).toBe(false);
+      expect(result.phases.critical).toEqual({ total: 1, succeeded: 0, failed: 1 });
+      expect(retryableStep.execute).toHaveBeenCalledTimes(maxRetries + 1); // initial + retries
+      expect(askRetry).toHaveBeenCalledTimes(maxRetries);
+      expect(secondary1.execute).not.toHaveBeenCalled();
+    });
+
+    it('uses default maxRetries of 3 when not specified', async () => {
+      const retryableStep = failStep('c-default-retries', 'critical', 'persistent error', true);
+      const secondary1 = successStep('s1', 'secondary');
+
+      const askRetry = vi.fn().mockResolvedValue(true);
+      const installer = createPriorityInstaller([retryableStep, secondary1], { askRetry });
+      const result = await installer.run();
+
+      expect(result.overallSuccess).toBe(false);
+      expect(result.phases.critical).toEqual({ total: 1, succeeded: 0, failed: 1 });
+      expect(retryableStep.execute).toHaveBeenCalledTimes(4); // default 3 retries + initial
       expect(secondary1.execute).not.toHaveBeenCalled();
     });
 

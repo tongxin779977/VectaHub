@@ -8,6 +8,18 @@ import type { StepResult } from './priority-installer.js';
 const logger = createConsoleLogger('setup');
 
 let sharedRl: Interface | null = null;
+let nonInteractiveMode = false;
+
+export function setNonInteractiveMode(enabled: boolean): void {
+  nonInteractiveMode = enabled;
+}
+
+export function isNonInteractiveMode(): boolean {
+  return nonInteractiveMode || 
+         process.env.VECTAHUB_NON_INTERACTIVE === '1' ||
+         process.env.CI === 'true' ||
+         process.env.CI === '1';
+}
 
 function getRl(): Interface {
   if (!sharedRl) {
@@ -26,7 +38,6 @@ function closeRl(): void {
   }
 }
 
-/** Reset shared readline state (for testing) */
 export function _resetSharedRl(): void {
   closeRl();
 }
@@ -133,6 +144,11 @@ export async function initConfigFile(): Promise<StepResult> {
 
 // Step 3: Configure LLM provider (interactive)
 export async function configureLLMProvider(): Promise<StepResult> {
+  if (isNonInteractiveMode()) {
+    console.log('\n🔧 非交互模式: 跳过 AI 配置\n');
+    return { success: true };
+  }
+
   console.log('\n👋 Welcome to VectaHub!\n');
   console.log('首次使用需要配置 AI 能力。\n');
   console.log('请选择你的 LLM 提供商:');
@@ -161,7 +177,7 @@ export async function configureLLMProvider(): Promise<StepResult> {
       await setupOllama(config);
       break;
     case '5':
-      console.log('⏭️  跳过 AI 配置，将仅使用规则匹配\n');
+      console.log('⏭️跳过 AI 配置，将仅使用规则匹配\n');
       closeRl();
       return { success: true };
     default:

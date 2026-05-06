@@ -70,24 +70,10 @@ describe('CLI Module', () => {
     expect(code).toBe(0);
   });
 
-  it('should have all required commands registered', async () => {
-    const expectedCommands = [
-      'dev',
-      'serve',
-      'client',
-      'security',
-      'audit',
-      'tools',
+  it('should have core commands registered on --help', async () => {
+    const coreCommands = [
       'run',
-      'list',
-      'mode',
-      'history',
       'doctor',
-      'generate',
-      'schedule',
-      'daemon',
-      'templates',
-      'rollback',
       'setup',
       'config'
     ];
@@ -104,12 +90,88 @@ describe('CLI Module', () => {
       });
 
       child.on('close', (exitCode) => {
-        for (const cmd of expectedCommands) {
+        for (const cmd of coreCommands) {
           if (!output.includes(cmd)) {
             resolve(1);
             return;
           }
         }
+        resolve(exitCode || 0);
+      });
+
+      child.on('error', () => {
+        resolve(1);
+      });
+    });
+
+    expect(code).toBe(0);
+  });
+
+  it('should lazily load serve command', async () => {
+    const code = await new Promise<number>((resolve) => {
+      const child = spawn('npx', ['tsx', CLI_PATH, 'serve', '--help'], {
+        cwd: join(__dirname, '..'),
+        stdio: 'pipe'
+      });
+
+      child.on('close', (exitCode) => {
+        resolve(exitCode || 0);
+      });
+
+      child.on('error', () => {
+        resolve(1);
+      });
+    });
+
+    expect(code).toBe(0);
+  });
+
+  it('should lazily load security command', async () => {
+    const code = await new Promise<number>((resolve) => {
+      const child = spawn('npx', ['tsx', CLI_PATH, 'security', '--help'], {
+        cwd: join(__dirname, '..'),
+        stdio: 'pipe'
+      });
+
+      child.on('close', (exitCode) => {
+        resolve(exitCode || 0);
+      });
+
+      child.on('error', () => {
+        resolve(1);
+      });
+    });
+
+    expect(code).toBe(0);
+  });
+
+  it('should lazily load audit command', async () => {
+    const code = await new Promise<number>((resolve) => {
+      const child = spawn('npx', ['tsx', CLI_PATH, 'audit', '--help'], {
+        cwd: join(__dirname, '..'),
+        stdio: 'pipe'
+      });
+
+      child.on('close', (exitCode) => {
+        resolve(exitCode || 0);
+      });
+
+      child.on('error', () => {
+        resolve(1);
+      });
+    });
+
+    expect(code).toBe(0);
+  });
+
+  it('should lazily load export and import commands', async () => {
+    const code = await new Promise<number>((resolve) => {
+      const child = spawn('npx', ['tsx', CLI_PATH, 'export', '--help'], {
+        cwd: join(__dirname, '..'),
+        stdio: 'pipe'
+      });
+
+      child.on('close', (exitCode) => {
         resolve(exitCode || 0);
       });
 

@@ -14,11 +14,20 @@ export interface RetryOptions {
   initialBackoff?: number;
 }
 
+export interface ProgressInfo {
+  currentStep: number;
+  totalSteps: number;
+  stepId: string;
+  stepType: string;
+  status: 'starting' | 'completed' | 'failed';
+}
+
 export interface ExecuteOptions {
   dryRun?: boolean;
   timeout?: number;
   mode?: 'strict' | 'relaxed' | 'consensus';
   retry?: RetryOptions;
+  onProgress?: (info: ProgressInfo) => void;
 }
 
 export interface WorkflowEngine {
@@ -51,6 +60,7 @@ interface RunLoopOptions {
   initialSteps?: StepRecord[];
   initialWarnings?: string[];
   sessionId?: string;
+  onProgress?: (info: ProgressInfo) => void;
 }
 
 function toInterpolationContext(executorCtx: ExecutorContext): InterpolationContext {
@@ -75,6 +85,7 @@ async function runExecutionLoop(
     initialSteps,
     initialWarnings,
     sessionId = 'unknown',
+    onProgress,
   } = options;
 
   const newExecutionId = `exec_${++executionCounter}`;
@@ -111,6 +122,16 @@ async function runExecutionLoop(
   for (let i = 0; i < sortedSteps.length; i++) {
     sm.currentStepIndex = i;
     const step = sortedSteps[i];
+
+    if (onProgress) {
+      onProgress({
+        currentStep: i + 1,
+        totalSteps: sortedSteps.length,
+        stepId: step.id,
+        stepType: step.type,
+        status: 'starting',
+      });
+    }
 
     if (sm.state === 'ABORTING' || sm.state === 'ABORTED') {
       sm.currentExecution.warnings.push(`Workflow aborted at step ${i + 1}`);
@@ -168,9 +189,28 @@ async function runExecutionLoop(
       }
 
       if (result.status === 'FAILED') {
+        if (onProgress) {
+          onProgress({
+            currentStep: i + 1,
+            totalSteps: sortedSteps.length,
+            stepId: step.id,
+            stepType: step.type,
+            status: 'failed',
+          });
+        }
         sm.setState('FAILED');
         sm.currentExecution.warnings.push(`Step ${i + 1} failed: ${result.error}`);
         break;
+      }
+
+      if (onProgress) {
+        onProgress({
+          currentStep: i + 1,
+          totalSteps: sortedSteps.length,
+          stepId: step.id,
+          stepType: step.type,
+          status: 'completed',
+        });
       }
     } catch (error) {
       const stepRecord: StepRecord = {
@@ -179,6 +219,15 @@ async function runExecutionLoop(
         error: error instanceof Error ? error.message : String(error),
       };
       sm.currentExecution.steps.push(stepRecord);
+      if (onProgress) {
+        onProgress({
+          currentStep: i + 1,
+          totalSteps: sortedSteps.length,
+          stepId: step.id,
+          stepType: step.type,
+          status: 'failed',
+        });
+      }
       sm.setState('FAILED');
       break;
     }
@@ -238,6 +287,7 @@ export function createWorkflowEngine(): WorkflowEngine {
       steps: workflow.steps,
       executorOptions: buildExecutorOptions(workflow, options),
       contextManager,
+      onProgress: options.onProgress,
     });
   }
 

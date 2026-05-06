@@ -36,6 +36,7 @@ const PHASE_LABELS: Record<InstallationPhase, string> = {
 
 interface InstallerOptions {
   askRetry?: (stepName: string) => Promise<boolean>;
+  maxRetries?: number;
 }
 
 export interface Installer {
@@ -72,35 +73,45 @@ export function createPriorityInstaller(
       // Execute critical phase
       for (const step of criticalSteps) {
         const label = PHASE_LABELS.critical;
+        const maxRetries = options?.maxRetries ?? 3;
+        let retryCount = 0;
+        let success = false;
+        let lastResult: StepResult | null = null;
+
         console.log(`🔧 [${label}] 正在: ${step.name}`);
 
-        const result = await step.execute();
+        while (retryCount <= maxRetries) {
+          const result = await step.execute();
+          lastResult = result;
 
-        if (result.success) {
+          if (result.success) {
+            success = true;
+            break;
+          }
+
+          const isRetryable = step.retryable !== false;
+          if (!isRetryable || !options?.askRetry || retryCount >= maxRetries) {
+            break;
+          }
+
+          retryCount++;
+          const shouldRetry = await options.askRetry(step.name);
+          if (!shouldRetry) {
+            break;
+          }
+
+          console.log(`🔄 [${label}] 重试 ${retryCount}/${maxRetries}: ${step.name}`);
+        }
+
+        if (success) {
           console.log(`✅ [${label}] 完成: ${step.name}`);
           phases.critical.succeeded++;
         } else {
-          const isRetryable = step.retryable !== false; // defaults to true for critical
-
-          // Try retry if retryable and askRetry is provided
-          if (isRetryable && options?.askRetry) {
-            const shouldRetry = await options.askRetry(step.name);
-            if (shouldRetry) {
-              const retryResult = await step.execute();
-              if (retryResult.success) {
-                console.log(`✅ [${label}] 完成: ${step.name}`);
-                phases.critical.succeeded++;
-                continue;
-              }
-            }
-          }
-
-          // Failed after retry or not retryable
-          const reason = result.reason || 'unknown error';
+          const reason = lastResult?.reason || 'unknown error';
           console.log(`❌ [${label}] 失败: ${step.name} — ${reason}`);
           phases.critical.failed++;
           blocked = true;
-          break; // stop critical phase on first failure
+          break;
         }
       }
 

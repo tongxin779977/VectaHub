@@ -5,6 +5,17 @@ import { createConsoleLogger } from '../utils/logger.js';
 import { createStorage } from '../workflow/storage.js';
 import { listTemplates, instantiateTemplate, type WorkflowTemplate } from '../workflow/template.js';
 import { loadConfig } from '../setup/first-run-wizard.js';
+import {
+  getSources,
+  addSource,
+  removeSource,
+  updateSource,
+  updateAllSources,
+  searchTemplates as searchMarketTemplates,
+  installTemplateByName,
+  type TemplateSource,
+  type TemplateMetadata,
+} from '../workflow/template-market.js';
 
 const logger = createConsoleLogger('templates');
 
@@ -51,6 +62,38 @@ function collectParams(value: string, previous: Record<string, string>): Record<
   return { ...previous, [key]: rest.join('=') };
 }
 
+function formatMarketTemplateTable(templates: TemplateMetadata[]): void {
+  if (templates.length === 0) {
+    logger.info('  (no templates found)');
+    return;
+  }
+  console.log(`  ${'Source'.padEnd(12)} ${'Name'.padEnd(22)} ${'Category'.padEnd(12)} ${'Tags'.padEnd(20)} Description`);
+  console.log(`  ${'─'.repeat(12)} ${'─'.repeat(22)} ${'─'.repeat(12)} ${'─'.repeat(20)} ${'─'.repeat(30)}`);
+  for (const t of templates) {
+    const tags = t.template.tags.join(', ');
+    const params = t.template.parameters ? t.template.parameters.length : 0;
+    console.log(
+      `  ${t.sourceId.padEnd(12)} ${t.template.name.padEnd(22)} ${t.template.category.padEnd(12)} ${tags.padEnd(20)} ${t.template.description}` +
+      (params > 0 ? ` (${params} params)` : '')
+    );
+  }
+}
+
+function formatSourcesTable(sources: TemplateSource[]): void {
+  if (sources.length === 0) {
+    logger.info('  (no sources configured)');
+    return;
+  }
+  console.log(`  ${'ID'.padEnd(15)} ${'Name'.padEnd(20)} ${'URL'.padEnd(40)} ${'Type'.padEnd(10)} ${'Last Update'}`);
+  console.log(`  ${'─'.repeat(15)} ${'─'.repeat(20)} ${'─'.repeat(40)} ${'─'.repeat(10)} ${'─'.repeat(20)}`);
+  for (const s of sources) {
+    const lastUpdate = s.lastUpdate ? new Date(s.lastUpdate).toLocaleDateString() : 'Never';
+    console.log(
+      `  ${s.id.padEnd(15)} ${s.name.padEnd(20)} ${s.url.padEnd(40)} ${s.type.padEnd(10)} ${lastUpdate}`
+    );
+  }
+}
+
 export const templatesCmd = new Command('templates')
   .description('Manage workflow templates')
   .command('list')
@@ -63,6 +106,101 @@ export const templatesCmd = new Command('templates')
     formatTemplateTable(templates);
     console.log(`\nTotal: ${templates.length} template(s)`);
     logger.info('\nUsage: vectahub templates use <name> [--param key=value]');
+  })
+  .command('search')
+  .description('Search templates in remote marketplaces')
+  .argument('[keyword]', 'Search keyword')
+  .option('-c, --category <category>', 'Filter by category')
+  .option('-t, --tag <tag>', 'Filter by tag')
+  .action(async (keyword: string, options: { category?: string; tag?: string }) => {
+    logger.info(`\n搜索模板: ${keyword || '全部'}`);
+    logger.info('正在连接模板仓库...\n');
+    
+    try {
+      const templates = await searchMarketTemplates(keyword, options.category, options.tag);
+      formatMarketTemplateTable(templates);
+      console.log(`\n找到 ${templates.length} 个模板`);
+      logger.info('\n使用 `vectahub templates install <name>` 安装模板');
+    } catch (error) {
+      logger.error(`搜索失败: ${(error as Error).message}`);
+      process.exit(1);
+    }
+  })
+  .command('install')
+  .description('Install a template from marketplace')
+  .argument('<name>', 'Template name')
+  .option('-o, --output <dir>', 'Output directory')
+  .action(async (name: string, options: { output?: string }) => {
+    logger.info(`\n安装模板: ${name}`);
+    
+    try {
+      const path = await installTemplateByName(name, options.output);
+      logger.info(`\n✅ 模板安装成功`);
+      console.log(`  路径: ${path}`);
+      logger.info(`\n使用: vectahub templates use ${name}`);
+    } catch (error) {
+      logger.error(`安装失败: ${(error as Error).message}`);
+      process.exit(1);
+    }
+  })
+  .command('sources')
+  .description('Manage template sources')
+  .command('list')
+  .description('List configured template sources')
+  .action(async () => {
+    const sources = await getSources();
+    logger.info('\n配置的模板源:\n');
+    formatSourcesTable(sources);
+  })
+  .command('add')
+  .description('Add a template source')
+  .argument('<name>', 'Source name')
+  .argument('<url>', 'Git repository URL')
+  .option('-b, --branch <branch>', 'Git branch', 'main')
+  .option('-p, --path <path>', 'Path within repository')
+  .action(async (name: string, url: string, options: { branch?: string; path?: string }) => {
+    try {
+      await addSource({
+        name,
+        url,
+        type: url.includes('github.com') ? 'github' : 'git',
+        branch: options.branch,
+        path: options.path,
+      });
+      logger.info(`\n✅ 模板源添加成功: ${name}`);
+    } catch (error) {
+      logger.error(`添加失败: ${(error as Error).message}`);
+      process.exit(1);
+    }
+  })
+  .command('remove')
+  .description('Remove a template source')
+  .argument('<id>', 'Source ID')
+  .action(async (id: string) => {
+    try {
+      await removeSource(id);
+      logger.info(`\n✅ 模板源已移除: ${id}`);
+    } catch (error) {
+      logger.error(`移除失败: ${(error as Error).message}`);
+      process.exit(1);
+    }
+  })
+  .command('update')
+  .description('Update a template source')
+  .argument('[id]', 'Source ID (or all if not specified)')
+  .action(async (id?: string) => {
+    try {
+      if (id) {
+        await updateSource(id);
+        logger.info(`\n✅ 模板源已更新: ${id}`);
+      } else {
+        await updateAllSources();
+        logger.info('\n✅ 所有模板源已更新');
+      }
+    } catch (error) {
+      logger.error(`更新失败: ${(error as Error).message}`);
+      process.exit(1);
+    }
   });
 
 export const templatesSaveCmd = new Command('save')

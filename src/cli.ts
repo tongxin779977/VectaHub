@@ -2,38 +2,179 @@
 
 import { Command } from 'commander';
 import { initAuditLogger, getCurrentSessionId, audit } from './utils/audit.js';
-import { check } from './commands/check.js';
-import { status } from './commands/status.js';
-import { moduleCmd } from './commands/module.js';
-import { validate } from './commands/validate.js';
-import { test } from './commands/test.js';
-import { build } from './commands/build.js';
-import { serveCmd, clientCmd } from './commands/serve.js';
-import { securityCmd } from './commands/security.js';
-import { auditCmd } from './commands/audit-cmd.js';
-import { toolsCmd } from './commands/tools.js';
+import { setGlobalOptions, isVerbose } from './utils/global-options.js';
+import { setLogLevel } from './infrastructure/logger/index.js';
 import { runCmd } from './commands/run.js';
-import { listCmd } from './commands/list.js';
-import { modeCmd } from './commands/mode.js';
-import { historyCmd } from './commands/history.js';
 import { doctorCmd } from './commands/doctor.js';
-import { generateCmd } from './commands/generate.js';
-import { scheduleCmd } from './commands/schedule.js';
-import { daemonCmd } from './commands/daemon.js';
-import { templatesCmd, templatesUseCmd, templatesSaveCmd } from './commands/templates.js';
-import { rollbackCmd } from './commands/list.js';
-import { verifyCmd } from './commands/verify.js';
-import { chatCmd } from './commands/chat.js';
-import { getCliToolRegistry } from './cli-tools/index.js';
-import { gitTool } from './cli-tools/tools/git.js';
-import { npmTool } from './cli-tools/tools/npm.js';
-import { dockerTool } from './cli-tools/tools/docker.js';
-import { curlTool } from './cli-tools/tools/curl.js';
 import { formatErrorMessage } from './utils/errors.js';
 import { loadConfig as loadUtilsConfig } from './utils/config.js';
-import { isFirstRun, runFirstRunWizard, loadConfig as loadSetupConfig, saveConfig as saveSetupConfig } from './setup/first-run-wizard.js';
+import { isFirstRun, runFirstRunWizard, loadConfig as loadSetupConfig, saveConfig as saveSetupConfig, setNonInteractiveMode } from './setup/first-run-wizard.js';
 import { scanCLITools, updateCLIToolConfig, getAvailableExternalCLI } from './setup/cli-scanner.js';
 import { createDefaultInstaller } from './setup/priority-installer.js';
+import { completeWorkflowNames, completeTemplateNames, completeConfigCommands, completeShellTypes } from './utils/completion.js';
+import { getBashCompletion, getZshCompletion, getFishCompletion } from './utils/completion-scripts.js';
+
+const loadedCommands = new Set<string>();
+
+async function lazyLoadCommand(commandName: string): Promise<void> {
+  if (loadedCommands.has(commandName)) return;
+  
+  try {
+    switch (commandName) {
+      case 'serve':
+      case 'client': {
+        const { serveCmd, clientCmd } = await import('./commands/serve.js');
+        program.addCommand(serveCmd);
+        program.addCommand(clientCmd);
+        loadedCommands.add('serve');
+        loadedCommands.add('client');
+        break;
+      }
+      case 'security': {
+        const { securityCmd } = await import('./commands/security.js');
+        program.addCommand(securityCmd);
+        loadedCommands.add('security');
+        break;
+      }
+      case 'audit': {
+        const { auditCmd } = await import('./commands/audit-cmd.js');
+        program.addCommand(auditCmd);
+        loadedCommands.add('audit');
+        break;
+      }
+      case 'tools': {
+        const { toolsCmd } = await import('./commands/tools.js');
+        program.addCommand(toolsCmd);
+        loadedCommands.add('tools');
+        break;
+      }
+      case 'list': {
+        const { listCmd } = await import('./commands/list.js');
+        program.addCommand(listCmd);
+        loadedCommands.add('list');
+        break;
+      }
+      case 'mode': {
+        const { modeCmd } = await import('./commands/mode.js');
+        program.addCommand(modeCmd);
+        loadedCommands.add('mode');
+        break;
+      }
+      case 'history': {
+        const { historyCmd } = await import('./commands/history.js');
+        program.addCommand(historyCmd);
+        loadedCommands.add('history');
+        break;
+      }
+      case 'generate': {
+        const { generateCmd } = await import('./commands/generate.js');
+        program.addCommand(generateCmd);
+        loadedCommands.add('generate');
+        break;
+      }
+      case 'schedule': {
+        const { scheduleCmd } = await import('./commands/schedule.js');
+        program.addCommand(scheduleCmd);
+        loadedCommands.add('schedule');
+        break;
+      }
+      case 'daemon': {
+        const { daemonCmd } = await import('./commands/daemon.js');
+        program.addCommand(daemonCmd);
+        loadedCommands.add('daemon');
+        break;
+      }
+      case 'templates': {
+        const { templatesCmd, templatesUseCmd, templatesSaveCmd } = await import('./commands/templates.js');
+        program.addCommand(templatesCmd.addCommand(templatesUseCmd).addCommand(templatesSaveCmd));
+        loadedCommands.add('templates');
+        break;
+      }
+      case 'rollback': {
+        const { rollbackCmd } = await import('./commands/list.js');
+        program.addCommand(rollbackCmd);
+        loadedCommands.add('rollback');
+        break;
+      }
+      case 'verify': {
+        const { verifyCmd } = await import('./commands/verify.js');
+        program.addCommand(verifyCmd);
+        loadedCommands.add('verify');
+        break;
+      }
+      case 'chat': {
+        const { chatCmd } = await import('./commands/chat.js');
+        program.addCommand(chatCmd);
+        loadedCommands.add('chat');
+        break;
+      }
+      case 'plugins': {
+        const { pluginsCmd } = await import('./commands/plugins.js');
+        program.addCommand(pluginsCmd);
+        loadedCommands.add('plugins');
+        break;
+      }
+      case 'monitor': {
+        const { monitorCmd } = await import('./commands/monitor.js');
+        program.addCommand(monitorCmd);
+        loadedCommands.add('monitor');
+        break;
+      }
+      case 'debug': {
+        const { debugCmd } = await import('./commands/debug.js');
+        program.addCommand(debugCmd);
+        loadedCommands.add('debug');
+        break;
+      }
+      case 'export':
+      case 'import': {
+        const { exportCmd, importCmd } = await import('./commands/export.js');
+        program.addCommand(exportCmd);
+        program.addCommand(importCmd);
+        loadedCommands.add('export');
+        loadedCommands.add('import');
+        break;
+      }
+      case 'dev': {
+        const { check } = await import('./commands/check.js');
+        const { status } = await import('./commands/status.js');
+        const { moduleCmd } = await import('./commands/module.js');
+        const { validate } = await import('./commands/validate.js');
+        const { test } = await import('./commands/test.js');
+        const { build } = await import('./commands/build.js');
+        const devCmd = new Command('dev').description('Development commands for multi-agent collaboration');
+        devCmd.addCommand(check).addCommand(status).addCommand(moduleCmd).addCommand(validate).addCommand(test).addCommand(build);
+        program.addCommand(devCmd, { hidden: true });
+        loadedCommands.add('dev');
+        break;
+      }
+    }
+  } catch (error) {
+    console.error(`⚠️  加载命令 ${commandName} 失败:`, (error as Error).message);
+  }
+}
+
+async function lazyLoadCliTools(): Promise<void> {
+  if (loadedCommands.has('cli-tools')) return;
+  
+  try {
+    const { getCliToolRegistry } = await import('./cli-tools/index.js');
+    const { gitTool } = await import('./cli-tools/tools/git.js');
+    const { npmTool } = await import('./cli-tools/tools/npm.js');
+    const { dockerTool } = await import('./cli-tools/tools/docker.js');
+    const { curlTool } = await import('./cli-tools/tools/curl.js');
+    
+    const registry = getCliToolRegistry();
+    registry.register(gitTool);
+    registry.register(npmTool);
+    registry.register(dockerTool);
+    registry.register(curlTool);
+    loadedCommands.add('cli-tools');
+  } catch (error) {
+    console.warn('⚠️  工具注册失败，将继续运行...');
+    console.warn(`   原因: ${formatErrorMessage(error, '工具注册')}`);
+  }
+}
 
 try {
   initAuditLogger();
@@ -42,20 +183,6 @@ try {
   console.warn(`   原因: ${formatErrorMessage(error, '审计日志')}`);
 }
 
-try {
-    const registry = getCliToolRegistry();
-    registry.register(gitTool);
-    registry.register(npmTool);
-    registry.register(dockerTool);
-    registry.register(curlTool);
-  } catch (error) {
-    console.warn('⚠️  工具注册失败，将继续运行...');
-    console.warn(`   原因: ${formatErrorMessage(error, '工具注册')}`);
-  }
-
-/**
- * 安全策略警告模板
- */
 function getSecurityWarningTemplate(policy: string): string {
   const blockTag = policy === 'block' ? ' (当前)' : '';
   const allowTag = policy === 'allow' ? ' (当前)' : '';
@@ -82,9 +209,6 @@ function getSecurityWarningTemplate(policy: string): string {
 `.trim();
 }
 
-/**
- * 显示安全策略警告 (在 Commander.js 上下文中)
- */
 function displayPolicyWarning(): void {
   try {
     const config = loadUtilsConfig();
@@ -105,12 +229,29 @@ program
   .name('vectahub')
   .description('VectaHub - Workflow Editor & Engine + OpenCLI')
   .version('1.0.1')
-  .hook('preAction', (thisCommand) => {
+  .option('-v, --verbose', '详细输出模式')
+  .option('-d, --debug', '调试模式（包含详细输出）')
+  .option('--non-interactive', '非交互模式（适用于 CI/CD）')
+  .hook('preAction', async (thisCommand) => {
+    const opts = thisCommand.opts();
+    if (opts.verbose || opts.debug) {
+      setGlobalOptions({ verbose: opts.verbose || false, debug: opts.debug || false });
+      setLogLevel(opts.debug ? 'debug' : 'info');
+    }
+    if (opts.nonInteractive) {
+      setNonInteractiveMode(true);
+    }
+    
+    const commandName = thisCommand.name();
+    if (commandName !== 'vectahub') {
+      await lazyLoadCommand(commandName);
+      await lazyLoadCliTools();
+    }
+    
     displayPolicyWarning();
     
     try {
       const sessionId = getCurrentSessionId();
-      const commandName = thisCommand.name();
       const args = process.argv.slice(3);
       audit.cliCommand(commandName, args, sessionId);
     } catch {
@@ -119,35 +260,9 @@ program
   });
 
 program
-  .command('dev')
-  .description('Development commands for multi-agent collaboration')
-  .addCommand(check)
-  .addCommand(status)
-  .addCommand(moduleCmd)
-  .addCommand(validate)
-  .addCommand(test)
-  .addCommand(build);
-
-program
-  .addCommand(serveCmd)
-  .addCommand(clientCmd)
-  .addCommand(securityCmd)
-  .addCommand(auditCmd)
-  .addCommand(toolsCmd)
   .addCommand(runCmd)
-  .addCommand(listCmd)
-  .addCommand(modeCmd)
-  .addCommand(historyCmd)
-  .addCommand(doctorCmd)
-  .addCommand(generateCmd)
-  .addCommand(scheduleCmd)
-  .addCommand(daemonCmd)
-  .addCommand(templatesCmd.addCommand(templatesUseCmd).addCommand(templatesSaveCmd))
-  .addCommand(rollbackCmd)
-  .addCommand(verifyCmd)
-  .addCommand(chatCmd);
+  .addCommand(doctorCmd);
 
-// Setup 命令
 const setupCmd = new Command('setup')
   .description('运行优先级安装流程')
   .action(async () => {
@@ -211,7 +326,8 @@ configCmd
 configCmd
   .command('tools')
   .description('列出已配置的 CLI 工具')
-  .action(() => {
+  .action(async () => {
+    await lazyLoadCliTools();
     const available = getAvailableExternalCLI();
     console.log('\n📋 可用的外部 CLI 工具:\n');
     if (available.length === 0) {
@@ -222,6 +338,30 @@ configCmd
     console.log();
   });
 
+const completionCmd = new Command('completion')
+  .description('生成命令补全脚本')
+  .argument('<shell>', '目标shell类型: bash, zsh, fish')
+  .action((shell) => {
+    switch (shell) {
+      case 'bash':
+        console.log(getBashCompletion());
+        break;
+      case 'zsh':
+        console.log(getZshCompletion());
+        break;
+      case 'fish':
+        console.log(getFishCompletion());
+        break;
+      default:
+        console.error(`❌ 不支持的shell类型: ${shell}`);
+        console.log('支持的类型: bash, zsh, fish');
+        process.exit(1);
+    }
+  });
+
+
+
+program.addCommand(completionCmd);
 program.addCommand(setupCmd);
 program.addCommand(configCmd);
 

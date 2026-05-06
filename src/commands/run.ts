@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { createConsoleLogger } from '../utils/logger.js';
-import { createWorkflowEngine } from '../workflow/engine.js';
+import { createWorkflowEngine, type ProgressInfo } from '../workflow/engine.js';
 import { createStorage } from '../workflow/storage.js';
 import { reviewAndEditCommands } from './command-editor.js';
 import { isFirstRun, loadConfig, saveConfig } from '../setup/first-run-wizard.js';
@@ -17,6 +17,19 @@ import fs from 'node:fs';
 import { homedir } from 'node:os';
 
 const logger = createConsoleLogger('run');
+
+function createProgressCallback(totalSteps: number): (info: ProgressInfo) => void {
+  return (info: ProgressInfo) => {
+    const percentage = Math.round((info.currentStep / info.totalSteps) * 100);
+    const statusIcon = info.status === 'starting' ? '▶' : info.status === 'completed' ? '✓' : '✗';
+    const statusText = info.status === 'starting' ? '执行中' : info.status === 'completed' ? '完成' : '失败';
+    const progressBar = '█'.repeat(Math.floor(percentage / 5)) + '░'.repeat(20 - Math.floor(percentage / 5));
+    process.stdout.write(`\r[${progressBar}] ${percentage}% | ${statusIcon} 步骤 ${info.currentStep}/${info.totalSteps}: ${info.stepId} (${statusText})`);
+    if (info.status === 'completed' || info.status === 'failed') {
+      process.stdout.write('\n');
+    }
+  };
+}
 
 export const runCmd = new Command('run')
   .description('Run a workflow from natural language or file')
@@ -151,7 +164,11 @@ export const runCmd = new Command('run')
                   }
                   logger.info('执行工作流...');
                   const mode = options.mode || 'relaxed';
-                  const result = await workflowEngine.execute(workflow, { mode: mode as any, dryRun: options.dryRun });
+                  const result = await workflowEngine.execute(workflow, { 
+                    mode: mode as any, 
+                    dryRun: options.dryRun,
+                    onProgress: createProgressCallback(workflow.steps.length),
+                  });
                   logger.info(`\n执行${result.status === 'COMPLETED' ? '✅ 成功' : '❌ 失败'}`);
                   logger.info(`耗时: ${result.duration}ms`);
                   if (result.status === 'FAILED') {
@@ -174,6 +191,15 @@ export const runCmd = new Command('run')
           if (nlResult.metadata.fallbackReason) {
             logger.info(`💡 降级原因: ${nlResult.metadata.fallbackReason}`);
           }
+          logger.info('\n💡 您可能想执行:');
+          logger.info('  - vectahub run "git status"');
+          logger.info('  - vectahub run "npm test"');
+          logger.info('  - vectahub run "列出当前目录文件"');
+          logger.info('\n📋 可用模板:');
+          logger.info('  - vectahub templates use git-commit');
+          logger.info('  - vectahub templates use git-flow');
+          logger.info('  - vectahub templates use ci-check');
+          logger.info('  - vectahub templates use docker-build');
           process.exit(1);
         }
 
@@ -223,7 +249,11 @@ export const runCmd = new Command('run')
 
       logger.info('执行工作流...');
       const mode = options.mode || 'relaxed';
-      const result = await workflowEngine.execute(workflow, { mode: mode as any, dryRun: options.dryRun });
+      const result = await workflowEngine.execute(workflow, { 
+        mode: mode as any, 
+        dryRun: options.dryRun,
+        onProgress: createProgressCallback(workflow.steps.length),
+      });
 
       logger.info(`\n执行${result.status === 'COMPLETED' ? '✅ 成功' : '❌ 失败'}`);
       logger.info(`耗时: ${result.duration}ms`);
