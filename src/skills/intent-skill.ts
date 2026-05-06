@@ -54,11 +54,10 @@ export function createIntentSkill(
 
         const validIntentNames = getAllIntentNames();
         if (!validIntentNames.includes(parsed.intent)) {
-          return {
-            success: false,
-            error: `Unknown intent: ${parsed.intent}`,
-            confidence: 0
-          };
+          // 如果意图不在预定义列表中，使用通用意图 WORKFLOW_GENERATE
+          console.debug(`[INTENT SKILL] Unknown intent: ${parsed.intent}, using WORKFLOW_GENERATE`);
+          parsed.intent = 'WORKFLOW_GENERATE';
+          parsed.confidence = Math.max(parsed.confidence, 0.5);
         }
 
         return {

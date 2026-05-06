@@ -71,11 +71,12 @@ export class SkillExecutor {
           timeoutPromise
         ]);
 
-        getLogger().debug(`Skill ${skill.name} executed successfully: ${result.success}`);
+        getLogger().debug(`Skill ${skill.name} executed successfully: ${result.success}, confidence: ${result.confidence}`);
         return result;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
         getLogger().warn(`Skill ${skill.name} failed (retry ${retries + 1}/${this.options.maxRetries}):`, lastError.message);
+        console.error(`[DEBUG] Skill ${skill.name} failed with error:`, lastError.message);
         retries++;
 
         if (retries <= this.options.maxRetries!) {

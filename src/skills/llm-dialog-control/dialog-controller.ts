@@ -144,6 +144,10 @@ export function createDialogController(
     const baseUrl = config.baseUrl || 'https://api.openai.com/v1';
     const timeout = config.timeout || 30000;
     
+    console.debug(`[LLM DEBUG] Calling API: ${baseUrl}/chat/completions`);
+    console.debug(`[LLM DEBUG] Model: ${config.model}`);
+    console.debug(`[LLM DEBUG] API Key present: ${!!apiKey}`);
+    
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
     
@@ -163,13 +167,20 @@ export function createDialogController(
         })
       });
       
+      console.debug(`[LLM DEBUG] Response status: ${response.status}`);
+      
       if (!response.ok) {
         const errorText = await response.text();
+        console.error(`[LLM DEBUG] API error: ${response.status} - ${errorText}`);
         throw new Error(`API error: ${response.status} - ${errorText}`);
       }
       
       const data = await response.json() as any;
+      console.debug(`[LLM DEBUG] Response received, content length: ${data.choices?.[0]?.message?.content?.length || 0}`);
       return data.choices?.[0]?.message?.content || '';
+    } catch (error) {
+      console.error(`[LLM DEBUG] Exception occurred: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
     } finally {
       clearTimeout(timeoutId);
     }

@@ -1,6 +1,11 @@
 import { SkillRegistry, createSkillRegistry } from './registry.js';
 import { createSkillExecutor, SkillExecutor } from './executor.js';
 import { createCommandSkill } from './command-skill.js';
+import { createIntentSkill } from './intent-skill.js';
+import { createWorkflowSkill } from './workflow-skill.js';
+import { createPipelineSkill } from './pipeline-skill.js';
+import { createPromptRegistry } from '../nl/prompt/v3.js';
+import { createLLMDialogControlSkill } from './llm-dialog-control/index.js';
 import type { SkillExecutorOptions } from './executor.js';
 import type { AIModuleRegistry as IAIModuleRegistry, AIModule, AIModuleMetadata } from './ai-modules/types.js';
 import type { AIModuleConfig } from '../infrastructure/config/index.js';
@@ -31,12 +36,6 @@ export function createSkillSystem(options?: SkillSystemOptions): SkillSystem {
 
   if (options?.llmConfig) {
     try {
-      const { createIntentSkill } = require('./intent-skill.js');
-      const { createWorkflowSkill } = require('./workflow-skill.js');
-      const { createPipelineSkill } = require('./pipeline-skill.js');
-      const { createPromptRegistry } = require('../nl/prompt/v3.js');
-      const { createLLMDialogControlSkill } = require('./llm-dialog-control/index.js');
-
       const promptRegistry = createPromptRegistry();
       const llmDialogSkill = createLLMDialogControlSkill(options.llmConfig, { maxRetries: 3 });
 

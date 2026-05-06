@@ -15,7 +15,7 @@ export interface PipelineSkillInput {
 
 export function createPipelineSkill(
   intentSkill: Skill<string, IntentSkillOutput>,
-  commandSkill: Skill<any, PipelineCommandResult>,
+  commandSkill: Skill<any, any>,
   workflowSkill: Skill<any, WorkflowSkillOutput>
 ): CompositeSkill {
   return {

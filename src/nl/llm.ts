@@ -376,6 +376,9 @@ export function createLLMConfig(): LLMConfig | null {
           } else if (provider === 'openai') {
             baseUrl = 'https://api.openai.com/v1';
           }
+        } else if (provider === 'openai' && !baseUrl.endsWith('/v1')) {
+          // 如果配置了自定义 baseUrl（如 DeepSeek），确保它以 /v1 结尾
+          baseUrl = baseUrl.replace(/\/?$/, '/v1');
         }
         
         if ((provider === 'openai' || provider === 'groq' || provider === 'anthropic') && !apiKey) {
