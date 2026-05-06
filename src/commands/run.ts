@@ -38,9 +38,11 @@ export const runCmd = new Command('run')
       }
 
       let workflow: Workflow | null = null;
+      const storage = createStorage();
+      const workflowEngine = createWorkflowEngine();
+      await workflowEngine.loadWorkflows();
 
       if (options.file) {
-        const storage = createStorage();
         let filepath = path.resolve(options.file);
         
         if (!fs.existsSync(filepath)) {
@@ -95,7 +97,7 @@ export const runCmd = new Command('run')
         });
 
         const multiIntent = nlResult.metadata.multiIntent;
-        if (multiIntent && multiIntent.isMultiIntent) {
+        if (multiIntent && multiIntent.isMultiIntent && multiIntent.intents.length > 1) {
           logger.info(`多意图识别 (${multiIntent.intents.length} 个):`);
           for (const intent of multiIntent.intents) {
             logger.info(`  - ${intent.intent} (confidence: ${intent.confidence.toFixed(2)})`);
@@ -135,10 +137,6 @@ export const runCmd = new Command('run')
           }
         }
 
-        const workflowEngine = createWorkflowEngine();
-        await workflowEngine.loadWorkflows();
-        const storage = createStorage();
-
         const steps: Array<Step> = [];
         let stepIndex = 1;
 
@@ -170,10 +168,6 @@ export const runCmd = new Command('run')
         logger.error('❌ 请提供自然语言描述或使用 --file 选项指定工作流文件');
         process.exit(1);
       }
-
-      const workflowEngine = createWorkflowEngine();
-      await workflowEngine.loadWorkflows();
-      const storage = createStorage();
 
       logger.info('执行工作流...');
       const mode = options.mode || 'relaxed';

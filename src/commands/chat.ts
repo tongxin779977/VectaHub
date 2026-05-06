@@ -29,18 +29,18 @@ export const chatCmd = new Command('chat')
 
       const { registry, executor } = createSkillSystem();
       const patterns = adaptAllTemplates(INTENT_TEMPLATES);
-        const coordinator = createCoordinator(patterns);
-        const keywordFallback = createKeywordFallback(patterns);
-        const nlProcessor = createNLProcessor(
-          registry,
-          keywordFallback,
-          {
-            confidenceThreshold: 0.7,
-            executor,
-            coordinator,
-            useNewMatcher: true,
-          }
-        );
+      const coordinator = createCoordinator(patterns);
+      const keywordFallback = createKeywordFallback(patterns);
+      const nlProcessor = createNLProcessor(
+        registry,
+        keywordFallback,
+        {
+          confidenceThreshold: 0.7,
+          executor,
+          coordinator,
+          useNewMatcher: true,
+        }
+      );
 
       const deps = {
         nlProcessor,

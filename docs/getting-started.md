@@ -25,15 +25,23 @@ vectahub run "查看当前目录"
 
 看到结果了？恭喜你，已经可以使用 VectaHub 了！
 
-### 第三步：尝试更多功能（1.5分钟）
+### 第三步：试试 Chat REPL（1.5分钟）
 
 ```bash
-# 查看可用工具
-vectahub tools list
-
-# 尝试另一个命令
-vectahub run "查看 git 状态"
+# 启动交互式对话
+vectahub chat
 ```
+
+进入 Chat 后，你可以用自然语言连续对话：
+
+```
+> 查看 git 状态
+> 帮我提交这些改动，消息是"更新文档"
+> /help    # 查看所有命令
+> /quit    # 退出
+```
+
+Chat REPL 支持上下文记忆，前面对话的信息会自动传递到后续对话中。
 
 ---
 
