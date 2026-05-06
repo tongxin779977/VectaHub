@@ -1,8 +1,13 @@
-import type { SkillRegistry } from '../../skills/types.js';
+import type { SkillRegistry } from '../../skills/registry.js';
 import type { SkillExecutor } from '../../skills/executor.js';
 import type { NLProcessor, NLContext, NLResult } from './types.js';
 import type { SkillContext } from '../../skills/types.js';
-import type { Coordinator, KeywordMatcher } from '../matcher/index.js';
+import type { IntentName } from '../../types/index.js';
+import YAML from 'yaml';
+
+export interface NLProcessorOptions {
+  useLLM?: boolean;
+}
 
 interface SkillResult<T = unknown> {
   success: boolean;
@@ -14,7 +19,7 @@ interface SkillResult<T = unknown> {
 
 export function createNLProcessor(
   skillRegistry: SkillRegistry,
-  keywordFallback: KeywordMatcher,
+  keywordFallback: NLProcessor,
   deps: {
     executor?: SkillExecutor;
     confidenceThreshold?: number;
@@ -29,12 +34,12 @@ export function createNLProcessor(
     console.log(`[PIPELINE DEBUG] useLLM: ${context.options?.useLLM}`);
 
     if (!context.options?.useLLM) {
-      const keywordResult = keywordFallback.match(input);
+      const keywordResult = await keywordFallback.parse(context);
       return {
-        success: keywordResult.matched,
+        success: keywordResult.success,
         intent: keywordResult.intent as NLResult['intent'],
         confidence: keywordResult.confidence,
-        taskList: keywordResult.tasks ? { intent: keywordResult.intent as string, tasks: keywordResult.tasks } : undefined,
+        taskList: keywordResult.taskList,
         metadata: {
           path: 'keyword-only',
           usedSkills: [],
@@ -60,9 +65,12 @@ export function createNLProcessor(
       if (individualResult) return individualResult;
     }
 
-    const keywordResult = keywordFallback.match(input);
+    const keywordResult = await keywordFallback.parse(context);
     return {
-      ...keywordResult,
+      success: keywordResult.success,
+      intent: keywordResult.intent,
+      confidence: keywordResult.confidence,
+      taskList: keywordResult.taskList,
       metadata: {
         path: 'keyword-fallback',
         usedSkills: [],
@@ -218,7 +226,7 @@ function buildSkillResult(
     success: true,
     intent,
     workflowYAML,
-    confidence: result.confidence,
+    confidence: result.confidence ?? 0,
     taskList,
     metadata: {
       path: 'skill-pipeline',
@@ -228,46 +236,98 @@ function buildSkillResult(
 }
 
 function createTaskListFromWorkflow(workflowYAML: string, userInput: string): NLResult['taskList'] {
-  return {
-    intent: 'WORKFLOW_GENERATE',
-    tasks: [
-      {
-        description: userInput,
-        commands: [
-          {
-            cli: 'echo',
-            args: ['Workflow generated from YAML']
-          }
-        ]
+  try {
+    let workflow: {
+      name?: string;
+      description?: string;
+      steps?: Array<{
+        id?: string;
+        type?: string;
+        cli?: string;
+        args?: string[];
+      }>;
+    };
+
+    try {
+      workflow = YAML.parse(workflowYAML) as typeof workflow;
+    } catch {
+      const documents = YAML.parseAllDocuments(workflowYAML);
+      if (documents.length > 0) {
+        workflow = documents[0].toJSON() as typeof workflow;
+      } else {
+        throw new Error('No documents found');
       }
-    ]
-  };
-}
+    }
 
-function parseWithCoordinator(context: NLContext, coordinator: Coordinator): NLResult {
-  const input = typeof context.input === 'string' ? context.input : '';
-  const result = coordinator.match(input);
+    const tasks = workflow.steps
+      ? workflow.steps
+          .filter((step): step is { id: string; type: string; cli: string; args?: string[] } => 
+            !!step && typeof step === 'object' && typeof step.type === 'string' && step.type === 'exec' && typeof step.cli === 'string'
+          )
+          .map((step, index) => ({
+            id: step.id || `task_${index + 1}`,
+            type: 'QUERY_EXEC' as const,
+            description: step.id || `Step ${index + 1}`,
+            status: 'PENDING' as const,
+            commands: [{
+              cli: step.cli,
+              args: step.args || [],
+            }],
+            dependencies: [],
+          }))
+      : [];
 
-  if (!result.matched) {
+    if (tasks.length === 0) {
+      return {
+        version: '1.0',
+        generatedAt: new Date().toISOString(),
+        originalInput: userInput,
+        intent: 'WORKFLOW_GENERATE' as IntentName,
+        confidence: 1.0,
+        entities: { FILE_PATH: [], CLI_TOOL: [], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: [], HOST: [], PORT: [], OWNER: [], MODE: [], FILE1: [], FILE2: [] },
+        tasks: [
+          {
+            id: 'task_1',
+            type: 'QUERY_EXEC' as const,
+            description: userInput,
+            status: 'PENDING' as const,
+            commands: [{ cli: 'echo', args: ['Workflow generated from YAML'] }],
+            dependencies: [],
+          }
+        ],
+        warnings: [],
+      };
+    }
+
     return {
-      success: false,
-      intent: 'UNKNOWN',
-      confidence: 0,
-      metadata: {
-        path: 'no-match',
-        usedSkills: [],
-      },
+      version: '1.0',
+      generatedAt: new Date().toISOString(),
+      originalInput: userInput,
+      intent: 'WORKFLOW_GENERATE' as IntentName,
+      confidence: 1.0,
+      entities: { FILE_PATH: [], CLI_TOOL: [], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: [], HOST: [], PORT: [], OWNER: [], MODE: [], FILE1: [], FILE2: [] },
+      tasks,
+      warnings: [],
+    };
+  } catch {
+    return {
+      version: '1.0',
+      generatedAt: new Date().toISOString(),
+      originalInput: userInput,
+      intent: 'WORKFLOW_GENERATE' as IntentName,
+      confidence: 1.0,
+      entities: { FILE_PATH: [], CLI_TOOL: [], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: [], HOST: [], PORT: [], OWNER: [], MODE: [], FILE1: [], FILE2: [] },
+      tasks: [
+        {
+          id: 'task_1',
+          type: 'QUERY_EXEC' as const,
+          description: userInput,
+          status: 'PENDING' as const,
+          commands: [{ cli: 'echo', args: ['Workflow generated from YAML'] }],
+          dependencies: [],
+        }
+      ],
+      warnings: [],
     };
   }
-
-  return {
-    success: true,
-    intent: result.intent as NLResult['intent'],
-    confidence: result.confidence,
-    taskList: result.tasks ? { intent: result.intent as string, tasks: result.tasks } : undefined,
-    metadata: {
-      path: 'coordinator',
-      usedSkills: ['coordinator'],
-    },
-  };
 }

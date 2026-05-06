@@ -1,21 +1,5 @@
-import type { IntentName } from '../../types/index.js';
+import type { IntentName, TaskList } from '../../types/index.js';
 import type { Workflow } from '../../types/index.js';
-
-export interface TaskList {
-  intent: IntentName | string;
-  tasks: Task[];
-}
-
-export interface Task {
-  id?: string;
-  description?: string;
-  commands?: Command[];
-}
-
-export interface Command {
-  cli: string;
-  args?: string[];
-}
 
 export interface NLResult {
   success: boolean;
@@ -25,7 +9,7 @@ export interface NLResult {
   workflowYAML?: string;
   workflow?: Workflow;
   metadata: {
-    path: 'skill-pipeline' | 'keyword-fallback' | 'keyword-match' | 'coordinator' | 'coordinator-multi' | 'category-router' | 'direct-query' | 'dialog';
+    path: 'skill-pipeline' | 'keyword-fallback' | 'keyword-match' | 'keyword-only' | 'coordinator' | 'coordinator-multi' | 'category-router' | 'direct-query' | 'dialog' | 'skill-individual' | 'no-match';
     usedSkills?: string[];
     fallbackReason?: string;
     multiIntent?: MultiIntentResult;

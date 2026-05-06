@@ -1,9 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createNLProcessor } from './pipeline.js';
+import { createKeywordFallback } from './keyword-fallback.js';
+import { adaptAllTemplates } from './adapter.js';
+import { INTENT_TEMPLATES } from '../templates/index.js';
 import type { NLContext, NLResult, NLProcessor } from './types.js';
+import type { IntentName } from '../../types/index.js';
 import type { Skill, SkillResult, SkillContext, CompositeSkill } from '../../skills/types.js';
 import { createSkillRegistry } from '../../skills/registry.js';
 import { createSkillExecutor } from '../../skills/executor.js';
+import YAML from 'yaml';
 
 function createMockSkill<TInput = unknown, TOutput = unknown>(
   id: string,
@@ -27,27 +32,30 @@ function createMockSkill<TInput = unknown, TOutput = unknown>(
 }
 
 const mockKeywordFallback: NLProcessor = {
-  parse: async (context: NLContext) => ({
+  parse: async () => ({
     success: true,
-    intent: 'QUERY_INFO' as NLResult['intent'],
+    intent: 'QUERY_INFO' as IntentName,
     confidence: 0.5,
-    metadata: {
-      path: 'keyword-fallback' as const,
-      usedSkills: [],
-      fallbackReason: 'keyword match',
+    taskList: {
+      version: '1.0',
+      generatedAt: new Date().toISOString(),
+      originalInput: 'test',
+      intent: 'QUERY_INFO' as IntentName,
+      confidence: 0.5,
+      entities: { FILE_PATH: [], CLI_TOOL: [], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: [], HOST: [], PORT: [], OWNER: [], MODE: [], FILE1: [], FILE2: [] },
+      tasks: [],
+      warnings: [],
     },
+    metadata: { path: 'keyword-fallback' as const },
   }),
 };
 
 const mockFailingKeywordFallback: NLProcessor = {
   parse: async () => ({
     success: false,
+    intent: 'UNKNOWN' as IntentName,
     confidence: 0,
-    metadata: {
-      path: 'keyword-fallback' as const,
-      usedSkills: [],
-      fallbackReason: 'no match',
-    },
+    metadata: { path: 'keyword-fallback' as const },
   }),
 };
 
@@ -78,8 +86,6 @@ describe('NLProcessor', () => {
         sessionId: 'session-123',
         options: {
           useLLM: false,
-          fallbackToKeyword: true,
-          confidenceThreshold: 0.8,
         },
       };
       expect(context.sessionId).toBe('session-123');
@@ -136,7 +142,7 @@ describe('NLProcessor', () => {
 
       expect(result.success).toBe(true);
       expect(result.intent).toBe('QUERY_INFO');
-      expect(result.metadata.path).toBe('keyword-fallback');
+      expect(result.metadata.path).toBe('keyword-only');
       expect(result.metadata.usedSkills).toEqual([]);
       expect(result.metadata.fallbackReason).toBe('LLM disabled');
     });
@@ -147,7 +153,7 @@ describe('NLProcessor', () => {
 
       const result = await processor.parse({ input: 'test' });
 
-      expect(result.metadata.path).toBe('keyword-fallback');
+      expect(result.metadata.path).toBe('keyword-only');
     });
 
     it('should fallback even with failing keyword parser', async () => {
@@ -160,7 +166,23 @@ describe('NLProcessor', () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.metadata.path).toBe('keyword-fallback');
+      expect(result.metadata.path).toBe('keyword-only');
+    });
+
+    it('should work with real createKeywordFallback (NLProcessor) when useLLM is false', async () => {
+      const registry = createSkillRegistry();
+      const patterns = adaptAllTemplates(INTENT_TEMPLATES);
+      const realKeywordFallback = createKeywordFallback(patterns);
+      const processor = createNLProcessor(registry, realKeywordFallback);
+
+      const result = await processor.parse({
+        input: 'git commit',
+        options: { useLLM: false },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.intent).toBe('GIT_WORKFLOW');
+      expect(result.metadata.path).toBe('keyword-only');
     });
   });
 
@@ -175,7 +197,7 @@ describe('NLProcessor', () => {
       });
 
       expect(result.metadata.path).toBe('keyword-fallback');
-      expect(result.metadata.fallbackReason).toBe('No executor configured');
+      expect(result.metadata.fallbackReason).toBe('No executor available');
     });
   });
 
@@ -292,7 +314,7 @@ describe('NLProcessor', () => {
       const executor = createSkillExecutor();
 
       const intentSkill = createMockSkill<string, { intent: string }>(
-        'intent-recognizer',
+        'vectahub.intent',
         () => ({
           success: true,
           data: { intent: 'BUILD_PROJECT' },
@@ -300,6 +322,19 @@ describe('NLProcessor', () => {
         })
       );
       registry.register(intentSkill);
+
+      const workflowSkill = createMockSkill<string, { workflowYAML: string; intent: string }>(
+        'vectahub.workflow',
+        () => ({
+          success: true,
+          data: { 
+            workflowYAML: 'version: "2.0"\nsteps:\n  - name: Build\n    exec: npm run build',
+            intent: 'BUILD_PROJECT'
+          },
+          confidence: 0.85,
+        })
+      );
+      registry.register(workflowSkill);
 
       const processor = createNLProcessor(registry, mockKeywordFallback, { executor });
       const result = await processor.parse({
@@ -309,7 +344,7 @@ describe('NLProcessor', () => {
 
       expect(result.success).toBe(true);
       expect(result.metadata.path).toBe('skill-pipeline');
-      expect(result.metadata.usedSkills).toContain('intent-recognizer');
+      expect(result.metadata.usedSkills).toContain('vectahub.intent');
       expect(result.intent).toBe('BUILD_PROJECT');
     });
 
@@ -318,7 +353,7 @@ describe('NLProcessor', () => {
       const executor = createSkillExecutor();
 
       const intentSkill = createMockSkill<string, { intent: string }>(
-        'intent-skill',
+        'vectahub.intent',
         () => ({
           success: true,
           data: { intent: 'BUILD_PROJECT' },
@@ -326,17 +361,17 @@ describe('NLProcessor', () => {
         })
       );
 
-      const commandSkill = createMockSkill<{ intent: string }, { commands: { cli: string; args: string[] }[] }>(
-        'command-skill',
-        (input) => ({
+      const workflowSkill = createMockSkill<string, { workflowYAML: string }>(
+        'vectahub.workflow',
+        () => ({
           success: true,
-          data: { commands: [{ cli: 'npm', args: ['run', 'build'] }] },
+          data: { workflowYAML: 'version: "2.0"\nsteps:\n  - name: Build\n    exec: npm run build' },
           confidence: 0.85,
         })
       );
 
       registry.register(intentSkill);
-      registry.register(commandSkill);
+      registry.register(workflowSkill);
 
       const processor = createNLProcessor(registry, mockKeywordFallback, { executor });
       const result = await processor.parse({
@@ -345,8 +380,8 @@ describe('NLProcessor', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.metadata.usedSkills).toContain('intent-skill');
-      expect(result.metadata.usedSkills).toContain('command-skill');
+      expect(result.metadata.usedSkills).toContain('vectahub.intent');
+      expect(result.metadata.usedSkills).toContain('vectahub.workflow');
     });
   });
 
@@ -373,5 +408,108 @@ describe('NLProcessor', () => {
 
       expect(result.metadata.path).toBe('keyword-fallback');
     });
+  });
+});
+
+describe('createTaskListFromWorkflow', () => {
+  it('should parse workflow YAML and generate real tasks', async () => {
+    const workflowYAML = YAML.stringify({
+      name: 'Test Workflow',
+      description: 'Test',
+      mode: 'relaxed',
+      steps: [
+        { id: 'step1', type: 'exec', cli: 'echo', args: ['hello'] },
+        { id: 'step2', type: 'exec', cli: 'ls', args: ['-la'] },
+      ],
+    });
+
+    const registry = createSkillRegistry();
+    const executor = createSkillExecutor();
+    const patterns = adaptAllTemplates(INTENT_TEMPLATES);
+    const keywordFallback = createKeywordFallback(patterns);
+    
+    const pipelineSkill: Skill<string, { workflowYAML: string }> = {
+      id: 'vectahub.pipeline',
+      name: 'Pipeline Skill',
+      version: '1.0.0',
+      description: 'Test',
+      tags: [],
+      canHandle: async () => true,
+      execute: async () => ({
+        success: true,
+        data: { workflowYAML },
+        confidence: 0.9,
+      }),
+    };
+    registry.register(pipelineSkill);
+
+    const nlProcessor = createNLProcessor(registry, keywordFallback, { executor });
+    const result = await nlProcessor.parse({
+      input: 'test workflow',
+      options: { useLLM: true },
+    });
+
+    expect(result.taskList).toBeDefined();
+    expect(result.taskList!.tasks.length).toBeGreaterThan(0);
+    
+    const commands = result.taskList!.tasks.flatMap(t => t.commands);
+    expect(commands.some(c => c.cli === 'echo')).toBe(true);
+    expect(commands.some(c => c.cli === 'ls')).toBe(true);
+    expect(commands.some(c => c.args?.includes('hello'))).toBe(true);
+    expect(commands.some(c => c.args?.includes('-la'))).toBe(true);
+  });
+
+  it('should parse multi-document YAML and extract first document', async () => {
+    const workflowYAML = `name: "First Workflow"
+description: "First"
+mode: relaxed
+steps:
+  - id: step1
+    type: exec
+    cli: grep
+    args: ["-c", "TODO", "/tmp/test.md"]
+---
+name: "Second Workflow"
+description: "Second"
+mode: relaxed
+steps:
+  - id: step2
+    type: exec
+    cli: wc
+    args: ["-l", "/tmp/test.md"]`;
+
+    const registry = createSkillRegistry();
+    const executor = createSkillExecutor();
+    const patterns = adaptAllTemplates(INTENT_TEMPLATES);
+    const keywordFallback = createKeywordFallback(patterns);
+    
+    const pipelineSkill: Skill<string, { workflowYAML: string }> = {
+      id: 'vectahub.pipeline',
+      name: 'Pipeline Skill',
+      version: '1.0.0',
+      description: 'Test',
+      tags: [],
+      canHandle: async () => true,
+      execute: async () => ({
+        success: true,
+        data: { workflowYAML },
+        confidence: 0.9,
+      }),
+    };
+    registry.register(pipelineSkill);
+
+    const nlProcessor = createNLProcessor(registry, keywordFallback, { executor });
+    const result = await nlProcessor.parse({
+      input: 'test workflow',
+      options: { useLLM: true },
+    });
+
+    expect(result.taskList).toBeDefined();
+    expect(result.taskList!.tasks.length).toBe(1);
+    
+    const commands = result.taskList!.tasks.flatMap(t => t.commands);
+    expect(commands.some(c => c.cli === 'grep')).toBe(true);
+    expect(commands.some(c => c.args?.includes('TODO'))).toBe(true);
+    expect(commands.some(c => c.cli === 'wc')).toBe(false);
   });
 });

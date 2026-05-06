@@ -58,13 +58,13 @@ export function createIntentSkill(
         if (!validIntentNames.includes(parsed.intent)) {
           console.debug(`[INTENT SKILL] Unknown intent: ${parsed.intent}, using WORKFLOW_GENERATE`);
           parsed.intent = 'WORKFLOW_GENERATE';
-          parsed.confidence = Math.max(parsed.confidence, 0.5);
+          parsed.confidence = Math.max(parsed.confidence ?? 0, 0.5);
         }
 
         return {
           success: true,
           data: parsed,
-          confidence: parsed.confidence
+          confidence: parsed.confidence !== undefined ? parsed.confidence : undefined
         };
       } catch (error) {
         console.debug(`[INTENT SKILL] Exception: ${error instanceof Error ? error.message : String(error)}`);

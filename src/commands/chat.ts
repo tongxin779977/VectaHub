@@ -38,8 +38,6 @@ export const chatCmd = new Command('chat')
         {
           confidenceThreshold: 0.7,
           executor,
-          coordinator,
-          useNewMatcher: true,
         }
       );
 

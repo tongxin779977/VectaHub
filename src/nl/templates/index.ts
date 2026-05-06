@@ -116,7 +116,7 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     ],
     priority: 3,
     tags: ['file', 'search'],
-    category: IntentCategory.SEARCH,
+    category: IntentCategory.QUERY,
   },
 
   DIALOG_GREETING: {
@@ -190,6 +190,465 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     ],
     priority: 5,
     tags: ['workflow', 'generation'],
+    category: IntentCategory.GENERATE,
+  },
+
+  GIT_WORKFLOW: {
+    name: 'GIT_WORKFLOW',
+    description: 'Git 工作流操作',
+    keywords: ['提交', 'commit', 'push', 'pull', 'clone', 'git', 'add', '代码提交', '提交代码'],
+    weight: 0.9,
+    cli: ['git'],
+    params: {
+      message: {
+        type: 'string',
+        required: false,
+        description: '提交信息'
+      }
+    },
+    steps: [
+      {
+        type: 'exec',
+        cli: 'git',
+        args: ['add', '.']
+      },
+      {
+        type: 'exec',
+        cli: 'git',
+        args: ['commit', '-m', '${message}']
+      }
+    ],
+    weightedKeywords: [
+      { text: '提交', tier: 'core' },
+      { text: 'commit', tier: 'core' },
+      { text: 'git', tier: 'core' },
+      { text: 'push', tier: 'core' },
+      { text: 'pull', tier: 'core' },
+    ],
+    phrases: [
+      { pattern: '提交代码', isRegex: false, weight: 1.0, bonus: 2.0 },
+      { pattern: '提交.*git', isRegex: true, weight: 1.0, bonus: 2.0 },
+    ],
+    negativeKeywords: [
+      { text: '查找', strength: 'soft' },
+      { text: '搜索', strength: 'soft' },
+    ],
+    priority: 4,
+    tags: ['git', 'version-control'],
+    category: IntentCategory.EXECUTE,
+  },
+
+  INSTALL_PACKAGE: {
+    name: 'INSTALL_PACKAGE',
+    description: '安装依赖包',
+    keywords: ['安装', 'install', 'npm install', '依赖', '添加依赖', '装包'],
+    weight: 0.85,
+    cli: ['npm', 'yarn', 'pnpm'],
+    params: {
+      package: {
+        type: 'string',
+        required: false,
+        description: '包名'
+      }
+    },
+    steps: [
+      {
+        type: 'exec',
+        cli: 'npm',
+        args: ['install', '${package}']
+      }
+    ],
+    weightedKeywords: [
+      { text: '安装', tier: 'core' },
+      { text: 'install', tier: 'core' },
+      { text: '依赖', tier: 'important' },
+    ],
+    phrases: [
+      { pattern: '安装依赖', isRegex: false, weight: 1.0, bonus: 2.0 },
+      { pattern: 'npm install', isRegex: false, weight: 1.0, bonus: 2.5 },
+    ],
+    priority: 4,
+    tags: ['package', 'install'],
+    category: IntentCategory.EXECUTE,
+  },
+
+  RUN_SCRIPT: {
+    name: 'RUN_SCRIPT',
+    description: '运行脚本或构建',
+    keywords: ['构建', 'build', '测试', 'test', '运行', 'run', '启动', 'start'],
+    weight: 0.85,
+    cli: ['npm', 'yarn', 'pnpm'],
+    params: {
+      script: {
+        type: 'string',
+        required: false,
+        description: '脚本名称'
+      }
+    },
+    steps: [
+      {
+        type: 'exec',
+        cli: 'npm',
+        args: ['run', '${script}']
+      }
+    ],
+    weightedKeywords: [
+      { text: '构建', tier: 'core' },
+      { text: 'build', tier: 'core' },
+      { text: '测试', tier: 'core' },
+      { text: 'test', tier: 'core' },
+      { text: '运行', tier: 'important' },
+    ],
+    phrases: [
+      { pattern: '运行.*测试', isRegex: true, weight: 1.0, bonus: 2.0 },
+      { pattern: '构建项目', isRegex: false, weight: 1.0, bonus: 2.0 },
+    ],
+    priority: 4,
+    tags: ['script', 'build'],
+    category: IntentCategory.EXECUTE,
+  },
+
+  CREATE_FILE: {
+    name: 'CREATE_FILE',
+    description: '创建文件或目录',
+    keywords: ['创建', '新建', 'create', 'mkdir', 'touch', '生成文件'],
+    weight: 0.8,
+    cli: ['touch', 'mkdir'],
+    params: {
+      path: {
+        type: 'string',
+        required: true,
+        description: '文件路径'
+      }
+    },
+    steps: [
+      {
+        type: 'exec',
+        cli: 'touch',
+        args: ['${path}']
+      }
+    ],
+    weightedKeywords: [
+      { text: '创建', tier: 'core' },
+      { text: '新建', tier: 'core' },
+      { text: 'create', tier: 'core' },
+    ],
+    phrases: [
+      { pattern: '创建.*文件', isRegex: true, weight: 1.0, bonus: 2.0 },
+      { pattern: '创建.*目录', isRegex: true, weight: 1.0, bonus: 2.0 },
+      { pattern: '创建.*文件夹', isRegex: true, weight: 1.0, bonus: 2.0 },
+    ],
+    negativeKeywords: [
+      { text: '查找', strength: 'soft' },
+      { text: '搜索', strength: 'soft' },
+    ],
+    priority: 5,
+    tags: ['file', 'create'],
+    category: IntentCategory.EXECUTE,
+  },
+
+  FILE_ARCHIVE: {
+    name: 'FILE_ARCHIVE',
+    description: '压缩或解压文件',
+    keywords: ['压缩', '打包', 'archive', 'zip', 'tar', '解压', 'extract', 'unzip'],
+    weight: 0.8,
+    cli: ['tar', 'zip', 'unzip'],
+    params: {
+      filePath: {
+        type: 'string',
+        required: false,
+        description: '文件路径'
+      }
+    },
+    steps: [
+      {
+        type: 'exec',
+        cli: 'tar',
+        args: ['-czf', 'archive.tar.gz', '${filePath}']
+      }
+    ],
+    weightedKeywords: [
+      { text: '压缩', tier: 'core' },
+      { text: '打包', tier: 'core' },
+      { text: '解压', tier: 'core' },
+      { text: 'archive', tier: 'core' },
+    ],
+    phrases: [
+      { pattern: '压缩.*目录', isRegex: true, weight: 1.0, bonus: 2.0 },
+      { pattern: '打包.*文件', isRegex: true, weight: 1.0, bonus: 2.0 },
+      { pattern: '解压.*文件', isRegex: true, weight: 1.0, bonus: 2.0 },
+    ],
+    priority: 5,
+    tags: ['file', 'archive'],
+    category: IntentCategory.EXECUTE,
+  },
+
+  FILE_PERMISSION: {
+    name: 'FILE_PERMISSION',
+    description: '修改文件权限',
+    keywords: ['权限', 'permission', 'chmod', 'chown', '修改权限', '文件权限'],
+    weight: 0.8,
+    cli: ['chmod', 'chown'],
+    params: {
+      filePath: {
+        type: 'string',
+        required: false,
+        description: '文件路径'
+      },
+      mode: {
+        type: 'string',
+        required: false,
+        description: '权限模式'
+      }
+    },
+    steps: [
+      {
+        type: 'exec',
+        cli: 'chmod',
+        args: ['${mode}', '${filePath}']
+      }
+    ],
+    weightedKeywords: [
+      { text: '权限', tier: 'core' },
+      { text: 'chmod', tier: 'core' },
+      { text: '修改权限', tier: 'core' },
+    ],
+    phrases: [
+      { pattern: '修改.*权限', isRegex: true, weight: 1.0, bonus: 2.0 },
+      { pattern: '文件权限', isRegex: false, weight: 1.0, bonus: 2.0 },
+    ],
+    priority: 5,
+    tags: ['file', 'permission'],
+    category: IntentCategory.EXECUTE,
+  },
+
+  FILE_DIFF: {
+    name: 'FILE_DIFF',
+    description: '查看文件差异',
+    keywords: ['差异', 'diff', '比较', 'compare', '文件差异', '查看差异'],
+    weight: 0.8,
+    cli: ['diff'],
+    params: {
+      file1: {
+        type: 'string',
+        required: false,
+        description: '第一个文件'
+      },
+      file2: {
+        type: 'string',
+        required: false,
+        description: '第二个文件'
+      }
+    },
+    steps: [
+      {
+        type: 'exec',
+        cli: 'diff',
+        args: ['-u', '${file1}', '${file2}']
+      }
+    ],
+    weightedKeywords: [
+      { text: '差异', tier: 'core' },
+      { text: 'diff', tier: 'core' },
+      { text: '比较', tier: 'important' },
+    ],
+    phrases: [
+      { pattern: '查看.*差异', isRegex: true, weight: 1.0, bonus: 2.0 },
+      { pattern: '文件差异', isRegex: false, weight: 1.0, bonus: 2.0 },
+    ],
+    priority: 5,
+    tags: ['file', 'diff'],
+    category: IntentCategory.QUERY,
+  },
+
+  DOCKER_BUILD: {
+    name: 'DOCKER_BUILD',
+    description: '构建 Docker 镜像',
+    keywords: ['docker', 'build', '镜像', '构建镜像', 'docker build', 'container'],
+    weight: 0.85,
+    cli: ['docker'],
+    params: {
+      tag: {
+        type: 'string',
+        required: false,
+        description: '镜像标签'
+      }
+    },
+    steps: [
+      {
+        type: 'exec',
+        cli: 'docker',
+        args: ['build', '-t', '${tag}', '.']
+      }
+    ],
+    weightedKeywords: [
+      { text: 'docker', tier: 'core' },
+      { text: 'build', tier: 'core' },
+      { text: '镜像', tier: 'core' },
+      { text: '构建镜像', tier: 'core' },
+    ],
+    phrases: [
+      { pattern: '构建镜像', isRegex: false, weight: 1.0, bonus: 2.5 },
+      { pattern: 'docker.*build', isRegex: true, weight: 1.0, bonus: 2.5 },
+      { pattern: 'build.*docker.*image', isRegex: true, weight: 1.0, bonus: 2.5 },
+    ],
+    priority: 4,
+    tags: ['docker', 'build'],
+    category: IntentCategory.EXECUTE,
+  },
+
+  SYSTEM_INFO: {
+    name: 'SYSTEM_INFO',
+    description: '查看系统信息',
+    keywords: ['系统信息', '系统', 'system', '信息', 'info', '磁盘使用', '查看系统'],
+    weight: 0.8,
+    cli: ['uname', 'df', 'systeminfo'],
+    params: {},
+    steps: [
+      {
+        type: 'exec',
+        cli: 'uname',
+        args: ['-a']
+      }
+    ],
+    weightedKeywords: [
+      { text: '系统信息', tier: 'core' },
+      { text: '系统', tier: 'important' },
+      { text: '磁盘使用', tier: 'important' },
+    ],
+    phrases: [
+      { pattern: '查看系统信息', isRegex: false, weight: 1.0, bonus: 2.5 },
+      { pattern: '系统信息', isRegex: false, weight: 1.0, bonus: 2.0 },
+      { pattern: '查看磁盘使用', isRegex: false, weight: 1.0, bonus: 2.0 },
+    ],
+    negativeKeywords: [
+      { text: '监控', strength: 'soft' },
+      { text: '负载', strength: 'soft' },
+    ],
+    priority: 5,
+    tags: ['system', 'info'],
+    category: IntentCategory.QUERY,
+  },
+
+  QUERY_INFO: {
+    name: 'QUERY_INFO',
+    description: '通用信息查询',
+    keywords: ['查询', 'query', '信息', 'what', 'how', '是什么', '怎么做'],
+    weight: 0.7,
+    cli: [],
+    params: {},
+    steps: [
+      {
+        type: 'exec',
+        cli: 'echo',
+        args: ['Querying information']
+      }
+    ],
+    weightedKeywords: [
+      { text: '查询', tier: 'core' },
+      { text: '信息', tier: 'important' },
+    ],
+    phrases: [
+      { pattern: '查询.*信息', isRegex: true, weight: 1.0, bonus: 2.0 },
+    ],
+    priority: 2,
+    tags: ['query', 'info'],
+    category: IntentCategory.QUERY,
+  },
+
+  NETWORK_INFO: {
+    name: 'NETWORK_INFO',
+    description: '查看网络信息',
+    keywords: ['网络信息', '网络', 'network', 'ip', 'ifconfig', '查看网络', '网络状态'],
+    weight: 0.8,
+    cli: ['ifconfig', 'ip', 'netstat'],
+    params: {},
+    steps: [
+      {
+        type: 'exec',
+        cli: 'ifconfig',
+        args: []
+      }
+    ],
+    weightedKeywords: [
+      { text: '网络信息', tier: 'core' },
+      { text: '网络', tier: 'important' },
+      { text: 'ip', tier: 'important' },
+    ],
+    phrases: [
+      { pattern: '查看网络信息', isRegex: false, weight: 1.0, bonus: 2.5 },
+      { pattern: '网络信息', isRegex: false, weight: 1.0, bonus: 2.0 },
+    ],
+    priority: 5,
+    tags: ['network', 'info'],
+    category: IntentCategory.QUERY,
+  },
+
+  DATA_SCRAPING: {
+    name: 'DATA_SCRAPING',
+    description: '数据爬取或抓取',
+    keywords: ['爬取', '抓取', 'scrape', 'crawl', '数据采集', '爬取数据', '网页数据'],
+    weight: 0.9,
+    cli: ['curl', 'wget', 'python'],
+    params: {
+      url: {
+        type: 'string',
+        required: false,
+        description: '目标URL'
+      }
+    },
+    steps: [
+      {
+        type: 'exec',
+        cli: 'curl',
+        args: ['${url}']
+      }
+    ],
+    weightedKeywords: [
+      { text: '爬取', tier: 'core' },
+      { text: '抓取', tier: 'core' },
+      { text: '数据采集', tier: 'core' },
+    ],
+    phrases: [
+      { pattern: '爬取.*数据', isRegex: true, weight: 1.0, bonus: 2.5 },
+      { pattern: '数据采集', isRegex: false, weight: 1.0, bonus: 2.5 },
+    ],
+    priority: 5,
+    tags: ['data', 'scraping'],
+    category: IntentCategory.GENERATE,
+  },
+
+  CONTENT_SUMMARY: {
+    name: 'CONTENT_SUMMARY',
+    description: '内容摘要或总结',
+    keywords: ['摘要', '总结', 'summary', 'summarize', '内容摘要', '文章摘要', '文本摘要'],
+    weight: 0.9,
+    cli: [],
+    params: {
+      content: {
+        type: 'string',
+        required: false,
+        description: '需要摘要的内容'
+      }
+    },
+    steps: [
+      {
+        type: 'exec',
+        cli: 'echo',
+        args: ['Generating content summary']
+      }
+    ],
+    weightedKeywords: [
+      { text: '摘要', tier: 'core' },
+      { text: '总结', tier: 'core' },
+      { text: '内容摘要', tier: 'core' },
+    ],
+    phrases: [
+      { pattern: '内容摘要', isRegex: false, weight: 1.0, bonus: 2.5 },
+      { pattern: '摘要.*内容', isRegex: true, weight: 1.0, bonus: 2.0 },
+    ],
+    priority: 5,
+    tags: ['content', 'summary'],
     category: IntentCategory.GENERATE,
   }
 };

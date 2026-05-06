@@ -90,7 +90,7 @@ export const runCmd = new Command('run')
         const llmConfig = createLLMConfig();
         const useLLM = !!llmConfig;
 
-        const { registry, executor } = createSkillSystem();
+        const { registry, executor } = createSkillSystem({ llmConfig });
         const patterns = adaptAllTemplates(INTENT_TEMPLATES);
         const coordinator = createCoordinator(patterns);
         const keywordFallback = createKeywordFallback(patterns);
@@ -101,14 +101,12 @@ export const runCmd = new Command('run')
           {
             confidenceThreshold: 0.7,
             executor,
-            coordinator,
-            useNewMatcher: true,
           }
         );
 
         const nlResult = await nlProcessor.parse({
           input: text,
-          options: { useLLM: false },
+          options: { useLLM: !!llmConfig },
         });
 
         const matchedIntent = nlResult.intent || nlResult.taskList?.intent || 'UNKNOWN';
@@ -127,9 +125,10 @@ export const runCmd = new Command('run')
         }
 
         const multiIntent = nlResult.metadata.multiIntent;
-        if (multiIntent && multiIntent.isMultiIntent && multiIntent.intents.length > 1) {
-          logger.info(`多意图识别 (${multiIntent.intents.length} 个):`);
-          for (const intent of multiIntent.intents) {
+        if (multiIntent && multiIntent.primary && multiIntent.secondary && multiIntent.secondary.length > 0) {
+          const allIntents = [multiIntent.primary, ...multiIntent.secondary];
+          logger.info(`多意图识别 (${allIntents.length} 个):`);
+          for (const intent of allIntents) {
             logger.info(`  - ${intent.intent} (confidence: ${intent.confidence.toFixed(2)})`);
           }
         } else {
