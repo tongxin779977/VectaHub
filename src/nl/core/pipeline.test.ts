@@ -281,7 +281,8 @@ describe('NLProcessor', () => {
         options: { useLLM: true },
       });
 
-      expect(result.metadata.path).toBe('keyword-fallback');
+      expect(result.metadata.path).toBe('skill-pipeline');
+      expect(result.success).toBe(true);
     });
   });
 

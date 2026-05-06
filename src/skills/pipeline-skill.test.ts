@@ -14,18 +14,6 @@ function createMockIntentSkill(result: SkillResult = {
   };
 }
 
-function createMockCommandSkill(result: SkillResult = {
-  success: true,
-  data: { commands: [{ cli: 'vecta', args: ['crawl'] }] },
-  confidence: 0.9,
-}): Skill<any, any> {
-  return {
-    id: 'command', name: 'Command', description: '', category: 'nl', version: '1.0.0', tags: [],
-    canHandle: vi.fn().mockResolvedValue(true),
-    execute: vi.fn().mockResolvedValue(result),
-  };
-}
-
 function createMockWorkflowSkill(result: SkillResult = {
   success: true,
   data: { workflowYAML: 'id: wf\nsteps:\n  - id: s1\n    type: exec\n    cli: echo\n    args: [hello]' },
@@ -41,16 +29,14 @@ function createMockWorkflowSkill(result: SkillResult = {
 describe('PipelineSkill', () => {
   let skill: ReturnType<typeof createPipelineSkill>;
   let intentSkill: Skill<string, any>;
-  let commandSkill: Skill<any, any>;
   let workflowSkill: Skill<any, any>;
   let context: SkillContext;
 
   beforeEach(() => {
     vi.clearAllMocks();
     intentSkill = createMockIntentSkill();
-    commandSkill = createMockCommandSkill();
     workflowSkill = createMockWorkflowSkill();
-    skill = createPipelineSkill(intentSkill, commandSkill, workflowSkill);
+    skill = createPipelineSkill(intentSkill, workflowSkill);
     context = { userInput: 'crawl my website' };
   });
 
@@ -58,50 +44,34 @@ describe('PipelineSkill', () => {
     expect(skill.id).toBe('vectahub.pipeline');
     expect(skill.name).toBe('End-to-End Pipeline');
     expect(skill.tags).toContain('pipeline');
-    expect(skill.skills).toHaveLength(3);
+    expect(skill.skills).toHaveLength(2);
   });
 
   it('should always handle input', async () => {
     expect(await skill.canHandle(context)).toBe(true);
   });
 
-  it('should execute full pipeline: intent → command → workflow', async () => {
+  it('should execute full pipeline: intent → workflow', async () => {
     const result = await skill.execute('crawl my website', context);
 
     expect(result.success).toBe(true);
     expect(result.data).toBeDefined();
     expect((result.data as any).workflowYAML).toContain('steps:');
     expect(intentSkill.execute).toHaveBeenCalledWith('crawl my website', context);
-    expect(commandSkill.execute).toHaveBeenCalledWith(
-      expect.objectContaining({ intent: 'EXECUTE_TASK', userInput: 'crawl my website' }),
-      context
-    );
     expect(workflowSkill.execute).toHaveBeenCalledWith(
-      expect.objectContaining({ intent: 'EXECUTE_TASK', userInput: 'crawl my website' }),
+      expect.objectContaining({ intent: 'EXECUTE_TASK', userInput: 'crawl my website', commands: [] }),
       context
     );
   });
 
   it('should fail when intent skill fails', async () => {
     intentSkill = createMockIntentSkill({ success: false, error: 'intent failed', confidence: 0 });
-    skill = createPipelineSkill(intentSkill, commandSkill, workflowSkill);
+    skill = createPipelineSkill(intentSkill, workflowSkill);
 
     const result = await skill.execute('test', context);
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('intent failed');
-    expect(commandSkill.execute).not.toHaveBeenCalled();
-    expect(workflowSkill.execute).not.toHaveBeenCalled();
-  });
-
-  it('should fail when command skill fails', async () => {
-    commandSkill = createMockCommandSkill({ success: false, error: 'cmd failed', confidence: 0 });
-    skill = createPipelineSkill(intentSkill, commandSkill, workflowSkill);
-
-    const result = await skill.execute('test', context);
-
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('cmd failed');
     expect(workflowSkill.execute).not.toHaveBeenCalled();
   });
 
@@ -112,7 +82,7 @@ describe('PipelineSkill', () => {
       confidence: 0.8,
     };
     workflowSkill = createMockWorkflowSkill(wfResult);
-    skill = createPipelineSkill(intentSkill, commandSkill, workflowSkill);
+    skill = createPipelineSkill(intentSkill, workflowSkill);
 
     const result = await skill.execute('test', context);
 
@@ -120,9 +90,9 @@ describe('PipelineSkill', () => {
     expect(result.confidence).toBe(0.8);
   });
 
-  it('should handle workflow skill returning failure', async () => {
+  it('should handle workflow skill returning failure gracefully', async () => {
     workflowSkill = createMockWorkflowSkill({ success: false, error: 'wf failed', confidence: 0 });
-    skill = createPipelineSkill(intentSkill, commandSkill, workflowSkill);
+    skill = createPipelineSkill(intentSkill, workflowSkill);
 
     const result = await skill.execute('test', context);
 
@@ -132,28 +102,18 @@ describe('PipelineSkill', () => {
 
   it('should propagate error when intent skill throws', async () => {
     (intentSkill.execute as any).mockRejectedValue(new Error('crash'));
-    skill = createPipelineSkill(intentSkill, commandSkill, workflowSkill);
+    skill = createPipelineSkill(intentSkill, workflowSkill);
 
     await expect(skill.execute('test', context)).rejects.toThrow('crash');
   });
 
   it('should return error when intent result has no data', async () => {
     intentSkill = createMockIntentSkill({ success: true, confidence: 0.3 });
-    skill = createPipelineSkill(intentSkill, commandSkill, workflowSkill);
+    skill = createPipelineSkill(intentSkill, workflowSkill);
 
     const result = await skill.execute('test', context);
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('Intent recognition failed');
-  });
-
-  it('should return error when command result has no data', async () => {
-    commandSkill = createMockCommandSkill({ success: true, confidence: 0.3 });
-    skill = createPipelineSkill(intentSkill, commandSkill, workflowSkill);
-
-    const result = await skill.execute('test', context);
-
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('Command generation failed');
   });
 });

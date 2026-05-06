@@ -115,7 +115,7 @@ describe('IntentSkill', () => {
     expect(result.error).toContain('Unexpected token');
   });
 
-  it('should return failure on unknown intent', async () => {
+  it('should map unknown intent to WORKFLOW_GENERATE', async () => {
     (mockLLM.generateJSON as any).mockResolvedValue({
       success: true,
       output: JSON.stringify({ intent: 'FAKE_INTENT', params: {}, confidence: 0.5 }),
@@ -124,8 +124,9 @@ describe('IntentSkill', () => {
 
     const result = await skill.execute('test', context);
 
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('Unknown intent');
+    expect(result.success).toBe(true);
+    expect(result.data?.intent).toBe('WORKFLOW_GENERATE');
+    expect(result.confidence).toBe(0.5);
   });
 
   it('should pass through LLM confidence value', async () => {

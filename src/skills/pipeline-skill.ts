@@ -15,7 +15,6 @@ export interface PipelineSkillInput {
 
 export function createPipelineSkill(
   intentSkill: Skill<string, IntentSkillOutput>,
-  commandSkill: Skill<any, any>,
   workflowSkill: Skill<any, WorkflowSkillOutput>
 ): CompositeSkill {
   return {
@@ -24,7 +23,7 @@ export function createPipelineSkill(
     version: '2.0.0',
     description: '完整的从用户输入到工作流生成的流水线',
     tags: ['pipeline', 'core'],
-    skills: [intentSkill, commandSkill, workflowSkill],
+    skills: [intentSkill, workflowSkill],
     strategy: 'sequential',
 
     async canHandle(context: SkillContext): Promise<boolean> {
@@ -41,23 +40,10 @@ export function createPipelineSkill(
         };
       }
 
-      const commandResult = await commandSkill.execute({
-        intent: intentResult.data.intent,
-        params: intentResult.data.params,
-        userInput: userInput
-      }, context);
-      if (!commandResult.success || !commandResult.data) {
-        return {
-          success: false,
-          error: commandResult.error || 'Command generation failed',
-          confidence: 0
-        };
-      }
-
       const workflowResult = await workflowSkill.execute({
         intent: intentResult.data.intent,
         params: intentResult.data.params,
-        commands: commandResult.data.commands,
+        commands: [],
         userInput: userInput
       }, context);
 

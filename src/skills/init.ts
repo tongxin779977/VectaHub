@@ -41,7 +41,7 @@ export function createSkillSystem(options?: SkillSystemOptions): SkillSystem {
 
       const intentSkill = createIntentSkill(promptRegistry, llmDialogSkill);
       const workflowSkill = createWorkflowSkill(promptRegistry, llmDialogSkill);
-      const pipelineSkill = createPipelineSkill(intentSkill, commandSkill, workflowSkill);
+      const pipelineSkill = createPipelineSkill(intentSkill, workflowSkill);
 
       registry.register(intentSkill);
       registry.register(workflowSkill);

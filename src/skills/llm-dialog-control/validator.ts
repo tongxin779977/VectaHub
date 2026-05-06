@@ -57,11 +57,18 @@ function validateJSON(output: string): ValidationResult {
 }
 
 function validateYAML(output: string): ValidationResult {
+  let cleaned = output.trim();
+  
+  if (cleaned.length === 0) {
+    return { valid: false, error: 'Output is empty' };
+  }
+  
   try {
-    YAML.parse(output);
+    YAML.parse(cleaned);
     return { valid: true };
   } catch (error) {
-    let cleaned = output.trim();
+    console.log(`[YAML VALIDATOR] First parse failed, trying to clean markdown...`);
+    console.log(`[YAML VALIDATOR] Original length: ${output.length}, Cleaned length: ${cleaned.length}`);
     
     if (cleaned.startsWith('```yaml')) {
       cleaned = cleaned.substring(7).trim();
@@ -73,10 +80,30 @@ function validateYAML(output: string): ValidationResult {
       cleaned = cleaned.substring(0, cleaned.length - 3).trim();
     }
     
+    console.log(`[YAML VALIDATOR] After markdown removal: ${cleaned.length} chars`);
+    
     try {
       YAML.parse(cleaned);
       return { valid: true };
-    } catch {
+    } catch (secondError) {
+      const errorMsg = secondError instanceof Error ? secondError.message : String(secondError);
+      console.log(`[YAML VALIDATOR] Second parse also failed: ${errorMsg}`);
+      
+      if (errorMsg.includes('multiple documents')) {
+        console.log(`[YAML VALIDATOR] Multiple documents detected, extracting first document...`);
+        const parts = cleaned.split(/^---$/m);
+        if (parts.length > 1) {
+          cleaned = parts[0].trim();
+          console.log(`[YAML VALIDATOR] First document length: ${cleaned.length}`);
+          try {
+            YAML.parse(cleaned);
+            return { valid: true };
+          } catch {
+            return { valid: false, error: 'Invalid YAML format' };
+          }
+        }
+      }
+      
       return { valid: false, error: 'Invalid YAML format' };
     }
   }

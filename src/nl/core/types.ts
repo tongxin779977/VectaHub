@@ -1,14 +1,20 @@
-import type { IntentName, TaskList, Workflow } from '../../types/index.js';
-import type { MultiIntentResult } from '../types.js';
+import type { IntentName } from '../../types/index.js';
+import type { Workflow } from '../../types/index.js';
 
-export interface NLContext {
-  input: string;
-  sessionId?: string;
-  options?: {
-    useLLM?: boolean;
-    fallbackToKeyword?: boolean;
-    confidenceThreshold?: number;
-  };
+export interface TaskList {
+  intent: IntentName | string;
+  tasks: Task[];
+}
+
+export interface Task {
+  id?: string;
+  description?: string;
+  commands?: Command[];
+}
+
+export interface Command {
+  cli: string;
+  args?: string[];
 }
 
 export interface NLResult {
@@ -16,6 +22,7 @@ export interface NLResult {
   intent?: IntentName;
   confidence: number;
   taskList?: TaskList;
+  workflowYAML?: string;
   workflow?: Workflow;
   metadata: {
     path: 'skill-pipeline' | 'keyword-fallback' | 'keyword-match' | 'coordinator' | 'coordinator-multi' | 'category-router' | 'direct-query' | 'dialog';
@@ -24,6 +31,25 @@ export interface NLResult {
     multiIntent?: MultiIntentResult;
     requiresLLM?: boolean;
   };
+}
+
+export interface NLContext {
+  input: string;
+  sessionId?: string;
+  options?: {
+    useLLM?: boolean;
+  };
+}
+
+export interface MultiIntentResult {
+  primary: IntentResult;
+  secondary: IntentResult[];
+}
+
+export interface IntentResult {
+  intent: IntentName;
+  confidence: number;
+  params?: Record<string, unknown>;
 }
 
 export interface NLProcessor {

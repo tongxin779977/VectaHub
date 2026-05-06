@@ -1,4 +1,3 @@
-
 import type { Skill, SkillContext, SkillResult } from './types.js';
 import type { PromptRegistry } from '../nl/prompt/types.js';
 import type { LLMDialogControlSkill } from './llm-dialog-control/index.js';
@@ -42,6 +41,9 @@ export function createIntentSkill(
 
         const result = await llmDialogSkill.generateJSON(user, system);
 
+        console.debug(`[INTENT SKILL] LLM result: success=${result.success}, output length=${result.output?.length || 0}`);
+        console.debug(`[INTENT SKILL] First 200 chars: ${result.output?.substring(0, 200)}`);
+
         if (!result.success || !result.output) {
           return {
             success: false,
@@ -54,7 +56,6 @@ export function createIntentSkill(
 
         const validIntentNames = getAllIntentNames();
         if (!validIntentNames.includes(parsed.intent)) {
-          // 如果意图不在预定义列表中，使用通用意图 WORKFLOW_GENERATE
           console.debug(`[INTENT SKILL] Unknown intent: ${parsed.intent}, using WORKFLOW_GENERATE`);
           parsed.intent = 'WORKFLOW_GENERATE';
           parsed.confidence = Math.max(parsed.confidence, 0.5);
@@ -66,6 +67,7 @@ export function createIntentSkill(
           confidence: parsed.confidence
         };
       } catch (error) {
+        console.debug(`[INTENT SKILL] Exception: ${error instanceof Error ? error.message : String(error)}`);
         return {
           success: false,
           error: error instanceof Error ? error.message : String(error),

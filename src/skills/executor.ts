@@ -44,7 +44,7 @@ export class SkillExecutor {
   constructor(options: SkillExecutorOptions = {}) {
     this.options = {
       maxRetries: options.maxRetries ?? 3,
-      timeout: options.timeout ?? 30000
+      timeout: options.timeout ?? 120000
     };
     // 在构造函数中初始化日志
     initLogger().catch(() => {});

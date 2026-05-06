@@ -1,132 +1,98 @@
 import * as readline from 'node:readline';
+import { Readable } from 'node:stream';
 import { spawn } from 'node:child_process';
-import type { ChatInput, ChatOutput, ReplDeps, SlashCommand, SlashCommandContext, Repl } from './types.js';
+import type { ChatInput, ChatOutput, SlashCommands, SlashCommandContext } from '../types/chat.js';
+import type { NLProcessor } from '../nl/core/types.js';
+import type { ContextBuilder } from '../infrastructure/context-builder.js';
+import type { ModuleRegistry } from '../infrastructure/module-registry.js';
+import type { SessionManager } from '../infrastructure/session/session-manager.js';
 
-export function parseInput(raw: string): ChatInput {
-  if (raw.startsWith('!')) {
-    return { type: 'shell', raw, parsed: raw.slice(1) };
-  }
-  if (raw.startsWith('/')) {
-    const parts = raw.slice(1).split(/\s+/);
-    return {
-      type: 'slash-command',
-      raw,
-      parsed: parts[0],
-      args: parts.slice(1),
-    };
-  }
-  return { type: 'nl', raw, parsed: raw };
+export interface REPLDeps {
+  nlProcessor: NLProcessor;
+  contextBuilder: ContextBuilder;
+  moduleRegistry: ModuleRegistry;
+  sessionManager: SessionManager;
+  useLLM: boolean;
 }
 
-function maskSensitive(value: unknown): string {
-  if (typeof value !== 'string') return String(value);
-  if (value.length <= 4) return '***';
-  return value.slice(0, 3) + '***';
+interface ParsedInput {
+  type: 'nl' | 'shell' | 'slash-command';
+  raw: string;
+  parsed: string;
+  args?: string[];
 }
 
-function isSensitiveKey(key: string): boolean {
-  const sensitivePatterns = ['key', 'token', 'secret', 'password', 'credential', 'auth'];
-  return sensitivePatterns.some((p) => key.toLowerCase().includes(p));
+interface SlashCommandEntry {
+  name: string;
+  description: string;
+  handler: (args: string[], ctx: SlashCommandContext) => Promise<string>;
 }
 
-function formatConfig(config: Record<string, unknown>, indent = ''): string {
-  const lines: string[] = [];
-  for (const [key, value] of Object.entries(config)) {
-    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-      lines.push(`${indent}${key}:`);
-      lines.push(formatConfig(value as Record<string, unknown>, indent + '  '));
-    } else if (isSensitiveKey(key)) {
-      lines.push(`${indent}${key}: ${maskSensitive(value)}`);
-    } else {
-      lines.push(`${indent}${key}: ${value}`);
+const slashCommands = new Map<string, SlashCommandEntry>();
+
+export function registerSlashCommand(name: string, handler: (args: string[], ctx: SlashCommandContext) => Promise<string>): void {
+  slashCommands.set(name, { name, description: '', handler });
+}
+
+function initDefaultSlashCommands() {
+  if (slashCommands.size > 0) return;
+
+  registerSlashCommand('help', async () => {
+    return 'Available commands:\n  /help - Show this help message\n  /modules - List registered AIModules\n  /history - Show conversation history\n  /config - Show configuration\n  /exit - Exit the REPL';
+  });
+
+  registerSlashCommand('modules', async (_, ctx) => {
+    const modules = ctx.moduleRegistry?.list?.() ?? [];
+    if (modules.length === 0) {
+      return 'No modules registered';
     }
-  }
-  return lines.join('\n');
+    return modules.map((m: any) => `${m.id}: ${m.name} (${m.version})`).join('\n');
+  });
+
+  registerSlashCommand('history', async (_, ctx) => {
+    const session = ctx.sessionManager?.getSession?.(ctx.sessionId);
+    if (!session?.history?.length) {
+      return 'No conversation history';
+    }
+    return session.history.map((h: any) => `[${h.role}]: ${h.content}`).join('\n');
+  });
+
+  registerSlashCommand('config', async (_, ctx) => {
+    const config = (ctx as any).config ?? {};
+    const masked: Record<string, string> = {};
+    for (const [k, v] of Object.entries(config)) {
+      if (typeof v === 'string' && (v.startsWith('sk-') || v.startsWith('pk-') || v.startsWith('api_') || v.startsWith('token_'))) {
+        masked[k] = v.slice(0, 2) + '***';
+      } else {
+        masked[k] = String(v);
+      }
+    }
+    return Object.entries(masked).map(([k, v]) => `${k}: ${v}`).join('\n');
+  });
+
+  registerSlashCommand('exit', async () => '__EXIT__');
 }
 
-export function createRepl(deps: ReplDeps, options?: { sessionId?: string; sessionManager?: unknown }): Repl {
-  const prompt = deps.config?.prompt ?? 'vectahub> ';
-  const sessionId = options?.sessionId;
-  const sessionManager = options?.sessionManager;
-  const useLLM = deps.useLLM ?? true;
+export function parseInput(input: string): ParsedInput {
+  if (input.startsWith('!')) {
+    return { type: 'shell', raw: input, parsed: input.slice(1).trim() };
+  }
+  if (input.startsWith('/')) {
+    const parts = input.slice(1).trim().split(/\s+/);
+    const cmd = parts[0];
+    const args = parts.slice(1);
+    return { type: 'slash-command', raw: input, parsed: cmd, args };
+  }
+  return { type: 'nl', raw: input, parsed: input };
+}
 
-  const slashCommands = new Map<string, SlashCommand>();
+function getHistoryFile(): string {
+  const home = process.env.HOME || process.env.USERPROFILE || '/tmp';
+  return `${home}/.vectahub_history`;
+}
 
-  const helpCommand: SlashCommand = {
-    name: 'help',
-    description: 'List all available commands',
-    handler: async () => {
-      const lines: string[] = ['Available commands:'];
-      for (const [, cmd] of slashCommands) {
-        lines.push(`  /${cmd.name} - ${cmd.description}`);
-      }
-      return lines.join('\n');
-    },
-  };
-
-  const modulesCommand: SlashCommand = {
-    name: 'modules',
-    description: 'List registered AIModules',
-    handler: async (_args, context) => {
-      const registry = context.moduleRegistry ?? deps.moduleRegistry;
-      if (!registry) {
-        return 'No module registry available. Start chat with module support to enable this feature.';
-      }
-      const modules = registry.list();
-      if (modules.length === 0) {
-        return 'No AIModules registered.';
-      }
-      const lines = modules.map((m: { id: string; name: string; version: string }) =>
-        `  ${m.id} - ${m.name} (v${m.version})`
-      );
-      return `Registered AIModules (${modules.length}):\n${lines.join('\n')}`;
-    },
-  };
-
-  const historyCommand: SlashCommand = {
-    name: 'history',
-    description: 'Show conversation history',
-    handler: async (_args, context) => {
-      const sm = context.sessionManager ?? sessionManager;
-      const sid = context.sessionId ?? sessionId;
-      if (!sm || !sid) {
-        return 'No session active. Start chat with a session to enable history.';
-      }
-      const smAny = sm as { getSession?: (id: string) => { history: Array<{ role: string; content: string }> } | undefined };
-      const session = smAny.getSession?.(sid);
-      if (!session || session.history.length === 0) {
-        return 'No conversation history.';
-      }
-      const lines = session.history.map((msg: { role: string; content: string }) =>
-        `${msg.role === 'user' ? 'You' : 'Assistant'}: ${msg.content}`
-      );
-      return `Conversation history:\n${lines.join('\n')}`;
-    },
-  };
-
-  const configCommand: SlashCommand = {
-    name: 'config',
-    description: 'Show AI configuration (keys masked)',
-    handler: async (_args, context) => {
-      const cfg = context.config;
-      if (!cfg || Object.keys(cfg).length === 0) {
-        return 'No configuration available.';
-      }
-      return `AI Configuration:\n${formatConfig(cfg)}`;
-    },
-  };
-
-  const exitCommand: SlashCommand = {
-    name: 'exit',
-    description: 'Exit the chat session',
-    handler: async () => '__EXIT__',
-  };
-
-  slashCommands.set('help', helpCommand);
-  slashCommands.set('modules', modulesCommand);
-  slashCommands.set('history', historyCommand);
-  slashCommands.set('config', configCommand);
-  slashCommands.set('exit', exitCommand);
+export function createREPL(deps: REPLDeps, sessionId: string): (input: string) => Promise<ChatOutput> {
+  const { nlProcessor, contextBuilder, moduleRegistry, sessionManager, useLLM } = deps;
 
   async function processInput(input: string): Promise<ChatOutput> {
     const parsed = parseInput(input.trim());
@@ -152,21 +118,63 @@ export function createRepl(deps: ReplDeps, options?: { sessionId?: string; sessi
       return { type: 'text', content: result };
     }
 
+    console.log(`[REPL DEBUG] Building context for sessionId: ${sessionId}`);
     const context = await deps.contextBuilder.buildContext(sessionId);
-    const nlResult = await deps.nlProcessor.parse({ 
-      input: parsed.parsed, 
-      sessionId,
-      options: { useLLM },
-    }) as { intent?: string; taskList?: { intent?: string } };
-    const matchedIntent = nlResult.intent || nlResult.taskList?.intent;
+    console.log(`[REPL DEBUG] Context built successfully`);
     
-    if (matchedIntent === 'DIALOG_GREETING') {
-      return { 
-        type: 'text', 
-        content: '👋 你好！我是 VectaHub，你的智能工作流助手。\n\n我可以帮助你执行各种开发任务，例如：\n  - 运行命令: vectahub run "npm test"\n  - 查找文件: vectahub run "查找所有ts文件"\n  - Git操作: vectahub run "git status"\n\n请问有什么可以帮你的？' 
-      };
+    console.log(`[REPL DEBUG] Parsing input: "${parsed.parsed}"`);
+    let nlResult;
+    try {
+      nlResult = await deps.nlProcessor.parse({
+        input: parsed.parsed,
+        sessionId,
+        options: { useLLM },
+      });
+      console.log(`[REPL DEBUG] nlResult:`, JSON.stringify(nlResult, null, 2));
+    } catch (err) {
+      console.error(`[REPL DEBUG] nlProcessor.parse error:`, err instanceof Error ? err.message : String(err));
+      console.error(`[REPL DEBUG] Error stack:`, err instanceof Error ? err.stack : 'No stack');
+      throw err;
     }
     
+    const matchedIntent = nlResult.intent || nlResult.taskList?.intent;
+
+    if (matchedIntent === 'DIALOG_GREETING') {
+      return {
+        type: 'text',
+        content: '👋 你好！我是 VectaHub，你的智能工作流助手。\n\n我可以帮助你执行各种开发任务，例如：\n  - 运行命令: vectahub run "npm test"\n  - 查找文件: vectahub run "查找所有ts文件"\n  - Git操作: vectahub run "git status"\n\n请问有什么可以帮你的？'
+      };
+    }
+
+    if (nlResult.workflowYAML) {
+      const intentInfo = nlResult.intent ? `\n🎯 识别意图: ${nlResult.intent}` : '';
+      const confidenceInfo = `\n📊 置信度: ${((nlResult.confidence || 0) * 100).toFixed(0)}%`;
+
+      return {
+        type: 'text',
+        content: `✅ 工作流已生成！${intentInfo}${confidenceInfo}\n\n\`\`\`yaml\n${nlResult.workflowYAML}\n\`\`\``,
+        metadata: nlResult as Record<string, unknown>
+      };
+    }
+
+    if (nlResult.taskList?.tasks && nlResult.taskList.tasks.length > 0) {
+      const tasks = nlResult.taskList.tasks.map((task: any) => {
+        const commands = task.commands?.map((cmd: any) =>
+          `${cmd.cli} ${cmd.args?.join(' ') || ''}`
+        ).join('\n    ');
+        return `📋 Task: ${task.description}\n    Commands:\n    ${commands}`;
+      }).join('\n\n');
+
+      const intentInfo = nlResult.intent ? `\n🎯 识别意图: ${nlResult.intent}` : '';
+      const confidenceInfo = `\n📊 置信度: ${((nlResult.confidence || 0) * 100).toFixed(0)}%`;
+
+      return {
+        type: 'text',
+        content: `✅ 工作流已生成！${intentInfo}${confidenceInfo}\n\n${tasks}`,
+        metadata: nlResult as Record<string, unknown>
+      };
+    }
+
     return { type: 'workflow', content: JSON.stringify(nlResult), metadata: nlResult as Record<string, unknown> };
   }
 
@@ -176,7 +184,7 @@ export function createRepl(deps: ReplDeps, options?: { sessionId?: string; sessi
       const cmd = parts[0];
       const args = parts.slice(1);
 
-      const child = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = spawn(cmd, args);
       let stdout = '';
       let stderr = '';
 
@@ -199,63 +207,114 @@ export function createRepl(deps: ReplDeps, options?: { sessionId?: string; sessi
       child.on('error', (err: Error) => {
         resolve({
           type: 'error',
-          content: `Shell command failed: ${err.message}`,
+          content: `Command execution failed: ${err.message}`,
         });
       });
     });
   }
 
-  async function start(): Promise<void> {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-      prompt,
-    });
+  return processInput;
+}
 
-    rl.prompt();
+export function createRepl(deps: REPLDeps, options?: { sessionId?: string; sessionManager?: SessionManager }): { start: () => Promise<void>; getSlashCommands: () => Map<string, unknown>; processInput: (input: string) => Promise<ChatOutput> } {
+  initDefaultSlashCommands();
+  const sessionId = options?.sessionId ?? `chat-${Date.now()}`;
+  const processInputFn = createREPL(deps, sessionId);
 
-    try {
-      for await (const line of rl) {
-        const trimmed = line.trim();
+  return {
+    start: async () => {
+      const historyFile = getHistoryFile();
+      let isProcessing = false;
+      let pendingClose = false;
 
-        if (trimmed === 'exit' || trimmed === 'quit') {
-          console.log('Goodbye!');
-          rl.close();
-          break;
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        prompt: 'vectahub> ',
+        history: [],
+        historySize: 100,
+      });
+
+      try {
+        if (require('node:fs').existsSync(historyFile)) {
+          const history = require('node:fs').readFileSync(historyFile, 'utf-8').split('\n').filter(Boolean);
+          history.forEach((line: string) => rl.history.push(line));
         }
+      } catch {
+        // ignore history errors
+      }
 
-        if (!trimmed) {
+      const sessionId = `chat-${Date.now()}`;
+      console.log(`[${new Date().toISOString()}] INFO (chat): Starting chat session: ${sessionId}`);
+
+      rl.prompt();
+
+      rl.on('line', async (line: string) => {
+        const input = line.trim();
+        console.log(`[REPL DEBUG] Received input: "${input}"`);
+        
+        if (!input) {
           rl.prompt();
-          continue;
+          return;
         }
 
-        try {
-          const output = await processInput(trimmed);
-          console.log(output.content);
+        if (input === 'exit' || input === 'quit' || input === 'q') {
+          rl.close();
+          return;
+        }
 
-          if (output.metadata?.exit) {
-            console.log('Goodbye!');
-            rl.close();
-            break;
+        isProcessing = true;
+        try {
+          console.log(`[REPL DEBUG] Calling processInputFn...`);
+          const output = await processInputFn(input);
+          
+          console.debug(`[REPL DEBUG] Output type: ${output.type}`);
+          console.debug(`[REPL DEBUG] Output metadata:`, JSON.stringify(output.metadata));
+
+          if (output.type === 'text') {
+            console.log(output.content);
+          } else if (output.type === 'command-result') {
+            if (output.content) console.log(output.content);
+            if (output.metadata?.stderr) console.error(output.metadata.stderr);
+          } else if (output.type === 'workflow') {
+            console.log(output.content);
+          } else if (output.type === 'error') {
+            console.error(output.content);
+          } else {
+            console.log(`[REPL DEBUG] Unknown output type: ${output.type}`);
+            if (output.content) console.log(output.content);
           }
-        } catch (error) {
-          const errorMsg = error instanceof Error ? error.message : String(error);
-          console.error(`Error: ${errorMsg}`);
+          
+          if (output.metadata?.exit) {
+            console.log('[REPL DEBUG] Exit flag detected, closing...');
+            rl.close();
+            return;
+          }
+        } catch (err) {
+          console.error('Fatal error in REPL:', err instanceof Error ? err.message : String(err));
+          console.error('Error stack:', err instanceof Error ? err.stack : 'No stack');
+        } finally {
+          isProcessing = false;
+          if (pendingClose) {
+            console.log('Goodbye!');
+            process.exit(0);
+          }
         }
 
         rl.prompt();
-      }
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error(`Fatal error in REPL: ${errorMsg}`);
-      rl.close();
-      throw error;
-    }
-  }
+      });
 
-  return {
-    start,
-    processInput,
-    getSlashCommands: () => slashCommands,
+      rl.on('close', () => {
+        if (isProcessing) {
+          console.log('[REPL DEBUG] Operation in progress, waiting to close...');
+          pendingClose = true;
+        } else {
+          console.log('Goodbye!');
+          process.exit(0);
+        }
+      });
+    },
+    getSlashCommands: () => slashCommands as Map<string, unknown>,
+    processInput: processInputFn
   };
 }
