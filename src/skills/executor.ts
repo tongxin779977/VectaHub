@@ -1,11 +1,17 @@
 
 import { Skill, SkillContext, SkillResult, CompositeSkill } from './types.js';
 
-let logger: { debug: (...args: unknown[]) => void; warn: (...args: unknown[]) => void } | null = null;
-try {
-  const mod = await import('../utils/logger.js');
-  logger = (mod as Record<string, unknown>).logger as typeof logger;
-} catch { /* logger unavailable in test environments */ }
+type LoggerType = { debug: (...args: unknown[]) => void; warn: (...args: unknown[]) => void };
+let loggerPromise: Promise<LoggerType | null> | null = null;
+
+function getLogger(): Promise<LoggerType | null> {
+  if (!loggerPromise) {
+    loggerPromise = import('../utils/logger.js')
+      .then(mod => (mod as Record<string, unknown>).logger as LoggerType)
+      .catch(() => null);
+  }
+  return loggerPromise;
+}
 
 export interface SkillExecutorOptions {
   maxRetries?: number;
@@ -32,7 +38,7 @@ export class SkillExecutor {
 
     while (retries <= this.options.maxRetries!) {
       try {
-        logger?.debug(`Executing skill: ${skill.name} (v${skill.version})`);
+        (await getLogger())?.debug(`Executing skill: ${skill.name} (v${skill.version})`);
 
         const timeoutPromise = new Promise<never>((_, reject) => {
           setTimeout(() => reject(new Error(`Skill execution timeout after ${this.options.timeout}ms`)), this.options.timeout);
@@ -43,11 +49,11 @@ export class SkillExecutor {
           timeoutPromise
         ]);
 
-        logger?.debug(`Skill ${skill.name} executed successfully: ${result.success}`);
+        (await getLogger())?.debug(`Skill ${skill.name} executed successfully: ${result.success}`);
         return result;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        logger?.warn(`Skill ${skill.name} failed (retry ${retries + 1}/${this.options.maxRetries}):`, lastError.message);
+        (await getLogger())?.warn(`Skill ${skill.name} failed (retry ${retries + 1}/${this.options.maxRetries}):`, lastError.message);
         retries++;
 
         if (retries <= this.options.maxRetries!) {
@@ -182,7 +188,7 @@ export class SkillExecutor {
           return result as SkillResult<TOutput>;
         }
       } catch {
-        logger?.debug(`Conditional skill ${skill.id} failed, trying next`);
+        (await getLogger())?.debug(`Conditional skill ${skill.id} failed, trying next`);
       }
     }
 

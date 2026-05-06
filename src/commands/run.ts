@@ -69,13 +69,6 @@ export const runCmd = new Command('run')
         const llmConfig = createLLMConfig();
         const useLLM = !!llmConfig;
 
-        if (useLLM) {
-          logger.info('使用 LLM 解析意图');
-          logger.info(`LLM 配置: provider=${llmConfig?.provider}, model=${llmConfig?.model}, timeout=${llmConfig?.timeout}ms`);
-        } else {
-          logger.info('LLM 未配置，使用关键词匹配');
-        }
-
         const { registry, executor } = createSkillSystem();
         const patterns = adaptAllTemplates(INTENT_TEMPLATES);
         const coordinator = createCoordinator(patterns);
@@ -96,6 +89,15 @@ export const runCmd = new Command('run')
           options: { useLLM },
         });
 
+        const matchPath = nlResult.metadata.path;
+        const usedLLM = matchPath === 'coordinator' || matchPath === 'coordinator-multi' || matchPath === 'skill-pipeline';
+
+        if (usedLLM && llmConfig) {
+          logger.info(`意图解析: LLM (provider=${llmConfig.provider}, model=${llmConfig.model})`);
+        } else {
+          logger.info(`意图解析: 规则匹配`);
+        }
+
         const multiIntent = nlResult.metadata.multiIntent;
         if (multiIntent && multiIntent.isMultiIntent && multiIntent.intents.length > 1) {
           logger.info(`多意图识别 (${multiIntent.intents.length} 个):`);
@@ -104,8 +106,7 @@ export const runCmd = new Command('run')
           }
         } else {
           const matchedIntent = nlResult.intent || nlResult.taskList?.intent || 'UNKNOWN';
-          const matchPath = nlResult.metadata.path;
-          logger.info(`意图: ${matchedIntent} (路径: ${matchPath})`);
+          logger.info(`意图: ${matchedIntent}`);
         }
 
         let taskListResult: TaskList | undefined = nlResult.taskList;

@@ -388,7 +388,6 @@ export function createLLMConfig(): LLMConfig | null {
             model: llmConfig.model || getDefaultModel(provider),
             timeout: llmConfig.timeout_ms,
           };
-          console.log(`[DEBUG] createLLMConfig: timeout=${llmConfig.timeout_ms}, result.timeout=${result.timeout}`);
           return result;
         }
       }

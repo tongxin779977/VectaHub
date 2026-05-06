@@ -50,6 +50,21 @@ function resolveIntentFromConfig(
   if (entities.OWNER?.[0]) entityParams.owner = entities.OWNER[0];
   if (entities.MODE?.[0]) entityParams.mode = entities.MODE[0];
 
+  if (intentName === 'INSTALL_PACKAGE' && !entityParams.package) {
+    const pkgMatch = originalInput.match(/(?:安装|install|添加|add)\s+(?:--dev\s+|开发依赖\s+)?(\S+)/i);
+    if (pkgMatch?.[1]) {
+      entityParams.package = pkgMatch[1];
+    }
+  }
+  if (intentName === 'CREATE_FILE' && !entityParams.path) {
+    const fileMatch = originalInput.match(/(?:创建|新建|添加|create|touch)\s*(?:文件夹|目录|文件|folder)\s+(\S+)/i)
+      || originalInput.match(/(?:创建|新建|添加|create|touch)\s+(\S+\.\S+)/i)
+      || originalInput.match(/(?:创建|新建|添加|create|touch)\s+(\S+)/i);
+    if (fileMatch?.[1] && !fileMatch[1].startsWith('${')) {
+      entityParams.path = fileMatch[1];
+    }
+  }
+
   for (const rule of intent.selection) {
     if (rule.default) {
       const override = rule.override;
@@ -260,6 +275,15 @@ function resolveGitWorkflow(
   if (input.includes('commit') && !input.includes('add')) {
     const t = findTemplate('commit');
     return [t ? resolveTemplate(t, { message: commitMessage }) : makeGit(['commit', '-m', commitMessage])];
+  }
+  if (input.includes('status') || input.includes('查看状态') || input.includes('git 状态') || input.includes('查看 git')) {
+    return [makeGit(['status'])];
+  }
+  if (input.includes('log') || input.includes('历史')) {
+    return [makeGit(['log', '--oneline', '-20'])];
+  }
+  if (input.includes('diff')) {
+    return [makeGit(['diff'])];
   }
 
   const addT = findTemplate('add');

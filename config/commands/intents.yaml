@@ -79,8 +79,11 @@ intents:
     selection:
       - default: true
         pick: install
+        override:
+          cli: npm
+          args: ['install', '${package}']
         params:
-          package: lodash
+          package: ''
 
   RUN_SCRIPT:
     taskType: TEST_RUN
@@ -91,6 +94,12 @@ intents:
         override:
           cli: npm
           args: ['run', 'build']
+      - when:
+          keywords: [测试, test, 跑测试]
+        pick: test
+        override:
+          cli: npm
+          args: ['test']
       - when:
           keywords: [清理, cache, clean]
         pick: test
@@ -106,8 +115,8 @@ intents:
       - default: true
         pick: test
         override:
-          cli: echo
-          args: ['Hello from RUN_SCRIPT']
+          cli: npm
+          args: ['test']
 
   IMAGE_COMPRESS:
     taskType: CODE_TRANSFORM
@@ -262,3 +271,49 @@ intents:
         params:
           file1: file1
           file2: file2
+
+  QUERY_INFO:
+    taskType: QUERY_EXEC
+    selection:
+      - when:
+          keywords: [package.json, package]
+        pick: cat
+        override:
+          cli: cat
+          args: ['package.json']
+      - when:
+          keywords: [readme, README]
+        pick: cat
+        override:
+          cli: cat
+          args: ['README.md']
+      - when:
+          keywords: [隐藏, hidden, dot]
+        pick: ls
+        override:
+          cli: ls
+          args: ['-la', '${path}']
+        params:
+          path: .
+      - default: true
+        pick: ls
+        override:
+          cli: ls
+          args: ['-la', '${path}']
+        params:
+          path: .
+
+  CREATE_FILE:
+    taskType: CODE_CREATE
+    selection:
+      - when:
+          keywords: [目录, 文件夹, folder, mkdir, dir]
+        pick: mkdir
+        override:
+          cli: mkdir
+          args: ['-p', '${path}']
+      - default: true
+        pick: touch
+        override:
+          cli: touch
+          args: ['${path}']

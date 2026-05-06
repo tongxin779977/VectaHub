@@ -103,7 +103,7 @@ const program = new Command();
 program
   .name('vectahub')
   .description('VectaHub - Workflow Editor & Engine + OpenCLI')
-  .version('1.0.0')
+  .version('1.0.1')
   .hook('preAction', (thisCommand) => {
     displayPolicyWarning();
     
@@ -112,8 +112,8 @@ program
       const commandName = thisCommand.name();
       const args = process.argv.slice(3);
       audit.cliCommand(commandName, args, sessionId);
-    } catch (error) {
-      console.debug('审计日志记录失败:', formatErrorMessage(error, 'preAction'));
+    } catch {
+      // audit logging failed silently
     }
   });
 
