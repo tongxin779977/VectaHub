@@ -367,3 +367,5 @@ export class PerformanceMonitor {
     }
   }
 }
+
+export const performanceMonitor = new PerformanceMonitor();

@@ -1,5 +1,40 @@
 #!/usr/bin/env node
 
+import process from 'node:process';
+
+process.setMaxListeners(100);
+
+process.removeAllListeners('warning');
+
+process.on('warning', (warning) => {
+  if (warning.name === 'MaxListenersExceededWarning') {
+    return;
+  }
+  console.warn(warning);
+});
+
+import { globalEventManager } from './utils/event-manager.js';
+
+const setupGlobalSignals = (() => {
+  let initialized = false;
+  return () => {
+    if (initialized) return;
+    initialized = true;
+
+    globalEventManager.on('SIGINT', () => {
+      console.log('\n\n🛑 Shutting down...');
+      process.exit(0);
+    });
+
+    globalEventManager.on('SIGTERM', () => {
+      console.log('\n\n🛑 Shutting down...');
+      process.exit(0);
+    });
+  };
+})();
+
+setupGlobalSignals();
+
 import { Command } from 'commander';
 import { initAuditLogger, getCurrentSessionId, audit } from './utils/audit.js';
 import { setGlobalOptions, isVerbose } from './utils/global-options.js';

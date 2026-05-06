@@ -9,6 +9,24 @@ import { INTENT_TEMPLATES } from '../nl/templates/index.js';
 import { createSandboxManager } from '../sandbox/sandbox.js';
 import type { SandboxMode } from '../types/index.js';
 import { audit, getCurrentSessionId, AuditEventType } from '../utils/audit.js';
+import { globalEventManager } from '../utils/event-manager.js';
+
+const handleShutdown = (signal: string) => {
+  console.log('\n\n🛑 Shutting down...');
+  audit.log({
+    event: AuditEventType.CLI_COMMAND,
+    timestamp: new Date().toISOString(),
+    sessionId,
+    module: 'Service',
+    action: 'serve_shutdown',
+    input: { signal },
+    success: true,
+  });
+  server.close();
+  if (existsSync(SOCKET_PATH)) {
+    unlinkSync(SOCKET_PATH);
+  }
+};
 
 interface Task {
   id: string;
@@ -357,39 +375,13 @@ export const serveCmd = new Command('serve')
       process.exit(1);
     });
 
-    process.on('SIGINT', () => {
-      console.log('\n\n🛑 Shutting down...');
-      audit.log({
-        event: AuditEventType.CLI_COMMAND,
-        timestamp: new Date().toISOString(),
-        sessionId,
-        module: 'Service',
-        action: 'serve_shutdown',
-        input: { signal: 'SIGINT' },
-        success: true,
-      });
-      server.close();
-      if (existsSync(SOCKET_PATH)) {
-        unlinkSync(SOCKET_PATH);
-      }
+    globalEventManager.on('SIGINT', () => {
+      handleShutdown('SIGINT');
       process.exit(0);
     });
 
-    process.on('SIGTERM', () => {
-      console.log('\n\n🛑 Shutting down...');
-      audit.log({
-        event: AuditEventType.CLI_COMMAND,
-        timestamp: new Date().toISOString(),
-        sessionId,
-        module: 'Service',
-        action: 'serve_shutdown',
-        input: { signal: 'SIGTERM' },
-        success: true,
-      });
-      server.close();
-      if (existsSync(SOCKET_PATH)) {
-        unlinkSync(SOCKET_PATH);
-      }
+    globalEventManager.on('SIGTERM', () => {
+      handleShutdown('SIGTERM');
       process.exit(0);
     });
   });

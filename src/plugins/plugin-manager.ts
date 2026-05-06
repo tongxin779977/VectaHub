@@ -360,3 +360,5 @@ export class PluginManager {
     plugin.permissions = parsePermissions(permissions);
   }
 }
+
+export const pluginManager = new PluginManager();
