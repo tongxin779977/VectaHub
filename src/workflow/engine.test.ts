@@ -259,7 +259,7 @@ describe('WorkflowEngine', () => {
       };
       mockGet.mockResolvedValue(previousExecution);
 
-      const result = await engine.resumeFromFailure('exec_1');
+      const result = await engine.resumeFromFailure('exec_1', 1);
 
       expect(result.status).toBe('COMPLETED');
       expect(result.steps.length).toBe(3);
@@ -292,14 +292,14 @@ describe('WorkflowEngine', () => {
       };
       mockGet.mockResolvedValue(previousExecution);
 
-      const result = await engine.resumeFromFailure('exec_2');
+      const result = await engine.resumeFromFailure('exec_2', -1);
       expect(result.status).toBe('COMPLETED');
       expect(result.steps.length).toBe(3);
     });
 
     it('should throw when execution not found', async () => {
       mockGet.mockResolvedValue(undefined);
-      await expect(engine.resumeFromFailure('nonexistent')).rejects.toThrow('not found');
+      await expect(engine.resumeFromFailure('nonexistent', 0)).rejects.toThrow('not found');
     });
 
     it('should throw when no failed step found', async () => {
@@ -319,7 +319,7 @@ describe('WorkflowEngine', () => {
       };
       mockGet.mockResolvedValue(previousExecution);
 
-      await expect(engine.resumeFromFailure('exec_3')).rejects.toThrow('No failed step');
+      await expect(engine.resumeFromFailure('exec_3', -1)).rejects.toThrow('No failed step');
     });
 
     it('should throw when no remaining steps after failed step', async () => {
@@ -339,7 +339,7 @@ describe('WorkflowEngine', () => {
       };
       mockGet.mockResolvedValue(previousExecution);
 
-      await expect(engine.resumeFromFailure('exec_4')).rejects.toThrow('No remaining steps');
+      await expect(engine.resumeFromFailure('exec_4', -1)).rejects.toThrow('No remaining steps');
     });
 
     it('should throw when workflow no longer exists', async () => {
@@ -356,7 +356,7 @@ describe('WorkflowEngine', () => {
       };
       mockGet.mockResolvedValue(previousExecution);
 
-      await expect(engine.resumeFromFailure('exec_5')).rejects.toThrow('not found');
+      await expect(engine.resumeFromFailure('exec_5', -1)).rejects.toThrow('not found');
     });
   });
 

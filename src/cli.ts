@@ -36,6 +36,9 @@ const setupGlobalSignals = (() => {
 setupGlobalSignals();
 
 import { Command } from 'commander';
+import { readdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { initAuditLogger, getCurrentSessionId, audit } from './utils/audit.js';
 import { setGlobalOptions, isVerbose } from './utils/global-options.js';
 import { setLogLevel } from './infrastructure/logger/index.js';
@@ -426,37 +429,45 @@ program.addCommand(completionCmd);
 program.addCommand(setupCmd);
 program.addCommand(configCmd);
 
-// Register lazy-loadable commands with minimal placeholder - actual implementation loaded on use
-const lazyLoadableCommands = [
-  { name: 'chat', description: 'Start interactive chat session' },
-  { name: 'serve', description: 'Start VectaHub server' },
-  { name: 'client', description: 'Connect to VectaHub server' },
-  { name: 'security', description: 'Security management commands' },
-  { name: 'audit', description: 'Audit log commands' },
-  { name: 'tools', description: 'CLI tools management' },
-  { name: 'list', description: 'List workflows' },
-  { name: 'mode', description: 'Switch execution mode' },
-  { name: 'history', description: 'View execution history' },
-  { name: 'generate', description: 'Generate workflows' },
-  { name: 'schedule', description: 'Schedule workflows' },
-  { name: 'daemon', description: 'Daemon management' },
-  { name: 'templates', description: 'Manage templates' },
-  { name: 'rollback', description: 'Rollback operations' },
-  { name: 'verify', description: 'Verify workflows' },
-  { name: 'plugins', description: 'Plugin management' },
-  { name: 'monitor', description: 'Monitor workflows' },
-  { name: 'debug', description: 'Debug workflows' },
-  { name: 'export', description: 'Export workflows' },
-  { name: 'import', description: 'Import workflows' },
-  { name: 'dev', description: 'Development commands' },
-];
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const commandsDir = join(__dirname, 'commands');
 
-for (const cmdInfo of lazyLoadableCommands) {
-  const placeholderCmd = new Command(cmdInfo.name)
-    .description(cmdInfo.description)
+const COMMAND_DESCRIPTIONS: Record<string, string> = {
+  chat: 'Start interactive chat session',
+  serve: 'Start VectaHub server',
+  client: 'Connect to VectaHub server',
+  security: 'Security management commands',
+  audit: 'Audit log commands',
+  tools: 'CLI tools management',
+  list: 'List workflows',
+  mode: 'Switch execution mode',
+  history: 'View execution history',
+  generate: 'Generate workflows',
+  schedule: 'Schedule workflows',
+  daemon: 'Daemon management',
+  templates: 'Manage templates',
+  rollback: 'Rollback operations',
+  verify: 'Verify workflows',
+  plugins: 'Plugin management',
+  monitor: 'Monitor workflows',
+  debug: 'Debug workflows',
+  export: 'Export workflows',
+  import: 'Import workflows',
+  dev: 'Development commands',
+};
+
+const discoveredCommands = readdirSync(commandsDir)
+  .filter(file => (file.endsWith('.ts') || file.endsWith('.js')) && !file.endsWith('.test.ts') && !file.endsWith('.test.js') && file !== 'index.ts' && file !== 'index.js')
+  .map(file => file.replace(/\.(ts|js)$/, ''))
+  .filter(name => !loadedCommands.has(name) && !program.commands.some(c => c.name() === name));
+
+for (const cmdName of discoveredCommands) {
+  const description = COMMAND_DESCRIPTIONS[cmdName] || `Execute ${cmdName} command`;
+  const placeholderCmd = new Command(cmdName)
+    .description(description)
     .allowUnknownOption()
+    .arguments('[args...]')
     .action(async () => {
-      const cmdName = cmdInfo.name;
       if (!loadedCommands.has(cmdName)) {
         await lazyLoadCommand(cmdName);
         await lazyLoadCliTools();
@@ -464,7 +475,8 @@ for (const cmdInfo of lazyLoadableCommands) {
       
       const loadedCmd = program.commands.find(c => c.name() === cmdName);
       if (loadedCmd && loadedCmd !== placeholderCmd) {
-        const remainingArgs = process.argv.slice(3);
+        const cmdIndex = process.argv.findIndex(arg => arg === cmdName);
+        const remainingArgs = process.argv.slice(cmdIndex + 1);
         await loadedCmd.parseAsync(remainingArgs, { from: 'user' });
       } else {
         console.error(`❌ Command '${cmdName}' failed to load properly`);

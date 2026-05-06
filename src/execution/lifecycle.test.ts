@@ -133,7 +133,7 @@ describe('LifecycleManager', () => {
     it('should resume from failure point by default', async () => {
       const result = await lifecycle.resume('exec_1');
       expect(result).toBeDefined();
-      expect(mockEngine.resumeFn).toHaveBeenCalledWith('exec_1', { mode: undefined });
+      expect(mockEngine.resumeFn).toHaveBeenCalledWith('exec_1', 1, { mode: undefined });
     });
   });
 
@@ -145,7 +145,18 @@ describe('LifecycleManager', () => {
     it('should call resumeFromFailure with correct executionId', async () => {
       const result = await lifecycle.resumeFromStep('exec_1', 1, { mode: 'relaxed' });
       expect(result).toBeDefined();
-      expect(mockEngine.resumeFn).toHaveBeenCalledWith('exec_1', { mode: 'relaxed' });
+      expect(mockEngine.resumeFn).toHaveBeenCalledWith('exec_1', 1, { mode: 'relaxed' });
+    });
+
+    it('should pass target stepIndex to resumeFromFailure', async () => {
+      await lifecycle.resumeFromStep('exec_1', 0, { mode: 'strict' });
+      expect(mockEngine.resumeFn).toHaveBeenCalledWith('exec_1', 0, { mode: 'strict' });
+    });
+
+    it('should auto-resolve stepIndex from failed step when negative', async () => {
+      await lifecycle.resumeFromStep('exec_1', -1, { mode: 'relaxed' });
+      // stepIndex -1 means auto-detect failed step (index 1 in our fixture)
+      expect(mockEngine.resumeFn).toHaveBeenCalledWith('exec_1', 1, { mode: 'relaxed' });
     });
   });
 });

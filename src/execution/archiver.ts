@@ -73,7 +73,11 @@ export function createArchiver(options?: {
         };
       }
 
-      const archiveId = `archive_${old[0].startedAt.slice(0, 7).replace('-', '')}`;
+      const startedAt = old[0].startedAt;
+      const startedAtStr = typeof startedAt === 'object' && startedAt !== null && 'toISOString' in startedAt
+        ? (startedAt as Date).toISOString()
+        : String(startedAt || '');
+      const archiveId = `archive_${startedAtStr.slice(0, 7).replace('-', '')}`;
       const archivePath = join(baseDir, `${archiveId}.json.gz`);
 
       const jsonContent = old.map((entry) => JSON.stringify(entry)).join('\n') + '\n';

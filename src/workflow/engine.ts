@@ -46,11 +46,12 @@ export interface WorkflowEngine {
   waitForCompletion(): Promise<ExecutionRecord>;
   loadWorkflows(): Promise<void>;
   getExecution(id: string): Promise<ExecutionRecord | undefined>;
-  resumeFromFailure(executionId: string, options?: ExecuteOptions): Promise<ExecutionRecord>;
+  resumeFromFailure(executionId: string, stepIndex?: number, options?: ExecuteOptions): Promise<ExecutionRecord>;
 }
 
 let workflowCounter = 0;
-let executionCounter = 0;
+
+let currentEngine: WorkflowEngine | null = null;
 
 interface RunLoopOptions {
   workflow: Workflow;
@@ -89,7 +90,7 @@ async function runExecutionLoop(
     onProgress,
   } = options;
 
-  const newExecutionId = `exec_${++executionCounter}`;
+  const newExecutionId = generateId();
   const startedAt = new Date();
 
   const context = contextManager.createContext(
@@ -438,7 +439,7 @@ export function createWorkflowEngine(): WorkflowEngine {
       return storage.get(id);
     },
 
-    async resumeFromFailure(executionId: string, options?: ExecuteOptions): Promise<ExecutionRecord> {
+    async resumeFromFailure(executionId: string, stepIndex = -1, options?: ExecuteOptions): Promise<ExecutionRecord> {
       const previousExecution = await storage.get(executionId);
       if (!previousExecution) {
         throw new Error(`Execution ${executionId} not found`);
@@ -449,9 +450,12 @@ export function createWorkflowEngine(): WorkflowEngine {
         throw new Error(`Workflow ${previousExecution.workflowId} not found`);
       }
 
-      const failedStepIndex = previousExecution.steps.findIndex(
-        s => s.status === 'FAILED'
-      );
+      let failedStepIndex = stepIndex;
+      if (failedStepIndex < 0) {
+        failedStepIndex = previousExecution.steps.findIndex(
+          s => s.status === 'FAILED'
+        );
+      }
 
       if (failedStepIndex === -1) {
         throw new Error(`No failed step found in execution ${executionId}`);

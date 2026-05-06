@@ -1,13 +1,17 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
-import type { ExecutionRecord, ExecutionFilter } from './types.js';
+import type { ExecutionRecord, ExecutionFilter, ExecutionSearchResult, ExecutionMetadata } from './types.js';
 
 export interface RecordManager {
   save(record: ExecutionRecord): Promise<void>;
   get(id: string): Promise<ExecutionRecord | undefined>;
   list(filter?: ExecutionFilter): Promise<ExecutionRecord[]>;
   delete(id: string): Promise<boolean>;
+  search(query: string, options?: { limit?: number; status?: string }): Promise<ExecutionSearchResult>;
+  getMetadata(id: string): Promise<ExecutionMetadata | undefined>;
+  getLatest(status?: string): Promise<ExecutionRecord | undefined>;
+  getRecent(limit?: number): Promise<ExecutionRecord[]>;
 }
 
 function getDayFile(baseDir: string, dateStr: string): string {
@@ -15,7 +19,11 @@ function getDayFile(baseDir: string, dateStr: string): string {
 }
 
 function parseStartedAt(record: ExecutionRecord): string {
-  return record.startedAt || '';
+  const raw = record.startedAt;
+  const startedAtStr = typeof raw === 'object' && raw !== null && 'toISOString' in raw
+    ? (raw as Date).toISOString()
+    : String(raw);
+  return startedAtStr;
 }
 
 export function createRecordManager(baseDir?: string): RecordManager {
@@ -25,18 +33,40 @@ export function createRecordManager(baseDir?: string): RecordManager {
     await mkdir(dir, { recursive: true });
   }
 
-  async function readAllRecords(): Promise<ExecutionRecord[]> {
+  /**
+   * Reads records from disk in reverse chronological order.
+   * Optimization: Stops reading files once the required limit is met.
+   */
+  async function readRecords(options: { limit?: number; filter?: (r: ExecutionRecord) => boolean } = {}): Promise<ExecutionRecord[]> {
     await ensureDir();
     const files = await readdir(dir);
-    const jsonlFiles = files.filter((f) => f.endsWith('.jsonl'));
+    // Sort files in reverse order to get newest dates first
+    const jsonlFiles = files.filter((f) => f.endsWith('.jsonl')).sort().reverse();
     const records: ExecutionRecord[] = [];
+    const targetLimit = options.limit || Infinity;
 
     for (const file of jsonlFiles) {
+      if (records.length >= targetLimit) break;
+
       const content = await readFile(join(dir, file), 'utf-8');
-      const lines = content.split('\n').filter((line) => line.trim());
+      const lines = content.split('\n').filter((line) => line.trim()).reverse(); // Newest in file first
+      
       for (const line of lines) {
         try {
-          records.push(JSON.parse(line) as ExecutionRecord);
+          const record = JSON.parse(line) as ExecutionRecord;
+          
+          // Runtime type guard and transformation
+          if (record.startedAt) {
+            record.startedAt = new Date(record.startedAt);
+          }
+          if (record.endedAt) {
+            record.endedAt = new Date(record.endedAt);
+          }
+
+          if (!options.filter || options.filter(record)) {
+            records.push(record);
+            if (records.length >= targetLimit) break;
+          }
         } catch {
           // skip malformed lines
         }
@@ -49,9 +79,12 @@ export function createRecordManager(baseDir?: string): RecordManager {
   return {
     async save(record: ExecutionRecord): Promise<void> {
       await ensureDir();
-      const dateStr = record.startedAt
-        ? record.startedAt.slice(0, 10).replace(/-/g, '')
-        : new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const raw = record.startedAt;
+      const startedAtStr = typeof raw === 'object' && raw !== null && 'toISOString' in raw
+        ? (raw as Date).toISOString()
+        : (typeof raw === 'string' ? raw : new Date().toISOString());
+      
+      const dateStr = startedAtStr.slice(0, 10).replace(/-/g, '');
       const filePath = getDayFile(dir, dateStr);
       const line = JSON.stringify(record) + '\n';
       try {
@@ -63,60 +96,60 @@ export function createRecordManager(baseDir?: string): RecordManager {
     },
 
     async get(id: string): Promise<ExecutionRecord | undefined> {
-      const records = await readAllRecords();
-      return records.find((r) => r.executionId === id);
+      // For get by ID, we might still need to search through records, but we can stop at first match
+      const records = await readRecords({ 
+        filter: (r) => r.executionId === id,
+        limit: 1 
+      });
+      return records[0];
     },
 
     async list(filter?: ExecutionFilter): Promise<ExecutionRecord[]> {
-      let records = await readAllRecords();
-
-      if (filter?.workflowId) {
-        records = records.filter((r) => r.workflowId === filter.workflowId);
-      }
-      if (filter?.status) {
-        records = records.filter((r) => r.status === filter.status);
-      }
-      if (filter?.from) {
-        records = records.filter((r) => parseStartedAt(r) >= filter.from!);
-      }
-      if (filter?.to) {
-        records = records.filter((r) => parseStartedAt(r) <= filter.to!);
-      }
-      if (filter?.grep) {
-        const grepLower = filter.grep.toLowerCase();
-        records = records.filter(
-          (r) =>
-            r.workflowName.toLowerCase().includes(grepLower) ||
-            r.workflowId.toLowerCase().includes(grepLower)
-        );
-      }
-
-      records.sort((a, b) => parseStartedAt(b).localeCompare(parseStartedAt(a)));
-
       const offset = filter?.offset || 0;
-      const limit = filter?.limit;
-      if (limit !== undefined) {
-        records = records.slice(offset, offset + limit);
-      } else if (offset > 0) {
-        records = records.slice(offset);
-      }
+      const limit = filter?.limit || 50;
+      
+      const records = await readRecords({
+        limit: offset + limit,
+        filter: (r) => {
+          if (filter?.workflowId && r.workflowId !== filter.workflowId) return false;
+          if (filter?.status && r.status !== filter.status) return false;
+          if (filter?.from && parseStartedAt(r) < filter.from) return false;
+          if (filter?.to && parseStartedAt(r) > filter.to) return false;
+          if (filter?.grep) {
+            const grepLower = filter.grep.toLowerCase();
+            if (!r.workflowName.toLowerCase().includes(grepLower) && 
+                !r.workflowId.toLowerCase().includes(grepLower)) return false;
+          }
+          return true;
+        }
+      });
 
-      return records;
+      // Since readRecords already returns newest first, we just need to slice
+      return records.slice(offset);
     },
 
     async delete(id: string): Promise<boolean> {
-      const records = await readAllRecords();
-      const index = records.findIndex((r) => r.executionId === id);
+      // Deletion still requires full rewrite of affected file(s), so we read all for now
+      // but only in the affected date's file if we were really aggressive.
+      // Keeping original full read for delete to ensure safety across files.
+      const allRecords = await readRecords(); 
+      const index = allRecords.findIndex((r) => r.executionId === id);
       if (index === -1) return false;
 
-      records.splice(index, 1);
+      allRecords.splice(index, 1);
 
       // Rewrite all files
       const grouped = new Map<string, ExecutionRecord[]>();
-      for (const r of records) {
-        const dateStr = r.startedAt
-          ? r.startedAt.slice(0, 10).replace(/-/g, '')
+      for (const r of allRecords) {
+        const raw = r.startedAt;
+        const startedAtStr = typeof raw === 'object' && raw !== null && 'toISOString' in raw
+          ? (raw as Date).toISOString()
+          : (typeof raw === 'string' ? raw : 'unknown');
+        
+        const dateStr = startedAtStr !== 'unknown'
+          ? startedAtStr.slice(0, 10).replace(/-/g, '')
           : 'unknown';
+          
         if (!grouped.has(dateStr)) grouped.set(dateStr, []);
         grouped.get(dateStr)!.push(r);
       }
@@ -125,19 +158,63 @@ export function createRecordManager(baseDir?: string): RecordManager {
       const files = await readdir(dir);
       const jsonlFiles = files.filter((f) => f.endsWith('.jsonl'));
 
-      // Remove old files
       for (const file of jsonlFiles) {
         const { unlink } = await import('node:fs/promises');
         await unlink(join(dir, file));
       }
 
-      // Write back remaining records
       for (const [dateStr, recs] of grouped) {
         const content = recs.map((r) => JSON.stringify(r)).join('\n') + '\n';
         await writeFile(join(dir, `${dateStr}.jsonl`), content, 'utf-8');
       }
 
       return true;
+    },
+
+    async search(query: string, options?: { limit?: number; status?: string }): Promise<ExecutionSearchResult> {
+      const queryLower = query.toLowerCase();
+      const limit = options?.limit || 20;
+
+      const records = await readRecords({
+        limit: limit + 1,
+        filter: (r) => {
+          const searchable = [
+            r.executionId,
+            r.workflowId,
+            r.workflowName,
+            r.error || '',
+            r.triggeredBy || '',
+            ...(r.metadata ? Object.values(r.metadata).map(String) : []),
+          ].join(' ').toLowerCase();
+
+          const matchesQuery = searchable.includes(queryLower);
+          const matchesStatus = !options?.status || r.status === options.status;
+          return matchesQuery && matchesStatus;
+        }
+      });
+
+      const hasMore = records.length > limit;
+      const sliced = records.slice(0, limit);
+
+      return { records: sliced, total: records.length, hasMore };
+    },
+
+    async getMetadata(id: string): Promise<ExecutionMetadata | undefined> {
+      const record = await this.get(id);
+      if (!record || !record.metadata) return undefined;
+      return record.metadata as unknown as ExecutionMetadata;
+    },
+
+    async getLatest(status?: string): Promise<ExecutionRecord | undefined> {
+      const records = await readRecords({
+        limit: 1,
+        filter: (r) => !status || r.status === status
+      });
+      return records[0];
+    },
+
+    async getRecent(limit = 10): Promise<ExecutionRecord[]> {
+      return readRecords({ limit });
     },
   };
 }

@@ -85,6 +85,33 @@ function initDefaultSlashCommands() {
 
   registerSlashCommand('exit', async () => '__EXIT__');
 
+  registerSlashCommand('status', async (_, ctx) => {
+    const lines = [
+      '═══ SESSION STATUS ═══',
+      `Session ID: ${ctx.sessionId || 'N/A'}`,
+    ];
+    
+    const sm = ctx.sessionManager as any;
+    const session = sm?.getSession?.(ctx.sessionId);
+    if (session?.context?.entities) {
+      lines.push('Current Entities:');
+      for (const [type, values] of Object.entries(session.context.entities)) {
+        if ((values as any[]).length > 0) {
+          lines.push(`  - ${type}: ${(values as any[]).join(', ')}`);
+        }
+      }
+    }
+
+    const pending = pendingWorkflows.get(ctx.sessionId ?? '');
+    if (pending) {
+      lines.push(`Pending Workflow: ${pending.workflow.id} (${pending.intent})`);
+      lines.push(`  Confidence: ${((pending.confidence ?? 0) * 100).toFixed(1)}%`);
+    }
+
+    lines.push('══════════════════════');
+    return lines.join('\n');
+  });
+
   registerSlashCommand('execute', async (args, ctx) => {
     const pending = pendingWorkflows.get(ctx.sessionId ?? '');
     if (!pending) {

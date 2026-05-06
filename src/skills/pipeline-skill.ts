@@ -47,6 +47,17 @@ export function createPipelineSkill(
         userInput: userInput
       }, context);
 
+      if (workflowResult.success && workflowResult.data) {
+        return {
+          ...workflowResult,
+          confidence: Math.min(intentResult.confidence ?? 0, workflowResult.confidence ?? 0),
+          data: {
+            ...workflowResult.data,
+            confidence: intentResult.confidence // Pass it down for explicit checking if needed
+          }
+        };
+      }
+
       return workflowResult;
     },
   };

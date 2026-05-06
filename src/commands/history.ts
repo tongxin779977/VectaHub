@@ -1,8 +1,20 @@
 import { Command } from 'commander';
-import { createConsoleLogger } from '../utils/logger.js';
+import { createRecordManager } from '../execution/record-manager.js';
 import { createStorage } from '../workflow/storage.js';
+import { createConsoleLogger } from '../utils/logger.js';
 
 const logger = createConsoleLogger('history');
+
+function formatStatus(status: string): string {
+  switch (status) {
+    case 'COMPLETED': return `✅ ${status}`;
+    case 'FAILED': return `❌ ${status}`;
+    case 'ABORTED': return `⏹️ ${status}`;
+    case 'PAUSED': return `⏸️ ${status}`;
+    case 'RUNNING': return `🔄 ${status}`;
+    default: return `🔶 ${status}`;
+  }
+}
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -12,58 +24,95 @@ function formatDuration(ms: number): string {
   return `${m}m ${s % 60}s`;
 }
 
-function statusIcon(status: string): string {
-  switch (status) {
-    case 'COMPLETED': return '✅';
-    case 'FAILED': return '❌';
-    case 'ABORTED': return '⏹️';
-    case 'PAUSED': return '⏸️';
-    default: return '🔄';
-  }
-}
-
 export const historyCmd = new Command('history')
-  .description('View workflow execution history')
-  .option('-l, --limit <number>', 'Limit number of entries', '20')
-  .option('-w, --workflow <id>', 'Filter by workflow ID')
-  .option('-s, --status <status>', 'Filter by status (COMPLETED|FAILED|ABORTED)')
-  .action(async (options: { limit: string; workflow?: string; status?: string }) => {
+  .description('List execution history with search capabilities')
+  .option('--status <status>', 'Filter by status (COMPLETED|FAILED|PAUSED|ABORTED)')
+  .option('--query <text>', 'Full-text search across executions')
+  .option('--limit <number>', 'Maximum records to show', '20')
+  .option('--verbose', 'Show detailed information including step summaries')
+  .option('--workflow <id>', 'Filter by workflow ID')
+  .action(async (options: { status?: string; query?: string; limit: string; verbose?: boolean; workflow?: string }) => {
     const storage = createStorage();
-    let records = await storage.list();
-
-    if (options.workflow) {
-      records = records.filter(r => r.workflowId === options.workflow);
-    }
-    if (options.status) {
-      records = records.filter(r => r.status === options.status!.toUpperCase());
-    }
-
+    const recordManager = createRecordManager();
     const limit = parseInt(options.limit, 10) || 20;
-    records = records.slice(0, limit);
+
+    let records;
+    if (options.query) {
+      const result = await recordManager.search(options.query, {
+        limit,
+        status: options.status,
+      });
+      records = result.records;
+
+      logger.info('');
+      logger.info(`Search results for "${options.query}" (${result.total} total, showing ${records.length}):`);
+      if (result.hasMore) {
+        logger.info('Use --limit to see more results.');
+      }
+    } else {
+      records = await storage.list();
+
+      if (options.status) {
+        records = records.filter(r => r.status === options.status!.toUpperCase());
+      }
+      if (options.workflow) {
+        records = records.filter(r => r.workflowId === options.workflow);
+      }
+      records = records.slice(0, limit);
+    }
 
     if (records.length === 0) {
-      logger.info('No execution records found.');
-      logger.info('\nRun workflows with: vectahub run <intent>');
+      logger.info('No executions found.');
       return;
     }
 
-    logger.info(`\nExecution History (${records.length} records):\n`);
-    logger.info(
-      'Status  | Workflow          | Started              | Duration | Steps'
-    );
-    logger.info(
-      '--------|-------------------|----------------------|----------|------'
-    );
+    logger.info('');
+    logger.info(`Execution History (${records.length} record${records.length > 1 ? 's' : ''}):`);
+    logger.info('-'.repeat(80));
 
-    for (const r of records) {
-      const icon = statusIcon(r.status);
-      const name = (r.workflowName || r.workflowId).padEnd(17).slice(0, 17);
-      const time = r.startedAt.toISOString().replace('T', ' ').slice(0, 19);
-      const dur = r.duration ? formatDuration(r.duration) : '-';
-      const steps = `${r.steps.length}`;
+    for (const record of records) {
+      const duration = record.duration ? formatDuration(record.duration) : 'N/A';
+      const stepCount = record.steps ? record.steps.length : 0;
+      const rec = record as unknown as Record<string, unknown>;
+      const metadata = rec.metadata as Record<string, unknown> | undefined;
+      const source = metadata?.source ? ` [${metadata.source}]` : '';
 
-      logger.info(`${icon}     | ${name} | ${time} | ${dur.padEnd(8)} | ${steps}`);
+      if (options.verbose) {
+        logger.info('');
+        logger.info(`  ${record.executionId}`);
+        logger.info(`  Workflow:  ${record.workflowName || record.workflowId}`);
+        logger.info(`  Status:    ${formatStatus(record.status)}`);
+        logger.info(`  Duration:  ${duration}`);
+        logger.info(`  Steps:     ${stepCount}`);
+        logger.info(`  Started:   ${(rec.startedAt as string) || 'N/A'}`);
+        if (source) logger.info(`  Source:    ${metadata!.source}`);
+        if (metadata?.cwd) logger.info(`  CWD:       ${metadata.cwd}`);
+
+        if (record.steps && record.steps.length > 0) {
+          logger.info('  Steps:');
+          for (const step of record.steps.slice(0, 5)) {
+            const stepStatus = step.status === 'COMPLETED' ? '✅' : step.status === 'FAILED' ? '❌' : '⏸️';
+            const stepRec = step as unknown as Record<string, unknown>;
+            const summary = stepRec.outputSummary ? ` - ${stepRec.outputSummary}` : '';
+            logger.info(`    ${stepStatus} ${step.stepId}: ${(stepRec.command as string) || ''}${summary}`);
+          }
+          if (record.steps.length > 5) {
+            logger.info(`    ... and ${record.steps.length - 5} more steps`);
+          }
+        }
+
+        if (rec.error) {
+          logger.info(`  Error:     ${rec.error}`);
+        }
+        logger.info('');
+      } else {
+        logger.info(`  ${record.executionId}`);
+        logger.info(`    ${formatStatus(record.status)} ${record.workflowName || record.workflowId} | ${duration} | ${stepCount} steps${source}`);
+      }
     }
-
+    logger.info('');
+    logger.info('Use "vectahub detail <executionId>" for more information.');
+    logger.info('Use "vectahub history --verbose" for detailed view.');
+    logger.info('Use "vectahub history --query <text>" to search.');
     logger.info('');
   });

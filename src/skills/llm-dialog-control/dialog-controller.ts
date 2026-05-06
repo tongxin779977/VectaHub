@@ -9,6 +9,22 @@ import type {
 } from './types.js';
 import { validateOutput, extractCleanOutput, createRetryPrompt } from './validator.js';
 
+export class LLMError extends Error {
+  constructor(public message: string, public status?: number, public isFatal: boolean = false) {
+    super(message);
+    this.name = 'LLMError';
+  }
+}
+
+export class LLMNetworkError extends LLMError {
+  constructor(message: string, status?: number) {
+    // 4xx errors are generally fatal for retries (except maybe 429)
+    const isFatal = status !== undefined && status >= 400 && status < 500 && status !== 429;
+    super(message, status, isFatal);
+    this.name = 'LLMNetworkError';
+  }
+}
+
 export function createDialogController(
   defaultConfig: LLMConfig,
   defaultOptions?: Partial<LLMRequestOptions>
@@ -99,8 +115,12 @@ export function createDialogController(
           duration
         };
       } catch (error) {
+        const isFatal = error instanceof LLMError && error.isFatal;
         lastError = error instanceof Error ? error.message : String(error);
-        console.error(`[DIALOG DEBUG] Exception on attempt ${attempt}: ${lastError}`);
+        console.error(`[DIALOG DEBUG] Exception on attempt ${attempt}: ${lastError}${isFatal ? ' (FATAL)' : ''}`);
+        
+        if (isFatal) break;
+
         if (attempt < options.maxRetries) {
           currentPrompt = createRetryPrompt(prompt, lastError, attempt);
           await sleep(100 * attempt);
@@ -149,9 +169,13 @@ export function createDialogController(
     messages: Message[]
   ): Promise<string> {
     const apiKey = config.apiKey || process.env.OPENAI_API_KEY || process.env.OLLAMA_API_KEY;
-    const baseUrl = config.baseUrl || 'https://api.openai.com/v1';
+    let baseUrl = config.baseUrl || 'https://api.openai.com/v1';
+
+    // Normalize baseUrl: remove trailing /chat/completions or duplicate /v1
+    baseUrl = baseUrl.replace(/\/chat\/completions\/?$/, '').replace(/\/+$/, '');
+
     const timeout = config.timeout || 30000;
-    
+
     console.debug(`[LLM DEBUG] Calling API: ${baseUrl}/chat/completions`);
     console.debug(`[LLM DEBUG] Model: ${config.model}`);
     console.debug(`[LLM DEBUG] API Key present: ${!!apiKey}`);
@@ -185,7 +209,7 @@ export function createDialogController(
       if (!response.ok) {
         const errorText = await response.text();
         console.error(`[LLM DEBUG] API error: ${response.status} - ${errorText}`);
-        throw new Error(`API error: ${response.status} - ${errorText}`);
+        throw new LLMNetworkError(`API error: ${response.status} - ${errorText}`, response.status);
       }
       
       console.log(`[LLM DEBUG] Parsing response JSON...`);

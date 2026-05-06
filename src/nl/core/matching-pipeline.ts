@@ -188,12 +188,18 @@ function classifyConfidence(
   };
 }
 
+const regexCache = new Map<string, RegExp>();
+
 function matchPhrases(input: string, phrases: CompositePhrase[]): CompositePhrase[] {
   const matched: CompositePhrase[] = [];
   for (const phrase of phrases) {
     if (phrase.isRegex) {
       try {
-        const regex = new RegExp(phrase.pattern, 'i');
+        let regex = regexCache.get(phrase.pattern);
+        if (!regex) {
+          regex = new RegExp(phrase.pattern, 'i');
+          regexCache.set(phrase.pattern, regex);
+        }
         if (regex.test(input)) {
           matched.push(phrase);
         }
