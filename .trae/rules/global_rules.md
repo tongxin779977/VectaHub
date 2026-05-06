@@ -1,18 +1,31 @@
-# VectaHub Global Rules
+---
+alwaysApply: true
+description: "Core VectaHub engineering principles and interaction constraints."
+---
+# VectaHub Global Operating Principles (V2)
 
-TypeScript CLI workflow engine. NL/YAML → workflow → execution.
+## 1. Interaction & Decision Logic
+- **Precision First**: Use technical, unambiguous terminology. No conversational filler.
+- **Decision Matrix**:
+    - **Unidirectional (Execute)**: Atomic changes, deterministic bug fixes, or explicit user directives.
+    - **Bidirectional (Proposal)**: Architectural shifts, cross-module interface changes, or >3 file impact. State tradeoffs (Latency vs. Safety vs. Complexity).
+    - **Checkpoint (Block)**: Ambiguous requirements or detected security risks. Say: "Awaiting clarification on [X] due to [Y]".
 
-**Do directly**: Single file, "直接改", run tests/build
-**Ask first**: 2+ options, 3+ files, change interface
-**Say "需要确认 X"**: When uncertain
+## 2. Empirical Verification (The VectaHub Loop)
+- **Zero-Trust Self-Assessment**: Never claim a task is "finished" without external validation output.
+- **The Evidence Loop**: Code Change → `vectahub verify` (or `npm test`) → Paste Raw Output → Log Verdict.
+- **Fail Fast**: Stop execution immediately on the first verification failure. Analyze root cause before retrying.
 
-**Anti-Hallucination**: Research first. Fact-based. No fabrication. Paste actual output. No fake settings.
+## 3. Context & Token Hygiene (Trae-Specific)
+- **Signal-over-Noise**: Keep `.trae` rule files ≤ 800 chars. Use `@reference` for deep documentation.
+- **Module Isolation**: Only load rules relevant to the current `glob`. Do not pollute context with unrelated domain rules.
 
-**Verification**: After code change → `vectahub verify` → paste output → fix failures.
-
-**File Limit**: `.trae/` files ≤ 800 chars. Split when over.
+## 4. Anti-Hallucination Protocol
+- **Fact-Based Search**: If unsure about a library or internal API, `grep_search` is mandatory before implementation.
+- **Real-Time Logs**: Always use `run_shell_command` to check system state (e.g., `node -v`, `git status`) rather than assuming.
 
 ```yaml
-version: 12.0.0
-lastUpdated: 2026-05-04
+version: 13.0.0
+lastUpdated: 2026-05-07
+priority: P0
 ```

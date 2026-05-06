@@ -125,10 +125,9 @@ export const runCmd = new Command('run')
         }
 
         const multiIntent = nlResult.metadata.multiIntent;
-        if (multiIntent && multiIntent.primary && multiIntent.secondary && multiIntent.secondary.length > 0) {
-          const allIntents = [multiIntent.primary, ...multiIntent.secondary];
-          logger.info(`多意图识别 (${allIntents.length} 个):`);
-          for (const intent of allIntents) {
+        if (multiIntent && multiIntent.isMultiIntent && multiIntent.intents && multiIntent.intents.length > 1) {
+          logger.info(`多意图识别 (${multiIntent.intents.length} 个):`);
+          for (const intent of multiIntent.intents) {
             logger.info(`  - ${intent.intent} (confidence: ${intent.confidence.toFixed(2)})`);
           }
         } else {

@@ -26,11 +26,19 @@ export interface NLContext {
 }
 
 export interface MultiIntentResult {
-  primary: IntentResult;
-  secondary: IntentResult[];
+  isMultiIntent: boolean;
+  intents: IntentMatch[];
+  rawInput: string;
+  clauses?: ClauseSegment[];
 }
 
-export interface IntentResult {
+export interface ClauseSegment {
+  text: string;
+  connector?: string;
+  position: { start: number; end: number };
+}
+
+export interface IntentMatch {
   intent: IntentName;
   confidence: number;
   params?: Record<string, unknown>;

@@ -307,11 +307,9 @@ program
     displayPolicyWarning();
   });
 
-// Hook for lazy loading commands
+// Hook for audit logging (lazy loading is handled in placeholder actions)
 program.hook('preSubcommand', async (thisCommand, subcommand) => {
   const commandName = subcommand.name();
-  await lazyLoadCommand(commandName);
-  await lazyLoadCliTools();
   
   try {
     const sessionId = getCurrentSessionId();
@@ -457,21 +455,17 @@ for (const cmdInfo of lazyLoadableCommands) {
   const placeholderCmd = new Command(cmdInfo.name)
     .description(cmdInfo.description)
     .allowUnknownOption()
-    .action(async (...args) => {
-      // Command implementation will be loaded by preSubcommand hook
-      // This action serves as fallback if hook doesn't execute
+    .action(async () => {
       const cmdName = cmdInfo.name;
       if (!loadedCommands.has(cmdName)) {
         await lazyLoadCommand(cmdName);
         await lazyLoadCliTools();
       }
       
-      // Re-execute the command with loaded implementation
       const loadedCmd = program.commands.find(c => c.name() === cmdName);
       if (loadedCmd && loadedCmd !== placeholderCmd) {
-        // Parse args again with the real command
-        const subArgs = process.argv.slice(3);
-        await loadedCmd.parseAsync(subArgs, { from: 'user' });
+        const remainingArgs = process.argv.slice(3);
+        await loadedCmd.parseAsync(remainingArgs, { from: 'user' });
       } else {
         console.error(`❌ Command '${cmdName}' failed to load properly`);
         process.exit(1);

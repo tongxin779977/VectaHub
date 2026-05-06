@@ -44,6 +44,8 @@ export interface ReplDeps {
   sandboxManager?: unknown;
   config?: Partial<ChatConfig>;
   useLLM?: boolean;
+  sessionManager?: unknown;
+  workflowEngine?: unknown;
 }
 
 export interface Repl {

@@ -10,7 +10,9 @@ const logger = createConsoleLogger('list');
 const VECTAHUB_DIR = join(homedir(), '.vectahub');
 
 export const listCmd = new Command('list')
-  .description('List saved workflows and manage versions')
+  .description('List saved workflows and manage versions');
+
+listCmd
   .action(async () => {
     const storage = createStorage();
 
@@ -33,7 +35,9 @@ export const listCmd = new Command('list')
       logger.error(`Error listing workflows: ${error instanceof Error ? error.message : 'Unknown error'}`);
       process.exit(1);
     }
-  })
+  });
+
+listCmd
   .command('versions')
   .description('List version history of a workflow')
   .argument('<workflowId>', 'Workflow ID')

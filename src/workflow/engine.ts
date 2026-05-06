@@ -7,6 +7,7 @@ import { createContextManager, type ContextManager, type ExecutorContext } from 
 import { topologicalSort } from './dag.js';
 import { audit } from '../utils/audit.js';
 import { createRetryManager } from '../skills/iterative-refinement/retry-manager.js';
+import { generateId } from '../execution/id-generator.js';
 
 export interface RetryOptions {
   maxAttempts?: number;

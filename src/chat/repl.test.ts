@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createRepl, parseInput } from './repl.js';
 import type { ReplDeps, SlashCommandContext } from './types.js';
+import type { REPLDeps } from './repl.js';
 
 vi.mock('node:readline', () => {
   const rl = {
@@ -75,14 +76,14 @@ describe('createRepl', () => {
 
   it('should create repl with start method', () => {
     const deps = createMockDeps();
-    const repl = createRepl(deps);
+    const repl = createRepl(deps as REPLDeps);
     expect(repl).toHaveProperty('start');
     expect(typeof repl.start).toBe('function');
   });
 
   it('/help should list all slash commands', async () => {
     const deps = createMockDeps();
-    const repl = createRepl(deps);
+    const repl = createRepl(deps as REPLDeps);
     const handler = (repl as unknown as { getSlashCommands: () => Map<string, { name: string; description: string; handler: (args: string[], ctx: SlashCommandContext) => Promise<string> }> }).getSlashCommands();
     const helpCmd = handler.get('help');
     expect(helpCmd).toBeDefined();
@@ -102,7 +103,7 @@ describe('createRepl', () => {
       size: vi.fn().mockReturnValue(1),
     };
     const deps = createMockDeps({ moduleRegistry: mockModuleRegistry as never });
-    const repl = createRepl(deps);
+    const repl = createRepl(deps as REPLDeps);
     const handler = (repl as unknown as { getSlashCommands: () => Map<string, { name: string; description: string; handler: (args: string[], ctx: SlashCommandContext) => Promise<string> }> }).getSlashCommands();
     const modulesCmd = handler.get('modules');
     expect(modulesCmd).toBeDefined();
@@ -113,7 +114,7 @@ describe('createRepl', () => {
 
   it('/modules should show no modules message when registry is absent', async () => {
     const deps = createMockDeps();
-    const repl = createRepl(deps);
+    const repl = createRepl(deps as REPLDeps);
     const handler = (repl as unknown as { getSlashCommands: () => Map<string, { name: string; description: string; handler: (args: string[], ctx: SlashCommandContext) => Promise<string> }> }).getSlashCommands();
     const modulesCmd = handler.get('modules');
     const result = await modulesCmd!.handler([], {});
@@ -132,7 +133,7 @@ describe('createRepl', () => {
       }),
     };
     const deps = createMockDeps();
-    const repl = createRepl(deps, { sessionId: 'test', sessionManager: mockSessionManager as never });
+    const repl = createRepl(deps as REPLDeps, { sessionId: 'test', sessionManager: mockSessionManager as never });
     const handler = (repl as unknown as { getSlashCommands: () => Map<string, { name: string; description: string; handler: (args: string[], ctx: SlashCommandContext) => Promise<string> }> }).getSlashCommands();
     const historyCmd = handler.get('history');
     const result = await historyCmd!.handler([], { sessionManager: mockSessionManager, sessionId: 'test' });
@@ -142,7 +143,7 @@ describe('createRepl', () => {
 
   it('/config should mask API keys', async () => {
     const deps = createMockDeps();
-    const repl = createRepl(deps);
+    const repl = createRepl(deps as REPLDeps);
     const handler = (repl as unknown as { getSlashCommands: () => Map<string, { name: string; description: string; handler: (args: string[], ctx: SlashCommandContext) => Promise<string> }> }).getSlashCommands();
     const configCmd = handler.get('config');
     const result = await configCmd!.handler([], { config: { apiKey: 'sk-secret-12345', model: 'gpt-4' } });
@@ -153,7 +154,7 @@ describe('createRepl', () => {
 
   it('/exit should return exit signal', async () => {
     const deps = createMockDeps();
-    const repl = createRepl(deps);
+    const repl = createRepl(deps as REPLDeps);
     const handler = (repl as unknown as { getSlashCommands: () => Map<string, { name: string; description: string; handler: (args: string[], ctx: SlashCommandContext) => Promise<string> }> }).getSlashCommands();
     const exitCmd = handler.get('exit');
     const result = await exitCmd!.handler([], {});
@@ -162,7 +163,7 @@ describe('createRepl', () => {
 
   it('should process NL input through nlProcessor', async () => {
     const deps = createMockDeps();
-    const repl = createRepl(deps);
+    const repl = createRepl(deps as REPLDeps);
     const result = await (repl as unknown as { processInput: (input: string) => Promise<unknown> }).processInput('run tests');
     expect(deps.nlProcessor.parse).toHaveBeenCalled();
     expect(result).toBeDefined();
@@ -178,7 +179,7 @@ describe('createRepl', () => {
     vi.mocked(spawn).mockReturnValue(mockSpawn as never);
 
     const deps = createMockDeps();
-    const repl = createRepl(deps);
+    const repl = createRepl(deps as REPLDeps);
     const result = await (repl as unknown as { processInput: (input: string) => Promise<unknown> }).processInput('!ls');
     expect(spawn).toHaveBeenCalled();
     expect(result).toBeDefined();

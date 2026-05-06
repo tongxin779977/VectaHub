@@ -7,6 +7,8 @@
 | 3 | createSkillSystem未传入llmConfig导致workflowSkill未注册 | **已修复** | `src/commands/run.ts#L93` | - |
 | 4 | useLLM硬编码为false导致WORKFLOW_GENERATE返回占位符 | **已修复** | `src/commands/run.ts#L109` | - |
 | 5 | createTaskListFromWorkflow不解析YAML返回占位符 | **已修复** | `src/nl/core/pipeline.ts#L237` | - |
+| 6 | 多意图处理逻辑不兼容 | **已修复** | `src/commands/run.ts#L128-134` | - |
+| 7 | Chat模式生成工作流后不执行，无法响应"执行这个工作流" | **已修复** | `src/chat/repl.ts` | - |
 
 ---
 
@@ -28,6 +30,56 @@
 - `src/skills/init.ts`
 
 **修复状态**：已修复
+
+### 7. Chat模式生成工作流后不执行，无法响应"执行这个工作流"
+
+**问题描述**：
+- Chat 模式生成工作流后只展示 YAML，不执行
+- 用户说"执行这个工作流"时无响应
+- 无会话状态保存上次生成的工作流
+
+**根本原因**：
+- [repl.ts](file:///Users/xin.tong/apps/project/test_trae/VectaHub/src/chat/repl.ts) 的 `REPLDeps` 缺少 `workflowEngine`
+- `processInput` 生成工作流后只返回文本，不触发执行
+- 无 `pendingWorkflows` 状态管理
+
+**修复方案**：
+1. `REPLDeps` 接口添加 `workflowEngine?: WorkflowEngine`
+2. 添加 `PendingWorkflow` 类型和 `pendingWorkflows` Map
+3. 生成工作流时调用 `engine.createWorkflow()` 并存储到 session
+4. 添加 `/execute` slash command 和"执行工作流"自然语言匹配
+5. `executePendingWorkflow()` 函数通过 `engine.execute()` 执行
+6. `chat.ts` 中注入 `createWorkflowEngine()` 到 deps
+
+**影响文件**：
+- `src/chat/repl.ts`
+- `src/chat/types.ts`
+- `src/commands/chat.ts`
+
+**修复状态**：已修复
+
+### 6. 多意图处理逻辑不兼容
+
+**问题描述**：
+- `run.ts` 中的多意图检查逻辑使用 `multiIntent.primary && multiIntent.secondary`
+- 但实际的 `MultiIntentResult` 结构使用 `intents` 数组
+
+**根本原因**：
+- [src/nl/core/types.ts](file:///Users/xin.tong/apps/project/test_trae/VectaHub/src/nl/core/types.ts) 中的 `MultiIntentResult` 类型定义错误
+- 定义为 `primary/secondary` 结构，但实际使用 `intents` 数组
+
+**修复方案**：
+1. 更新 `src/nl/core/types.ts` 中的 `MultiIntentResult` 接口：
+   - 添加 `isMultiIntent: boolean`
+   - 添加 `intents: IntentMatch[]`
+   - 添加 `clauses?: ClauseSegment[]`
+2. 更新 `src/commands/run.ts` 中的检查逻辑：
+   - 从 `multiIntent.primary && multiIntent.secondary` 改为 `multiIntent.isMultiIntent && multiIntent.intents && multiIntent.intents.length > 1`
+   - 直接遍历 `multiIntent.intents` 而非组合 `primary/secondary`
+
+**影响文件**：
+- `src/nl/core/types.ts`
+- `src/commands/run.ts`
 
 ### 4. useLLM硬编码为false导致WORKFLOW_GENERATE返回占位符
 

@@ -8,6 +8,7 @@ import { INTENT_TEMPLATES } from '../nl/templates/index.js';
 import { createSkillSystem } from '../skills/init.js';
 import { createLLMConfig } from '../nl/llm.js';
 import { createConsoleLogger } from '../utils/logger.js';
+import { createWorkflowEngine } from '../workflow/engine.js';
 
 const logger = createConsoleLogger('chat');
 
@@ -41,15 +42,14 @@ export const chatCmd = new Command('chat')
         }
       );
 
+      const workflowEngine = createWorkflowEngine();
+
       const deps = {
         nlProcessor,
         contextBuilder,
-        config: {
-          prompt: 'vectahub> ',
-          historyLimit: 50,
-          sessionDir: `${process.env.HOME ?? '~'}/.vectahub/sessions`,
-        },
+        sessionManager,
         useLLM,
+        workflowEngine,
       };
 
       const repl = createRepl(deps, { sessionId, sessionManager });

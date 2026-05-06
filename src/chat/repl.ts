@@ -1,19 +1,31 @@
 import * as readline from 'node:readline';
 import { Readable } from 'node:stream';
 import { spawn } from 'node:child_process';
-import type { ChatInput, ChatOutput, SlashCommands, SlashCommandContext } from '../types/chat.js';
+import type { ChatOutput, SlashCommandContext } from './types.js';
 import type { NLProcessor } from '../nl/core/types.js';
-import type { ContextBuilder } from '../infrastructure/context-builder.js';
-import type { ModuleRegistry } from '../infrastructure/module-registry.js';
-import type { SessionManager } from '../infrastructure/session/session-manager.js';
+import { createContextBuilder, type ContextBuilderResult } from './context-builder.js';
+import type { SessionManager } from '../nl/session-manager.js';
+import type { WorkflowEngine } from '../workflow/engine.js';
+import type { Workflow, Step } from '../types/index.js';
+import YAML from 'yaml';
 
 export interface REPLDeps {
   nlProcessor: NLProcessor;
-  contextBuilder: ContextBuilder;
-  moduleRegistry: ModuleRegistry;
-  sessionManager: SessionManager;
+  contextBuilder: { buildContext(sessionId?: string): Promise<ContextBuilderResult> };
+  sessionManager?: SessionManager;
   useLLM: boolean;
+  workflowEngine?: WorkflowEngine;
 }
+
+interface PendingWorkflow {
+  workflow: Workflow;
+  yaml: string;
+  intent?: string;
+  confidence?: number;
+  createdAt: Date;
+}
+
+const pendingWorkflows = new Map<string, PendingWorkflow>();
 
 interface ParsedInput {
   type: 'nl' | 'shell' | 'slash-command';
@@ -50,7 +62,8 @@ function initDefaultSlashCommands() {
   });
 
   registerSlashCommand('history', async (_, ctx) => {
-    const session = ctx.sessionManager?.getSession?.(ctx.sessionId);
+    const sm = ctx.sessionManager as any;
+    const session = sm?.getSession?.(ctx.sessionId);
     if (!session?.history?.length) {
       return 'No conversation history';
     }
@@ -71,6 +84,17 @@ function initDefaultSlashCommands() {
   });
 
   registerSlashCommand('exit', async () => '__EXIT__');
+
+  registerSlashCommand('execute', async (args, ctx) => {
+    const pending = pendingWorkflows.get(ctx.sessionId ?? '');
+    if (!pending) {
+      return '❌ 没有待执行的工作流。请先生成一个工作流。';
+    }
+    if (!pending.workflow) {
+      return '❌ 工作流数据无效。';
+    }
+    return `__EXECUTE__${pending.workflow.id}`;
+  });
 }
 
 export function parseInput(input: string): ParsedInput {
@@ -92,7 +116,35 @@ function getHistoryFile(): string {
 }
 
 export function createREPL(deps: REPLDeps, sessionId: string): (input: string) => Promise<ChatOutput> {
-  const { nlProcessor, contextBuilder, moduleRegistry, sessionManager, useLLM } = deps;
+  const { nlProcessor, contextBuilder, sessionManager, useLLM } = deps;
+
+  async function executePendingWorkflow(sessId: string, workflowId: string): Promise<ChatOutput> {
+    const pending = pendingWorkflows.get(sessId);
+    if (!pending) {
+      return { type: 'error', content: '❌ 没有待执行的工作流。' };
+    }
+    const engine = deps.workflowEngine;
+    if (!engine) {
+      return { type: 'error', content: '❌ 工作流引擎未初始化。请通过 vectahub run 执行工作流。' };
+    }
+    try {
+      const workflow = await engine.getWorkflow(workflowId) ?? pending.workflow;
+      const result = await engine.execute(workflow, { mode: 'relaxed' });
+      const stepsOutput = result.steps.map(s => {
+        const icon = s.status === 'COMPLETED' ? '✅' : '❌';
+        const output = s.output ? `\n    ${String(s.output).substring(0, 200)}` : '';
+        return `  ${icon} ${s.stepId}: ${s.status}${output}`;
+      }).join('\n');
+      const summary = result.status === 'COMPLETED' ? '✅ 执行成功' : '❌ 执行失败';
+      return {
+        type: 'text',
+        content: `${summary} (${result.duration}ms)\n\n${stepsOutput}`,
+        metadata: { executionId: result.executionId, status: result.status, duration: result.duration },
+      };
+    } catch (err) {
+      return { type: 'error', content: `❌ 执行出错: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
 
   async function processInput(input: string): Promise<ChatOutput> {
     const parsed = parseInput(input.trim());
@@ -108,14 +160,26 @@ export function createREPL(deps: REPLDeps, sessionId: string): (input: string) =
       }
       const ctx: SlashCommandContext = {
         sessionId,
-        moduleRegistry: deps.moduleRegistry,
         sessionManager,
       };
       const result = await cmd.handler(parsed.args ?? [], ctx);
       if (result === '__EXIT__') {
         return { type: 'text', content: result, metadata: { exit: true } };
       }
+      if (result.startsWith('__EXECUTE__')) {
+        const wfId = result.slice('__EXECUTE__'.length);
+        return executePendingWorkflow(sessionId, wfId);
+      }
       return { type: 'text', content: result };
+    }
+
+    const execPatterns = /^(执行|运行|execute|run)\s*(这个|该|上一个)?\s*(工作流|workflow)$/i;
+    if (execPatterns.test(parsed.parsed.trim())) {
+      const pending = pendingWorkflows.get(sessionId);
+      if (pending) {
+        return executePendingWorkflow(sessionId, pending.workflow.id);
+      }
+      return { type: 'error', content: '❌ 没有待执行的工作流。请先生成一个工作流。' };
     }
 
     console.log(`[REPL DEBUG] Building context for sessionId: ${sessionId}`);
@@ -150,10 +214,34 @@ export function createREPL(deps: REPLDeps, sessionId: string): (input: string) =
       const intentInfo = nlResult.intent ? `\n🎯 识别意图: ${nlResult.intent}` : '';
       const confidenceInfo = `\n📊 置信度: ${((nlResult.confidence || 0) * 100).toFixed(0)}%`;
 
+      if (deps.workflowEngine) {
+        try {
+          const parsed = YAML.parse(nlResult.workflowYAML);
+          const steps: Step[] = (parsed.steps ?? []).map((s: any, i: number) => ({
+            id: `step_${i + 1}`,
+            type: 'exec' as const,
+            cli: s.cli ?? s.command ?? 'echo',
+            args: s.args ?? [],
+          }));
+          const workflow = await deps.workflowEngine.createWorkflow(`chat_${Date.now()}`, steps);
+          pendingWorkflows.set(sessionId, {
+            workflow,
+            yaml: nlResult.workflowYAML,
+            intent: nlResult.intent,
+            confidence: nlResult.confidence,
+            createdAt: new Date(),
+          });
+          return {
+            type: 'text',
+            content: `✅ 工作流已生成！${intentInfo}${confidenceInfo}\n\n\`\`\`yaml\n${nlResult.workflowYAML}\n\`\`\`\n\n💡 输入 \`执行工作流\` 或 \`/execute\` 来运行。`,
+            metadata: nlResult as unknown as Record<string, unknown>,
+          };
+        } catch { /* fallback to display only */ }
+      }
       return {
         type: 'text',
         content: `✅ 工作流已生成！${intentInfo}${confidenceInfo}\n\n\`\`\`yaml\n${nlResult.workflowYAML}\n\`\`\``,
-        metadata: nlResult as Record<string, unknown>
+        metadata: nlResult as unknown as Record<string, unknown>,
       };
     }
 
@@ -171,11 +259,11 @@ export function createREPL(deps: REPLDeps, sessionId: string): (input: string) =
       return {
         type: 'text',
         content: `✅ 工作流已生成！${intentInfo}${confidenceInfo}\n\n${tasks}`,
-        metadata: nlResult as Record<string, unknown>
+        metadata: nlResult as unknown as Record<string, unknown>
       };
     }
 
-    return { type: 'workflow', content: JSON.stringify(nlResult), metadata: nlResult as Record<string, unknown> };
+    return { type: 'workflow', content: JSON.stringify(nlResult), metadata: nlResult as unknown as Record<string, unknown> };
   }
 
   function executeShellCommand(command: string): Promise<ChatOutput> {
@@ -238,7 +326,7 @@ export function createRepl(deps: REPLDeps, options?: { sessionId?: string; sessi
       try {
         if (require('node:fs').existsSync(historyFile)) {
           const history = require('node:fs').readFileSync(historyFile, 'utf-8').split('\n').filter(Boolean);
-          history.forEach((line: string) => rl.history.push(line));
+          history.forEach((line: string) => (rl as any).history.push(line));
         }
       } catch {
         // ignore history errors
