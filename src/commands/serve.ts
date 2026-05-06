@@ -1,17 +1,19 @@
 import { Command } from 'commander';
-import { createServer, createConnection } from 'net';
-import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, unlinkSync } from 'fs';
+import { createConnection } from 'net';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { randomUUID } from 'crypto';
-import { createCoordinator, adaptAllTemplates } from '../nl/core/index.js';
-import { INTENT_TEMPLATES } from '../nl/templates/index.js';
-import { createSandboxManager } from '../sandbox/sandbox.js';
 import type { SandboxMode } from '../types/index.js';
 import { audit, getCurrentSessionId, AuditEventType } from '../utils/audit.js';
 import { globalEventManager } from '../utils/event-manager.js';
+import { SocketServer } from '../daemon/socket-server.js';
+
+const SOCKET_PATH = join(tmpdir(), 'vectahub.sock');
+const QUEUE_DIR = join(tmpdir(), 'vectahub');
+
+let socketServer: SocketServer | null = null;
 
 const handleShutdown = (signal: string) => {
+  const sessionId = getCurrentSessionId();
   console.log('\n\n🛑 Shutting down...');
   audit.log({
     event: AuditEventType.CLI_COMMAND,
@@ -22,300 +24,10 @@ const handleShutdown = (signal: string) => {
     input: { signal },
     success: true,
   });
-  server.close();
-  if (existsSync(SOCKET_PATH)) {
-    unlinkSync(SOCKET_PATH);
+  if (socketServer) {
+    socketServer.stop();
   }
 };
-
-interface Task {
-  id: string;
-  input: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  result?: string;
-  error?: string;
-  createdAt: number;
-  completedAt?: number;
-}
-
-const QUEUE_DIR = join(tmpdir(), 'vectahub');
-const SOCKET_PATH = join(tmpdir(), 'vectahub.sock');
-const sandbox = createSandboxManager({
-  mode: 'RELAXED',
-});
-
-function ensureQueueDir(): void {
-  if (!existsSync(QUEUE_DIR)) {
-    mkdirSync(QUEUE_DIR, { recursive: true });
-  }
-}
-
-function saveTask(task: Task): void {
-  ensureQueueDir();
-  const filePath = join(QUEUE_DIR, `${task.id}.json`);
-  writeFileSync(filePath, JSON.stringify(task, null, 2));
-}
-
-function getTask(id: string): Task | null {
-  const filePath = join(QUEUE_DIR, `${id}.json`);
-  if (!existsSync(filePath)) return null;
-  return JSON.parse(readFileSync(filePath, 'utf-8')) as Task;
-}
-
-function listTasks(): Task[] {
-  ensureQueueDir();
-  const files = readdirSync(QUEUE_DIR).filter(f => f.endsWith('.json'));
-  return files.map(f => JSON.parse(readFileSync(join(QUEUE_DIR, f), 'utf-8')) as Task);
-}
-
-async function runCommand(cmd: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
-  const fullCmd = `${cmd} ${args.join(' ')}`;
-  const sessionId = getCurrentSessionId();
-  audit.workflowStep(fullCmd, cmd, args, sessionId);
-
-  const result = await sandbox.exec(cmd, args, {
-    cwd: process.cwd(),
-  });
-
-  audit.executorResult(fullCmd, cmd, result.exitCode || 0, 0, sessionId, { output: result.stdout + result.stderr });
-
-  if (!result.success) {
-    throw new Error(result.stderr || `Command failed with exit code ${result.exitCode}`);
-  }
-  return { stdout: result.stdout, stderr: result.stderr };
-}
-
-async function runGit(args: string[]): Promise<{ stdout: string; stderr: string }> {
-  const fullCmd = `git ${args.join(' ')}`;
-  const sessionId = getCurrentSessionId();
-  audit.workflowStep(fullCmd, 'git', args, sessionId);
-
-  const result = await sandbox.exec('git', args, {
-    cwd: process.cwd(),
-  });
-
-  audit.executorResult(fullCmd, 'git', result.exitCode || 0, 0, sessionId, { output: result.stdout + result.stderr });
-
-  if (!result.success) {
-    throw new Error(result.stderr || `Git command failed with exit code ${result.exitCode}`);
-  }
-  return { stdout: result.stdout, stderr: result.stderr };
-}
-
-async function executeGitWorkflow(input: string): Promise<string> {
-  const sessionId = getCurrentSessionId();
-  const logs: string[] = [];
-  const workflowId = `wf_${Date.now()}`;
-
-  audit.workflowStart(workflowId, 'GIT_WORKFLOW', sessionId);
-
-  logs.push('📊 Checking git status...');
-  const status = await runGit(['status', '--short']);
-  if (!status.stdout.trim()) {
-    audit.workflowEnd(workflowId, 'COMPLETED', 0, sessionId);
-    return 'Working tree clean, nothing to commit.';
-  }
-  logs.push(`Changed files:\n${status.stdout}`);
-
-  logs.push('📦 Staging all changes...');
-  await runGit(['add', '-A']);
-
-  const commitMsg = input || `Auto commit at ${new Date().toISOString()}`;
-  logs.push(`📝 Committing: "${commitMsg}"`);
-  try {
-    const commitResult = await runGit(['commit', '-m', commitMsg]);
-    logs.push(commitResult.stdout.trim());
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('nothing to commit')) {
-      logs.push('Nothing to commit.');
-    } else {
-      logs.push(`Commit output: ${msg}`);
-    }
-  }
-
-  logs.push('🚀 Pushing to remote...');
-  try {
-    const pushResult = await runGit(['push']);
-    logs.push(pushResult.stdout.trim());
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    logs.push(`Push skipped: ${msg.split('\n')[0]}`);
-  }
-
-  const duration = Date.now() - parseInt(workflowId.split('_')[1] || '0');
-  audit.workflowEnd(workflowId, 'COMPLETED', duration, sessionId);
-
-  return logs.join('\n');
-}
-
-async function executeTask(input: string): Promise<string> {
-  const coordinator = createCoordinator(adaptAllTemplates(INTENT_TEMPLATES));
-  const result = coordinator.match(input);
-  const sessionId = getCurrentSessionId();
-
-  const intentLines: string[] = [];
-  for (const intent of result.intents) {
-    audit.intentMatch(intent.intent, intent.confidence, intent.params as Record<string, unknown>, sessionId);
-    intentLines.push(`Intent: ${intent.intent} (confidence: ${intent.confidence.toFixed(2)})`);
-  }
-
-  const multiIntentHeader = result.isMultiIntent
-    ? `Multi-Intent Detected (${result.intents.length} intents)\n${'─'.repeat(40)}\n`
-    : '';
-
-  if (result.intents[0]?.intent === 'GIT_WORKFLOW') {
-    return `${multiIntentHeader}${intentLines.join('\n')}\n\n${await executeGitWorkflow(input)}`;
-  }
-
-  return `${multiIntentHeader}${intentLines.join('\n')}\nExecution not yet implemented for these intent types.`;
-}
-
-async function processTask(task: Task): Promise<Task> {
-  const sessionId = getCurrentSessionId();
-  task.status = 'running';
-  saveTask(task);
-
-  audit.log({
-    event: AuditEventType.WORKFLOW_START,
-    timestamp: new Date().toISOString(),
-    sessionId,
-    module: 'Service',
-    action: 'process_task',
-    input: { taskId: task.id, input: task.input },
-    success: true,
-  });
-
-  const startTime = Date.now();
-
-  try {
-    const result = await executeTask(task.input);
-    task.result = result;
-    task.status = 'completed';
-    task.completedAt = Date.now();
-
-    audit.workflowEnd(task.id, 'COMPLETED', Date.now() - startTime, sessionId);
-  } catch (error) {
-    task.status = 'failed';
-    task.error = error instanceof Error ? error.message : String(error);
-    task.completedAt = Date.now();
-
-    audit.log({
-      event: AuditEventType.WORKFLOW_END,
-      timestamp: new Date().toISOString(),
-      sessionId,
-      module: 'Service',
-      action: 'process_task',
-      input: { taskId: task.id },
-      output: { error: task.error },
-      duration: Date.now() - startTime,
-      success: false,
-      error: task.error,
-    });
-  }
-
-  saveTask(task);
-  return task;
-}
-
-function createSocketServer(): ReturnType<typeof createServer> {
-  const server = createServer((socket) => {
-    let buffer = '';
-    const sessionId = getCurrentSessionId();
-
-    socket.on('data', (data) => {
-      buffer += data.toString();
-
-      try {
-        const message = JSON.parse(buffer);
-        buffer = '';
-
-        if (message.type === 'submit') {
-          const task: Task = {
-            id: randomUUID(),
-            input: message.input,
-            status: 'pending',
-            createdAt: Date.now(),
-          };
-          saveTask(task);
-
-          audit.cliCommand('client submit', [message.input], sessionId);
-
-          socket.write(JSON.stringify({
-            type: 'submitted',
-            taskId: task.id,
-          }) + '\n');
-
-          setImmediate(() => processTask(task));
-        } else if (message.type === 'status') {
-          const task = getTask(message.taskId);
-          if (task) {
-            socket.write(JSON.stringify({
-              type: 'status',
-              task,
-            }) + '\n');
-          } else {
-            socket.write(JSON.stringify({
-              type: 'error',
-              message: 'Task not found',
-            }) + '\n');
-          }
-        } else if (message.type === 'list') {
-          const tasks = listTasks();
-          socket.write(JSON.stringify({
-            type: 'list',
-            tasks,
-          }) + '\n');
-        } else if (message.type === 'shutdown') {
-          socket.write(JSON.stringify({
-            type: 'shutting_down',
-          }) + '\n');
-          socket.end();
-          server.close();
-          process.exit(0);
-        } else if (message.type === 'getMode') {
-          socket.write(JSON.stringify({
-            type: 'mode',
-            mode: sandbox.getConfig().mode,
-          }) + '\n');
-        } else if (message.type === 'setMode') {
-          const mode = message.mode as SandboxMode;
-          const oldMode = sandbox.getConfig().mode;
-          sandbox.setMode(mode);
-
-          audit.configChange('Sandbox', 'mode', oldMode, mode, sessionId);
-
-          socket.write(JSON.stringify({
-            type: 'modeChanged',
-            mode,
-          }) + '\n');
-        } else if (message.type === 'getConfig') {
-          socket.write(JSON.stringify({
-            type: 'config',
-            config: sandbox.getConfig(),
-          }) + '\n');
-        }
-      } catch {
-        // 等待更多数据
-      }
-    });
-
-    socket.on('error', (err) => {
-      audit.log({
-        event: AuditEventType.WORKFLOW_END,
-        timestamp: new Date().toISOString(),
-        sessionId,
-        module: 'Service',
-        action: 'socket_error',
-        output: { error: err.message },
-        success: false,
-        error: err.message,
-      });
-    });
-  });
-
-  return server;
-}
 
 export const serveCmd = new Command('serve')
   .description('Start VectaHub as a background service')
@@ -337,13 +49,11 @@ export const serveCmd = new Command('serve')
       success: true,
     });
 
-    if (existsSync(SOCKET_PATH)) {
-      unlinkSync(SOCKET_PATH);
-    }
+    socketServer = new SocketServer();
 
-    const server = createSocketServer();
+    try {
+      await socketServer.start();
 
-    server.listen(SOCKET_PATH, () => {
       console.log('✅ Service running');
       console.log('\n📋 Usage:');
       console.log('  vectahub client submit "压缩图片"');
@@ -358,22 +68,20 @@ export const serveCmd = new Command('serve')
       if (options.daemon) {
         console.log('Running in daemon mode. Use "vectahub client shutdown" to stop.\n');
       }
-    });
-
-    server.on('error', (err) => {
-      console.error('❌ Server error:', err.message);
+    } catch (err) {
+      console.error('❌ Server error:', (err as Error).message);
       audit.log({
         event: AuditEventType.WORKFLOW_END,
         timestamp: new Date().toISOString(),
         sessionId,
         module: 'Service',
         action: 'serve_error',
-        output: { error: err.message },
+        output: { error: (err as Error).message },
         success: false,
-        error: err.message,
+        error: (err as Error).message,
       });
       process.exit(1);
-    });
+    }
 
     globalEventManager.on('SIGINT', () => {
       handleShutdown('SIGINT');

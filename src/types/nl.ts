@@ -16,6 +16,7 @@ export type IntentName =
   | 'FILE_PERMISSION'
   | 'FILE_DIFF'
   | 'DOCKER_BUILD'
+  | 'DIALOG_GREETING'
   | 'UNKNOWN';
 
 export interface IntentMatch {

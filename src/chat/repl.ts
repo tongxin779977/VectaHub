@@ -48,6 +48,7 @@ export function createRepl(deps: ReplDeps, options?: { sessionId?: string; sessi
   const prompt = deps.config?.prompt ?? 'vectahub> ';
   const sessionId = options?.sessionId;
   const sessionManager = options?.sessionManager;
+  const useLLM = deps.useLLM ?? true;
 
   const slashCommands = new Map<string, SlashCommand>();
 
@@ -152,7 +153,20 @@ export function createRepl(deps: ReplDeps, options?: { sessionId?: string; sessi
     }
 
     const context = await deps.contextBuilder.buildContext(sessionId);
-    const nlResult = await deps.nlProcessor.parse({ input: parsed.parsed, context });
+    const nlResult = await deps.nlProcessor.parse({ 
+      input: parsed.parsed, 
+      sessionId,
+      options: { useLLM },
+    }) as { intent?: string; taskList?: { intent?: string } };
+    const matchedIntent = nlResult.intent || nlResult.taskList?.intent;
+    
+    if (matchedIntent === 'DIALOG_GREETING') {
+      return { 
+        type: 'text', 
+        content: '👋 你好！我是 VectaHub，你的智能工作流助手。\n\n我可以帮助你执行各种开发任务，例如：\n  - 运行命令: vectahub run "npm test"\n  - 查找文件: vectahub run "查找所有ts文件"\n  - Git操作: vectahub run "git status"\n\n请问有什么可以帮你的？' 
+      };
+    }
+    
     return { type: 'workflow', content: JSON.stringify(nlResult), metadata: nlResult as Record<string, unknown> };
   }
 

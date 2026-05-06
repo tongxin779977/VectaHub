@@ -161,7 +161,9 @@ export class PluginManager {
     const pluginConfig = this.config[pluginId] || { enabled: true, config: {}, permissions: manifest.permissions || [] };
     
     const permissions = parsePermissions(pluginConfig.permissions);
-    const sandbox = createSandboxContext(pluginId, permissions, pluginConfig.config);
+    const sandboxContext = createSandboxContext(pluginId, permissions, pluginConfig.config);
+    const logger = this.logger;
+    const pluginModule = module as { activate?: (context: PluginContext) => Promise<void>; deactivate?: () => Promise<void> };
 
     const plugin: PluginInstance = {
       manifest,
@@ -170,40 +172,41 @@ export class PluginManager {
       permissions,
       hooks: new Map(),
       commands: manifest.commands || [],
+      sandbox: sandboxContext,
       
       async activate(context: PluginContext) {
-        if (module && typeof module.activate === 'function') {
+        if (pluginModule && typeof pluginModule.activate === 'function') {
           try {
             if (permissions.execute) {
-              await module.activate(context);
+              await pluginModule.activate(context);
             } else {
               throw new Error('Plugin does not have execute permission');
             }
           } catch (error) {
-            this.logger.error(`Failed to activate plugin ${pluginId}: ${(error as Error).message}`);
+            logger.error(`Failed to activate plugin ${pluginId}: ${(error as Error).message}`);
             throw error;
           }
         }
         plugin.status = 'enabled';
-        this.logger.info(`Plugin activated: ${pluginId}`);
+        logger.info(`Plugin activated: ${pluginId}`);
       },
       
       async deactivate() {
-        if (module && typeof module.deactivate === 'function') {
+        if (pluginModule && typeof pluginModule.deactivate === 'function') {
           try {
-            await module.deactivate();
+            await pluginModule.deactivate();
           } catch (error) {
-            this.logger.error(`Failed to deactivate plugin ${pluginId}: ${(error as Error).message}`);
+            logger.error(`Failed to deactivate plugin ${pluginId}: ${(error as Error).message}`);
           }
         }
         plugin.status = 'disabled';
-        this.logger.info(`Plugin deactivated: ${pluginId}`);
+        logger.info(`Plugin deactivated: ${pluginId}`);
       },
     };
     
     this.plugins.set(pluginId, plugin);
     
-    if (pluginConfig.enabled) {
+ if (pluginConfig.enabled) {
       const context = this.createContext(plugin);
       await plugin.activate(context);
     }

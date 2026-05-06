@@ -11,5 +11,6 @@ export {
   createNoopLLMRecognizer,
   type LLMBasedIntentRecognizer,
 } from './llm-fallback.js';
+export { createCategoryRouter, type CategoryRouter, type CategoryMetadata } from './category-router.js';
 export type { IntentPattern, IntentMatch, MultiIntentResult } from '../types.js';
 export type { NLProcessor } from './types.js';

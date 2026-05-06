@@ -1,6 +1,6 @@
 # VectaHub 文档
 
-> 版本: 1.0.1 · 最后更新: 2026-05-06
+> 版本: 2.0 · 最后更新: 2026-05-06
 
 ---
 
@@ -22,6 +22,19 @@
 
 ---
 
+## 设计文档
+
+### VectaHub 2.0（Go 语言版本）
+
+| 文档 | 说明 |
+|------|------|
+| [系统架构设计](./design/01_SYSTEM_ARCHITECTURE_V2.md) | 系统功能架构、模块划分、交互流程及技术选型 |
+| [功能点开发文档](./design/02_FEATURE_DEVELOPMENT_V2.md) | 各功能点的需求描述、实现方案、接口定义及开发进度 |
+| [API 接口设计](./design/03_API_INTERFACE_V2.md) | CLI、gRPC、REST API 及插件 API 接口定义 |
+| [数据模型设计](./design/04_DATA_MODEL_V2.md) | 核心数据模型、关系及存储策略 |
+
+---
+
 ## 技术参考
 
 | 文档 | 说明 |
@@ -38,7 +51,7 @@
 | 文档 | 说明 |
 |------|------|
 | [产品定位](./product/01_product_positioning.md) | 产品定位与核心价值 |
-| [已实现功能](./product/00_implemented_features.md) | 1.0 版本功能清单 |
+| [已实现功能](./product/00_implemented_features.md) | 1.0 版本功能清单（归档） |
 | [1.0 产品路线图](./product/02_1.0_product_roadmap.md) | 1.0 开发计划（已完成） |
 
 ---
@@ -75,25 +88,42 @@
 
 ### 开发者
 
-1. [系统架构](./reference/01_system_architecture.md) — 理解整体设计
-2. [NL 意图识别架构](./reference/03_nl_architecture.md) — 核心 NL 系统
+1. [系统架构设计](./design/01_SYSTEM_ARCHITECTURE_V2.md) — Go 版本整体设计
+2. [API 接口设计](./design/03_API_INTERFACE_V2.md) — 接口定义参考
 3. [CLI 命令](./guides/cli-commands.md) — 命令参考
 
 ### 产品经理
 
 1. [产品定位](./product/01_product_positioning.md) — VectaHub 是什么
-2. [已实现功能](./product/00_implemented_features.md) — 功能清单
-3. [1.0 路线图](./product/02_1.0_product_roadmap.md) — 开发计划
+2. [功能点开发文档](./design/02_FEATURE_DEVELOPMENT_V2.md) — 功能清单与进度
 
 ---
 
-## VectaHub 1.0 状态
+## VectaHub 2.0（Go 语言版本）
 
-**VectaHub 1.0.1** · 71 个测试文件 / 905 个测试用例全部通过
+**计划中** · Go 1.21+
 
-- 16 种意图类型，99.2% 识别准确率
-- Chat REPL 交互式对话
-- LLM 优先 + 关键词降级
-- 20 个 AI 模块 + 3 个 CLI 插件
-- 安全沙箱 + 危险命令检测
-- 完整 CLI 命令体系
+| 特性 | 说明 |
+|------|------|
+| **语言** | Go 1.21+ |
+| **CLI 框架** | Cobra |
+| **配置管理** | Viper |
+| **日志** | Zap |
+| **HTTP 服务** | Gin |
+| **RPC 服务** | gRPC |
+| **容器隔离** | Docker SDK |
+| **LLM 集成** | go-openai |
+| **监控** | Prometheus + OpenTelemetry |
+| **测试** | testify |
+
+### 开发计划
+
+| 阶段 | 时间 | 主要任务 |
+|------|------|---------|
+| **Phase 1** | 第 1 周 | 基础设施 + CLI 框架 |
+| **Phase 2** | 第 2-3 周 | 核心模块（NL、工作流、沙箱） |
+| **Phase 3** | 第 4 周 | 调试器 + 插件系统 |
+| **Phase 4** | 第 5 周 | 监控 + 后台服务 |
+| **Phase 5** | 第 6 周 | 安全增强 + 测试 |
+
+**总开发时间：6 周**

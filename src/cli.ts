@@ -51,6 +51,13 @@ import { getBashCompletion, getZshCompletion, getFishCompletion } from './utils/
 
 const loadedCommands = new Set<string>();
 
+function removePlaceholderCommand(commandName: string): void {
+  const existingCmd = program.commands.find(c => c.name() === commandName);
+  if (existingCmd) {
+    program.commands = program.commands.filter(c => c.name() !== commandName);
+  }
+}
+
 async function lazyLoadCommand(commandName: string): Promise<void> {
   if (loadedCommands.has(commandName)) return;
   
@@ -59,6 +66,8 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
       case 'serve':
       case 'client': {
         const { serveCmd, clientCmd } = await import('./commands/serve.js');
+        removePlaceholderCommand('serve');
+        removePlaceholderCommand('client');
         program.addCommand(serveCmd);
         program.addCommand(clientCmd);
         loadedCommands.add('serve');
@@ -67,96 +76,112 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
       }
       case 'security': {
         const { securityCmd } = await import('./commands/security.js');
+        removePlaceholderCommand('security');
         program.addCommand(securityCmd);
         loadedCommands.add('security');
         break;
       }
       case 'audit': {
         const { auditCmd } = await import('./commands/audit-cmd.js');
+        removePlaceholderCommand('audit');
         program.addCommand(auditCmd);
         loadedCommands.add('audit');
         break;
       }
       case 'tools': {
         const { toolsCmd } = await import('./commands/tools.js');
+        removePlaceholderCommand('tools');
         program.addCommand(toolsCmd);
         loadedCommands.add('tools');
         break;
       }
       case 'list': {
         const { listCmd } = await import('./commands/list.js');
+        removePlaceholderCommand('list');
         program.addCommand(listCmd);
         loadedCommands.add('list');
         break;
       }
       case 'mode': {
         const { modeCmd } = await import('./commands/mode.js');
+        removePlaceholderCommand('mode');
         program.addCommand(modeCmd);
         loadedCommands.add('mode');
         break;
       }
       case 'history': {
         const { historyCmd } = await import('./commands/history.js');
+        removePlaceholderCommand('history');
         program.addCommand(historyCmd);
         loadedCommands.add('history');
         break;
       }
       case 'generate': {
         const { generateCmd } = await import('./commands/generate.js');
+        removePlaceholderCommand('generate');
         program.addCommand(generateCmd);
         loadedCommands.add('generate');
         break;
       }
       case 'schedule': {
         const { scheduleCmd } = await import('./commands/schedule.js');
+        removePlaceholderCommand('schedule');
         program.addCommand(scheduleCmd);
         loadedCommands.add('schedule');
         break;
       }
       case 'daemon': {
         const { daemonCmd } = await import('./commands/daemon.js');
+        removePlaceholderCommand('daemon');
         program.addCommand(daemonCmd);
         loadedCommands.add('daemon');
         break;
       }
       case 'templates': {
         const { templatesCmd, templatesUseCmd, templatesSaveCmd } = await import('./commands/templates.js');
+        removePlaceholderCommand('templates');
         program.addCommand(templatesCmd.addCommand(templatesUseCmd).addCommand(templatesSaveCmd));
         loadedCommands.add('templates');
         break;
       }
       case 'rollback': {
         const { rollbackCmd } = await import('./commands/list.js');
+        removePlaceholderCommand('rollback');
         program.addCommand(rollbackCmd);
         loadedCommands.add('rollback');
         break;
       }
       case 'verify': {
         const { verifyCmd } = await import('./commands/verify.js');
+        removePlaceholderCommand('verify');
         program.addCommand(verifyCmd);
         loadedCommands.add('verify');
         break;
       }
       case 'chat': {
         const { chatCmd } = await import('./commands/chat.js');
+        removePlaceholderCommand('chat');
         program.addCommand(chatCmd);
         loadedCommands.add('chat');
         break;
       }
       case 'plugins': {
         const { pluginsCmd } = await import('./commands/plugins.js');
+        removePlaceholderCommand('plugins');
         program.addCommand(pluginsCmd);
         loadedCommands.add('plugins');
         break;
       }
       case 'monitor': {
         const { monitorCmd } = await import('./commands/monitor.js');
+        removePlaceholderCommand('monitor');
         program.addCommand(monitorCmd);
         loadedCommands.add('monitor');
         break;
       }
       case 'debug': {
         const { debugCmd } = await import('./commands/debug.js');
+        removePlaceholderCommand('debug');
         program.addCommand(debugCmd);
         loadedCommands.add('debug');
         break;
@@ -164,6 +189,8 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
       case 'export':
       case 'import': {
         const { exportCmd, importCmd } = await import('./commands/export.js');
+        removePlaceholderCommand('export');
+        removePlaceholderCommand('import');
         program.addCommand(exportCmd);
         program.addCommand(importCmd);
         loadedCommands.add('export');
@@ -277,22 +304,23 @@ program
       setNonInteractiveMode(true);
     }
     
-    const commandName = thisCommand.name();
-    if (commandName !== 'vectahub') {
-      await lazyLoadCommand(commandName);
-      await lazyLoadCliTools();
-    }
-    
     displayPolicyWarning();
-    
-    try {
-      const sessionId = getCurrentSessionId();
-      const args = process.argv.slice(3);
-      audit.cliCommand(commandName, args, sessionId);
-    } catch {
-      // audit logging failed silently
-    }
   });
+
+// Hook for lazy loading commands
+program.hook('preSubcommand', async (thisCommand, subcommand) => {
+  const commandName = subcommand.name();
+  await lazyLoadCommand(commandName);
+  await lazyLoadCliTools();
+  
+  try {
+    const sessionId = getCurrentSessionId();
+    const args = process.argv.slice(3);
+    audit.cliCommand(commandName, args, sessionId);
+  } catch {
+    // audit logging failed silently
+  }
+});
 
 program
   .addCommand(runCmd)
@@ -399,5 +427,57 @@ const completionCmd = new Command('completion')
 program.addCommand(completionCmd);
 program.addCommand(setupCmd);
 program.addCommand(configCmd);
+
+// Register lazy-loadable commands with minimal placeholder - actual implementation loaded on use
+const lazyLoadableCommands = [
+  { name: 'chat', description: 'Start interactive chat session' },
+  { name: 'serve', description: 'Start VectaHub server' },
+  { name: 'client', description: 'Connect to VectaHub server' },
+  { name: 'security', description: 'Security management commands' },
+  { name: 'audit', description: 'Audit log commands' },
+  { name: 'tools', description: 'CLI tools management' },
+  { name: 'list', description: 'List workflows' },
+  { name: 'mode', description: 'Switch execution mode' },
+  { name: 'history', description: 'View execution history' },
+  { name: 'generate', description: 'Generate workflows' },
+  { name: 'schedule', description: 'Schedule workflows' },
+  { name: 'daemon', description: 'Daemon management' },
+  { name: 'templates', description: 'Manage templates' },
+  { name: 'rollback', description: 'Rollback operations' },
+  { name: 'verify', description: 'Verify workflows' },
+  { name: 'plugins', description: 'Plugin management' },
+  { name: 'monitor', description: 'Monitor workflows' },
+  { name: 'debug', description: 'Debug workflows' },
+  { name: 'export', description: 'Export workflows' },
+  { name: 'import', description: 'Import workflows' },
+  { name: 'dev', description: 'Development commands' },
+];
+
+for (const cmdInfo of lazyLoadableCommands) {
+  const placeholderCmd = new Command(cmdInfo.name)
+    .description(cmdInfo.description)
+    .allowUnknownOption()
+    .action(async (...args) => {
+      // Command implementation will be loaded by preSubcommand hook
+      // This action serves as fallback if hook doesn't execute
+      const cmdName = cmdInfo.name;
+      if (!loadedCommands.has(cmdName)) {
+        await lazyLoadCommand(cmdName);
+        await lazyLoadCliTools();
+      }
+      
+      // Re-execute the command with loaded implementation
+      const loadedCmd = program.commands.find(c => c.name() === cmdName);
+      if (loadedCmd && loadedCmd !== placeholderCmd) {
+        // Parse args again with the real command
+        const subArgs = process.argv.slice(3);
+        await loadedCmd.parseAsync(subArgs, { from: 'user' });
+      } else {
+        console.error(`❌ Command '${cmdName}' failed to load properly`);
+        process.exit(1);
+      }
+    });
+  program.addCommand(placeholderCmd);
+}
 
 program.parse();

@@ -43,6 +43,7 @@ export interface ReplDeps {
   moduleRegistry?: AIModuleRegistry;
   sandboxManager?: unknown;
   config?: Partial<ChatConfig>;
+  useLLM?: boolean;
 }
 
 export interface Repl {

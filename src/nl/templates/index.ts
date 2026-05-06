@@ -1,5 +1,6 @@
 import type { IntentName } from '../../types/index.js';
 import type { WeightedKeyword, CompositePhrase, NegativeKeyword } from '../types.js';
+import { IntentCategory } from '../types/category.js';
 
 export interface IntentTemplate {
   name: string;
@@ -19,6 +20,7 @@ export interface IntentTemplate {
   negativeKeywords?: NegativeKeyword[];
   priority?: number;
   tags?: string[];
+  category?: IntentCategory;
 }
 
 export interface StepTemplate {
@@ -116,6 +118,7 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     ],
     priority: 5,
     tags: ['file-operation'],
+    category: IntentCategory.QUERY,
   },
 
   GIT_WORKFLOW: {
@@ -275,6 +278,7 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     ],
     priority: 1,
     tags: ['git', 'vcs'],
+    category: IntentCategory.EXECUTE,
   },
 
   RUN_SCRIPT: {
@@ -322,6 +326,7 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     ],
     priority: 3,
     tags: ['script', 'build'],
+    category: IntentCategory.EXECUTE,
   },
 
   SYSTEM_INFO: {
@@ -392,6 +397,7 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     ],
     priority: 5,
     tags: ['system'],
+    category: IntentCategory.QUERY,
   },
 
   QUERY_INFO: {
@@ -444,6 +450,7 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     ],
     priority: 2,
     tags: ['query'],
+    category: IntentCategory.QUERY,
   },
 
   INSTALL_PACKAGE: {
@@ -506,6 +513,7 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     ],
     priority: 4,
     tags: ['package'],
+    category: IntentCategory.EXECUTE,
   },
 
   CREATE_FILE: {
@@ -564,6 +572,7 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     ],
     priority: 4,
     tags: ['file-operation'],
+    category: IntentCategory.EXECUTE,
   },
 
   FETCH_HOT_NEWS: {
@@ -610,6 +619,7 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     ],
     priority: 3,
     tags: ['social', 'news'],
+    category: IntentCategory.QUERY,
   },
 
   SOCIAL_MEDIA_SEARCH: {
@@ -658,6 +668,7 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     ],
     priority: 3,
     tags: ['social'],
+    category: IntentCategory.QUERY,
   },
 
   DATA_SCRAPING: {
@@ -704,6 +715,7 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     ],
     priority: 1,
     tags: ['scraping'],
+    category: IntentCategory.GENERATE,
   },
 
   CONTENT_SUMMARY: {
@@ -746,6 +758,7 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     ],
     priority: 1,
     tags: ['content'],
+    category: IntentCategory.GENERATE,
   },
 
   FILE_ARCHIVE: {
@@ -818,6 +831,7 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     ],
     priority: 4,
     tags: ['file-operation'],
+    category: IntentCategory.EXECUTE,
   },
 
   NETWORK_INFO: {
@@ -894,6 +908,7 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     ],
     priority: 2,
     tags: ['network'],
+    category: IntentCategory.QUERY,
   },
 
   SYSTEM_MONITOR: {
@@ -967,6 +982,7 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     ],
     priority: 2,
     tags: ['system'],
+    category: IntentCategory.QUERY,
   },
 
   FILE_PERMISSION: {
@@ -1036,6 +1052,7 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     ],
     priority: 5,
     tags: ['file-operation'],
+    category: IntentCategory.EXECUTE,
   },
 
   FILE_DIFF: {
@@ -1113,6 +1130,7 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     ],
     priority: 4,
     tags: ['diff', 'vcs'],
+    category: IntentCategory.QUERY,
   },
 
   DOCKER_BUILD: {
@@ -1164,6 +1182,40 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     ],
     priority: 6,
     tags: ['docker', 'container'],
+    category: IntentCategory.EXECUTE,
+  },
+
+  DIALOG_GREETING: {
+    name: 'DIALOG_GREETING',
+    description: '问候语对话',
+    keywords: ['你好', '您好', '嗨', 'Hello', 'Hi', '早上好', '下午好', '晚上好'],
+    weight: 1.5,
+    cli: [],
+    params: {},
+    steps: [],
+    weightedKeywords: [
+      { text: '你好', tier: 'core' },
+      { text: '您好', tier: 'core' },
+      { text: '嗨', tier: 'core' },
+      { text: 'Hello', tier: 'core' },
+      { text: 'Hi', tier: 'core' },
+      { text: '早上好', tier: 'core' },
+      { text: '下午好', tier: 'core' },
+      { text: '晚上好', tier: 'core' },
+    ],
+    phrases: [
+      { pattern: '^你好$', isRegex: true, weight: 1.0, bonus: 4.0 },
+      { pattern: '^您好$', isRegex: true, weight: 1.0, bonus: 4.0 },
+      { pattern: '^嗨$', isRegex: true, weight: 1.0, bonus: 4.0 },
+      { pattern: '^Hello$', isRegex: true, weight: 1.0, bonus: 4.0 },
+      { pattern: '^Hi$', isRegex: true, weight: 1.0, bonus: 4.0 },
+      { pattern: '^早上好$', isRegex: true, weight: 1.0, bonus: 3.5 },
+      { pattern: '^下午好$', isRegex: true, weight: 1.0, bonus: 3.5 },
+      { pattern: '^晚上好$', isRegex: true, weight: 1.0, bonus: 3.5 },
+    ],
+    priority: 10,
+    tags: ['dialog', 'greeting'],
+    category: IntentCategory.DIALOG,
   }
 };
 

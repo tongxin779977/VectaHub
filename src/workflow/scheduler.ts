@@ -46,9 +46,9 @@ async function executeCommand(entry: ScheduleEntry): Promise<{ success: boolean;
   
   if (detection.isDangerous) {
     audit.sandboxDetect(
-      detection.isDangerous,
-      detection.level,
       command,
+      detection.isDangerous,
+      detection.level || 'none',
       getAuditInstance().getSessionId()
     );
     return { 

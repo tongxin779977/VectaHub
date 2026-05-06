@@ -18,10 +18,11 @@ export interface NLResult {
   taskList?: TaskList;
   workflow?: Workflow;
   metadata: {
-    path: 'skill-pipeline' | 'keyword-fallback' | 'keyword-match' | 'coordinator' | 'coordinator-multi';
+    path: 'skill-pipeline' | 'keyword-fallback' | 'keyword-match' | 'coordinator' | 'coordinator-multi' | 'category-router' | 'direct-query' | 'dialog';
     usedSkills?: string[];
     fallbackReason?: string;
     multiIntent?: MultiIntentResult;
+    requiresLLM?: boolean;
   };
 }
 

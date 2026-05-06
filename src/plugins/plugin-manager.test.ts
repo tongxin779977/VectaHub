@@ -10,15 +10,15 @@ describe('PluginManager', () => {
   const testConfigFile = join(homedir(), '.vectahub', 'plugins-test.json');
 
   beforeEach(async () => {
-    vi.spyOn(fs, 'readFile').mockImplementation(async (path: string) => {
-      if (path.endsWith('plugins.json')) {
+    vi.spyOn(fs, 'readFile').mockImplementation(async (path: any) => {
+      if (String(path).endsWith('plugins.json')) {
         return JSON.stringify({});
       }
       throw new Error('File not found');
     });
     
     vi.spyOn(fs, 'writeFile').mockResolvedValue();
-    vi.spyOn(fs, 'mkdir').mockResolvedValue();
+    vi.spyOn(fs, 'mkdir').mockResolvedValue(undefined as never);
     vi.spyOn(fs, 'readdir').mockResolvedValue([]);
     vi.spyOn(fs, 'stat').mockResolvedValue({ isDirectory: () => false, isFile: () => true } as any);
     

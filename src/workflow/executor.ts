@@ -203,9 +203,9 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     const detection = detector.detect(interpolatedCli);
 
     audit.sandboxDetect(
+      interpolatedCli,
       detection.isDangerous,
       detection.level || 'none',
-      interpolatedCli,
       'unknown'
     );
 
@@ -264,9 +264,9 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     const detection = detector.detect('opencli');
 
     audit.sandboxDetect(
+      `opencli ${site} ${command}`,
       detection.isDangerous,
       detection.level || 'none',
-      `opencli ${site} ${command}`,
       'unknown'
     );
 

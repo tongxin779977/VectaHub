@@ -1,3 +1,5 @@
+import type { Context } from 'vm';
+
 export type PluginStatus = 'installed' | 'enabled' | 'disabled' | 'error';
 
 export interface PluginMetadata {
@@ -80,6 +82,7 @@ export interface PluginInstance {
   permissions: PluginPermissions;
   hooks: Map<string, Array<() => void | Promise<void>>>;
   commands: PluginCommand[];
+  sandbox?: Context;
   activate: (context: PluginContext) => Promise<void>;
   deactivate: () => Promise<void>;
 }

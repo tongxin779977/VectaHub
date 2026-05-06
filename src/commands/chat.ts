@@ -50,6 +50,7 @@ export const chatCmd = new Command('chat')
           historyLimit: 50,
           sessionDir: `${process.env.HOME ?? '~'}/.vectahub/sessions`,
         },
+        useLLM,
       };
 
       const repl = createRepl(deps, { sessionId, sessionManager });

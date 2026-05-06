@@ -6,11 +6,12 @@ import { reviewAndEditCommands } from './command-editor.js';
 import { isFirstRun, loadConfig, saveConfig } from '../setup/first-run-wizard.js';
 import { createDefaultInstaller } from '../setup/priority-installer.js';
 import { createLLMConfig } from '../nl/llm.js';
-import { createNLProcessor, createCoordinator, adaptAllTemplates } from '../nl/core/index.js';
+import { createNLProcessor, createCoordinator, adaptAllTemplates, createCategoryRouter } from '../nl/core/index.js';
 import { createKeywordFallback } from '../nl/core/keyword-fallback.js';
 import { INTENT_TEMPLATES } from '../nl/templates/index.js';
 import { createSkillSystem } from '../skills/init.js';
 import type { Workflow, Step, TaskList } from '../types/index.js';
+import { IntentCategory } from '../nl/types/category.js';
 
 import path from 'node:path';
 import fs from 'node:fs';
@@ -93,6 +94,7 @@ export const runCmd = new Command('run')
         const patterns = adaptAllTemplates(INTENT_TEMPLATES);
         const coordinator = createCoordinator(patterns);
         const keywordFallback = createKeywordFallback(patterns);
+        const categoryRouter = createCategoryRouter();
         const nlProcessor = createNLProcessor(
           registry,
           keywordFallback,
@@ -106,11 +108,17 @@ export const runCmd = new Command('run')
 
         const nlResult = await nlProcessor.parse({
           input: text,
-          options: { useLLM },
+          options: { useLLM: false },
         });
 
+        const matchedIntent = nlResult.intent || nlResult.taskList?.intent || 'UNKNOWN';
+        const requiresLLM = categoryRouter.shouldUseLLM(matchedIntent as any);
+        const intentCategory = categoryRouter.getCategory(matchedIntent as any);
+        
+        logger.info(`意图分类: ${intentCategory} (${categoryRouter.getCategoryDescription(intentCategory)})`);
+
         const matchPath = nlResult.metadata.path;
-        const usedLLM = matchPath === 'coordinator' || matchPath === 'coordinator-multi' || matchPath === 'skill-pipeline';
+        const usedLLM = requiresLLM && !!llmConfig;
 
         if (usedLLM && llmConfig) {
           logger.info(`意图解析: LLM (provider=${llmConfig.provider}, model=${llmConfig.model})`);
@@ -131,60 +139,120 @@ export const runCmd = new Command('run')
 
         let taskListResult: TaskList | undefined = nlResult.taskList;
 
+        if (intentCategory === IntentCategory.DIALOG) {
+          if (matchedIntent === 'DIALOG_GREETING') {
+            logger.info('👋 你好！我是 VectaHub，你的智能工作流助手。');
+            logger.info('我可以帮助你执行各种开发任务，例如：');
+            logger.info('  - 运行命令: vectahub run "npm test"');
+            logger.info('  - 查找文件: vectahub run "查找所有ts文件"');
+            logger.info('  - Git操作: vectahub run "git status"');
+            logger.info('请问有什么可以帮你的？');
+            process.exit(0);
+          }
+          taskListResult = undefined;
+        }
+
         if (!taskListResult) {
-          if (useLLM && llmConfig) {
+          if (requiresLLM && llmConfig) {
+            logger.info(`📝 意图分类为 ${intentCategory}，需要调用 LLM 生成工作流`);
             const { createLLMEnhancedParser } = await import('../nl/llm.js');
             const llmParser = createLLMEnhancedParser(llmConfig);
             try {
               const llmResponse = await llmParser.parse(text);
-              if (llmResponse.intent !== 'UNKNOWN' && llmResponse.workflow?.steps?.length > 0) {
-                logger.info('意图解析: LLM 补充解析成功');
-                const steps: Step[] = llmResponse.workflow.steps
-                  .filter(s => s.type === 'exec' && s.cli)
-                  .map((s, i) => ({
-                    id: `step_${i + 1}`,
-                    type: 'exec' as const,
-                    cli: s.cli!,
-                    args: (s.args ?? []).filter((a): a is string => a != null),
-                  }));
-                if (steps.length > 0) {
-                  workflow = await workflowEngine.createWorkflow(
-                    `intent_${Date.now()}`,
-                    steps
-                  );
-                  logger.info(`LLM 生成工作流，包含 ${steps.length} 个步骤`);
-                  if (options.dryRun) {
-                    for (const s of steps) {
-                      logger.info(`[DRY RUN] Would execute: ${s.cli} ${(s.args ?? []).join(' ')}`);
-                    }
-                    process.exit(0);
-                  }
-                  if (options.save) {
-                    await storage.saveWorkflow(workflow);
-                  }
-                  logger.info('执行工作流...');
-                  const mode = options.mode || 'relaxed';
-                  const result = await workflowEngine.execute(workflow, { 
-                    mode: mode as any, 
-                    dryRun: options.dryRun,
-                    onProgress: createProgressCallback(workflow.steps.length),
-                  });
-                  logger.info(`\n执行${result.status === 'COMPLETED' ? '✅ 成功' : '❌ 失败'}`);
-                  logger.info(`耗时: ${result.duration}ms`);
-                  if (result.status === 'FAILED') {
-                    process.exit(1);
-                  }
-                  process.exit(0);
-                }
-              }
+              
               if (llmResponse.intent === 'UNKNOWN') {
                 logger.info('💡 LLM 无法识别操作意图，请描述具体的开发任务。');
                 process.exit(1);
               }
+              
+              if (!llmResponse.workflow?.steps || llmResponse.workflow.steps.length === 0) {
+                logger.info(`💡 识别到意图 "${llmResponse.intent}"，但无法生成执行步骤。`);
+                logger.info('请尝试更具体的描述或使用已知的模板。');
+                process.exit(1);
+              }
+              
+              logger.info('意图解析: LLM 补充解析成功');
+              const steps: Step[] = llmResponse.workflow.steps
+                .filter(s => s.type === 'exec' && s.cli)
+                .map((s, i) => ({
+                  id: `step_${i + 1}`,
+                  type: 'exec' as const,
+                  cli: s.cli!,
+                  args: (s.args ?? []).filter((a): a is string => a != null),
+                }));
+              
+              if (steps.length === 0) {
+                logger.info(`💡 识别到意图 "${llmResponse.intent}"，但没有可执行的命令步骤。`);
+                process.exit(1);
+              }
+              
+              workflow = await workflowEngine.createWorkflow(
+                `intent_${Date.now()}`,
+                steps
+              );
+              logger.info(`LLM 生成工作流，包含 ${steps.length} 个步骤`);
+              
+              if (options.dryRun) {
+                logger.info('\n📋 将要执行的命令:');
+                for (const s of steps) {
+                  logger.info(`  ${s.cli} ${(s.args ?? []).join(' ')}`);
+                }
+                process.exit(0);
+              }
+              
+              if (options.save) {
+                await storage.saveWorkflow(workflow);
+              }
+              
+              logger.info('执行工作流...');
+              const mode = options.mode || 'relaxed';
+              const result = await workflowEngine.execute(workflow, { 
+                mode: mode as any, 
+                dryRun: options.dryRun,
+                onProgress: createProgressCallback(workflow.steps.length),
+              });
+              
+              logger.info(`\n执行${result.status === 'COMPLETED' ? '✅ 成功' : '❌ 失败'}`);
+              logger.info(`耗时: ${result.duration}ms`);
+              
+              if (result.steps.length > 0) {
+                logger.info('\n📊 步骤结果:');
+                let hasOutput = false;
+                for (const step of result.steps) {
+                  logger.info(`  ${step.stepId}: ${step.status}`);
+                  if (step.output && step.output.length > 0) {
+                    hasOutput = true;
+                    logger.info(`  输出:`);
+                    for (const line of step.output) {
+                      logger.info(`    ${String(line).trim()}`);
+                    }
+                  }
+                  if (step.error) {
+                    logger.error(`  错误: ${step.error}`);
+                  }
+                }
+                
+                if (!hasOutput && result.status === 'COMPLETED') {
+                  logger.info('\n💡 工作流执行成功但没有输出。');
+                  logger.info('您可以尝试以下命令：');
+                  logger.info('  - vectahub run "列出当前目录"');
+                  logger.info('  - vectahub run "npm test"');
+                  logger.info('  - vectahub run "git status"');
+                }
+              }
+              
+              if (result.status === 'FAILED') {
+                process.exit(1);
+              }
+              process.exit(0);
             } catch {
               logger.error('❌ LLM 响应失败，无法解析意图');
               process.exit(1);
             }
+          } else if (requiresLLM && !llmConfig) {
+            logger.error(`❌ 意图分类为 ${intentCategory}，需要 LLM 但未配置`);
+            logger.info('请配置 LLM 后再试，或使用其他类型的命令');
+            process.exit(1);
           }
 
           logger.error('❌ 无法解析意图，请尝试更明确的输入！');

@@ -1,5 +1,5 @@
 import { createConsoleLogger } from '../utils/logger.js';
-import { type Workflow } from '../workflow/types.js';
+import { type Workflow } from '../types/workflow.js';
 import { type Breakpoint, type DebugState, type StepFrame, type ErrorInfo, type ExecutionHistory, type StepExecution, type WatchExpression, type DebugEvent, BreakpointType } from './debugger-api.js';
 import vm from 'vm';
 
@@ -166,22 +166,28 @@ export class WorkflowDebugger {
     return Array.from(this.watchExpressions.values());
   }
 
-  async evaluateWatchExpressions(variables: Record<string, unknown>): void {
-    const { context: sandbox, timeout } = createSandboxContext(variables);
-
-    for (const [id, watch] of this.watchExpressions) {
-      try {
-        const result = vm.runInNewContext(`(${watch.expression})`, sandbox, {
-          timeout,
-          displayErrors: false,
-        });
-        watch.value = result;
-        watch.error = undefined;
-      } catch (error) {
-        watch.error = (error as Error).message;
-        watch.value = undefined;
+  async evaluateWatchExpressions(variables: Record<string, unknown>): Promise<void> {
+    const timeout = DEFAULT_TIMEOUT;
+    
+    const evaluatePromises = Array.from(this.watchExpressions.entries()).map(
+      async ([id, watch]) => {
+        const { context: sandbox } = createSandboxContext(variables);
+        try {
+          const result = vm.runInNewContext(`(${watch.expression})`, sandbox, {
+            timeout,
+            displayErrors: false,
+          });
+          watch.value = result;
+          watch.error = undefined;
+        } catch (error) {
+          watch.error = (error as Error).message;
+          watch.value = undefined;
+        }
+        return id;
       }
-    }
+    );
+
+    await Promise.all(evaluatePromises);
   }
 
   async runWorkflow(workflow: Workflow): Promise<DebugState> {
@@ -212,9 +218,10 @@ export class WorkflowDebugger {
 
       this.currentState.currentStepId = step.id;
 
+      const stepName = (step as any).name || step.id;
       const stepExecution: StepExecution = {
         stepId: step.id,
-        stepName: step.name,
+        stepName,
         status: 'running',
         startTime: Date.now(),
         inputs: { ...this.currentState.variables },
@@ -225,7 +232,7 @@ export class WorkflowDebugger {
 
       const frame: StepFrame = {
         stepId: step.id,
-        stepName: step.name,
+        stepName,
         timestamp: Date.now(),
         inputs: { ...this.currentState.variables },
         outputs: {},
@@ -233,7 +240,7 @@ export class WorkflowDebugger {
 
       this.currentState.callStack.push(frame);
 
-      this.triggerEvent('step', { stepId: step.id, stepName: step.name });
+      this.triggerEvent('step', { stepId: step.id, stepName });
 
       try {
         if (await this.checkBreakpoint(step.id, this.currentState.variables)) {

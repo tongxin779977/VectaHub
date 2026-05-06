@@ -182,7 +182,7 @@ export class OperationLog {
     }
 
     if (options?.since) {
-      result = result.filter(e => e.timestamp >= options.since);
+      result = result.filter(e => e.timestamp >= options.since!);
     }
 
     result.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());

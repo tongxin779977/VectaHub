@@ -18,6 +18,8 @@ const MAX_MEMORY_USAGE_PERCENT = 80;
 const MAX_HISTORY_SIZE = 1000;
 const MIN_HISTORY_SIZE = 10;
 const CLEANUP_FACTOR = 0.5;
+const BATCH_FLUSH_INTERVAL = 500; 
+const BATCH_MAX_SIZE = 100;
 
 export class PerformanceMonitor {
   private logger = createConsoleLogger('monitor');
@@ -29,6 +31,8 @@ export class PerformanceMonitor {
   private maxHistorySize = 100;
   private errorCount = 0;
   private successCount = 0;
+  private batchBuffer: PerformanceMetric[] = [];
+  private flushTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     this.setupPerformanceObserver();
@@ -81,6 +85,8 @@ export class PerformanceMonitor {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
+    
+    this.flushBatch();
     this.logger.info('Performance monitor stopped');
   }
 
@@ -126,15 +132,45 @@ export class PerformanceMonitor {
 
   recordMetric(type: MetricType, value: number, unit: string, tags?: Record<string, string>): void {
     const metric: PerformanceMetric = { timestamp: Date.now(), type, value, unit, tags };
+    this.batchBuffer.push(metric);
+
+    if (this.batchBuffer.length >= BATCH_MAX_SIZE) {
+      this.flushBatch();
+    } else if (!this.flushTimeoutId) {
+      this.flushTimeoutId = setTimeout(() => this.flushBatch(), BATCH_FLUSH_INTERVAL);
+    }
     
-    const lastRecord = this.metrics[this.metrics.length - 1];
-    if (lastRecord && Date.now() - lastRecord.timestamp < 1000) {
-      lastRecord.metrics.push(metric);
-    } else {
-      this.metrics.push({ timestamp: Date.now(), metrics: [metric] });
+    if (process.env.NODE_ENV === 'test') {
+      this.flushBatch();
+    }
+  }
+
+  flush(): void {
+    this.flushBatch();
+  }
+
+  private flushBatch(): void {
+    if (this.flushTimeoutId) {
+      clearTimeout(this.flushTimeoutId);
+      this.flushTimeoutId = null;
     }
 
-    if (this.metrics.length > MAX_HISTORY_SIZE) {
+    if (this.batchBuffer.length === 0) {
+      return;
+    }
+
+    const timestamp = Date.now();
+    const metricsToAdd = [...this.batchBuffer];
+    this.batchBuffer = [];
+
+    const lastRecord = this.metrics[this.metrics.length - 1];
+    if (lastRecord && timestamp - lastRecord.timestamp < 1000) {
+      lastRecord.metrics.push(...metricsToAdd);
+    } else {
+      this.metrics.push({ timestamp, metrics: metricsToAdd });
+    }
+
+    while (this.metrics.length > MAX_HISTORY_SIZE) {
       this.metrics.shift();
     }
   }
@@ -162,7 +198,7 @@ export class PerformanceMonitor {
   }
 
   recordResponseTime(durationMs: number, operation?: string): void {
-    this.recordMetric('response_time', durationMs, 'ms', { operation });
+    this.recordMetric('response_time', durationMs, 'ms', operation ? { operation } : undefined);
   }
 
   recordExecutionTime(label: string, durationMs: number): void {

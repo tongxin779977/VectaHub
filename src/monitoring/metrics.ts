@@ -15,7 +15,10 @@ export type MetricType =
   | 'execution_time'
   | 'queue_length'
   | 'error_count'
-  | 'success_rate';
+  | 'success_rate'
+  | 'external_memory'
+  | 'rss_memory'
+  | 'memory_cleanup';
 
 export interface MetricThreshold {
   type: MetricType;
