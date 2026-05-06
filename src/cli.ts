@@ -33,6 +33,7 @@ import { formatErrorMessage } from './utils/errors.js';
 import { loadConfig as loadUtilsConfig } from './utils/config.js';
 import { isFirstRun, runFirstRunWizard, loadConfig as loadSetupConfig, saveConfig as saveSetupConfig } from './setup/first-run-wizard.js';
 import { scanCLITools, updateCLIToolConfig, getAvailableExternalCLI } from './setup/cli-scanner.js';
+import { createDefaultInstaller } from './setup/priority-installer.js';
 
 try {
   initAuditLogger();
@@ -148,11 +149,24 @@ program
 
 // Setup 命令
 const setupCmd = new Command('setup')
-  .description('运行首次配置向导')
+  .description('运行优先级安装流程')
   .action(async () => {
-    console.log('🔧 运行配置向导...\n');
-    await runFirstRunWizard();
-    await scanCLITools();
+    console.log('🔧 运行优先级安装流程...\n');
+    const installer = createDefaultInstaller();
+    if (!installer) {
+      console.error('❌ 安装器初始化失败');
+      process.exit(1);
+    }
+    const summary = await installer.run();
+    if (!summary.overallSuccess) {
+      console.log('\n⚠️  安装未完全成功，部分功能可能不可用。');
+      console.log('💡 重新运行 `vectahub setup` 可修复问题。\n');
+    } else {
+      const config = loadSetupConfig();
+      config.first_run_completed = true;
+      saveSetupConfig(config);
+      console.log('\n🎉 安装完成！所有组件已就绪。\n');
+    }
   });
 
 const configCmd = new Command('config')
@@ -177,7 +191,7 @@ configCmd
 
 configCmd
   .command('reset')
-  .description('重置配置并重新运行向导')
+  .description('重置配置并重新运行安装流程')
   .action(async () => {
     console.log('⚠️  重置配置...\n');
     const config = loadSetupConfig();
@@ -188,8 +202,10 @@ configCmd
     };
     saveSetupConfig(config);
     console.log('✅ 配置已重置\n');
-    await runFirstRunWizard();
-    await scanCLITools();
+    const installer = createDefaultInstaller();
+    if (installer) {
+      await installer.run();
+    }
   });
 
 configCmd

@@ -3,8 +3,8 @@ import { createConsoleLogger } from '../utils/logger.js';
 import { createWorkflowEngine } from '../workflow/engine.js';
 import { createStorage } from '../workflow/storage.js';
 import { reviewAndEditCommands } from './command-editor.js';
-import { isFirstRun, runFirstRunWizard } from '../setup/first-run-wizard.js';
-import { scanCLITools, updateCLIToolConfig } from '../setup/cli-scanner.js';
+import { isFirstRun, loadConfig, saveConfig } from '../setup/first-run-wizard.js';
+import { createDefaultInstaller } from '../setup/priority-installer.js';
 import { createLLMConfig } from '../nl/llm.js';
 import { createNLProcessor, createCoordinator, adaptAllTemplates } from '../nl/core/index.js';
 import { createKeywordFallback } from '../nl/core/keyword-fallback.js';
@@ -30,10 +30,17 @@ export const runCmd = new Command('run')
   .action(async (intent: string[], options: any) => {
     try {
       if (isFirstRun()) {
-        const configured = await runFirstRunWizard();
-        if (configured) {
-          await scanCLITools();
-          updateCLIToolConfig([]);
+        logger.info('首次运行，启动优先级安装流程...');
+        const installer = createDefaultInstaller();
+        if (installer) {
+          const summary = await installer.run();
+          if (summary.overallSuccess) {
+            const config = loadConfig();
+            config.first_run_completed = true;
+            saveConfig(config);
+          } else {
+            logger.warn('安装未完全成功，部分功能可能不可用');
+          }
         }
       }
 

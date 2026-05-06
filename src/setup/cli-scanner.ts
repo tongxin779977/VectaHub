@@ -22,29 +22,53 @@ const AI_CLI_TOOLS = [
   { name: 'aider', command: 'aider', versionFlag: '--version' },
 ];
 
+function createFailedStatus(name: string): CLIToolStatus {
+  return { name, installed: false, hasPermission: false, enabled: false };
+}
+
+export async function scanSingleTool(toolName: string): Promise<CLIToolStatus | null> {
+  const toolDef = AI_CLI_TOOLS.find(t => t.name === toolName);
+  if (!toolDef) {
+    return null;
+  }
+
+  try {
+    return await checkTool(toolDef);
+  } catch {
+    return createFailedStatus(toolName);
+  }
+}
+
 export async function scanCLITools(): Promise<CLIToolStatus[]> {
   console.log('🔍 扫描已安装的 AI CLI 工具...\n');
 
   const results: CLIToolStatus[] = [];
 
   for (const tool of AI_CLI_TOOLS) {
-    const status = await checkTool(tool);
-    results.push(status);
+    try {
+      const status = await scanSingleTool(tool.name);
+      if (!status) continue;
 
-    if (status.installed) {
-      if (status.hasPermission) {
-        console.log(`✅ ${tool.name} CLI - 已安装 (${status.version}), 权限正常`);
-      } else {
-        console.log(`⚠️  ${tool.name} CLI - 已安装，但${status.permissionIssue}`);
-        const granted = await askPermission(tool.name);
-        status.hasPermission = granted;
-        status.permissionIssue = granted ? undefined : status.permissionIssue;
-        if (granted) {
-          console.log(`✅ 已授权 ${tool.name}`);
+      results.push(status);
+
+      if (status.installed) {
+        if (status.hasPermission) {
+          console.log(`✅ ${tool.name} CLI - 已安装 (${status.version}), 权限正常`);
+        } else {
+          console.log(`⚠️  ${tool.name} CLI - 已安装，但${status.permissionIssue}`);
+          const granted = await askPermission(tool.name);
+          status.hasPermission = granted;
+          status.permissionIssue = granted ? undefined : status.permissionIssue;
+          if (granted) {
+            console.log(`✅ 已授权 ${tool.name}`);
+          }
         }
+      } else {
+        console.log(`❌ ${tool.name} CLI - 未安装`);
       }
-    } else {
-      console.log(`❌ ${tool.name} CLI - 未安装`);
+    } catch (err) {
+      console.log(`❌ ${tool.name} CLI - 扫描失败: ${err instanceof Error ? err.message : String(err)}`);
+      results.push(createFailedStatus(tool.name));
     }
   }
 
@@ -70,12 +94,7 @@ async function checkTool(tool: { name: string; command: string; versionFlag: str
       enabled: true,
     };
   } catch {
-    return {
-      name: tool.name,
-      installed: false,
-      hasPermission: false,
-      enabled: false,
-    };
+    return createFailedStatus(tool.name);
   }
 }
 

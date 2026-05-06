@@ -3,6 +3,7 @@ import { join, dirname } from 'path';
 import { parse, stringify } from 'yaml';
 import { createInterface, type Interface } from 'readline';
 import { createConsoleLogger } from '../utils/logger.js';
+import type { StepResult } from './priority-installer.js';
 
 const logger = createConsoleLogger('setup');
 
@@ -23,6 +24,11 @@ function closeRl(): void {
     sharedRl.close();
     sharedRl = null;
   }
+}
+
+/** Reset shared readline state (for testing) */
+export function _resetSharedRl(): void {
+  closeRl();
 }
 
 function promptUser(question: string): Promise<string> {
@@ -85,6 +91,90 @@ function getConfigPath(): string {
   return join(homeDir, '.vectahub', 'config.yaml');
 }
 
+function getConfigDir(): string {
+  const configPath = getConfigPath();
+  return dirname(configPath);
+}
+
+// Step 1: Create config directory
+export async function createConfigDir(): Promise<StepResult> {
+  const configDir = getConfigDir();
+
+  try {
+    if (existsSync(configDir)) {
+      return { success: true };
+    }
+
+    mkdirSync(configDir, { recursive: true });
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'unknown error';
+    return { success: false, reason: `创建配置目录失败: ${message}` };
+  }
+}
+
+// Step 2: Initialize config file
+export async function initConfigFile(): Promise<StepResult> {
+  const configPath = getConfigPath();
+
+  try {
+    if (existsSync(configPath)) {
+      return { success: true };
+    }
+
+    const content = stringify(DEFAULT_CONFIG);
+    writeFileSync(configPath, content, 'utf-8');
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'unknown error';
+    return { success: false, reason: `初始化配置文件失败: ${message}` };
+  }
+}
+
+// Step 3: Configure LLM provider (interactive)
+export async function configureLLMProvider(): Promise<StepResult> {
+  console.log('\n👋 Welcome to VectaHub!\n');
+  console.log('首次使用需要配置 AI 能力。\n');
+  console.log('请选择你的 LLM 提供商:');
+  console.log('1. OpenAI (兼容协议，支持 TokenPlan 等)');
+  console.log('2. Anthropic (兼容协议)');
+  console.log('3. Google Gemini (兼容协议)');
+  console.log('4. 本地模型 (Ollama)');
+  console.log('5. 跳过 (仅使用规则匹配)\n');
+
+  const answer = await promptUser('选择 [1-5]: ');
+  const choice = answer.trim();
+
+  const config = loadConfig();
+
+  switch (choice) {
+    case '1':
+      await setupOpenAI(config);
+      break;
+    case '2':
+      await setupAnthropic(config);
+      break;
+    case '3':
+      await setupGemini(config);
+      break;
+    case '4':
+      await setupOllama(config);
+      break;
+    case '5':
+      console.log('⏭️  跳过 AI 配置，将仅使用规则匹配\n');
+      closeRl();
+      return { success: true };
+    default:
+      console.log('❌ 无效选择，跳过 AI 配置\n');
+      closeRl();
+      return { success: true };
+  }
+
+  saveConfig(config);
+  closeRl();
+  return { success: true };
+}
+
 export function isFirstRun(): boolean {
   const configPath = getConfigPath();
   if (!existsSync(configPath)) {
@@ -126,51 +216,30 @@ export function saveConfig(config: VectaHubConfig): void {
 }
 
 export async function runFirstRunWizard(): Promise<boolean> {
-  console.log('\n👋 Welcome to VectaHub!\n');
-  console.log('首次使用需要配置 AI 能力。\n');
-  console.log('请选择你的 LLM 提供商:');
-  console.log('1. OpenAI (兼容协议，支持 TokenPlan 等)');
-  console.log('2. Anthropic (兼容协议)');
-  console.log('3. Google Gemini (兼容协议)');
-  console.log('4. 本地模型 (Ollama)');
-  console.log('5. 跳过 (仅使用规则匹配)\n');
-
-  const answer = await promptUser('选择 [1-5]: ');
-  const choice = answer.trim();
-
-  const config = loadConfig();
-
-  switch (choice) {
-    case '1':
-      await setupOpenAI(config);
-      break;
-    case '2':
-      await setupAnthropic(config);
-      break;
-    case '3':
-      await setupGemini(config);
-      break;
-    case '4':
-      await setupOllama(config);
-      break;
-    case '5':
-      console.log('⏭️  跳过 AI 配置，将仅使用规则匹配\n');
-      config.first_run_completed = true;
-      saveConfig(config);
-      closeRl();
-      return false;
-    default:
-      console.log('❌ 无效选择，跳过 AI 配置\n');
-      config.first_run_completed = true;
-      saveConfig(config);
-      closeRl();
-      return false;
+  // Step 1: Create config directory
+  const dirResult = await createConfigDir();
+  if (!dirResult.success) {
+    logger.error(dirResult.reason || '创建配置目录失败');
+    return false;
   }
 
+  // Step 2: Initialize config file
+  const initResult = await initConfigFile();
+  if (!initResult.success) {
+    logger.error(initResult.reason || '初始化配置文件失败');
+    return false;
+  }
+
+  // Step 3: Configure LLM provider (interactive)
+  const configResult = await configureLLMProvider();
+
+  // Mark first run as completed (responsibility moved from individual steps)
+  const config = loadConfig();
   config.first_run_completed = true;
   saveConfig(config);
-  closeRl();
-  return true;
+
+  // Return true only if LLM was actually configured
+  return config.ai_providers.vectahub_llm.enabled;
 }
 
 async function setupOpenAI(config: VectaHubConfig): Promise<void> {
