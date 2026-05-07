@@ -1,4 +1,5 @@
-import type { Step, StepStatus, SandboxMode, ExecutionStatus } from '../../types/index.js';
+import type { Step, SandboxMode, ExecutionStatus } from '../../types/index.js';
+import type { RoleName } from '../../security-protocol/rbac.js';
 
 export interface ExecutorOptions {
   mode: SandboxMode;
@@ -7,6 +8,7 @@ export interface ExecutorOptions {
   cwd?: string;
   env?: Record<string, string>;
   useSandbox?: boolean;
+  role?: RoleName;
 }
 
 export interface ExecutionContext {

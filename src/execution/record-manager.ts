@@ -140,11 +140,7 @@ export function createRecordManager(baseDir?: string): RecordManager {
 
       // Rewrite all files
       const grouped = new Map<string, ExecutionRecord[]>();
-<<<<<<< HEAD
       for (const r of allRecords) {
-=======
-      for (const r of records) {
->>>>>>> origin/main
         const raw = r.startedAt;
         const startedAtStr = typeof raw === 'object' && raw !== null && 'toISOString' in raw
           ? (raw as Date).toISOString()
@@ -176,7 +172,6 @@ export function createRecordManager(baseDir?: string): RecordManager {
     },
 
     async search(query: string, options?: { limit?: number; status?: string }): Promise<ExecutionSearchResult> {
-<<<<<<< HEAD
       const queryLower = query.toLowerCase();
       const limit = options?.limit || 20;
 
@@ -198,29 +193,6 @@ export function createRecordManager(baseDir?: string): RecordManager {
         }
       });
 
-=======
-      let records = await readAllRecords();
-      const queryLower = query.toLowerCase();
-
-      records = records.filter((r) => {
-        const searchable = [
-          r.executionId,
-          r.workflowId,
-          r.workflowName,
-          r.error || '',
-          r.triggeredBy || '',
-          ...(r.metadata ? Object.values(r.metadata).map(String) : []),
-        ].join(' ').toLowerCase();
-
-        const matchesQuery = searchable.includes(queryLower);
-        const matchesStatus = !options?.status || r.status === options.status;
-        return matchesQuery && matchesStatus;
-      });
-
-      records.sort((a, b) => parseStartedAt(b).localeCompare(parseStartedAt(a)));
-
-      const limit = options?.limit || 20;
->>>>>>> origin/main
       const hasMore = records.length > limit;
       const sliced = records.slice(0, limit);
 
@@ -234,29 +206,15 @@ export function createRecordManager(baseDir?: string): RecordManager {
     },
 
     async getLatest(status?: string): Promise<ExecutionRecord | undefined> {
-<<<<<<< HEAD
       const records = await readRecords({
         limit: 1,
         filter: (r) => !status || r.status === status
       });
-=======
-      let records = await readAllRecords();
-      if (status) {
-        records = records.filter((r) => r.status === status);
-      }
-      records.sort((a, b) => parseStartedAt(b).localeCompare(parseStartedAt(a)));
->>>>>>> origin/main
       return records[0];
     },
 
     async getRecent(limit = 10): Promise<ExecutionRecord[]> {
-<<<<<<< HEAD
       return readRecords({ limit });
-=======
-      let records = await readAllRecords();
-      records.sort((a, b) => parseStartedAt(b).localeCompare(parseStartedAt(a)));
-      return records.slice(0, limit);
->>>>>>> origin/main
     },
   };
 }

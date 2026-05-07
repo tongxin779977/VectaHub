@@ -429,44 +429,6 @@ program.addCommand(completionCmd);
 program.addCommand(setupCmd);
 program.addCommand(configCmd);
 
-<<<<<<< HEAD
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const commandsDir = join(__dirname, 'commands');
-
-const COMMAND_DESCRIPTIONS: Record<string, string> = {
-  chat: 'Start interactive chat session',
-  serve: 'Start VectaHub server',
-  client: 'Connect to VectaHub server',
-  security: 'Security management commands',
-  audit: 'Audit log commands',
-  tools: 'CLI tools management',
-  list: 'List workflows',
-  mode: 'Switch execution mode',
-  history: 'View execution history',
-  generate: 'Generate workflows',
-  schedule: 'Schedule workflows',
-  daemon: 'Daemon management',
-  templates: 'Manage templates',
-  rollback: 'Rollback operations',
-  verify: 'Verify workflows',
-  plugins: 'Plugin management',
-  monitor: 'Monitor workflows',
-  debug: 'Debug workflows',
-  export: 'Export workflows',
-  import: 'Import workflows',
-  dev: 'Development commands',
-};
-
-const discoveredCommands = readdirSync(commandsDir)
-  .filter(file => (file.endsWith('.ts') || file.endsWith('.js')) && !file.endsWith('.test.ts') && !file.endsWith('.test.js') && file !== 'index.ts' && file !== 'index.js')
-  .map(file => file.replace(/\.(ts|js)$/, ''))
-  .filter(name => !loadedCommands.has(name) && !program.commands.some(c => c.name() === name));
-
-for (const cmdName of discoveredCommands) {
-  const description = COMMAND_DESCRIPTIONS[cmdName] || `Execute ${cmdName} command`;
-  const placeholderCmd = new Command(cmdName)
-    .description(description)
-=======
 // Register lazy-loadable commands with minimal placeholder - actual implementation loaded on use
 const lazyLoadableCommands = [
   { name: 'chat', description: 'Start interactive chat session' },
@@ -501,10 +463,10 @@ for (const cmdInfo of lazyLoadableCommands) {
   }
   
   placeholderCmd
->>>>>>> origin/main
     .allowUnknownOption()
     .arguments('[args...]')
     .action(async () => {
+      const cmdName = cmdInfo.name;
       if (!loadedCommands.has(cmdName)) {
         await lazyLoadCommand(cmdName);
         await lazyLoadCliTools();

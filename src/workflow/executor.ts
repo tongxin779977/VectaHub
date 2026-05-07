@@ -2,7 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import type { Step, ExecutionStatus, SandboxMode } from '../types/index.js';
 import { createDetector, type Detector } from '../sandbox/detector.js';
 import { createSandboxManager, type SandboxManager } from '../sandbox/sandbox.js';
-import { interpolateString } from './interpolation.js';
+import { interpolateString, interpolateStep } from './interpolation.js';
 import { audit, getCurrentSessionId } from '../utils/audit.js';
 import { createRBACManager, type RoleName } from '../security-protocol/rbac.js';
 
@@ -54,17 +54,17 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     const startTime = Date.now();
     const timeout = options.timeout || DEFAULT_TIMEOUT;
 
-    if ((options as any).role) {
+    if (options.role) {
       const rbac = createRBACManager();
       const fullCommand = `${cli} ${args.join(' ')}`;
-      if (!rbac.canExecute((options as any).role, fullCommand, cli)) {
+      if (!rbac.canExecute(options.role, fullCommand, cli)) {
         const sessionId = getCurrentSessionId();
-        audit.securityAction('RBAC_DENIED', fullCommand, `Role ${(options as any).role} blocked command`, sessionId);
+        audit.securityAction('RBAC_DENIED', fullCommand, `Role ${options.role} blocked command`, sessionId);
         return {
           success: false,
           exitCode: 1,
           stdout: '',
-          stderr: `Command denied by RBAC: role "${(options as any).role}" cannot execute "${cli}"`,
+          stderr: `Command denied by RBAC: role "${options.role}" cannot execute "${cli}"`,
           duration: Date.now() - startTime,
         };
       }
@@ -127,9 +127,6 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     };
   }
 
-<<<<<<< HEAD
-  // Registry for handlers
-=======
   function evaluateCondition(condition: string, context: ExecutionContext): boolean {
     const exitCodeMatch = condition.match(/\$\{(\w+)\.exitCode\}\s*==\s*0/);
     if (exitCodeMatch) {
@@ -148,7 +145,7 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     return false;
   }
 
-  async function handleExec(step: Step, options: ExecutorOptions, context: ExecutionContext, startTime: number): Promise<ExecutionResult> {
+  async function handleExec(step: Step, options: ExecutorOptions, context: ExecutionContext, _executeStep: ExecuteStepFn, startTime: number): Promise<ExecutionResult> {
     const interpolatedCli = interpolateString(step.cli!, context);
     const interpolatedArgs = (step.args || []).map(arg => interpolateString(arg, context));
 
@@ -206,7 +203,7 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     }
   }
 
-  async function handleOpenCli(step: Step, options: ExecutorOptions, context: ExecutionContext, startTime: number): Promise<ExecutionResult> {
+  async function handleOpenCli(step: Step, options: ExecutorOptions, context: ExecutionContext, _executeStep: ExecuteStepFn, startTime: number): Promise<ExecutionResult> {
     const site = interpolateString(step.site || '', context);
     const command = interpolateString(step.command || '', context);
     const args = (step.args || []).map((arg: string) => interpolateString(arg, context));
@@ -259,7 +256,7 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     }
   }
 
-  async function handleForEach(step: Step, options: ExecutorOptions, context: ExecutionContext, startTime: number): Promise<ExecutionResult> {
+  async function handleForEach(step: Step, options: ExecutorOptions, context: ExecutionContext, executeStep: ExecuteStepFn, startTime: number): Promise<ExecutionResult> {
     const itemsStr = interpolateString(step.items || '', context);
     const items = itemsStr.split('\n').filter(Boolean);
     const outputs: string[] = [];
@@ -296,7 +293,7 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     };
   }
 
-  async function handleIf(step: Step, options: ExecutorOptions, context: ExecutionContext, startTime: number): Promise<ExecutionResult> {
+  async function handleIf(step: Step, options: ExecutorOptions, context: ExecutionContext, executeStep: ExecuteStepFn, startTime: number): Promise<ExecutionResult> {
     const condition = interpolateString(step.condition || '', context);
     const conditionMet = evaluateCondition(condition, context);
     const outputs: string[] = [];
@@ -324,7 +321,7 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     };
   }
 
-  async function handleParallel(step: Step, options: ExecutorOptions, context: ExecutionContext, startTime: number): Promise<ExecutionResult> {
+  async function handleParallel(step: Step, options: ExecutorOptions, context: ExecutionContext, executeStep: ExecuteStepFn, startTime: number): Promise<ExecutionResult> {
     const promises = (step.body || []).map(bodyStep =>
       executeStep(bodyStep, options, context)
     );
@@ -341,7 +338,6 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     };
   }
 
->>>>>>> origin/main
   const stepHandlers: Record<string, StepHandler> = {
     if: handleIf,
     parallel: handleParallel,
@@ -354,8 +350,6 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
 
   const executeStep: ExecuteStepFn = async (step, options, context) => {
     const startTime = Date.now();
-<<<<<<< HEAD
-=======
 
     if (options.dryRun && ['exec', 'opencli'].includes(step.type)) {
       return {
@@ -367,19 +361,6 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     }
 
     const handler = extendedStepHandlers[step.type] || stepHandlers[step.type] || (step.cli ? handleExec : null);
->>>>>>> origin/main
-
-    // Dry-run handling (optimized and consolidated)
-    if (options.dryRun && ['exec', 'opencli'].includes(step.type)) {
-      return {
-        stepId: step.id,
-        status: 'COMPLETED',
-        output: [`[DRY RUN] Would execute: ${step.cli || step.command} ${step.args?.join(' ') || ''}`],
-        duration: 0,
-      };
-    }
-
-    const handler = extendedStepHandlers[step.type] || stepHandlers[step.type];
 
     if (handler) {
       return handler(step, options, context, executeStep, startTime);
