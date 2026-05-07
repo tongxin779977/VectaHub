@@ -127,7 +127,221 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     };
   }
 
+<<<<<<< HEAD
   // Registry for handlers
+=======
+  function evaluateCondition(condition: string, context: ExecutionContext): boolean {
+    const exitCodeMatch = condition.match(/\$\{(\w+)\.exitCode\}\s*==\s*0/);
+    if (exitCodeMatch) {
+      const stepId = exitCodeMatch[1];
+      const outputs = context.previousOutputs[stepId];
+      return outputs && outputs.length === 0;
+    }
+
+    const eqMatch = condition.match(/(\w+)\s*==\s*(.+)/);
+    if (eqMatch) {
+      const [, varName, expectedValue] = eqMatch;
+      const actualValue = context.variables[varName]?.[0];
+      return actualValue?.trim() === expectedValue.trim();
+    }
+
+    return false;
+  }
+
+  async function handleExec(step: Step, options: ExecutorOptions, context: ExecutionContext, startTime: number): Promise<ExecutionResult> {
+    const interpolatedCli = interpolateString(step.cli!, context);
+    const interpolatedArgs = (step.args || []).map(arg => interpolateString(arg, context));
+
+    const detection = detector.detect(interpolatedCli);
+
+    audit.sandboxDetect(
+      interpolatedCli,
+      detection.isDangerous,
+      detection.level || 'none',
+      'unknown'
+    );
+
+    if (!shouldAllow(detection, options.mode)) {
+      return {
+        stepId: step.id,
+        status: 'FAILED',
+        error: `Dangerous command blocked: ${detection.reason}`,
+        duration: Date.now() - startTime,
+      };
+    }
+
+    try {
+      const result = options.useSandbox && sandboxManager
+        ? await execInSandbox(interpolatedCli, interpolatedArgs, options)
+        : await exec(interpolatedCli, interpolatedArgs, options);
+
+      audit.executorResult(
+        step.id,
+        interpolatedCli,
+        result.exitCode,
+        result.duration,
+        'unknown',
+        { stdoutLength: result.stdout.length, stderrLength: result.stderr.length }
+      );
+
+      const outputs = result.stdout ? [result.stdout] : [];
+      context.previousOutputs[step.id] = outputs;
+
+      return {
+        stepId: step.id,
+        status: result.success ? 'COMPLETED' : 'FAILED',
+        output: outputs,
+        error: result.success ? undefined : result.stderr,
+        duration: Date.now() - startTime,
+        sandboxed: options.useSandbox && sandboxManager ? true : undefined,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        stepId: step.id,
+        status: 'FAILED',
+        error: errorMessage,
+        duration: Date.now() - startTime,
+      };
+    }
+  }
+
+  async function handleOpenCli(step: Step, options: ExecutorOptions, context: ExecutionContext, startTime: number): Promise<ExecutionResult> {
+    const site = interpolateString(step.site || '', context);
+    const command = interpolateString(step.command || '', context);
+    const args = (step.args || []).map((arg: string) => interpolateString(arg, context));
+
+    const fullArgs = [site, command, ...args];
+
+    const detection = detector.detect('opencli');
+
+    audit.sandboxDetect(
+      `opencli ${site} ${command}`,
+      detection.isDangerous,
+      detection.level || 'none',
+      'unknown'
+    );
+
+    try {
+      const result = options.useSandbox && sandboxManager
+        ? await execInSandbox('opencli', fullArgs, options)
+        : await exec('opencli', fullArgs, options);
+
+      audit.executorResult(
+        step.id,
+        'opencli',
+        result.exitCode,
+        result.duration,
+        'unknown',
+        { stdoutLength: result.stdout.length, stderrLength: result.stderr.length }
+      );
+
+      const outputs = result.stdout ? [result.stdout] : [];
+      const storageKey = (step as any).outputVar || step.id;
+      context.previousOutputs[storageKey] = outputs;
+
+      return {
+        stepId: step.id,
+        status: result.success ? 'COMPLETED' : 'FAILED',
+        output: outputs,
+        error: result.success ? undefined : result.stderr,
+        duration: Date.now() - startTime,
+        sandboxed: options.useSandbox && sandboxManager ? true : undefined,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        stepId: step.id,
+        status: 'FAILED',
+        error: errorMessage,
+        duration: Date.now() - startTime,
+      };
+    }
+  }
+
+  async function handleForEach(step: Step, options: ExecutorOptions, context: ExecutionContext, startTime: number): Promise<ExecutionResult> {
+    const itemsStr = interpolateString(step.items || '', context);
+    const items = itemsStr.split('\n').filter(Boolean);
+    const outputs: string[] = [];
+
+    for (const item of items) {
+      const itemContext: ExecutionContext = {
+        ...context,
+        variables: { ...context.variables, item: [item] },
+      };
+
+      for (const bodyStep of step.body || []) {
+        const interpolatedStep = interpolateStep(bodyStep, itemContext);
+        const result = await executeStep(interpolatedStep, options, itemContext);
+        if (result.output) outputs.push(...result.output);
+
+        if (result.status === 'FAILED') {
+          return {
+            stepId: step.id,
+            status: 'FAILED',
+            output: outputs,
+            iterations: items.indexOf(item) + 1,
+            duration: Date.now() - startTime,
+          };
+        }
+      }
+    }
+
+    return {
+      stepId: step.id,
+      status: 'COMPLETED',
+      output: outputs,
+      iterations: items.length,
+      duration: Date.now() - startTime,
+    };
+  }
+
+  async function handleIf(step: Step, options: ExecutorOptions, context: ExecutionContext, startTime: number): Promise<ExecutionResult> {
+    const condition = interpolateString(step.condition || '', context);
+    const conditionMet = evaluateCondition(condition, context);
+    const outputs: string[] = [];
+
+    if (conditionMet && step.body) {
+      for (const bodyStep of step.body) {
+        const result = await executeStep(bodyStep, options, context);
+        if (result.output) outputs.push(...result.output);
+        if (result.status === 'FAILED') {
+          return {
+            stepId: step.id,
+            status: 'FAILED',
+            output: outputs,
+            duration: Date.now() - startTime,
+          };
+        }
+      }
+    }
+
+    return {
+      stepId: step.id,
+      status: 'COMPLETED',
+      output: outputs,
+      duration: Date.now() - startTime,
+    };
+  }
+
+  async function handleParallel(step: Step, options: ExecutorOptions, context: ExecutionContext, startTime: number): Promise<ExecutionResult> {
+    const promises = (step.body || []).map(bodyStep =>
+      executeStep(bodyStep, options, context)
+    );
+    const results = await Promise.all(promises);
+    const hasFailed = results.some(r => r.status === 'FAILED');
+    const outputs = results.flatMap(r => r.output || []);
+
+    return {
+      stepId: step.id,
+      status: hasFailed ? 'FAILED' : 'COMPLETED',
+      output: outputs,
+      iterations: results.length,
+      duration: Date.now() - startTime,
+    };
+  }
+
+>>>>>>> origin/main
   const stepHandlers: Record<string, StepHandler> = {
     if: handleIf,
     parallel: handleParallel,
@@ -140,6 +354,20 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
 
   const executeStep: ExecuteStepFn = async (step, options, context) => {
     const startTime = Date.now();
+<<<<<<< HEAD
+=======
+
+    if (options.dryRun && ['exec', 'opencli'].includes(step.type)) {
+      return {
+        stepId: step.id,
+        status: 'COMPLETED',
+        output: [`[DRY RUN] Would execute: ${step.cli || step.command} ${step.args?.join(' ') || ''}`],
+        duration: 0,
+      };
+    }
+
+    const handler = extendedStepHandlers[step.type] || stepHandlers[step.type] || (step.cli ? handleExec : null);
+>>>>>>> origin/main
 
     // Dry-run handling (optimized and consolidated)
     if (options.dryRun && ['exec', 'opencli'].includes(step.type)) {

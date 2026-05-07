@@ -429,6 +429,7 @@ program.addCommand(completionCmd);
 program.addCommand(setupCmd);
 program.addCommand(configCmd);
 
+<<<<<<< HEAD
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const commandsDir = join(__dirname, 'commands');
 
@@ -465,6 +466,42 @@ for (const cmdName of discoveredCommands) {
   const description = COMMAND_DESCRIPTIONS[cmdName] || `Execute ${cmdName} command`;
   const placeholderCmd = new Command(cmdName)
     .description(description)
+=======
+// Register lazy-loadable commands with minimal placeholder - actual implementation loaded on use
+const lazyLoadableCommands = [
+  { name: 'chat', description: 'Start interactive chat session' },
+  { name: 'serve', description: 'Start VectaHub server' },
+  { name: 'client', description: 'Connect to VectaHub server' },
+  { name: 'security', description: 'Security management commands' },
+  { name: 'audit', description: 'Audit log commands' },
+  { name: 'tools', description: 'CLI tools management' },
+  { name: 'list', description: 'List workflows' },
+  { name: 'mode', description: 'Switch execution mode', argument: '[mode]' },
+  { name: 'history', description: 'View execution history' },
+  { name: 'generate', description: 'Generate workflows' },
+  { name: 'schedule', description: 'Schedule workflows' },
+  { name: 'daemon', description: 'Daemon management' },
+  { name: 'templates', description: 'Manage templates' },
+  { name: 'rollback', description: 'Rollback operations' },
+  { name: 'verify', description: 'Verify workflows' },
+  { name: 'plugins', description: 'Plugin management' },
+  { name: 'monitor', description: 'Monitor workflows' },
+  { name: 'debug', description: 'Debug workflows' },
+  { name: 'export', description: 'Export workflows' },
+  { name: 'import', description: 'Import workflows' },
+  { name: 'dev', description: 'Development commands' },
+];
+
+for (const cmdInfo of lazyLoadableCommands) {
+  const placeholderCmd = new Command(cmdInfo.name)
+    .description(cmdInfo.description);
+  
+  if ((cmdInfo as any).argument) {
+    placeholderCmd.argument((cmdInfo as any).argument);
+  }
+  
+  placeholderCmd
+>>>>>>> origin/main
     .allowUnknownOption()
     .arguments('[args...]')
     .action(async () => {

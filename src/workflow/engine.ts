@@ -46,7 +46,11 @@ export interface WorkflowEngine {
   waitForCompletion(): Promise<ExecutionRecord>;
   loadWorkflows(): Promise<void>;
   getExecution(id: string): Promise<ExecutionRecord | undefined>;
+<<<<<<< HEAD
   resumeFromFailure(executionId: string, stepIndex?: number, options?: ExecuteOptions): Promise<ExecutionRecord>;
+=======
+  resumeFromFailure(executionId: string, stepIndex: number, options?: ExecuteOptions): Promise<ExecutionRecord>;
+>>>>>>> origin/main
 }
 
 let workflowCounter = 0;
@@ -439,7 +443,11 @@ export function createWorkflowEngine(): WorkflowEngine {
       return storage.get(id);
     },
 
+<<<<<<< HEAD
     async resumeFromFailure(executionId: string, stepIndex = -1, options?: ExecuteOptions): Promise<ExecutionRecord> {
+=======
+    async resumeFromFailure(executionId: string, stepIndex: number, options?: ExecuteOptions): Promise<ExecutionRecord> {
+>>>>>>> origin/main
       const previousExecution = await storage.get(executionId);
       if (!previousExecution) {
         throw new Error(`Execution ${executionId} not found`);
