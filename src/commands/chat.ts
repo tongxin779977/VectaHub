@@ -9,6 +9,7 @@ import { createSkillSystem } from '../skills/init.js';
 import { createLLMConfig } from '../nl/llm.js';
 import { createConsoleLogger } from '../utils/logger.js';
 import { createWorkflowEngine } from '../workflow/engine.js';
+import { createCommandDiscovery, createKnowledgeBase, createFailureHandler, createCommandExecutor } from '../nl/index.js';
 
 const logger = createConsoleLogger('chat');
 
@@ -44,12 +45,20 @@ export const chatCmd = new Command('chat')
 
       const workflowEngine = createWorkflowEngine();
 
+      const knowledgeBase = createKnowledgeBase();
+      await knowledgeBase.load();
+
+      const commandDiscovery = createCommandDiscovery();
+      const failureHandler = createFailureHandler(commandDiscovery, knowledgeBase);
+      const commandExecutor = createCommandExecutor(knowledgeBase, failureHandler);
+
       const deps = {
         nlProcessor,
         contextBuilder,
         sessionManager,
         useLLM,
         workflowEngine,
+        commandExecutor,
       };
 
       const repl = createRepl(deps, { sessionId, sessionManager });

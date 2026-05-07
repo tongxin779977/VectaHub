@@ -7,6 +7,7 @@ import { createContextBuilder, type ContextBuilderResult } from './context-build
 import type { SessionManager } from '../nl/session-manager.js';
 import type { WorkflowEngine } from '../workflow/engine.js';
 import type { Workflow, Step } from '../types/index.js';
+import type { CommandExecutor } from '../nl/index.js';
 import YAML from 'yaml';
 
 export interface REPLDeps {
@@ -15,6 +16,7 @@ export interface REPLDeps {
   sessionManager?: SessionManager;
   useLLM: boolean;
   workflowEngine?: WorkflowEngine;
+  commandExecutor?: CommandExecutor;
 }
 
 interface PendingWorkflow {
@@ -143,7 +145,7 @@ function getHistoryFile(): string {
 }
 
 export function createREPL(deps: REPLDeps, sessionId: string): (input: string) => Promise<ChatOutput> {
-  const { nlProcessor, contextBuilder, sessionManager, useLLM } = deps;
+  const { nlProcessor, contextBuilder, sessionManager, useLLM, commandExecutor } = deps;
 
   async function executePendingWorkflow(sessId: string, workflowId: string): Promise<ChatOutput> {
     const pending = pendingWorkflows.get(sessId);
@@ -177,6 +179,21 @@ export function createREPL(deps: REPLDeps, sessionId: string): (input: string) =
     const parsed = parseInput(input.trim());
 
     if (parsed.type === 'shell') {
+      if (commandExecutor) {
+        try {
+          const result = await commandExecutor.execute(parsed.parsed);
+          return {
+            type: 'command-result',
+            content: result,
+            metadata: {},
+          };
+        } catch (err) {
+          return {
+            type: 'error',
+            content: `Command execution failed: ${err instanceof Error ? err.message : String(err)}`,
+          };
+        }
+      }
       return executeShellCommand(parsed.parsed);
     }
 

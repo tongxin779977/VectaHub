@@ -1,51 +1,21 @@
-export { createIntentMatcher } from './intent-matcher.js';
-export * from './command-synthesizer.js';
-export * from './llm.js';
+export * from './types/command.js';
 
 export {
-  PromptManager,
-  createPromptManager,
-  DEFAULT_INTENT_PARSER_ID,
-  DEFAULT_WORKFLOW_YAML_ID,
-} from './prompt-manager.js';
+  createCommandDiscovery,
+  type CommandDiscovery
+} from './discovery/command-discovery.js';
 
 export {
-  createPromptRegistry,
-  PromptRegistryImpl,
-  PromptRegistryV3,
-  createPromptRegistryV3,
-} from './prompt/v3.js';
-
-export type {
-  PromptVariable,
-  PromptExample,
-  PromptConstraint,
-  PromptMetadata,
-  Prompt,
-  PromptBuildResult,
-  EvaluationResult,
-  PromptRegistry,
-  PromptRepository,
-  PromptCategory,
-} from './prompt/types.js';
+  createKnowledgeBase,
+  type KnowledgeBase
+} from './knowledge/knowledge-base.js';
 
 export {
-  createNLProcessor,
-  createMatchingPipeline,
-  createCoordinator,
-  createIntentSplitter,
-  createPrecedenceResolver,
-  adaptTemplateToPattern,
-  adaptAllTemplates,
-} from './core/index.js';
-export type {
-  NLProcessorOptions,
-  NLProcessor,
-  MatchingPipeline,
-  Coordinator,
-  IntentSplitter,
-  PrecedenceResolver,
-  IntentPattern,
-  IntentMatch,
-  MultiIntentResult,
-} from './core/index.js';
+  createFailureHandler,
+  type FailureHandler
+} from './handler/failure-handler.js';
+
+export {
+  createCommandExecutor,
+  type CommandExecutor
+} from './executor/command-executor.js';
