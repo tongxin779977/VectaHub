@@ -30,8 +30,6 @@ export function createNLProcessor(
 
   async function parse(context: NLContext): Promise<NLResult> {
     const input = typeof context.input === 'string' ? context.input : '';
-    console.log(`[PIPELINE DEBUG] parse called with input: "${input}"`);
-    console.log(`[PIPELINE DEBUG] useLLM: ${context.options?.useLLM}`);
 
     if (!context.options?.useLLM) {
       const keywordResult = await keywordFallback.parse(context);
@@ -92,27 +90,23 @@ async function executePipelineSkill(
   threshold: number
 ): Promise<NLResult | null> {
   const pipelineSkill = registry.get('vectahub.pipeline');
-  console.log(`[PIPELINE DEBUG] pipelineSkill found: ${!!pipelineSkill}`);
   if (!pipelineSkill) return null;
 
   try {
-    console.log(`[PIPELINE DEBUG] Executing pipeline skill with input: "${context.input}"`);
     const result = await executor.execute(
       pipelineSkill,
       context.input,
       skillContext
     );
-    console.log(`[PIPELINE DEBUG] Pipeline skill result:`, JSON.stringify(result));
 
     if (result.success && result.data) {
       if ((result.confidence ?? 0) < threshold) {
-        console.debug(`[PIPELINE] Pipeline skill confidence ${result.confidence} below threshold ${threshold}`);
         return null;
       }
       return buildSkillResult(result, [pipelineSkill.id], context.input);
     }
-  } catch (err) {
-    console.error(`[PIPELINE DEBUG] Pipeline skill error:`, err instanceof Error ? err.message : String(err));
+  } catch {
+    // ignore
   }
 
   return null;

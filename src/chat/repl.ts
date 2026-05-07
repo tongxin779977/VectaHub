@@ -226,11 +226,8 @@ export function createREPL(deps: REPLDeps, sessionId: string): (input: string) =
       return { type: 'error', content: '❌ 没有待执行的工作流。请先生成一个工作流。' };
     }
 
-    console.log(`[REPL DEBUG] Building context for sessionId: ${sessionId}`);
     const context = await deps.contextBuilder.buildContext(sessionId);
-    console.log(`[REPL DEBUG] Context built successfully`);
     
-    console.log(`[REPL DEBUG] Parsing input: "${parsed.parsed}"`);
     let nlResult;
     try {
       nlResult = await deps.nlProcessor.parse({
@@ -238,10 +235,7 @@ export function createREPL(deps: REPLDeps, sessionId: string): (input: string) =
         sessionId,
         options: { useLLM },
       });
-      console.log(`[REPL DEBUG] nlResult:`, JSON.stringify(nlResult, null, 2));
     } catch (err) {
-      console.error(`[REPL DEBUG] nlProcessor.parse error:`, err instanceof Error ? err.message : String(err));
-      console.error(`[REPL DEBUG] Error stack:`, err instanceof Error ? err.stack : 'No stack');
       throw err;
     }
     
@@ -383,7 +377,6 @@ export function createRepl(deps: REPLDeps, options?: { sessionId?: string; sessi
 
       rl.on('line', async (line: string) => {
         const input = line.trim();
-        console.log(`[REPL DEBUG] Received input: "${input}"`);
         
         if (!input) {
           rl.prompt();
@@ -397,12 +390,8 @@ export function createRepl(deps: REPLDeps, options?: { sessionId?: string; sessi
 
         isProcessing = true;
         try {
-          console.log(`[REPL DEBUG] Calling processInputFn...`);
           const output = await processInputFn(input);
           
-          console.debug(`[REPL DEBUG] Output type: ${output.type}`);
-          console.debug(`[REPL DEBUG] Output metadata:`, JSON.stringify(output.metadata));
-
           if (output.type === 'text') {
             console.log(output.content);
           } else if (output.type === 'command-result') {
@@ -413,12 +402,10 @@ export function createRepl(deps: REPLDeps, options?: { sessionId?: string; sessi
           } else if (output.type === 'error') {
             console.error(output.content);
           } else {
-            console.log(`[REPL DEBUG] Unknown output type: ${output.type}`);
             if (output.content) console.log(output.content);
           }
           
           if (output.metadata?.exit) {
-            console.log('[REPL DEBUG] Exit flag detected, closing...');
             rl.close();
             return;
           }
@@ -438,7 +425,7 @@ export function createRepl(deps: REPLDeps, options?: { sessionId?: string; sessi
 
       rl.on('close', () => {
         if (isProcessing) {
-          console.log('[REPL DEBUG] Operation in progress, waiting to close...');
+          console.log('操作进行中，请稍候...');
           pendingClose = true;
         } else {
           console.log('Goodbye!');

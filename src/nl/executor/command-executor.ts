@@ -51,7 +51,7 @@ class CommandExecutorImpl implements CommandExecutor {
 
   private async runCommand(command: string): Promise<{ success: boolean; output: string; error?: string }> {
     try {
-      const { stdout, stderr } = await execAsync(command);
+      const { stdout, stderr } = await execAsync(command, { timeout: 30000 });
       return {
         success: true,
         output: stdout.trim() || stderr.trim()

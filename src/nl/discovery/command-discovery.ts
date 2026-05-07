@@ -4,6 +4,8 @@ import type { ToolInfo, CommandInfo } from '../types/command.js';
 
 const execFileAsync = promisify(execFile);
 
+const ALLOWED_TOOLS = ['git', 'npm', 'docker', 'curl', 'node', 'yarn', 'npx', 'echo', 'ls'];
+
 export interface CommandDiscovery {
   scanTool(toolName: string): Promise<ToolInfo | null>;
   scanTools(toolNames: string[]): Promise<ToolInfo[]>;
@@ -15,6 +17,10 @@ export function createCommandDiscovery(): CommandDiscovery {
 
 class CommandDiscoveryImpl implements CommandDiscovery {
   async scanTool(toolName: string): Promise<ToolInfo | null> {
+    if (!ALLOWED_TOOLS.includes(toolName)) {
+      return null;
+    }
+    
     try {
       const { stdout } = await execFileAsync(toolName, ['--help']);
       const commands = this.parseHelpOutput(stdout, toolName);

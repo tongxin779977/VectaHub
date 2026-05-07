@@ -71,21 +71,16 @@ export function createDialogController(
     let lastError: string | undefined;
     let currentPrompt = prompt;
     
-    console.log(`[DIALOG DEBUG] executeWithRetry starting, maxRetries=${options.maxRetries}`);
-    
     while (attempt < options.maxRetries) {
       attempt++;
       
       try {
-        console.log(`[DIALOG DEBUG] Attempt ${attempt}/${options.maxRetries}`);
         const response = await callLLM(config, currentPrompt, options.format, options.systemPrompt);
-        console.log(`[DIALOG DEBUG] LLM call completed, response length=${response.length}`);
         
         if (options.validateOutput) {
           const validation = validateOutput(response, options.format);
           if (!validation.valid) {
             lastError = validation.error;
-            console.log(`[DIALOG DEBUG] Validation failed: ${lastError}`);
             currentPrompt = createRetryPrompt(prompt, validation.error!, attempt);
             continue;
           }
@@ -106,7 +101,6 @@ export function createDialogController(
           addMessage(options.sessionId, { role: 'assistant', content: cleanOutput });
         }
         
-        console.log(`[DIALOG DEBUG] Returning success, attemptCount=${attempt}, duration=${duration}`);
         return {
           success: true,
           output: cleanOutput,
@@ -117,7 +111,6 @@ export function createDialogController(
       } catch (error) {
         const isFatal = error instanceof LLMError && error.isFatal;
         lastError = error instanceof Error ? error.message : String(error);
-        console.error(`[DIALOG DEBUG] Exception on attempt ${attempt}: ${lastError}${isFatal ? ' (FATAL)' : ''}`);
         
         if (isFatal) break;
 
@@ -130,7 +123,6 @@ export function createDialogController(
     
     const duration = Date.now() - startTime;
     
-    console.log(`[DIALOG DEBUG] Failed after ${attempt} attempts, returning error`);
     return {
       success: false,
       output: '',
@@ -176,19 +168,12 @@ export function createDialogController(
 
     const timeout = config.timeout || 30000;
 
-    console.debug(`[LLM DEBUG] Calling API: ${baseUrl}/chat/completions`);
-    console.debug(`[LLM DEBUG] Model: ${config.model}`);
-    console.debug(`[LLM DEBUG] API Key present: ${!!apiKey}`);
-    console.debug(`[LLM DEBUG] Timeout: ${timeout}`);
-    
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
-      console.log(`[LLM DEBUG] Timeout triggered after ${timeout}ms`);
       controller.abort();
     }, timeout);
     
     try {
-      console.log(`[LLM DEBUG] Starting fetch...`);
       const response = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -204,24 +189,16 @@ export function createDialogController(
         })
       });
       
-      console.debug(`[LLM DEBUG] Response status: ${response.status}`);
-      
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`[LLM DEBUG] API error: ${response.status} - ${errorText}`);
         throw new LLMNetworkError(`API error: ${response.status} - ${errorText}`, response.status);
       }
       
-      console.log(`[LLM DEBUG] Parsing response JSON...`);
       const data = await response.json() as any;
-      console.debug(`[LLM DEBUG] Response received, content length: ${data.choices?.[0]?.message?.content?.length || 0}`);
       return data.choices?.[0]?.message?.content || '';
     } catch (error) {
-      console.error(`[LLM DEBUG] Exception occurred: ${error instanceof Error ? error.message : String(error)}`);
-      console.error(`[LLM DEBUG] Error stack: ${error instanceof Error ? error.stack : 'No stack'}`);
       throw error;
     } finally {
-      console.log(`[LLM DEBUG] Cleaning up...`);
       clearTimeout(timeoutId);
     }
   }
