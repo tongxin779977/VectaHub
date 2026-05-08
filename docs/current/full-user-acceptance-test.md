@@ -648,9 +648,9 @@ npm run lint -w packages/vectahub-vscode-extension
 
 结果:
 
-| 是否通过   | 实际结果   | 备注     |
-| ------ | ------ | ------ |
-| <br /> | <br /> | <br /> |
+| 是否通过 | 实际结果 | 备注 |
+|------|------|------|
+| ⚠️ | `--mode relaxed` 执行成功；`--mode strict` 执行失败（`任务执行失败: 未知错误`）；`executionMode` 设置正确传递但 strict 模式存在未知错误 | `--mode strict` 失败原因待查 |
 
 ### VSC-P1-03: 终端手动执行路径
 
@@ -668,9 +668,9 @@ npm run lint -w packages/vectahub-vscode-extension
 
 结果:
 
-| 是否通过   | 实际命令   | 备注     |
-| ------ | ------ | ------ |
-| <br /> | <br /> | <br /> |
+| 是否通过 | 实际命令 | 备注 |
+|------|------|------|
+| ✅ | 终端填入 `vectahub run --mode strict "查看git状态"`（自然语言意图路径），执行成功 | 通过；package script 终端路径见 VSC-P0-06 |
 
 ### VSC-P1-04: 失败反馈
 
@@ -722,12 +722,12 @@ mkdir -p "$TEST_ROOT/pnpm-project" "$TEST_ROOT/yarn-project" "$TEST_ROOT/bun-pro
 
 结果:
 
-| 项目   | 是否通过   | 实际命令   | 备注     |
+| 项目   | 是否通过 | 实际命令 | 备注 |
 | ---- | ------ | ------ | ------ |
-| npm  | <br /> | <br /> | <br /> |
-| pnpm | <br /> | <br /> | <br /> |
-| yarn | <br /> | <br /> | <br /> |
-| bun  | <br /> | <br /> | <br /> |
+| npm  | ✅ | `npm run test` → 输出 `test-ok` | 通过 |
+| pnpm | ❌ | `pnpm run test` | 系统未安装 pnpm，`zsh: command not found: pnpm` |
+| yarn | ❌ | `yarn run test` | 系统未安装 yarn，`zsh: command not found: yarn` |
+| bun  | ❌ | `bun run test` | 系统未安装 bun，`zsh: command not found: bun` |
 
 ### VSC-P2-02: multi-root workspace
 
@@ -745,9 +745,9 @@ mkdir -p "$TEST_ROOT/pnpm-project" "$TEST_ROOT/yarn-project" "$TEST_ROOT/bun-pro
 
 结果:
 
-| 是否通过   | 实际结果   | 备注     |
-| ------ | ------ | ------ |
-| <br /> | <br /> | <br /> |
+| 是否通过 | 实际结果 | 备注 |
+|------|------|------|
+| N/A | Trae IDE 当前最近任务和失败记录为空，无法验证 multi-root workspace 行为 | Trae IDE 限制，非 VectaHub 问题 |
 
 ## 10. 文档样例测试
 
@@ -772,18 +772,29 @@ rg -n "vectahub " docs/current
 
 结果:
 
-| 文档     | 命令     | 是否通过   | 备注     |
+| 文档 | 命令 | 是否通过 | 备注 |
 | ------ | ------ | ------ | ------ |
-| <br /> | <br /> | <br /> | <br /> |
+| getting-started.md | `vectahub version` | ✅ | `v1.0.0` |
+| getting-started.md | `vectahub run --dry-run --json "查看git状态"` | ✅ | 返回 `ok:true/dryRun:true` 含 git 命令 |
+| getting-started.md | `vectahub config show` | ✅ | 正常输出配置 |
+| cli-commands.md | `vectahub list` | ✅ | `No saved workflows` |
+| cli-commands.md | `vectahub history` | ✅ | `No executions found` |
+| cli-commands.md | `vectahub tools list --json` | ✅ | 返回 `ok:true/tools:[]` 含 git/npm 等 |
+| faq.md | `vectahub setup` | ✅ | 触发配置流程 |
+| faq.md | `vectahub security list` | ✅ | 输出安全规则列表 |
+| faq.md | `vectahub tools known` | ✅ | 输出已知工具库 10 个 |
+| user-scenarios.md | `vectahub mode strict` | ❌ | EPERM 写入真实 `~/.vectahub/config.yaml`，HOME 隔离失效 |
+| user-scenarios.md | `vectahub security test --json "git status"` | ✅ | `isDangerous:false/severity:none` |
+| user-scenarios.md | `vectahub audit list --limit 5` | ✅ | 输出审计日志 |
 
 ## 11. 最终验收汇总
 
 | 分类         | P0 通过 | P1 通过 | P2 通过 | 阻断问题                                        |
 | ---------- | ----- | ----- | ----- | ------------------------------------------- |
-| CLI        | 6/7   | 2/3   | 1/2   | P1: `detail` 命令不存在；P2: `import` 未遵循 HOME 隔离 |
-| VS Code 插件 | 3/3   | —     | —     | VSC-P0-06: package script 点击执行后仅打开终端，未实际运行；VSC-P0-08: `security test` 插件调用缺少 `--non-interactive` |
+| CLI        | 6/7   | 2/3   | 1/2   | P1: `detail` 命令不存在；P2: `import`/`mode` 未遵循 HOME 隔离 |
+| VS Code 插件 | 3/3   | 1/3   | 1/2   | VSC-P1-02: `--mode strict` 失败；VSC-P1-03/04 待测；pnpm/yarn/bun 未安装；VSC-P0-06/08 阻断 |
 | CLI/插件联动   | —     | —     | —     | 手动测试                                        |
-| 文档样例       | —     | —     | —     | 未执行                                         |
+| 文档样例       | —     | —     | 11/12 | `mode strict` HOME 隔离失效；`generate` 需要 LLM（环境限制） |
 
 ## 12. 测试后清理
 
