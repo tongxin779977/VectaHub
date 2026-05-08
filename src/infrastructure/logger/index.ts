@@ -23,6 +23,8 @@ function formatDate(date: Date): string {
   return date.toISOString().split('T')[0];
 }
 
+type LogLevelType = pino.Level | 'silent';
+
 let currentLogLevel: pino.Level = 'info';
 let isMuted = false;
 
@@ -42,7 +44,7 @@ export function getLogLevel(): pino.Level {
   return currentLogLevel;
 }
 
-function getEffectiveLevel(): pino.Level {
+function getEffectiveLevel(): LogLevelType {
   return isMuted ? 'silent' : currentLogLevel;
 }
 

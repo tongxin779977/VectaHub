@@ -7,3 +7,11 @@ export function getCliPath(): string {
 export function getAutoDetectCli(): boolean {
   return vscode.workspace.getConfiguration('vectahubTasks').get<boolean>('autoDetectCli', true);
 }
+
+export function getExecutionMode(): 'strict' | 'relaxed' | 'consensus' {
+  return vscode.workspace.getConfiguration('vectahubTasks').get<'strict' | 'relaxed' | 'consensus'>('executionMode', 'strict');
+}
+
+export function getPreviewBeforeRun(): boolean {
+  return vscode.workspace.getConfiguration('vectahubTasks').get<boolean>('previewBeforeRun', true);
+}

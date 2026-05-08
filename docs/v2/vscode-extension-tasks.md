@@ -4,8 +4,6 @@
 > 创建日期: 2026-05-08
 > 状态: 可执行，CLI JSON 协议仍为插件前置 P0
 > 目标环境: Trae 中由 agent 分阶段实施
-> 关联分析: `docs/reports/04_vscode_extension_feasibility_plan.md`
-> 前置修复: `docs/reports/03_usability_repair_execution_plan.md`
 
 ## 1. 产品决策冻结
 
@@ -45,7 +43,7 @@
 
 ### 3.0 当前代码状态
 
-截至 2026-05-08，`docs/reports/03_usability_repair_execution_plan.md` 中影响插件安全预览和测试可信度的核心问题已修复:
+截至 2026-05-08，影响插件安全预览和测试可信度的核心问题已修复:
 
 - `run --dry-run` 已实现零副作用，不触发首次安装、外部 CLI 扫描、执行或记录写入。
 - 文件 dry-run 也已短路预览，不进入执行记录保存路径。

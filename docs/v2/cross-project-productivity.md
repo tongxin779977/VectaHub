@@ -4,7 +4,7 @@
 > 创建日期: 2026-05-08
 > 状态: 可执行
 > 目标环境: Trae 中由 agent 分阶段实施
-> 前置文档: `docs/design/06_VSCODE_EXTENSION_AGENT_TASKS.md`
+> 前置文档: `docs/v2/vscode-extension-tasks.md`
 > 核心目标: 让 VectaHub Tasks 插件能在任意项目中直接提升日常开发效率
 
 ## 1. 方向调整
@@ -557,4 +557,3 @@ npm test -- crossProject
 - 在 Recent / Failed 看到最近任务状态。
 
 这就是第一版最能直接提升跨项目效率的闭环。
-

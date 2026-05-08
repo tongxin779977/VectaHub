@@ -21,7 +21,7 @@ function getActualCliPath(): string {
 }
 
 export async function runCli<T = unknown>(args: string[], options: CliOptions = {}): Promise<CliResult<T>> {
-  let cliPath = getActualCliPath();
+  const cliPath = getActualCliPath();
   
   let spawnCmd = cliPath;
   let spawnArgs = args;
@@ -83,9 +83,16 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
       if (isJson && stdout.trim()) {
         try {
           data = JSON.parse(stdout.trim());
+          if (data && typeof data === 'object' && 'ok' in data) {
+            const jsonResult = data as { ok?: boolean; error?: { code?: string; message?: string } };
+            if (jsonResult.ok === false && jsonResult.error) {
+              ok = false;
+              error = { code: jsonResult.error.code || 'CLI_ERROR', message: jsonResult.error.message || 'Unknown error' };
+            }
+          }
         } catch (e: any) {
           logToOutput(`Failed to parse JSON output: ${e.message}`, 'error');
-          if (ok) { // If exit code was 0 but JSON failed
+          if (ok) {
             ok = false;
             error = { code: 'INVALID_JSON', message: 'Failed to parse CLI JSON output', details: e.message };
           }

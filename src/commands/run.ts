@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { createConsoleLogger } from '../utils/logger.js';
+import { createConsoleLogger, setMuted, isLoggerMuted } from '../utils/logger.js';
 import { createWorkflowEngine, type ProgressInfo } from '../workflow/engine.js';
 import { createStorage } from '../workflow/storage.js';
 import { isFirstRun, loadConfig, saveConfig } from '../setup/first-run-wizard.js';
@@ -50,8 +50,9 @@ function restoreEnvValue(name: string, previousValue: string | undefined): void 
   }
 }
 
-function createProgressCallback(totalSteps: number): (info: ProgressInfo) => void {
+function createProgressCallback(totalSteps: number, jsonMode?: boolean): (info: ProgressInfo) => void {
   return (info: ProgressInfo) => {
+    if (jsonMode) return;
     const percentage = Math.round((info.currentStep / info.totalSteps) * 100);
     const statusIcon = info.status === 'starting' ? '▶' : info.status === 'completed' ? '✓' : '✗';
     const statusText = info.status === 'starting' ? '执行中' : info.status === 'completed' ? '完成' : '失败';
@@ -83,7 +84,13 @@ export const runCmd = new Command('run')
   .option('--dry-run', 'Show what would be executed without running')
   .option('--json', 'Output results in JSON format')
   .action(async (intent: string[], options: RunCommandOptions & { json?: boolean }) => {
+    const wasMuted = isLoggerMuted();
     try {
+      if (options.json) {
+        setMuted(true);
+        cachedLogger = undefined;
+      }
+
       // Validate mode
       if (options.mode && !['strict', 'relaxed', 'consensus'].includes(options.mode)) {
         exitWithError(`❌ 无效的运行模式: ${options.mode}。可选值为: strict, relaxed, consensus`, 'INVALID_MODE', options.json);
@@ -266,7 +273,7 @@ export const runCmd = new Command('run')
         const result = await (await getWorkflowEngine()).execute(workflow!, { 
           mode: options.mode, 
           dryRun: options.dryRun,
-          onProgress: createProgressCallback(workflow!.steps.length),
+          onProgress: createProgressCallback(workflow!.steps.length, options.json),
         });
 
         const recordManager = createRecordManager();
@@ -319,7 +326,7 @@ export const runCmd = new Command('run')
 
         if (result.status === 'FAILED') {
           const llmConfig = createLLMConfig();
-          if (llmConfig && !options.dryRun) {
+          if (llmConfig && !options.dryRun && !options.json && process.env.CI !== '1') {
             shouldRetry = await runSelfHealingLoop(result, workflow!, llmConfig);
             if (shouldRetry) {
               getLogger().info('🔄 正在重试工作流...');
@@ -328,26 +335,31 @@ export const runCmd = new Command('run')
           }
           process.exit(1);
         }
-          break;
-        }
+        break;
+      }
     
-        restoreEnvValue('VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
-        process.exit(0);
+      restoreEnvValue('VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+      process.exit(0);
     
-      } catch (error) {
+    } catch (error) {
       const message = error instanceof Error ? error.message : '未知错误';
+      const stackTrace = error instanceof Error ? error.stack : String(error);
+      
       if (options.json) {
         console.log(JSON.stringify({
           ok: false,
           error: {
             code: 'RUNTIME_ERROR',
-            message
+            message,
+            stack: stackTrace
           }
         }, null, 2));
       } else {
         getLogger().error(`错误: ${message}`);
-        getLogger().debug(error instanceof Error ? error.stack : String(error));
+        getLogger().debug(stackTrace);
       }
       process.exit(1);
+    } finally {
+      setMuted(wasMuted);
     }
   });

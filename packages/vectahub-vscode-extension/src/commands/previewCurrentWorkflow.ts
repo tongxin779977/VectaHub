@@ -1,24 +1,11 @@
 import * as vscode from 'vscode';
-import { runCli } from '../cli/adapter.js';
-import { logToOutput } from '../ui/output.js';
+import { createWorkflowFilePlan } from '../execution/planBuilder.js';
+import { previewPlan } from '../execution/planRunner.js';
 
 export async function previewWorkflowFile(uri: vscode.Uri) {
-  logToOutput(`Previewing Workflow File: ${uri.fsPath}`);
-  
-  const result = await runCli<any>(['run', '-f', uri.fsPath, '--dry-run', '--json']);
-  
-  if (result.ok && result.data) {
-    logToOutput(`Workflow Preview: ${result.data.workflow.name}`);
-    result.data.workflow.steps.forEach((s: any, i: number) => {
-      logToOutput(`  [Step ${i+1}] ${s.cli} ${s.args.join(' ')}`);
-    });
-    return result.data;
-  } else {
-    const errorMsg = result.error?.message || result.stderr || '未知错误';
-    logToOutput(`Workflow Preview Failed: ${errorMsg}`, 'error');
-    vscode.window.showErrorMessage(`工作流预览失败: ${errorMsg}`);
-    return undefined;
-  }
+  const plan = createWorkflowFilePlan(uri.fsPath);
+  const ok = await previewPlan(plan);
+  return ok ? { workflow: { name: uri.fsPath } } : undefined;
 }
 
 export function registerPreviewCurrentWorkflowCommand(context: vscode.ExtensionContext) {

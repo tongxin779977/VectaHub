@@ -275,8 +275,10 @@ export function createWorkflowEngine(): WorkflowEngine {
     workflow: Workflow,
     options: ExecuteOptions = {}
   ): ExecutorOptions {
+    const modeStr = options.mode || workflow.mode;
+    const mode = modeStr === 'strict' ? 'STRICT' : modeStr === 'consensus' ? 'CONSENSUS' : 'RELAXED';
     return {
-      mode: workflow.mode === 'strict' ? 'STRICT' : workflow.mode === 'consensus' ? 'CONSENSUS' : 'RELAXED',
+      mode,
       dryRun: options.dryRun,
       timeout: options.timeout || 30000,
     };

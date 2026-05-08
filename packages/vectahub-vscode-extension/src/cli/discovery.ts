@@ -2,8 +2,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { getCliPath } from '../config/settings.js';
 import { platform } from 'os';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { join } from 'path';
 
 const execAsync = promisify(exec);
 
@@ -29,6 +28,7 @@ async function findCliAbsolutePath(candidatePath: string): Promise<string | null
       return paths[0];
     }
   } catch {
+    // Ignore if which command fails
     try {
       const { stdout } = await execAsync('npm root -g');
       const globalNodeModules = stdout.trim();
@@ -37,6 +37,7 @@ async function findCliAbsolutePath(candidatePath: string): Promise<string | null
       await execAsync(`${possiblePath} --version`);
       return possiblePath;
     } catch {
+      // Ignore if npm root or version check fails
     }
   }
 

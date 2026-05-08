@@ -1,145 +1,83 @@
 # VectaHub 文档
 
-> 版本: 2.0 · 最后更新: 2026-05-08
+> 最后更新: 2026-05-08
 
----
+本文档目录只保留三类内容:
 
-## 快速开始
+1. 当前可用功能
+2. 开发者参考
+3. VectaHub 2.0 Go 迁移设计
 
-| 文档 | 说明 |
-|------|------|
-| [快速开始](./getting-started.md) | 3 分钟上手 VectaHub |
-| [常见问题](./faq.md) | 遇到问题先看这里 |
-| [用户场景](./guides/user-scenarios.md) | 20 个真实使用场景 |
+历史报告、归档计划和过期状态文档已从 `docs/` 中移除，避免与当前功能说明混淆。
 
----
+## 当前可用功能
 
-## 使用指南
+面向使用者，描述当前 TypeScript CLI 项目的实际使用方式。
 
 | 文档 | 说明 |
 |------|------|
-| [CLI 命令](./guides/cli-commands.md) | 完整命令参考 |
+| [快速开始](./current/getting-started.md) | 3 分钟上手 VectaHub |
+| [常见问题](./current/faq.md) | 安装、配置、使用、安全和排障说明 |
+| [CLI 命令](./current/cli-commands.md) | 当前 CLI 命令清单 |
+| [用户场景](./current/user-scenarios.md) | VectaHub 1.0.0 的常见使用场景 |
+| [已知问题](./current/BUGS.md) | 当前待修复问题与修复建议 |
 
----
+## 开发者参考
 
-## 设计文档
-
-### VectaHub 2.0（Go 语言版本）
-
-| 文档 | 说明 |
-|------|------|
-| [系统架构设计](./design/01_SYSTEM_ARCHITECTURE_V2.md) | Go 重构总体架构、模块边界、1.x 能力迁移基线 |
-| [功能点开发文档](./design/02_FEATURE_DEVELOPMENT_V2.md) | 1.x 已有功能、Go 迁移目标、新增能力和开发阶段 |
-| [API 接口设计](./design/03_API_INTERFACE_V2.md) | CLI JSON 协议、gRPC、REST API 及插件 API 接口定义 |
-| [数据模型设计](./design/04_DATA_MODEL_V2.md) | 1.x 数据兼容、核心模型、存储目录和数据库策略 |
-
----
-
-## 技术参考
+面向维护者和实现者，描述当前 TypeScript 实现的主要模块、接口和设计约束。
 
 | 文档 | 说明 |
 |------|------|
-| [系统架构](./reference/01_system_architecture.md) | 整体架构设计 |
-| [沙箱设计](./reference/02_sandbox_design.md) | 沙箱隔离机制 |
-| [NL 意图识别架构](./reference/03_nl_architecture.md) | 自然语言意图识别系统 |
-| [工作流引擎设计](./reference/06_workflow_engine_design.md) | 工作流引擎设计 |
+| [系统架构](./developer/architecture.md) | 当前 TypeScript 项目的整体架构 |
+| [沙箱设计](./developer/sandbox.md) | 沙箱隔离、执行模式和命令规则 |
+| [NL 意图识别架构](./developer/nl-architecture.md) | 自然语言意图识别和 fallback 流程 |
+| [工作流引擎设计](./developer/workflow-engine.md) | 工作流执行、状态机、Executor 和存储 |
 
----
+## VectaHub 2.0 Go 迁移设计
 
-## 产品文档
-
-| 文档 | 说明 |
-|------|------|
-| [产品定位](./product/01_product_positioning.md) | 产品定位与核心价值 |
-| [已实现功能](./product/00_implemented_features.md) | 1.0 版本功能清单（归档） |
-| [1.0 产品路线图](./product/02_1.0_product_roadmap.md) | 1.0 开发计划（已完成） |
-
----
-
-## 归档文档
-
-以下为已完成/过期的设计规划文档，保留作为历史参考：
-
-| 文档 | 状态 |
-|------|------|
-| [架构重构计划 v2](./archive/01_architecture-refactoring-plan-v2.md) | 已归档 |
-| [架构重构计划 v1](./archive/02_architecture-refactoring-plan.md) | 已归档 |
-| [Agent 开发任务](./archive/04_agent_tasks.md) | 已完成 |
-| [测试任务](./archive/05_test_tasks.md) | 已完成 |
-| [工程改进计划](./archive/11_engineering_improvement_plan.md) | 已完成 |
-
----
-
-## 测试报告
+面向未来版本。这里的内容是 Go 重构目标，不代表当前 TypeScript 1.0 全部已经实现。
 
 | 文档 | 说明 |
 |------|------|
-| [LLM 集成测试报告](./reports/LLM_INTEGRATION_TEST_REPORT.md) | LLM 功能集成测试 |
+| [系统架构设计](./v2/system-architecture.md) | Go 重构总体架构、模块边界和迁移原则 |
+| [功能点开发文档](./v2/feature-development.md) | 1.x 能力迁移目标和 2.0 新增能力 |
+| [API 接口设计](./v2/api-interface.md) | CLI JSON、REST、gRPC 和插件 API 设计 |
+| [数据模型设计](./v2/data-model.md) | 1.x 数据兼容、核心模型和存储策略 |
+| [LLM-Native 优化方案](./v2/llm-native-optimization.md) | LLM 解析、表达式和诊断能力演进 |
+| [VS Code 插件任务](./v2/vscode-extension-tasks.md) | VS Code 插件 MVP 实施任务 |
+| [跨项目效率任务](./v2/cross-project-productivity.md) | 项目任务识别、预览和执行设计 |
 
----
+## 阅读路径
 
-## 阅读指引
+新用户:
 
-### 新用户
+1. [快速开始](./current/getting-started.md)
+2. [用户场景](./current/user-scenarios.md)
+3. [常见问题](./current/faq.md)
 
-1. [快速开始](./getting-started.md) — 3 分钟上手
-2. [用户场景](./guides/user-scenarios.md) — 20 个真实例子
-3. [常见问题](./faq.md) — 遇到问题先看这里
+维护者:
 
-### 开发者
+1. [系统架构](./developer/architecture.md)
+2. [工作流引擎设计](./developer/workflow-engine.md)
+3. [沙箱设计](./developer/sandbox.md)
+4. [已知问题](./current/BUGS.md)
 
-1. [系统架构设计](./design/01_SYSTEM_ARCHITECTURE_V2.md) — Go 版本整体设计
-2. [API 接口设计](./design/03_API_INTERFACE_V2.md) — 接口定义参考
-3. [CLI 命令](./guides/cli-commands.md) — 命令参考
+2.0 设计与迁移:
 
-### 产品经理
+1. [系统架构设计](./v2/system-architecture.md)
+2. [功能点开发文档](./v2/feature-development.md)
+3. [API 接口设计](./v2/api-interface.md)
+4. [数据模型设计](./v2/data-model.md)
 
-1. [产品定位](./product/01_product_positioning.md) — VectaHub 是什么
-2. [功能点开发文档](./design/02_FEATURE_DEVELOPMENT_V2.md) — 功能清单与进度
+## 当前状态说明
 
----
+当前仓库是 TypeScript + Node.js + Commander.js + Vitest 项目，包版本以根目录 `package.json` 为准。
 
-## VectaHub 2.0（Go 语言版本）
+最近一次本地验证中，根项目类型检查可通过；扩展包 lint 仍存在待修复问题。因此文档不声明“全部校验通过”。发布前应重新执行:
 
-**Go 重构设计中** · Go 1.21+
-
-VectaHub 2.0 以当前 TypeScript 1.x 的稳定能力为迁移基线。当前 1.x 已通过 `npm run build`、`npm run typecheck` 和全量测试，测试结果为 `1178 passed | 18 skipped`。2.0 的目标是用 Go 重构 core、CLI、API 和插件接口，同时保持现有 workflow、execution、audit、config 等数据格式兼容。
-
-| 特性 | 说明 |
-|------|------|
-| **语言** | Go 1.21+ |
-| **CLI 框架** | Cobra |
-| **配置管理** | Viper |
-| **日志** | Zap |
-| **HTTP 服务** | Gin |
-| **RPC 服务** | gRPC |
-| **容器隔离** | Docker SDK |
-| **LLM 集成** | go-openai |
-| **监控** | Prometheus + OpenTelemetry |
-| **测试** | testify |
-
-### 迁移范围
-
-| 1.x 已有能力 | 2.0 迁移要求 |
-|------|------|
-| 自然语言执行、规则 fallback、LLM 集成 | 迁移到 Go NL core |
-| Workflow 顺序/条件/循环/并行执行 | 迁移到 Go workflow engine |
-| `run --dry-run` 零副作用 | 保持行为，并新增 JSON 输出 |
-| `VECTAHUB_HOME` 数据目录隔离 | 保持兼容 |
-| Sandbox、危险命令检测、命令规则 | 迁移并强化 |
-| execution record、output store、audit log | 保持文件兼容，可增加 SQLite 索引 |
-| doctor、tools、security、history、templates、debug、monitor、plugins | 迁移 CLI 命令 |
-| REST API server | 迁移到 Gin，并补 gRPC |
-
-### 开发计划
-
-| 阶段 | 时间 | 主要任务 |
-|------|------|---------|
-| **Phase 0** | 第 0 周 | 冻结 1.x 行为契约，补 CLI JSON 协议 |
-| **Phase 1** | 第 1 周 | Go 基础设施 + Cobra/Viper CLI |
-| **Phase 2** | 第 2-3 周 | 核心模块迁移（NL、工作流、沙箱、存储） |
-| **Phase 3** | 第 4 周 | REST/gRPC、调试器、插件系统 |
-| **Phase 4** | 第 5 周 | 监控、后台服务、VS Code 插件适配 |
-| **Phase 5** | 第 6 周 | 安全增强、迁移工具、兼容测试 |
-
-**总开发时间：6 周**
+```bash
+npm run typecheck
+npm run test:run
+npm run build
+npm run lint -w packages/vectahub-vscode-extension
+```

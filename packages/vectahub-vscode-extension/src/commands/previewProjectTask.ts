@@ -1,31 +1,15 @@
 import * as vscode from 'vscode';
-import { ProjectTask, ProjectTaskKind } from '../project/taskModel.js';
-import { previewIntent } from './previewIntent.js';
-
-export function mapKindToIntent(kind: ProjectTaskKind): string {
-  switch (kind) {
-    case 'git-status': return '查看 git 状态';
-    case 'install': return '安装依赖';
-    case 'test': return '运行测试';
-    case 'build': return '构建项目';
-    case 'lint': return '运行 lint';
-    case 'typecheck': return '运行 typecheck';
-    default: return '';
-  }
-}
+import { ProjectTask } from '../project/taskModel.js';
+import { createProjectTaskPlan } from '../execution/planBuilder.js';
+import { previewPlan } from '../execution/planRunner.js';
 
 export async function previewProjectTask(task: ProjectTask) {
-  const intent = mapKindToIntent(task.kind);
-  if (!intent) {
-    // Fallback for custom scripts or unknown kinds
-    if (task.command) {
-      vscode.window.showInformationMessage(`Fallback: 展示任务命令\n${task.command.cli} ${task.command.args.join(' ')}`);
-      return { ok: true, intent: task.label, steps: [{ cli: task.command.cli, args: task.command.args }] };
-    }
+  const plan = createProjectTaskPlan(task);
+  if (!plan) {
     return undefined;
   }
-
-  return await previewIntent(intent);
+  const ok = await previewPlan(plan);
+  return { ok, intent: task.label, steps: [] };
 }
 
 export function registerPreviewProjectTaskCommand(context: vscode.ExtensionContext) {
