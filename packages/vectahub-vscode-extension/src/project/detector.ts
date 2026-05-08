@@ -24,27 +24,24 @@ export async function detectProjectTasks(): Promise<ProjectTask[]> {
   const tasks: ProjectTask[] = [];
   const pm = detectPackageManager(workspaceFolder);
 
-  // 1. Git Detection
   if (fs.existsSync(path.join(workspaceFolder, '.git'))) {
     tasks.push({
       id: 'git-status',
       kind: 'git-status',
-      label: 'Git Status',
+      label: 'Git 状态 (Status)',
       source: 'git',
       available: true,
       command: { cli: 'git', args: ['status'] }
     });
   }
 
-  // 2. Package Detection
   const pkgTasks = detectPackageTasks(workspaceFolder, pm);
   tasks.push(...pkgTasks);
 
-  // 3. VectaHub Base Tasks
   tasks.push({
     id: 'vh-doctor',
     kind: 'doctor',
-    label: 'Doctor',
+    label: '环境检查 (Doctor)',
     source: 'vectahub',
     available: true,
     command: { cli: 'vectahub', args: ['doctor'] }

@@ -5,27 +5,27 @@ import { updateStatusBar } from '../ui/statusBar.js';
 
 export function registerDoctorCommand(context: vscode.ExtensionContext) {
   const disposable = vscode.commands.registerCommand('vectahubTasks.doctor', async () => {
-    logToOutput('Running VectaHub Doctor...');
+    logToOutput('正在运行 VectaHub 环境检查 (Doctor)...');
     updateStatusBar('Running');
     
     const result = await runCli<any>(['doctor', '--json']);
     
     if (result.ok && result.data) {
-      logToOutput('Doctor Summary:');
-      logToOutput(`- Passed: ${result.data.summary.passed}`);
-      logToOutput(`- Warnings: ${result.data.summary.warnings}`);
-      logToOutput(`- Failed: ${result.data.summary.failed}`);
+      logToOutput('Doctor 检查摘要:');
+      logToOutput(`- 通过: ${result.data.summary.passed}`);
+      logToOutput(`- 警告: ${result.data.summary.warnings}`);
+      logToOutput(`- 失败: ${result.data.summary.failed}`);
       
       if (result.data.summary.failed === 0) {
-        vscode.window.showInformationMessage('VectaHub Doctor: All checks passed!');
+        vscode.window.showInformationMessage('VectaHub Doctor: 所有检查都已通过！');
         updateStatusBar('Ready');
       } else {
-        vscode.window.showErrorMessage(`VectaHub Doctor: ${result.data.summary.failed} checks failed.`);
+        vscode.window.showErrorMessage(`VectaHub Doctor: 有 ${result.data.summary.failed} 项检查失败。`);
         updateStatusBar('Failed');
       }
     } else {
-      logToOutput(`Doctor failed: ${result.error?.message || result.stderr}`, 'error');
-      vscode.window.showErrorMessage('VectaHub Doctor failed to run.');
+      logToOutput(`Doctor 运行失败: ${result.error?.message || result.stderr}`, 'error');
+      vscode.window.showErrorMessage('VectaHub Doctor 未能成功运行。');
       updateStatusBar('Failed');
     }
   });

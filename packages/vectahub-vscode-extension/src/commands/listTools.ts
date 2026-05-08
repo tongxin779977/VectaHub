@@ -4,19 +4,19 @@ import { logToOutput } from '../ui/output.js';
 
 export function registerListToolsCommand(context: vscode.ExtensionContext) {
   const disposable = vscode.commands.registerCommand('vectahubTasks.listTools', async () => {
-    logToOutput('Listing registered CLI tools...');
+    logToOutput('正在列出已注册的 CLI 工具...');
     
     const result = await runCli<any>(['tools', 'list', '--json']);
     
     if (result.ok && result.data) {
-      logToOutput('Registered Tools:');
+      logToOutput('已注册工具:');
       result.data.tools.forEach((tool: any) => {
-        logToOutput(`- ${tool.name}: ${tool.description} (Commands: ${tool.commandCount}, Dangerous: ${tool.dangerousCount})`);
+        logToOutput(`- ${tool.name}: ${tool.description} (命令数: ${tool.commandCount}, 危险命令数: ${tool.dangerousCount})`);
       });
-      vscode.window.showInformationMessage(`Found ${result.data.tools.length} registered tools.`);
+      vscode.window.showInformationMessage(`发现 ${result.data.tools.length} 个已注册的 CLI 工具。`);
     } else {
-      logToOutput(`Failed to list tools: ${result.error?.message || result.stderr}`, 'error');
-      vscode.window.showErrorMessage('Failed to list CLI tools.');
+      logToOutput(`列出工具失败: ${result.error?.message || result.stderr}`, 'error');
+      vscode.window.showErrorMessage('未能成功列出 CLI 工具。');
     }
   });
   context.subscriptions.push(disposable);

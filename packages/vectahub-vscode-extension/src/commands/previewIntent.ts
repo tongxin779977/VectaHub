@@ -10,7 +10,7 @@ export interface PreviewResult {
 
 export async function previewIntent(intent?: string): Promise<PreviewResult | undefined> {
   const input = intent || await vscode.window.showInputBox({
-    prompt: '输入自然语言意图 (例如: 查看 git 状态)',
+    prompt: '输入自然语言意图 (例如: 查看 git 状态, 构建项目)',
     placeHolder: '查看 git 状态'
   });
 

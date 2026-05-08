@@ -13,20 +13,20 @@ export class AdvancedViewProvider implements vscode.TreeDataProvider<VectaHubTre
 
     if (!element) {
       return Promise.resolve([
-        new CategoryTreeItem('Workflows', [
-          new TaskTreeItem('Open Current Workflow', { command: 'vectahubTasks.openWorkflow', title: 'Open Workflow' }, 'file-code'),
-          new TaskTreeItem('Preview Current Workflow', { command: 'vectahubTasks.previewCurrentWorkflow', title: 'Preview Workflow' }, 'eye'),
+        new CategoryTreeItem('工作流 (Workflows)', [
+          new TaskTreeItem('打开当前工作流', { command: 'vectahubTasks.openWorkflow', title: '打开工作流文件' }, 'file-code'),
+          new TaskTreeItem('预览当前工作流', { command: 'vectahubTasks.previewCurrentWorkflow', title: '预览工作流步骤' }, 'eye'),
         ]),
-        new CategoryTreeItem('Tools', [
-          new TaskTreeItem('List Tools', { command: 'vectahubTasks.listTools', title: 'List Tools' }, 'tools'),
+        new CategoryTreeItem('工具管理 (Tools)', [
+          new TaskTreeItem('查看已注册工具', { command: 'vectahubTasks.listTools', title: '列出所有 CLI 工具' }, 'tools'),
         ]),
-        new CategoryTreeItem('Security', [
-          new TaskTreeItem('Test Selected Command', { command: 'vectahubTasks.testSecurity', title: 'Test Security' }, 'shield'),
+        new CategoryTreeItem('安全检测 (Security)', [
+          new TaskTreeItem('测试选中文本/命令', { command: 'vectahubTasks.testSecurity', title: '安全合规性测试' }, 'shield'),
         ]),
-        new CategoryTreeItem('Settings', [
-          new TaskTreeItem('Open Settings', { command: 'workbench.action.openSettings', title: 'Open Settings', arguments: ['vectahubTasks'] }, 'settings-gear'),
-          new TaskTreeItem('Install CLI', { command: 'vectahubTasks.installCli', title: 'Install CLI' }, 'cloud-download'),
-          new TaskTreeItem('Run Doctor', { command: 'vectahubTasks.doctor', title: 'Run Doctor' }, 'pulse'),
+        new CategoryTreeItem('设置与引导', [
+          new TaskTreeItem('打开插件设置', { command: 'workbench.action.openSettings', title: '配置 VectaHub', arguments: ['vectahubTasks'] }, 'settings-gear'),
+          new TaskTreeItem('安装 CLI 工具', { command: 'vectahubTasks.installCli', title: '安装全局 vectahub' }, 'cloud-download'),
+          new TaskTreeItem('运行 Doctor', { command: 'vectahubTasks.doctor', title: '环境诊断' }, 'pulse'),
         ]),
       ]);
     }

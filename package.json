@@ -15,6 +15,7 @@
     "test:run": "vitest --run",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
+    "compile:extension": "npm run compile -w packages/vectahub-vscode-extension",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

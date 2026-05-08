@@ -22,12 +22,16 @@ const setupGlobalSignals = (() => {
     initialized = true;
 
     globalEventManager.on('SIGINT', () => {
-      console.log('\n\n🛑 Shutting down...');
+      console.log('
+
+🛑 Shutting down...');
       process.exit(0);
     });
 
     globalEventManager.on('SIGTERM', () => {
-      console.log('\n\n🛑 Shutting down...');
+      console.log('
+
+🛑 Shutting down...');
       process.exit(0);
     });
   };
@@ -303,7 +307,12 @@ program
   .option('-v, --verbose', '详细输出模式')
   .option('-d, --debug', '调试模式（包含详细输出）')
   .option('--non-interactive', '非交互模式（适用于 CI/CD）')
-  .hook('preAction', async (thisCommand) => {
+  .hook('preAction', async (thisCommand, actionCommand) => {
+    // Check for --json on the action command itself
+    if (actionCommand.opts().json) {
+      setMuted(true);
+    }
+    
     const opts = thisCommand.opts();
     if (opts.verbose || opts.debug) {
       setGlobalOptions({ verbose: opts.verbose || false, debug: opts.debug || false });
@@ -311,10 +320,6 @@ program
     }
     if (opts.nonInteractive) {
       setNonInteractiveMode(true);
-    }
-    const commandArgs = thisCommand.args || [];
-    if (commandArgs.includes('--json') || process.argv.includes('--json')) {
-      setMuted(true);
     }
   });
 
@@ -353,7 +358,8 @@ program
 const setupCmd = new Command('setup')
   .description('运行优先级安装流程')
   .action(async () => {
-    console.log('🔧 运行优先级安装流程...\n');
+    console.log('🔧 运行优先级安装流程...
+');
     const installer = createDefaultInstaller();
     if (!installer) {
       console.error('❌ 安装器初始化失败');
@@ -361,13 +367,17 @@ const setupCmd = new Command('setup')
     }
     const summary = await installer.run();
     if (!summary.overallSuccess) {
-      console.log('\n⚠️  安装未完全成功，部分功能可能不可用。');
-      console.log('💡 重新运行 `vectahub setup` 可修复问题。\n');
+      console.log('
+⚠️  安装未完全成功，部分功能可能不可用。');
+      console.log('💡 重新运行 `vectahub setup` 可修复问题。
+');
     } else {
       const config = loadSetupConfig();
       config.first_run_completed = true;
       saveSetupConfig(config);
-      console.log('\n🎉 安装完成！所有组件已就绪。\n');
+      console.log('
+🎉 安装完成！所有组件已就绪。
+');
     }
   });
 
@@ -379,12 +389,15 @@ configCmd
   .description('显示当前配置')
   .action(() => {
     const config = loadSetupConfig();
-    console.log('\n📋 当前配置:\n');
+    console.log('
+📋 当前配置:
+');
     console.log(`首次启动完成: ${config.first_run_completed}`);
     console.log(`LLM 提供商: ${config.ai_providers.vectahub_llm.provider || '未配置'}`);
     console.log(`LLM 启用: ${config.ai_providers.vectahub_llm.enabled}`);
     console.log(`优先级: ${config.priority.join(' → ')}`);
-    console.log('\n外部 CLI 工具:');
+    console.log('
+外部 CLI 工具:');
     for (const [name, cliConfig] of Object.entries(config.external_cli)) {
       console.log(`  ${name}: 启用=${cliConfig.enabled}, 权限=${cliConfig.has_permission}`);
     }
@@ -395,7 +408,8 @@ configCmd
   .command('reset')
   .description('重置配置并重新运行安装流程')
   .action(async () => {
-    console.log('⚠️  重置配置...\n');
+    console.log('⚠️  重置配置...
+');
     const config = loadSetupConfig();
     config.first_run_completed = false;
     config.ai_providers.vectahub_llm = {
@@ -403,7 +417,8 @@ configCmd
       enabled: false,
     };
     saveSetupConfig(config);
-    console.log('✅ 配置已重置\n');
+    console.log('✅ 配置已重置
+');
     const installer = createDefaultInstaller();
     if (installer) {
       await installer.run();
@@ -416,7 +431,9 @@ configCmd
   .action(async () => {
     await lazyLoadCliTools();
     const available = getAvailableExternalCLI();
-    console.log('\n📋 可用的外部 CLI 工具:\n');
+    console.log('
+📋 可用的外部 CLI 工具:
+');
     if (available.length === 0) {
       console.log('  (无)');
     } else {

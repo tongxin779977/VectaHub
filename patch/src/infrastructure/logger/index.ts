@@ -26,14 +26,6 @@ function formatDate(date: Date): string {
 let currentLogLevel: pino.Level = 'info';
 let isMuted = false;
 
-export function setMuted(muted: boolean): void {
-  isMuted = muted;
-}
-
-export function isLoggerMuted(): boolean {
-  return isMuted;
-}
-
 export function setLogLevel(level: 'debug' | 'info' | 'warn' | 'error'): void {
   currentLogLevel = level;
 }
@@ -42,8 +34,8 @@ export function getLogLevel(): pino.Level {
   return currentLogLevel;
 }
 
-function getEffectiveLevel(): pino.Level {
-  return isMuted ? 'silent' : currentLogLevel;
+export function setMuted(muted: boolean): void {
+  isMuted = muted;
 }
 
 export function createLogger(prefix = ''): pino.Logger {
@@ -57,24 +49,30 @@ export function createLogger(prefix = ''): pino.Logger {
   const appLogFile = join(appLogDir, `${formatDate(new Date())}.log`);
   const errorLogFile = join(errorLogDir, `${formatDate(new Date())}.json`);
 
-  return pino({
+  const logger = pino({
     name,
-    level: getEffectiveLevel(),
+    level: currentLogLevel,
     transport: {
       targets: [
-        { level: getEffectiveLevel(), target: 'pino/file', options: { destination: 1 } },
-        { level: getEffectiveLevel(), target: 'pino/file', options: { destination: appLogFile } },
+        { level: currentLogLevel, target: 'pino/file', options: { destination: 1 } },
+        { level: currentLogLevel, target: 'pino/file', options: { destination: appLogFile } },
         { level: 'error', target: 'pino/file', options: { destination: errorLogFile } },
       ],
     },
   });
+  
+  if (isMuted) {
+    logger.level = 'silent';
+  }
+
+  return logger;
 }
 
 export function createConsoleLogger(prefix = ''): pino.Logger {
   const name = prefix || 'vectahub';
-  return pino({
+  const logger = pino({
     name,
-    level: getEffectiveLevel(),
+    level: currentLogLevel,
     transport: {
       target: 'pino-pretty',
       options: {
@@ -84,6 +82,12 @@ export function createConsoleLogger(prefix = ''): pino.Logger {
       },
     },
   });
+
+  if (isMuted) {
+    logger.level = 'silent';
+  }
+
+  return logger;
 }
 
 export type Logger = pino.Logger;
