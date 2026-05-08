@@ -27,6 +27,21 @@ function getLogger(): ReturnType<typeof createConsoleLogger> {
   return cachedLogger;
 }
 
+function exitWithError(message: string, code: string, jsonMode?: boolean): never {
+  if (jsonMode) {
+    console.log(JSON.stringify({
+      ok: false,
+      error: {
+        code,
+        message
+      }
+    }, null, 2));
+  } else {
+    getLogger().error(message);
+  }
+  process.exit(1);
+}
+
 function restoreEnvValue(name: string, previousValue: string | undefined): void {
   if (previousValue === undefined) {
     delete process.env[name];
@@ -71,8 +86,7 @@ export const runCmd = new Command('run')
     try {
       // Validate mode
       if (options.mode && !['strict', 'relaxed', 'consensus'].includes(options.mode)) {
-        getLogger().error(`❌ 无效的运行模式: ${options.mode}。可选值为: strict, relaxed, consensus`);
-        process.exit(1);
+        exitWithError(`❌ 无效的运行模式: ${options.mode}。可选值为: strict, relaxed, consensus`, 'INVALID_MODE', options.json);
       }
 
       const previousAuditDisabled = process.env.VECTAHUB_AUDIT_DISABLED;
@@ -127,8 +141,7 @@ export const runCmd = new Command('run')
         workflow = await getStorage().loadWorkflowFromFile(filepath);
         
         if (!workflow) {
-          getLogger().error(`❌ 无法加载工作流文件: ${filepath}`);
-          process.exit(1);
+          exitWithError(`❌ 无法加载工作流文件: ${filepath}`, 'WORKFLOW_LOAD_FAILED', options.json);
         }
         
         getLogger().info(`✅ 工作流加载成功: ${workflow.name}`);
@@ -204,8 +217,7 @@ export const runCmd = new Command('run')
         }
 
         if (steps.length === 0) {
-          getLogger().error('❌ 无法解析意图，请尝试更明确的输入！');
-          process.exit(1);
+          exitWithError('❌ 无法解析意图，请尝试更明确的输入！', 'INTENT_PARSE_FAILED', options.json);
         }
 
         if (options.dryRun) {
@@ -243,8 +255,7 @@ export const runCmd = new Command('run')
           getLogger().info('工作流已保存');
         }
       } else {
-        getLogger().error('❌ 请提供自然语言描述或使用 --file 选项指定工作流文件');
-        process.exit(1);
+        exitWithError('❌ 请提供自然语言描述或使用 --file 选项指定工作流文件', 'NO_INPUT', options.json);
       }
 
       
@@ -317,12 +328,26 @@ export const runCmd = new Command('run')
           }
           process.exit(1);
         }
-        break;
-      }
+          break;
+        }
     
-    } catch (error) {
-      getLogger().error(`错误: ${error instanceof Error ? error.message : '未知错误'}`);
-      getLogger().debug(error instanceof Error ? error.stack : String(error));
+        restoreEnvValue('VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+        process.exit(0);
+    
+      } catch (error) {
+      const message = error instanceof Error ? error.message : '未知错误';
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: false,
+          error: {
+            code: 'RUNTIME_ERROR',
+            message
+          }
+        }, null, 2));
+      } else {
+        getLogger().error(`错误: ${message}`);
+        getLogger().debug(error instanceof Error ? error.stack : String(error));
+      }
       process.exit(1);
     }
   });

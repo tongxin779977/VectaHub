@@ -53,7 +53,7 @@ export async function activate(context: vscode.ExtensionContext) {
   registerTestSecurityCommand(context);
   registerRefreshProjectTasksCommand(context, tasksProvider);
   registerPreviewProjectTaskCommand(context);
-  registerRunProjectTaskCommand(context);
+  registerRunProjectTaskCommand(context, tasksProvider);
   registerListPackageScriptsCommand(context);
 
   context.subscriptions.push(outputChannel);

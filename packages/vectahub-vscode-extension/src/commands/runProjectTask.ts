@@ -5,8 +5,9 @@ import { logToOutput } from '../ui/output.js';
 import { updateStatusBar } from '../ui/statusBar.js';
 import { previewProjectTask, mapKindToIntent } from './previewProjectTask.js';
 import { addTaskRecord } from '../project/taskHistory.js';
+import { TasksViewProvider } from '../views/tasksView.js';
 
-export function registerRunProjectTaskCommand(context: vscode.ExtensionContext) {
+export function registerRunProjectTaskCommand(context: vscode.ExtensionContext, tasksProvider: TasksViewProvider) {
   const disposable = vscode.commands.registerCommand('vectahubTasks.runProjectTask', async (task: ProjectTask) => {
     const startedAt = new Date();
 
@@ -47,6 +48,7 @@ export function registerRunProjectTaskCommand(context: vscode.ExtensionContext) 
           startedAt,
           endedAt
         });
+        tasksProvider.refresh();
       } else {
         logToOutput(`任务 "${task.label}" 执行失败: ${result.error?.message || result.stderr}`, 'error');
         vscode.window.showErrorMessage('任务执行失败，请查看输出面板获取详情。');
@@ -64,6 +66,7 @@ export function registerRunProjectTaskCommand(context: vscode.ExtensionContext) 
           startedAt,
           endedAt
         });
+        tasksProvider.refresh();
       }
     } else if (confirm === '在终端中手动执行') {
       const terminal = vscode.window.createTerminal(`VectaHub: ${task.label}`);
