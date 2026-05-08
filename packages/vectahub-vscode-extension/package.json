@@ -1,10 +1,14 @@
 {
   "name": "vectahub-vscode-extension",
-  "displayName": "VectaHub Tasks",
-  "description": "Natural Language Workflow UI for VectaHub CLI",
+  "displayName": "VectaHub 任务助手",
+  "description": "为 VectaHub CLI 提供自然语言工作流 UI 界面",
   "version": "0.1.0",
   "publisher": "vectahub",
-  "icon": "icon.png",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tongxin779977/VectaHub"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -36,28 +40,42 @@
       "vectahub": [
         {
           "id": "vectahubTasks.tasksView",
-          "name": "Tasks"
+          "name": "任务面板"
         },
         {
           "id": "vectahubTasks.advancedView",
-          "name": "Advanced"
+          "name": "高级选项"
         }
       ]
     },
     "commands": [
       {
         "command": "vectahubTasks.previewIntent",
-        "title": "VectaHub: Preview Intent",
+        "title": "VectaHub: 预览意图",
         "category": "VectaHub"
+      },
+      {
+        "command": "vectahubTasks.refreshProjectTasks",
+        "title": "刷新任务列表",
+        "icon": "$(refresh)"
       }
     ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "vectahubTasks.refreshProjectTasks",
+          "when": "view == vectahubTasks.tasksView",
+          "group": "navigation"
+        }
+      ]
+    },
     "configuration": {
-      "title": "VectaHub",
+      "title": "VectaHub 配置",
       "properties": {
         "vectahubTasks.cliPath": {
           "type": "string",
           "default": "vectahub",
-          "description": "VectaHub CLI 可执行路径"
+          "description": "VectaHub CLI 可执行文件路径"
         },
         "vectahubTasks.executionMode": {
           "type": "string",
@@ -72,12 +90,12 @@
         "vectahubTasks.previewBeforeRun": {
           "type": "boolean",
           "default": true,
-          "description": "执行前强制预览"
+          "description": "执行前是否强制预览"
         },
         "vectahubTasks.autoDetectCli": {
           "type": "boolean",
           "default": true,
-          "description": "插件激活后自动检测 CLI"
+          "description": "插件激活后是否自动检测 CLI"
         }
       }
     }

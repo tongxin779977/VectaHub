@@ -28,7 +28,7 @@ export function registerPreviewCurrentWorkflowCommand(context: vscode.ExtensionC
     
     const doc = editor.document;
     if (doc.languageId !== 'yaml' && !doc.fileName.endsWith('.yaml') && !doc.fileName.endsWith('.yml')) {
-      vscode.window.showWarningMessage('当前文件不是 YAML 工作流文件。');
+      vscode.window.showWarningMessage('当前文件不是一个 YAML 工作流文件。');
       return;
     }
     

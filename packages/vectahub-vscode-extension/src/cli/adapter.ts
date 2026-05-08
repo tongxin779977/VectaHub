@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import * as vscode from 'vscode';
 import { getCliPath } from '../config/settings.js';
+import { getGlobalCliPath } from '../extension.js';
 import { CliResult, CliOptions } from './types.js';
 import { logToOutput } from '../ui/output.js';
 import path from 'path';
@@ -11,8 +12,25 @@ export function initCliAdapter(context: vscode.ExtensionContext) {
   globalContext = context;
 }
 
+function getActualCliPath(): string {
+  const cachedPath = getGlobalCliPath();
+  if (cachedPath) {
+    return cachedPath;
+  }
+  return getCliPath();
+}
+
 export async function runCli<T = unknown>(args: string[], options: CliOptions = {}): Promise<CliResult<T>> {
-  const cliPath = getCliPath();
+  let cliPath = getActualCliPath();
+  
+  let spawnCmd = cliPath;
+  let spawnArgs = args;
+  
+  if (cliPath.startsWith('node ')) {
+    spawnCmd = 'node';
+    spawnArgs = [cliPath.slice(5), ...args];
+  }
+  
   const cwd = options.cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   
   const vectahubHome = path.join(globalContext.globalStorageUri.fsPath, 'vectahub-home');
@@ -28,7 +46,7 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
   logToOutput(`Running CLI: ${cliPath} ${args.join(' ')}`);
 
   return new Promise((resolve) => {
-    const child = spawn(cliPath, args, {
+    const child = spawn(spawnCmd, spawnArgs, {
       cwd,
       env,
       timeout: options.timeout || 30000

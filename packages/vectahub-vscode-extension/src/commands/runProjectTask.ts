@@ -14,29 +14,29 @@ export function registerRunProjectTaskCommand(context: vscode.ExtensionContext) 
     // 2. 确认执行
     const stepList = preview.steps.map(s => `${s.cli} ${s.args.join(' ')}`).join('\n');
     const confirm = await vscode.window.showWarningMessage(
-      `确认执行项目任务: ${task.label}?\n\n计划执行:\n${stepList}`,
+      `确认执行项目任务: "${task.label}"?\n\n计划执行:\n${stepList}`,
       { modal: true },
       '确认执行',
-      '打开终端手动执行'
+      '在终端中手动执行'
     );
 
     if (confirm === '确认执行') {
-      logToOutput(`Running Project Task: ${task.label}`);
+      logToOutput(`正在执行项目任务: ${task.label}`);
       updateStatusBar('Running');
       
       const intent = mapKindToIntent(task.kind) || preview.intent;
       const result = await runCli<any>(['run', '--json', '--mode', 'strict', intent]);
       
       if (result.ok) {
-        logToOutput(`Task "${task.label}" completed successfully.`);
+        logToOutput(`任务 "${task.label}" 执行成功。`);
         vscode.window.showInformationMessage(`任务 "${task.label}" 执行成功！`);
         updateStatusBar('Ready');
       } else {
-        logToOutput(`Task "${task.label}" failed: ${result.error?.message || result.stderr}`, 'error');
-        vscode.window.showErrorMessage('任务执行失败，请查看输出面板。');
+        logToOutput(`任务 "${task.label}" 执行失败: ${result.error?.message || result.stderr}`, 'error');
+        vscode.window.showErrorMessage('任务执行失败，请查看输出面板获取详情。');
         updateStatusBar('Failed');
       }
-    } else if (confirm === '打开终端手动执行') {
+    } else if (confirm === '在终端中手动执行') {
       const terminal = vscode.window.createTerminal(`VectaHub: ${task.label}`);
       terminal.show();
       const intent = mapKindToIntent(task.kind) || preview.intent;

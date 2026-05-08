@@ -12,7 +12,7 @@ export function registerListPackageScriptsCommand(context: vscode.ExtensionConte
     const scripts = getAllPackageScripts(workspaceFolder, pm);
 
     if (scripts.length === 0) {
-      vscode.window.showInformationMessage('No scripts found in package.json.');
+      vscode.window.showInformationMessage('在 package.json 中未找到任何脚本。');
       return;
     }
 
@@ -23,13 +23,12 @@ export function registerListPackageScriptsCommand(context: vscode.ExtensionConte
     }));
 
     const selected = await vscode.window.showQuickPick(items, {
-      placeHolder: 'Select a package script to run',
+      placeHolder: '选择要运行的项目脚本',
       matchOnDescription: true
     });
 
     if (selected) {
       logToOutput(`Selected script: ${selected.label}`);
-      // 复用 runProjectTask 逻辑，但由于 QuickPick 直接触发，我们手动调起 preview/run 流程
       vscode.commands.executeCommand('vectahubTasks.runProjectTask', selected.task);
     }
   });

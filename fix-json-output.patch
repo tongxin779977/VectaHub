@@ -1,0 +1,323 @@
+diff --git a/src/cli.ts b/src/cli.ts
+index 725fe5b..562e742 100644
+--- a/src/cli.ts
++++ b/src/cli.ts
+@@ -16,7 +16,7 @@
+ import { fileURLToPath } from 'node:url';
+ import { initAuditLogger, getCurrentSessionId, audit } from './utils/audit.js';
+ import { setGlobalOptions, isVerbose } from './utils/global-options.js';
+-import { setLogLevel } from './infrastructure/logger/index.js';
++import { setLogLevel, setMuted } from './infrastructure/logger/index.js';
+ import { runCmd } from './commands/run.js';
+ import { doctorCmd } from './commands/doctor.js';
+ import { formatErrorMessage } from './utils/errors.js';
+@@ -345,8 +345,13 @@ program
+   .option('-v, --verbose', '详细输出模式')
+   .option('-d, --debug', '调试模式（包含详细输出）')
+   .option('--non-interactive', '非交互模式（适用于 CI/CD）')
+-  .hook('preAction', async (thisCommand) => {
++  .hook('preAction', async (thisCommand, actionCommand) => {
++    // Check for --json on the action command itself
++    if (actionCommand.opts().json) {
++      setMuted(true);
++    }
+     const opts = thisCommand.opts();
++
+     if (opts.verbose || opts.debug) {
+       setGlobalOptions({ verbose: opts.verbose || false, debug: opts.debug || false });
+       setLogLevel(opts.debug ? 'debug' : 'info');
+diff --git a/src/commands/run.ts b/src/commands/run.ts
+index cca6986..a1334c9 100644
+--- a/src/commands/run.ts
++++ b/src/commands/run.ts
+@@ -1,5 +1,5 @@
+ import { Command } from 'commander';
+-import { createConsoleLogger } from '../utils/logger.js';
++import { createConsoleLogger, type Logger } from '../infrastructure/logger/index.js';
+ import { createWorkflowEngine, type ProgressInfo } from '../workflow/engine.js';
+ import { createStorage } from '../workflow/storage.js';
+ import { isFirstRun, loadConfig, saveConfig } from '../setup/first-run-wizard.js';
+@@ -18,7 +18,14 @@ import { runSelfHealingLoop } from './self-healing.js';
+ import { getVectaHubPath } from '../utils/paths.js';
+ 
+-const logger = createConsoleLogger('run');
++let logger: Logger;
++
++function getLogger(): Logger {
++  if (!logger) {
++    logger = createConsoleLogger('run');
++  }
++  return logger;
++}
+ 
+ function restoreEnvValue(name: string, previousValue: string | undefined): void {
+   if (previousValue === undefined) {
+@@ -53,7 +60,7 @@ export const runCmd = new Command('run')
+   .action(async (intent: string[], options: RunCommandOptions & { json?: boolean }) => {
+     try {
+       // Validate mode
+       if (options.mode && !['strict', 'relaxed', 'consensus'].includes(options.mode)) {
+-        logger.error(`❌ 无效的运行模式: ${options.mode}。可选值为: strict, relaxed, consensus`);
++        getLogger().error(`❌ 无效的运行模式: ${options.mode}。可选值为: strict, relaxed, consensus`);
+         process.exit(1);
+       }
+ 
+@@ -63,14 +70,14 @@ export const runCmd = new Command('run')
+       }
+ 
+       if (!options.dryRun && isFirstRun()) {
+-        logger.info('首次运行，启动优先级安装流程...');
++        getLogger().info('首次运行，启动优先级安装流程...');
+         const installer = createDefaultInstaller();
+         if (installer) {
+           const summary = await installer.run();
+           if (summary.overallSuccess) {
+             const config = loadConfig();
+             config.first_run_completed = true;
+             saveConfig(config);
+           } else {
+-            logger.warn('安装未完全成功，部分功能可能不可用');
++            getLogger().warn('安装未完全成功，部分功能可能不可用');
+           }
+         }
+       }
+@@ -101,15 +108,15 @@ export const runCmd = new Command('run')
+           }
+         }
+         
+-        logger.info(`从文件加载工作流: ${filepath}`);
++        getLogger().info(`从文件加载工作流: ${filepath}`);
+         workflow = await getStorage().loadWorkflowFromFile(filepath);
+         
+         if (!workflow) {
+-          logger.error(`❌ 无法加载工作流文件: ${filepath}`);
++          getLogger().error(`❌ 无法加载工作流文件: ${filepath}`);
+           process.exit(1);
+         }
+         
+-        logger.info(`✅ 工作流加载成功: ${workflow.name}`);
++        getLogger().info(`✅ 工作流加载成功: ${workflow.name}`);
+ 
+         if (options.dryRun) {
+           if (options.json) {
+@@ -125,11 +132,11 @@ export const runCmd = new Command('run')
+               }
+             }, null, 2));
+           } else {
+-            logger.info('
+📋 将要执行的命令:');
++            getLogger().info('
+📋 将要执行的命令:');
+             for (const step of workflow.steps) {
+-              logger.info(`  ${step.cli || step.type} ${(step.args ?? []).join(' ')}`);
++              getLogger().info(`  ${step.cli || step.type} ${(step.args ?? []).join(' ')}`);
+             }
+-            logger.info('
+Dry-run: 未执行任何命令。');
++            getLogger().info('
+Dry-run: 未执行任何命令。');
+           }
+           restoreEnvValue('VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+           process.exit(0);
+@@ -137,7 +144,7 @@ export const runCmd = new Command('run')
+         }
+       } else if (intent.length > 0) {
+         const text = intent.join(' ');
+-        logger.info(`解析意图: "${text}"`);
++        getLogger().info(`解析意图: "${text}"`);
+ 
+         const llmConfig = createLLMConfig();
+         const useLLM = !!llmConfig;
+@@ -152,9 +159,9 @@ export const runCmd = new Command('run')
+         });
+ 
+         if (useLLM) {
+-          logger.info(`意图解析模式: 优先 LLM (provider=${llmConfig.provider}, model=${llmConfig.model})`);
++          getLogger().info(`意图解析模式: 优先 LLM (provider=${llmConfig.provider}, model=${llmConfig.model})`);
+         } else {
+-          logger.info(`意图解析模式: 规则匹配 (LLM 未配置)`);
++          getLogger().info(`意图解析模式: 规则匹配 (LLM 未配置)`);
+         }
+ 
+         const nlResult = await nlProcessor.parse({ 
+@@ -165,7 +172,7 @@ export const runCmd = new Command('run')
+         let steps: Step[] = [];
+ 
+         if (nlResult.success && nlResult.taskList && nlResult.taskList.tasks.length > 0) {
+-          logger.info(`识别到意图: ${nlResult.intent || nlResult.taskList.intent}`);
++          getLogger().info(`识别到意图: ${nlResult.intent || nlResult.taskList.intent}`);
+           let stepIndex = 1;
+           for (const task of nlResult.taskList.tasks) {
+             const commands = task.commands.length > 0 ? task.commands : [{ cli: 'echo', args: [] }];
+@@ -183,7 +190,7 @@ export const runCmd = new Command('run')
+         }
+ 
+         if (steps.length === 0) {
+-          logger.error('❌ 无法解析意图，请尝试更明确的输入！');
++          getLogger().error('❌ 无法解析意图，请尝试更明确的输入！');
+           process.exit(1);
+         }
+ 
+@@ -200,11 +207,11 @@ export const runCmd = new Command('run')
+               }))
+             }, null, 2));
+           } else {
+-            logger.info('
+📋 将要执行的命令:');
++            getLogger().info('
+📋 将要执行的命令:');
+             for (const s of steps) {
+-              logger.info(`  ${s.cli} ${(s.args ?? []).join(' ')}`);
++              getLogger().info(`  ${s.cli} ${(s.args ?? []).join(' ')}`);
+             }
+-            logger.info('
+Dry-run: 未执行任何命令。');
++            getLogger().info('
+Dry-run: 未执行任何命令。');
+           }
+           restoreEnvValue('VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+           process.exit(0);
+@@ -216,19 +223,19 @@ export const runCmd = new Command('run')
+           steps
+         );
+ 
+-        logger.info(`创建工作流，包含 ${steps.length} 个步骤`);
++        getLogger().info(`创建工作流，包含 ${steps.length} 个步骤`);
+ 
+         if (options.save) {
+           await getStorage().saveWorkflow(workflow);
+-          logger.info('工作流已保存');
++          getLogger().info('工作流已保存');
+         }
+       } else {
+-        logger.error('❌ 请提供自然语言描述或使用 --file 选项指定工作流文件');
++        getLogger().error('❌ 请提供自然语言描述或使用 --file 选项指定工作流文件');
+         process.exit(1);
+       }
+ 
+       
+       let shouldRetry = true;
+       while (shouldRetry) {
+         shouldRetry = false;
+-        logger.info('执行工作流...');
++        getLogger().info('执行工作流...');
+         const result = await (await getWorkflowEngine()).execute(workflow!, { 
+           mode: options.mode, 
+           dryRun: options.dryRun,
+@@ -262,21 +269,21 @@ export const runCmd = new Command('run')
+             }))
+           }, null, 2));
+         } else {
+-          logger.info(`
+执行${result.status === 'COMPLETED' ? '✅ 成功' : '❌ 失败'}`);
+-          logger.info(`耗时: ${result.duration}ms`);
++          getLogger().info(`
+执行${result.status === 'COMPLETED' ? '✅ 成功' : '❌ 失败'}`);
++          getLogger().info(`耗时: ${result.duration}ms`);
+ 
+           if (result.steps.length > 0) {
+-            logger.info('
+📊 步骤结果:');
++            getLogger().info('
+📊 步骤结果:');
+             for (const step of result.steps) {
+-              logger.info(`  ${step.stepId}: ${step.status}`);
++              getLogger().info(`  ${step.stepId}: ${step.status}`);
+               if (step.output && step.output.length > 0) {
+-                logger.info(`  输出:`);
++                getLogger().info(`  输出:`);
+                 for (const line of step.output) {
+-                  logger.info(`    ${String(line).trim()}`);
++                  getLogger().info(`    ${String(line).trim()}`);
+                 }
+               }
+               if (step.error) {
+-                logger.error(`  错误: ${step.error}`);
++                getLogger().error(`  错误: ${step.error}`);
+               }
+             }
+           }
+@@ -287,7 +294,7 @@ export const runCmd = new Command('run')
+           if (llmConfig && !options.dryRun) {
+             shouldRetry = await runSelfHealingLoop(result, workflow!, llmConfig);
+             if (shouldRetry) {
+-              logger.info('🔄 正在重试工作流...');
++              getLogger().info('🔄 正在重试工作流...');
+               continue;
+             }
+           }
+@@ -297,8 +304,8 @@ export const runCmd = new Command('run')
+       }
+     
+     } catch (error) {
+-      logger.error(`错误: ${error instanceof Error ? error.message : '未知错误'}`);
+-      logger.debug(error instanceof Error ? error.stack : String(error));
++      getLogger().error(`错误: ${error instanceof Error ? error.message : '未知错误'}`);
++      getLogger().debug(error instanceof Error ? error.stack : String(error));
+       process.exit(1);
+     }
+   });
+diff --git a/src/infrastructure/logger/index.ts b/src/infrastructure/logger/index.ts
+index 73de776..055539d 100644
+--- a/src/infrastructure/logger/index.ts
++++ b/src/infrastructure/logger/index.ts
+@@ -16,6 +16,7 @@
+ }
+ 
+ let currentLogLevel: pino.Level = 'info';
++let isMuted = false;
+ 
+ export function setLogLevel(level: 'debug' | 'info' | 'warn' | 'error'): void {
+   currentLogLevel = level;
+@@ -25,6 +26,10 @@ export function getLogLevel(): pino.Level {
+   return currentLogLevel;
+ }
+ 
++export function setMuted(muted: boolean): void {
++  isMuted = muted;
++}
++
+ export function createLogger(prefix = ''): pino.Logger {
+   const name = prefix || 'vectahub';
+   const appLogDir = join(LOG_DIR, 'app');
+@@ -35,7 +40,7 @@ export function createLogger(prefix = ''): pino.Logger {
+   const appLogFile = join(appLogDir, `${formatDate(new Date())}.log`);
+   const errorLogFile = join(errorLogDir, `${formatDate(new Date())}.json`);
+ 
+-  return pino({
++  const logger = pino({
+     name,
+     level: currentLogLevel,
+     transport: {
+@@ -46,11 +51,17 @@ export function createLogger(prefix = ''): pino.Logger {
+       ],
+     },
+   });
++  
++  if (isMuted) {
++    logger.level = 'silent';
++  }
++
++  return logger;
+ }
+ 
+ export function createConsoleLogger(prefix = ''): pino.Logger {
+   const name = prefix || 'vectahub';
+-  return pino({
++  const logger = pino({
+     name,
+     level: currentLogLevel,
+     transport: {
+@@ -62,6 +73,12 @@ export function createConsoleLogger(prefix = ''): pino.Logger {
+       },
+     },
+   });
++
++  if (isMuted) {
++    logger.level = 'silent';
++  }
++
++  return logger;
+ }
+ 
+ export type Logger = pino.Logger;

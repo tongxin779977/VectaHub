@@ -20,23 +20,23 @@ export function registerRunCurrentWorkflowCommand(context: vscode.ExtensionConte
 
     // 2. 确认
     const confirm = await vscode.window.showWarningMessage(
-      `确认执行工作流 "${preview.workflow.name}"?`,
+      `确认要执行工作流 "${preview.workflow.name}" 吗?`,
       { modal: true },
       '确认执行'
     );
 
     if (confirm === '确认执行') {
-      logToOutput(`Running Workflow File: ${doc.fileName}`);
+      logToOutput(`正在执行工作流文件: ${doc.fileName}`);
       updateStatusBar('Running');
       
       const result = await runCli<any>(['run', '-f', doc.uri.fsPath, '--json', '--mode', 'strict']);
       
       if (result.ok) {
-        logToOutput('Workflow Execution Success.');
+        logToOutput('工作流执行成功。');
         vscode.window.showInformationMessage(`工作流 "${preview.workflow.name}" 执行成功！`);
         updateStatusBar('Ready');
       } else {
-        logToOutput(`Workflow Execution Failed: ${result.error?.message || result.stderr}`, 'error');
+        logToOutput(`工作流执行失败: ${result.error?.message || result.stderr}`, 'error');
         vscode.window.showErrorMessage('工作流执行失败。');
         updateStatusBar('Failed');
       }

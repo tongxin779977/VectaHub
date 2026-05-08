@@ -42,17 +42,17 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
         }, 'git-compare', t.source));
 
       const vhItems = [
-        new TaskTreeItem('Doctor', { command: 'vectahubTasks.doctor', title: 'Run Doctor' }, 'pulse'),
-        new TaskTreeItem('Preview Intent', { command: 'vectahubTasks.previewIntent', title: 'Preview Intent' }, 'search'),
-        new TaskTreeItem('Run Intent', { command: 'vectahubTasks.runIntent', title: 'Run Intent' }, 'play-circle'),
+        new TaskTreeItem('环境检查 (Doctor)', { command: 'vectahubTasks.doctor', title: '运行环境检查' }, 'pulse'),
+        new TaskTreeItem('预览意图', { command: 'vectahubTasks.previewIntent', title: '预览自然语言意图' }, 'search'),
+        new TaskTreeItem('执行意图', { command: 'vectahubTasks.runIntent', title: '执行自然语言任务' }, 'play-circle'),
       ];
 
       return [
-        new CategoryTreeItem('Project', projectItems),
-        new CategoryTreeItem('Git', gitItems),
-        new CategoryTreeItem('VectaHub', vhItems),
-        new CategoryTreeItem('Recent', []),
-        new CategoryTreeItem('Failed', []),
+        new CategoryTreeItem('项目任务', projectItems),
+        new CategoryTreeItem('Git 仓库', gitItems),
+        new CategoryTreeItem('VectaHub 核心', vhItems),
+        new CategoryTreeItem('最近任务', []),
+        new CategoryTreeItem('失败记录', []),
       ];
     }
 
@@ -61,8 +61,8 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
 
   private getIconForKind(kind: string): string {
     switch (kind) {
-      case 'test': return 'test-view-icon';
-      case 'build': return 'build';
+      case 'test': return 'beaker';
+      case 'build': return 'package';
       case 'lint': return 'check-all';
       case 'typecheck': return 'symbol-class';
       case 'install': return 'cloud-download';

@@ -10,7 +10,7 @@ export function registerOpenWorkflowCommand(context: vscode.ExtensionContext) {
     
     const workflowsDir = path.join(workspaceFolder.uri.fsPath, '.vectahub', 'workflows');
     if (!fs.existsSync(workflowsDir)) {
-      vscode.window.showInformationMessage('未找到本地工作流目录 (.vectahub/workflows)');
+      vscode.window.showInformationMessage('未在本工作区找到 .vectahub/workflows 目录。');
       return;
     }
     
@@ -20,7 +20,7 @@ export function registerOpenWorkflowCommand(context: vscode.ExtensionContext) {
       return;
     }
     
-    const selected = await vscode.window.showQuickPick(files, { placeHolder: '选择要打开的工作流' });
+    const selected = await vscode.window.showQuickPick(files, { placeHolder: '选择要打开的工作流文件' });
     if (selected) {
       const doc = await vscode.workspace.openTextDocument(path.join(workflowsDir, selected));
       await vscode.window.showTextDocument(doc);

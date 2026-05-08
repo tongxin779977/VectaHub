@@ -22,6 +22,12 @@ import { registerPreviewProjectTaskCommand } from './commands/previewProjectTask
 import { registerRunProjectTaskCommand } from './commands/runProjectTask.js';
 import { registerListPackageScriptsCommand } from './commands/listPackageScripts.js';
 
+let globalCliPath: string | undefined;
+
+export function getGlobalCliPath(): string | undefined {
+  return globalCliPath;
+}
+
 export async function activate(context: vscode.ExtensionContext) {
   // 初始化核心组件
   const outputChannel = initOutputChannel();
@@ -57,7 +63,8 @@ export async function activate(context: vscode.ExtensionContext) {
     logToOutput('Detecting VectaHub CLI...');
     const result = await discoverCli();
     if (result.exists) {
-      logToOutput(`VectaHub CLI detected: ${result.version}`);
+      globalCliPath = result.path;
+      logToOutput(`VectaHub CLI detected: ${result.version} at ${globalCliPath}`);
       updateStatusBar('Ready');
       
       // 检测成功后自动运行一次 doctor

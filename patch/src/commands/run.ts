@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { createConsoleLogger } from '../utils/logger.js';
+import { createConsoleLogger, type Logger } from '../infrastructure/logger/index.js';
 import { createWorkflowEngine, type ProgressInfo } from '../workflow/engine.js';
 import { createStorage } from '../workflow/storage.js';
 import { isFirstRun, loadConfig, saveConfig } from '../setup/first-run-wizard.js';
@@ -18,13 +18,13 @@ import { createRecordManager } from '../execution/record-manager.js';
 import { runSelfHealingLoop } from './self-healing.js';
 import { getVectaHubPath } from '../utils/paths.js';
 
-let cachedLogger: ReturnType<typeof createConsoleLogger> | undefined;
+let logger: Logger;
 
-function getLogger(): ReturnType<typeof createConsoleLogger> {
-  if (!cachedLogger) {
-    cachedLogger = createConsoleLogger('run');
+function getLogger(): Logger {
+  if (!logger) {
+    logger = createConsoleLogger('run');
   }
-  return cachedLogger;
+  return logger;
 }
 
 function restoreEnvValue(name: string, previousValue: string | undefined): void {
@@ -41,9 +41,10 @@ function createProgressCallback(totalSteps: number): (info: ProgressInfo) => voi
     const statusIcon = info.status === 'starting' ? '▶' : info.status === 'completed' ? '✓' : '✗';
     const statusText = info.status === 'starting' ? '执行中' : info.status === 'completed' ? '完成' : '失败';
     const progressBar = '█'.repeat(Math.floor(percentage / 5)) + '░'.repeat(20 - Math.floor(percentage / 5));
-    process.stdout.write(`\r[${progressBar}] ${percentage}% | ${statusIcon} 步骤 ${info.currentStep}/${info.totalSteps}: ${info.stepId} (${statusText})`);
+    process.stdout.write(`[${progressBar}] ${percentage}% | ${statusIcon} 步骤 ${info.currentStep}/${info.totalSteps}: ${info.stepId} (${statusText})`);
     if (info.status === 'completed' || info.status === 'failed') {
-      process.stdout.write('\n');
+      process.stdout.write('
+');
     }
   };
 }
@@ -147,11 +148,13 @@ export const runCmd = new Command('run')
               }
             }, null, 2));
           } else {
-            getLogger().info('\n📋 将要执行的命令:');
+            getLogger().info('
+📋 将要执行的命令:');
             for (const step of workflow.steps) {
               getLogger().info(`  ${step.cli || step.type} ${(step.args ?? []).join(' ')}`);
             }
-            getLogger().info('\nDry-run: 未执行任何命令。');
+            getLogger().info('
+Dry-run: 未执行任何命令。');
           }
           restoreEnvValue('VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
           process.exit(0);
@@ -220,11 +223,13 @@ export const runCmd = new Command('run')
               }))
             }, null, 2));
           } else {
-            getLogger().info('\n📋 将要执行的命令:');
+            getLogger().info('
+📋 将要执行的命令:');
             for (const s of steps) {
               getLogger().info(`  ${s.cli} ${(s.args ?? []).join(' ')}`);
             }
-            getLogger().info('\nDry-run: 未执行任何命令。');
+            getLogger().info('
+Dry-run: 未执行任何命令。');
           }
           restoreEnvValue('VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
           process.exit(0);
@@ -286,11 +291,13 @@ export const runCmd = new Command('run')
             }))
           }, null, 2));
         } else {
-          getLogger().info(`\n执行${result.status === 'COMPLETED' ? '✅ 成功' : '❌ 失败'}`);
+          getLogger().info(`
+执行${result.status === 'COMPLETED' ? '✅ 成功' : '❌ 失败'}`);
           getLogger().info(`耗时: ${result.duration}ms`);
 
           if (result.steps.length > 0) {
-            getLogger().info('\n📊 步骤结果:');
+            getLogger().info('
+📊 步骤结果:');
             for (const step of result.steps) {
               getLogger().info(`  ${step.stepId}: ${step.status}`);
               if (step.output && step.output.length > 0) {

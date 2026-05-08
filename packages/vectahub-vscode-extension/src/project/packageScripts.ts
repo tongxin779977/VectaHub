@@ -25,7 +25,7 @@ export function detectPackageTasks(workspaceFolder: string, pm: PackageManagerTy
     tasks.push({
       id: 'pkg-install',
       kind: 'install',
-      label: 'Install Dependencies',
+      label: '安装依赖 (Install)',
       source: 'package-json',
       available: true,
       command: { cli: pm, args: ['install'] }
@@ -33,10 +33,10 @@ export function detectPackageTasks(workspaceFolder: string, pm: PackageManagerTy
 
     // Mapping common scripts
     const mappings: Array<{ key: string; kind: ProjectTask['kind']; label: string }> = [
-      { key: 'test', kind: 'test', label: 'Run Tests' },
-      { key: 'build', kind: 'build', label: 'Build Project' },
-      { key: 'lint', kind: 'lint', label: 'Lint Project' },
-      { key: 'typecheck', kind: 'typecheck', label: 'Typecheck' },
+      { key: 'test', kind: 'test', label: '运行测试 (Test)' },
+      { key: 'build', kind: 'build', label: '构建项目 (Build)' },
+      { key: 'lint', kind: 'lint', label: '代码检查 (Lint)' },
+      { key: 'typecheck', kind: 'typecheck', label: '类型检查 (Typecheck)' },
     ];
 
     for (const mapping of mappings) {
@@ -58,8 +58,8 @@ export function detectPackageTasks(workspaceFolder: string, pm: PackageManagerTy
           tasks.push({
             id: 'pkg-typecheck-fallback',
             kind: 'typecheck',
-            label: 'Typecheck',
-            description: 'Inferred from lint script',
+            label: '类型检查 (Inferred)',
+            description: '从 lint 脚本推断',
             source: 'package-json',
             available: true,
             command: getRunCommand(pm, 'lint')
