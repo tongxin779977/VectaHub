@@ -57,7 +57,8 @@ const loadedCommands = new Set<string>();
 function removePlaceholderCommand(commandName: string): void {
   const existingCmd = program.commands.find(c => c.name() === commandName);
   if (existingCmd) {
-    program.commands = program.commands.filter(c => c.name() !== commandName);
+    // Commander's commands array is readonly in types, use any cast for dynamic modification
+    (program as any).commands = program.commands.filter((c: any) => c.name() !== commandName);
   }
 }
 

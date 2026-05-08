@@ -708,5 +708,5 @@ export function shouldSuppressDueToNegation(input: string, template: IntentTempl
     (neg) => input.includes(neg.text)
   );
 
-  return hasNegativeKeyword && negativeKeywords.find(n => input.includes(n.text))?.strength === 'strong';
+  return hasNegativeKeyword && negativeKeywords.find(n => input.includes(n.text))?.strength === 'hard';
 }

@@ -52,8 +52,7 @@ export function createPipelineSkill(
           ...workflowResult,
           confidence: Math.min(intentResult.confidence ?? 0, workflowResult.confidence ?? 0),
           data: {
-            ...workflowResult.data,
-            confidence: intentResult.confidence // Pass it down for explicit checking if needed
+            ...workflowResult.data
           }
         };
       }

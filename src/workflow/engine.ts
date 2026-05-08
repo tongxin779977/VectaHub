@@ -29,6 +29,7 @@ export interface ExecuteOptions {
   mode?: 'strict' | 'relaxed' | 'consensus';
   retry?: RetryOptions;
   onProgress?: (info: ProgressInfo) => void;
+  initialVariables?: Record<string, unknown>; // Add this line
 }
 
 export interface WorkflowEngine {
@@ -65,10 +66,11 @@ interface RunLoopOptions {
   onProgress?: (info: ProgressInfo) => void;
 }
 
-function toInterpolationContext(executorCtx: ExecutorContext): InterpolationContext {
+function toInterpolationContext(executorCtx: ExecutorContext, executionId?: string): InterpolationContext {
   return {
     variables: executorCtx.variables,
     previousOutputs: executorCtx.previousOutputs,
+    executionId,
   };
 }
 
@@ -160,7 +162,7 @@ async function runExecutionLoop(
 
     try {
       const executorContext = contextManager.toExecutorContext(newExecutionId);
-      const interpolatedStep = interpolateStep(step, toInterpolationContext(executorContext));
+      const interpolatedStep = interpolateStep(step, toInterpolationContext(executorContext, newExecutionId));
       const result = await executor.execute(interpolatedStep, executorOptions, executorContext);
 
       const stepRecord: StepRecord = {
@@ -282,13 +284,15 @@ export function createWorkflowEngine(): WorkflowEngine {
 
   async function executeWorkflowInternal(
     workflow: Workflow,
-    options: ExecuteOptions = {}
+    options: ExecuteOptions = {},
+    initialVariables?: Record<string, unknown> // Add initialVariables parameter
   ): Promise<ExecutionRecord> {
     return runExecutionLoop(sm, executor, storage, {
       workflow,
       steps: workflow.steps,
       executorOptions: buildExecutorOptions(workflow, options),
       contextManager,
+      initialVariables, // Pass initialVariables
       onProgress: options.onProgress,
     });
   }
@@ -331,7 +335,11 @@ export function createWorkflowEngine(): WorkflowEngine {
       return Array.from(workflows.values());
     },
 
-    async execute(workflow: Workflow, options: ExecuteOptions = {}): Promise<ExecutionRecord> {
+    async execute(
+      workflow: Workflow,
+      options: ExecuteOptions = {},
+      initialVariables?: Record<string, unknown> // Add initialVariables
+    ): Promise<ExecutionRecord> {
       const retryMgr = createRetryManager({
         maxAttempts: options.retry?.maxAttempts || 1,
         backoffMultiplier: options.retry?.backoffMultiplier || 2,
@@ -339,7 +347,7 @@ export function createWorkflowEngine(): WorkflowEngine {
       });
 
       const executeOnce = async () => {
-        return executeWorkflowInternal(workflow, options);
+        return executeWorkflowInternal(workflow, options, initialVariables); // Pass initialVariables
       };
 
       const result = await retryMgr.executeWithRetry(executeOnce);

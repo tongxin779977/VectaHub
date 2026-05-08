@@ -9,6 +9,7 @@ import {
   ProjectContext,
   RecentAction,
 } from '../types/index.js';
+import { LifecycleManager } from '../utils/lifecycle-manager.js';
 
 const execAsync = promisify(exec);
 
@@ -22,41 +23,24 @@ export interface SessionManagerOptions {
 }
 
 export class SessionManager {
-  private sessions: Map<string, { context: SessionContext; lastActivity: number }> = new Map();
+  private lifecycle: LifecycleManager<SessionContext>;
   private defaultUserPreferences: UserPreferences = {
     executionMode: 'relaxed',
     preferredTools: [],
     verbose: false,
     autoConfirm: false,
   };
-  private sessionTimeoutMs: number;
-  private cleanupIntervalMs: number;
-  private maxSessions: number;
-  private cleanupIntervalId: ReturnType<typeof setInterval> | null = null;
   private onSessionExpired?: (sessionId: string) => void;
 
   constructor(options: SessionManagerOptions = {}) {
-    this.sessionTimeoutMs = options.sessionTimeoutMs ?? DEFAULT_SESSION_TIMEOUT_MS;
-    this.cleanupIntervalMs = options.cleanupIntervalMs ?? DEFAULT_CLEANUP_INTERVAL_MS;
-    this.maxSessions = options.maxSessions ?? 50;
-    this.startCleanupScheduler();
-  }
-
-  private startCleanupScheduler(): void {
-    this.cleanupIntervalId = setInterval(() => {
-      this.cleanupExpiredSessions();
-    }, this.cleanupIntervalMs);
-  }
-
-  private cleanupExpiredSessions(): void {
-    const now = Date.now();
-    
-    for (const [sessionId, data] of this.sessions) {
-      if (now - data.lastActivity > this.sessionTimeoutMs) {
-        this.sessions.delete(sessionId);
+    this.lifecycle = new LifecycleManager<SessionContext>({
+      ttl: options.sessionTimeoutMs ?? DEFAULT_SESSION_TIMEOUT_MS,
+      maxCount: options.maxSessions ?? 50,
+      cleanupInterval: options.cleanupIntervalMs ?? DEFAULT_CLEANUP_INTERVAL_MS,
+      onEvicted: (sessionId) => {
         this.onSessionExpired?.(sessionId);
-      }
-    }
+      },
+    });
   }
 
   setSessionExpiredCallback(callback: (sessionId: string) => void): void {
@@ -64,8 +48,6 @@ export class SessionManager {
   }
 
   createSession(sessionId: string): SessionContext {
-    this.enforceMaxSessions();
-    
     const defaultProjectContext = this.getSyncDefaultProjectContext();
     const context: SessionContext = {
       sessionId,
@@ -74,28 +56,13 @@ export class SessionManager {
       projectContext: defaultProjectContext,
       recentActions: [],
     };
-    this.sessions.set(sessionId, { context, lastActivity: Date.now() });
+    this.lifecycle.set(sessionId, context);
     this.refreshProjectContext(sessionId).catch(() => {});
     return context;
   }
 
-  private enforceMaxSessions(): void {
-    if (this.sessions.size >= this.maxSessions) {
-      const oldestSession = Array.from(this.sessions.entries())
-        .sort((a, b) => a[1].lastActivity - b[1].lastActivity)[0];
-      
-      if (oldestSession) {
-        this.sessions.delete(oldestSession[0]);
-        this.onSessionExpired?.(oldestSession[0]);
-      }
-    }
-  }
-
   private updateActivity(sessionId: string): void {
-    const data = this.sessions.get(sessionId);
-    if (data) {
-      data.lastActivity = Date.now();
-    }
+    this.lifecycle.updateActivity(sessionId);
   }
 
   private getSyncDefaultProjectContext(): ProjectContext {
@@ -104,12 +71,7 @@ export class SessionManager {
   }
 
   getSession(sessionId: string): SessionContext | undefined {
-    const data = this.sessions.get(sessionId);
-    if (data) {
-      this.updateActivity(sessionId);
-      return data.context;
-    }
-    return undefined;
+    return this.lifecycle.get(sessionId);
   }
 
   getOrCreateSession(sessionId: string): SessionContext {
@@ -164,6 +126,13 @@ export class SessionManager {
       ...session.projectContext,
       ...projectContext,
     };
+    this.updateActivity(sessionId);
+  }
+
+  updateLastWorkflow(sessionId: string, workflowId: string, yaml: string): void {
+    const session = this.getOrCreateSession(sessionId);
+    session.lastWorkflowId = workflowId;
+    session.lastWorkflowYaml = yaml;
     this.updateActivity(sessionId);
   }
 
@@ -263,42 +232,37 @@ export class SessionManager {
   }
 
   deleteSession(sessionId: string): void {
-    this.sessions.delete(sessionId);
+    this.lifecycle.delete(sessionId);
   }
 
   getAllSessionIds(): string[] {
-    return Array.from(this.sessions.keys());
+    return this.lifecycle.keys();
   }
 
   getSessionCount(): number {
-    return this.sessions.size;
+    return this.lifecycle.size();
   }
 
   getSessionActivity(sessionId: string): number | undefined {
-    const data = this.sessions.get(sessionId);
-    return data?.lastActivity;
+    return this.lifecycle.getActivity(sessionId);
   }
 
   isSessionActive(sessionId: string): boolean {
     const activity = this.getSessionActivity(sessionId);
     if (activity === undefined) return false;
-    return Date.now() - activity <= this.sessionTimeoutMs;
+    return Date.now() - activity <= this.lifecycle.getTtl();
   }
 
   shutdown(): void {
-    if (this.cleanupIntervalId) {
-      clearInterval(this.cleanupIntervalId);
-      this.cleanupIntervalId = null;
-    }
-    this.sessions.clear();
+    this.lifecycle.shutdown();
   }
 
   setTimeout(timeoutMs: number): void {
-    this.sessionTimeoutMs = timeoutMs;
+    this.lifecycle.setTtl(timeoutMs);
   }
 
   getTimeout(): number {
-    return this.sessionTimeoutMs;
+    return this.lifecycle.getTtl();
   }
 }
 

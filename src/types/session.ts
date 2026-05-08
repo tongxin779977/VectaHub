@@ -35,6 +35,8 @@ export interface SessionContext {
   userPreferences: UserPreferences;
   projectContext: ProjectContext;
   recentActions: RecentAction[];
+  lastWorkflowId?: string;
+  lastWorkflowYaml?: string;
 }
 
 export interface LLMOptions {

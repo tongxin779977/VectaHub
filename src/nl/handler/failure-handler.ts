@@ -1,5 +1,8 @@
 import type { CommandDiscovery } from '../discovery/command-discovery.js';
 import type { KnowledgeBase } from '../knowledge/knowledge-base.js';
+import { createConsoleLogger } from '../../utils/logger.js';
+
+const logger = createConsoleLogger('failure-handler');
 
 export interface FailureHandler {
   handle(command: string, error: string): Promise<void>;
@@ -30,7 +33,7 @@ class FailureHandlerImpl implements FailureHandler {
     if (tool) {
       this.knowledgeBase.addTool(tool);
       await this.knowledgeBase.save();
-      console.log(`✨ 系统学到了新工具: ${cmdName}`);
+      logger.info(`✨ 系统学到了新工具: ${cmdName}`);
     }
   }
 

@@ -8,6 +8,7 @@ import { CommandRuleEngine, createCommandRuleEngine, loadGlobalBlocklist, loadGl
 import { SANDBOX_EXEC_PATH, BWRAP_PATH, UNSHARE_PATH, SUDOERS_PATH, FALLBACK_PATH, DEFAULT_PROTECTED_DIRS } from './constants.js';
 import type { SandboxMode, CommandDetection } from '../types/index.js';
 import type { DefaultPolicy } from '../command-rules/types.js';
+import { performEnvAudit, audit, AuditEventType, getCurrentSessionId } from '../infrastructure/audit/index.js';
 
 const DEFAULT_POLICY: DefaultPolicy = 'passthrough';
 
@@ -88,6 +89,14 @@ export class SandboxManager {
   private ruleEngine: CommandRuleEngine;
   private projectPath: string | undefined;
 
+  private isolationStrategy: IsolationStrategy | null = null;
+  private capabilities: {
+    hasBwrap: boolean;
+    hasUnshare: boolean;
+    hasSandboxExec: boolean;
+    hasUserNS: boolean;
+  } | null = null;
+
   constructor(config: Partial<SandboxConfig> & { projectPath?: string } = {}) {
     const workspaceDefault = config.workspace || process.cwd();
     this.config = { ...DEFAULT_CONFIG, ...config, workspace: workspaceDefault };
@@ -116,33 +125,85 @@ export class SandboxManager {
     }
   }
 
-  private detectIsolationStrategy(): IsolationStrategy {
-    const os = platform();
+  private async detectCapabilities(): Promise<void> {
+    if (this.capabilities) return;
+
+    const auditResult = await performEnvAudit();
+    const os = auditResult.platform;
     
+    audit.log({
+      event: AuditEventType.ENV_AUDIT,
+      timestamp: new Date().toISOString(),
+      sessionId: getCurrentSessionId(),
+      module: 'Sandbox',
+      action: 'detect_capabilities',
+      output: auditResult,
+      success: true,
+    });
+
+    const caps = {
+      hasBwrap: false,
+      hasUnshare: false,
+      hasSandboxExec: false,
+      hasUserNS: auditResult.linuxKernel.userNamespaces,
+    };
+
     if (os === 'darwin') {
       try {
         accessSync(SANDBOX_EXEC_PATH, constants.X_OK);
-        return 'sandbox-exec';
-      } catch {
-        return 'directory';
-      }
+        caps.hasSandboxExec = true;
+      } catch {}
+    } else if (os === 'linux') {
+      // Test bwrap
+      caps.hasBwrap = await this.testExecutable(BWRAP_PATH, ['--version']);
+      
+      // Test unshare
+      caps.hasUnshare = await this.testExecutable(UNSHARE_PATH, ['--version']).catch(() => 
+        this.testExecutable(UNSHARE_PATH, ['--help']) // fallback for older versions
+      );
     }
-    
-    if (os === 'linux') {
+
+    this.capabilities = caps;
+    this.isolationStrategy = this.computeStrategy();
+
+    audit.log({
+      event: AuditEventType.CONFIG_CHANGE,
+      timestamp: new Date().toISOString(),
+      sessionId: getCurrentSessionId(),
+      module: 'Sandbox',
+      action: 'strategy_selected',
+      input: { caps: this.capabilities },
+      output: { strategy: this.isolationStrategy },
+      success: true,
+    });
+  }
+
+  private async testExecutable(path: string, args: string[]): Promise<boolean> {
+    return new Promise((resolve) => {
       try {
-        accessSync(BWRAP_PATH, constants.X_OK);
-        return 'bubblewrap';
+        accessSync(path, constants.X_OK);
       } catch {
-        try {
-          accessSync(UNSHARE_PATH, constants.X_OK);
-          return 'unshare';
-        } catch {
-          return 'directory';
-        }
+        return resolve(false);
       }
+
+      const child = spawn(path, args, { timeout: 2000 });
+      child.on('close', (code) => resolve(code === 0));
+      child.on('error', () => resolve(false));
+    });
+  }
+
+  private computeStrategy(): IsolationStrategy {
+    const os = platform();
+    if (os === 'darwin' && this.capabilities?.hasSandboxExec) return 'sandbox-exec';
+    if (os === 'linux') {
+      if (this.capabilities?.hasBwrap) return 'bubblewrap';
+      if (this.capabilities?.hasUnshare && this.capabilities?.hasUserNS) return 'unshare';
     }
-    
     return 'directory';
+  }
+
+  private detectIsolationStrategy(): IsolationStrategy {
+    return this.isolationStrategy || this.computeStrategy();
   }
 
   async checkSudoStatus(): Promise<SudoStatus> {
@@ -772,6 +833,8 @@ ${denyRules}
     env.SANDBOX_TMP = this.config.tempDir;
     env.TMPDIR = this.config.tempDir;
     env.TEMP = this.config.tempDir;
+
+    await this.detectCapabilities();
 
     if (options.useNamespace !== false && this.config.namespaceIsolation) {
       const strategy = this.detectIsolationStrategy();

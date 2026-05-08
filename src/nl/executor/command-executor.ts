@@ -30,14 +30,14 @@ class CommandExecutorImpl implements CommandExecutor {
       const result = await this.runCommand(parsed.fullCommand);
       
       if (!result.success) {
-        await this.failureHandler.handle(parsed.fullCommand, result.error);
+        await this.failureHandler.handle(parsed.fullCommand, result.error || 'Unknown error');
       }
       
-      return result.success ? result.output : result.error;
+      return result.success ? result.output : (result.error || 'Command execution failed');
     }
     
     const result = await this.runCommand(parsed.fullCommand);
-    return result.success ? result.output : result.error;
+    return result.success ? result.output : (result.error || 'Command execution failed');
   }
 
   private parseInput(input: string) {

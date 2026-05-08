@@ -1,5 +1,8 @@
 import YAML from 'yaml';
 import type { OutputFormat, ValidationResult } from './types.js';
+import { createConsoleLogger } from '../../utils/logger.js';
+
+const logger = createConsoleLogger('yaml-validator');
 
 export function validateOutput(
   output: string,
@@ -67,8 +70,8 @@ function validateYAML(output: string): ValidationResult {
     YAML.parse(cleaned);
     return { valid: true };
   } catch (error) {
-    console.log(`[YAML VALIDATOR] First parse failed, trying to clean markdown...`);
-    console.log(`[YAML VALIDATOR] Original length: ${output.length}, Cleaned length: ${cleaned.length}`);
+    logger.debug(`First parse failed, trying to clean markdown...`);
+    logger.debug(`Original length: ${output.length}, Cleaned length: ${cleaned.length}`);
     
     if (cleaned.startsWith('```yaml')) {
       cleaned = cleaned.substring(7).trim();
@@ -80,21 +83,21 @@ function validateYAML(output: string): ValidationResult {
       cleaned = cleaned.substring(0, cleaned.length - 3).trim();
     }
     
-    console.log(`[YAML VALIDATOR] After markdown removal: ${cleaned.length} chars`);
+    logger.debug(`After markdown removal: ${cleaned.length} chars`);
     
     try {
       YAML.parse(cleaned);
       return { valid: true };
     } catch (secondError) {
       const errorMsg = secondError instanceof Error ? secondError.message : String(secondError);
-      console.log(`[YAML VALIDATOR] Second parse also failed: ${errorMsg}`);
+      logger.debug(`Second parse also failed: ${errorMsg}`);
       
       if (errorMsg.includes('multiple documents')) {
-        console.log(`[YAML VALIDATOR] Multiple documents detected, extracting first document...`);
+        logger.debug(`Multiple documents detected, extracting first document...`);
         const parts = cleaned.split(/^---$/m);
         if (parts.length > 1) {
           cleaned = parts[0].trim();
-          console.log(`[YAML VALIDATOR] First document length: ${cleaned.length}`);
+          logger.debug(`First document length: ${cleaned.length}`);
           try {
             YAML.parse(cleaned);
             return { valid: true };

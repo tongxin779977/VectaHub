@@ -152,7 +152,7 @@ describe('IntentSkill', () => {
     const result = await skill.execute('test', context);
 
     expect(result.success).toBe(true);
-    expect(result.confidence).toBeUndefined();
+    expect(result.confidence).toBe(0);
   });
 
   it('should pass projectContext and userPreferences to prompt', async () => {

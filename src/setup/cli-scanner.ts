@@ -80,6 +80,12 @@ export async function scanCLITools(): Promise<CLIToolStatus[]> {
 
 async function checkTool(tool: { name: string; command: string; versionFlag: string }): Promise<CLIToolStatus> {
   try {
+    // Deep audit: Verify the binary exists in PATH
+    const { stdout: pathOut } = await execAsync(`which ${tool.command}`);
+    if (!pathOut.trim()) {
+      return createFailedStatus(tool.name);
+    }
+
     const { stdout } = await execAsync(`${tool.command} ${tool.versionFlag}`);
     const version = stdout.trim().split('\n')[0];
 

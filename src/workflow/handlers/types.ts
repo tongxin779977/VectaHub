@@ -14,6 +14,7 @@ export interface ExecutorOptions {
 export interface ExecutionContext {
   variables: Record<string, string[]>;
   previousOutputs: Record<string, string[]>;
+  executionId?: string;
 }
 
 export interface ExecutionResult {

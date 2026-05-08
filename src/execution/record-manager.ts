@@ -57,10 +57,10 @@ export function createRecordManager(baseDir?: string): RecordManager {
           
           // Runtime type guard and transformation
           if (record.startedAt) {
-            record.startedAt = new Date(record.startedAt);
+            (record as any).startedAt = new Date(record.startedAt);
           }
-          if (record.endedAt) {
-            record.endedAt = new Date(record.endedAt);
+          if ((record as any).endedAt) {
+            (record as any).endedAt = new Date((record as any).endedAt);
           }
 
           if (!options.filter || options.filter(record)) {

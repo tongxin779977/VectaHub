@@ -3,6 +3,9 @@ import type { PromptRegistry } from '../nl/prompt/types.js';
 import type { LLMDialogControlSkill } from './llm-dialog-control/index.js';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { createConsoleLogger } from '../utils/logger.js';
+
+const logger = createConsoleLogger('workflow-skill');
 
 export interface WorkflowSkillInput {
   intent: string;
@@ -112,24 +115,24 @@ export function createWorkflowSkill(
 
 function validateWorkflowYAML(yaml: string): boolean {
   if (!yaml || yaml.trim().length === 0) {
-    console.log(`[WORKFLOW SKILL] Validation failed: empty YAML`);
+    logger.debug(`Validation failed: empty YAML`);
     return false;
   }
   
   let content = yaml.trim();
-  console.log(`[WORKFLOW SKILL] Raw YAML content:\n${content.substring(0, 500)}`);
+  logger.debug(`Raw YAML content (first 500 chars):\n${content.substring(0, 500)}`);
   
   if (content.startsWith('```')) {
     const match = content.match(/```(?:yaml)?\s*\n?([\s\S]*?)\n?```/);
     if (match) {
       content = match[1].trim();
-      console.log(`[WORKFLOW SKILL] Extracted content from markdown:\n${content.substring(0, 500)}`);
+      logger.debug(`Extracted content from markdown (first 500 chars):\n${content.substring(0, 500)}`);
     }
   }
   
   const trimmed = content.trim();
   const isValid = trimmed.startsWith('version:') || trimmed.startsWith('steps:') || trimmed.startsWith('name:');
-  console.log(`[WORKFLOW SKILL] Validation result: ${isValid}, first line: ${trimmed.split('\n')[0]}`);
+  logger.debug(`Validation result: ${isValid}, first line: ${trimmed.split('\n')[0]}`);
   return isValid;
 }
 

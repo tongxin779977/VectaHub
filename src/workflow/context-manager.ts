@@ -1,4 +1,6 @@
 import { audit } from '../infrastructure/audit/index.js';
+import type { ExpressionData } from './expression-engine.js';
+import { LifecycleManager } from '../utils/lifecycle-manager.js';
 
 export interface ExecutionContext {
   workflowId: string;
@@ -33,10 +35,25 @@ export interface ContextVariable {
 export interface ExecutorContext {
   variables: Record<string, string[]>;
   previousOutputs: Record<string, string[]>;
+  executionId?: string;
 }
 
 export class ContextManager {
-  private contexts: Map<string, ExecutionContext> = new Map();
+  private lifecycle: LifecycleManager<ExecutionContext>;
+  private maxStepOutputs: number = 1000;
+
+  constructor(options?: { maxContexts?: number; contextTtl?: number; maxStepOutputs?: number }) {
+    if (options?.maxStepOutputs) this.maxStepOutputs = options.maxStepOutputs;
+    
+    this.lifecycle = new LifecycleManager<ExecutionContext>({
+      ttl: options?.contextTtl ?? 3600000,
+      maxCount: options?.maxContexts ?? 100,
+      cleanupInterval: 60000,
+      onEvicted: (executionId, context) => {
+        audit.securityAction('CONTEXT', executionId, 'DELETED', context.sessionId);
+      },
+    });
+  }
 
   createContext(
     workflowId: string,
@@ -56,19 +73,53 @@ export class ContextManager {
       startTime: new Date(),
     };
 
-    this.contexts.set(executionId, context);
+    this.lifecycle.set(executionId, context);
 
     audit.securityAction('CONTEXT', executionId, 'CREATED', sessionId);
 
     return context;
   }
 
+  private updateActivity(executionId: string): void {
+    this.lifecycle.updateActivity(executionId);
+  }
+
+  getExpressionData(executionId: string): ExpressionData {
+    this.updateActivity(executionId);
+    const context = this.lifecycle.get(executionId);
+    if (!context) {
+      return { steps: {}, env: {}, vars: {}, config: {} };
+    }
+
+    const steps: Record<string, any> = {};
+    for (const [stepId, output] of context.stepOutputs) {
+      steps[stepId] = {
+        output: output.result,
+        stdout: output.stdout,
+        stderr: output.stderr,
+        exitCode: output.exitCode
+      };
+    }
+
+    const vars: Record<string, unknown> = {};
+    for (const [name, value] of context.variables) {
+      vars[name] = value;
+    }
+
+    return {
+      steps,
+      env: context.env,
+      vars,
+      config: {}
+    };
+  }
+
   getContext(executionId: string): ExecutionContext | undefined {
-    return this.contexts.get(executionId);
+    return this.lifecycle.get(executionId);
   }
 
   setVariable(executionId: string, name: string, value: unknown): void {
-    const context = this.contexts.get(executionId);
+    const context = this.lifecycle.get(executionId);
     if (!context) {
       throw new Error(`Context not found: ${executionId}`);
     }
@@ -77,7 +128,7 @@ export class ContextManager {
   }
 
   getVariable(executionId: string, name: string): unknown {
-    const context = this.contexts.get(executionId);
+    const context = this.lifecycle.get(executionId);
     if (!context) {
       return undefined;
     }
@@ -94,7 +145,7 @@ export class ContextManager {
   }
 
   resolveVariable(executionId: string, value: string): string {
-    const context = this.contexts.get(executionId);
+    const context = this.lifecycle.get(executionId);
     if (!context) {
       return value;
     }
@@ -118,9 +169,15 @@ export class ContextManager {
     result: unknown,
     metadata?: { stdout?: string; stderr?: string; exitCode?: number }
   ): void {
-    const context = this.contexts.get(executionId);
+    const context = this.lifecycle.get(executionId);
     if (!context) {
       throw new Error(`Context not found: ${executionId}`);
+    }
+
+    if (context.stepOutputs.size >= this.maxStepOutputs) {
+      // Keep most recent outputs, evict oldest by insertion order
+      const firstKey = context.stepOutputs.keys().next().value;
+      if (firstKey) context.stepOutputs.delete(firstKey);
     }
 
     const output: StepOutput = {
@@ -137,7 +194,7 @@ export class ContextManager {
   }
 
   getStepOutput(executionId: string, stepId: string): StepOutput | undefined {
-    const context = this.contexts.get(executionId);
+    const context = this.lifecycle.get(executionId);
     if (!context) {
       return undefined;
     }
@@ -146,7 +203,7 @@ export class ContextManager {
   }
 
   getStepOutputAsVariable(executionId: string, outputVar: string): unknown {
-    const context = this.contexts.get(executionId);
+    const context = this.lifecycle.get(executionId);
     if (!context) {
       return undefined;
     }
@@ -161,7 +218,7 @@ export class ContextManager {
   }
 
   interpolateString(executionId: string, template: string): string {
-    const context = this.contexts.get(executionId);
+    const context = this.lifecycle.get(executionId);
     if (!context) {
       return template;
     }
@@ -209,7 +266,7 @@ export class ContextManager {
   }
 
   exportContext(executionId: string): Record<string, unknown> {
-    const context = this.contexts.get(executionId);
+    const context = this.lifecycle.get(executionId);
     if (!context) {
       return {};
     }
@@ -256,29 +313,25 @@ export class ContextManager {
       });
     }
 
-    this.contexts.set(context.executionId, context);
+    this.lifecycle.set(context.executionId, context);
 
     return context;
   }
 
   deleteContext(executionId: string): void {
-    const context = this.contexts.get(executionId);
-    if (context) {
-      this.contexts.delete(executionId);
-      audit.securityAction('CONTEXT', executionId, 'DELETED', context.sessionId);
-    }
+    this.lifecycle.delete(executionId);
   }
 
   listContexts(): string[] {
-    return Array.from(this.contexts.keys());
+    return this.lifecycle.keys();
   }
 
   clear(): void {
-    this.contexts.clear();
+    this.lifecycle.clear();
   }
 
   toExecutorContext(executionId: string): ExecutorContext {
-    const context = this.contexts.get(executionId);
+    const context = this.lifecycle.get(executionId);
     if (!context) {
       return { variables: {}, previousOutputs: {} };
     }
@@ -309,7 +362,7 @@ export class ContextManager {
       }
     }
 
-    return { variables, previousOutputs };
+    return { variables, previousOutputs, executionId };
   }
 }
 

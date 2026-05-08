@@ -21,7 +21,10 @@ export enum AuditEventType {
   FILE_OPERATION = 'FILE_OPERATION',
   INTENT_MATCH = 'INTENT_MATCH',
   EXECUTOR_RESULT = 'EXECUTOR_RESULT',
+  ENV_AUDIT = 'ENV_AUDIT',
 }
+
+export * from './env-audit.js';
 
 export interface AuditEvent {
   event: AuditEventType;

@@ -2,6 +2,9 @@ import type { Skill, SkillContext, SkillResult } from './types.js';
 import type { PromptRegistry } from '../nl/prompt/types.js';
 import type { LLMDialogControlSkill } from './llm-dialog-control/index.js';
 import { getAllIntentNames } from '../nl/templates/index.js';
+import { createConsoleLogger } from '../utils/logger.js';
+
+const logger = createConsoleLogger('intent-skill');
 
 export interface IntentSkillOutput {
   intent: string;
@@ -41,8 +44,8 @@ export function createIntentSkill(
 
         const result = await llmDialogSkill.generateJSON(user, system);
 
-        console.debug(`[INTENT SKILL] LLM result: success=${result.success}, output length=${result.output?.length || 0}`);
-        console.debug(`[INTENT SKILL] First 200 chars: ${result.output?.substring(0, 200)}`);
+        logger.debug(`LLM result: success=${result.success}, output length=${result.output?.length || 0}`);
+        logger.debug(`First 200 chars: ${result.output?.substring(0, 200)}`);
 
         if (!result.success || !result.output) {
           return {
@@ -56,7 +59,7 @@ export function createIntentSkill(
 
         const validIntentNames = getAllIntentNames();
         if (!validIntentNames.includes(parsed.intent)) {
-          console.debug(`[INTENT SKILL] Unknown intent: ${parsed.intent}, using WORKFLOW_GENERATE`);
+          logger.debug(`Unknown intent: ${parsed.intent}, using WORKFLOW_GENERATE`);
           parsed.intent = 'WORKFLOW_GENERATE';
           parsed.confidence = Math.max(parsed.confidence ?? 0, 0.5);
         }
@@ -64,10 +67,10 @@ export function createIntentSkill(
         return {
           success: true,
           data: parsed,
-          confidence: parsed.confidence !== undefined ? parsed.confidence : undefined
+          confidence: parsed.confidence ?? 0
         };
       } catch (error) {
-        console.debug(`[INTENT SKILL] Exception: ${error instanceof Error ? error.message : String(error)}`);
+        logger.debug(`Exception: ${error instanceof Error ? error.message : String(error)}`);
         return {
           success: false,
           error: error instanceof Error ? error.message : String(error),

@@ -1,8 +1,19 @@
 import type { Step } from '../../types/index.js';
 import type { StepHandler, ExecutorOptions, ExecutionContext, ExecuteStepFn, ExecutionResult } from './types.js';
 import { interpolateString } from '../interpolation.js';
+import { evaluateExpression } from '../expression-engine.js';
+import { contextManager } from '../context-manager.js';
 
 function evaluateCondition(condition: string, context: ExecutionContext): boolean {
+  if (context.executionId) {
+    try {
+      const data = contextManager.getExpressionData(context.executionId);
+      return !!evaluateExpression(condition, data);
+    } catch (e) {
+      // Fallback
+    }
+  }
+
   const exitCodeMatch = condition.match(/\$\{(\w+)\.exitCode\}\s*==\s*0/);
   if (exitCodeMatch) {
     const stepId = exitCodeMatch[1];

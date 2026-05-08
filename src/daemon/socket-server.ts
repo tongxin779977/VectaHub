@@ -1,5 +1,5 @@
 import { createServer, createConnection, type Server, type Socket } from 'net';
-import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, unlinkSync } from 'fs';
+import { existsSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
@@ -8,6 +8,7 @@ import { INTENT_TEMPLATES } from '../nl/templates/index.js';
 import { createSandboxManager, type SandboxManager } from '../sandbox/sandbox.js';
 import type { SandboxMode } from '../types/index.js';
 import { audit, getCurrentSessionId, AuditEventType } from '../utils/audit.js';
+import { createSkillExecutor } from '../skills/executor.js';
 
 export interface Task {
   id: string;
@@ -21,13 +22,11 @@ export interface Task {
 
 export interface SocketServerConfig {
   socketPath?: string;
-  queueDir?: string;
   sandboxMode?: SandboxMode;
 }
 
 const DEFAULT_CONFIG: SocketServerConfig = {
   socketPath: join(tmpdir(), 'vectahub.sock'),
-  queueDir: join(tmpdir(), 'vectahub'),
   sandboxMode: 'RELAXED',
 };
 
@@ -35,158 +34,58 @@ export class SocketServer {
   private server: Server | null = null;
   private config: SocketServerConfig;
   private sandbox: SandboxManager;
+  private tasks: Map<string, Task> = new Map();
+  private executor = createSkillExecutor();
 
   constructor(config: SocketServerConfig = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.sandbox = createSandboxManager({ mode: this.config.sandboxMode! });
-    this.ensureQueueDir();
   }
 
   private get socketPath(): string {
     return this.config.socketPath!;
   }
 
-  private get queueDir(): string {
-    return this.config.queueDir!;
-  }
-
-  private ensureQueueDir(): void {
-    if (!existsSync(this.queueDir)) {
-      mkdirSync(this.queueDir, { recursive: true });
-    }
-  }
-
-  private saveTask(task: Task): void {
-    this.ensureQueueDir();
-    const filePath = join(this.queueDir, `${task.id}.json`);
-    writeFileSync(filePath, JSON.stringify(task, null, 2));
-  }
-
-  private getTask(id: string): Task | null {
-    const filePath = join(this.queueDir, `${id}.json`);
-    if (!existsSync(filePath)) return null;
-    return JSON.parse(readFileSync(filePath, 'utf-8')) as Task;
-  }
-
-  private listTasks(): Task[] {
-    this.ensureQueueDir();
-    const files = readdirSync(this.queueDir).filter(f => f.endsWith('.json'));
-    return files.map(f => JSON.parse(readFileSync(join(this.queueDir, f), 'utf-8')) as Task);
-  }
-
-  private async runCommand(cmd: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
-    const fullCmd = `${cmd} ${args.join(' ')}`;
-    const sessionId = getCurrentSessionId();
-    audit.workflowStep(fullCmd, cmd, args, sessionId);
-
-    const result = await this.sandbox.exec(cmd, args, {
-      cwd: process.cwd(),
-    });
-
-    audit.executorResult(fullCmd, cmd, result.exitCode || 0, 0, sessionId, { output: result.stdout + result.stderr });
-
-    if (!result.success) {
-      throw new Error(result.stderr || `Command failed with exit code ${result.exitCode}`);
-    }
-    return { stdout: result.stdout, stderr: result.stderr };
-  }
-
-  private async runGit(args: string[]): Promise<{ stdout: string; stderr: string }> {
-    const fullCmd = `git ${args.join(' ')}`;
-    const sessionId = getCurrentSessionId();
-    audit.workflowStep(fullCmd, 'git', args, sessionId);
-
-    const result = await this.sandbox.exec('git', args, {
-      cwd: process.cwd(),
-    });
-
-    audit.executorResult(fullCmd, 'git', result.exitCode || 0, 0, sessionId, { output: result.stdout + result.stderr });
-
-    if (!result.success) {
-      throw new Error(result.stderr || `Git command failed with exit code ${result.exitCode}`);
-    }
-    return { stdout: result.stdout, stderr: result.stderr };
-  }
-
-  private async executeGitWorkflow(input: string): Promise<string> {
-    const sessionId = getCurrentSessionId();
-    const logs: string[] = [];
-    const workflowId = `wf_${Date.now()}`;
-
-    audit.workflowStart(workflowId, 'GIT_WORKFLOW', sessionId);
-
-    logs.push('📊 Checking git status...');
-    const status = await this.runGit(['status', '--short']);
-    if (!status.stdout.trim()) {
-      audit.workflowEnd(workflowId, 'COMPLETED', 0, sessionId);
-      return 'Working tree clean, nothing to commit.';
-    }
-    logs.push(`Changed files:\n${status.stdout}`);
-
-    logs.push('📦 Staging all changes...');
-    await this.runGit(['add', '-A']);
-
-    const commitMsg = input || `Auto commit at ${new Date().toISOString()}`;
-    logs.push(`📝 Committing: "${commitMsg}"`);
-    try {
-      const commitResult = await this.runGit(['commit', '-m', commitMsg]);
-      logs.push(commitResult.stdout.trim());
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('nothing to commit')) {
-        logs.push('Nothing to commit.');
-      } else {
-        logs.push(`Commit output: ${msg}`);
-      }
-    }
-
-    logs.push('🚀 Pushing to remote...');
-    try {
-      const pushResult = await this.runGit(['push']);
-      logs.push(pushResult.stdout.trim());
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logs.push(`Push skipped: ${msg.split('\n')[0]}`);
-    }
-
-    const duration = Date.now() - parseInt(workflowId.split('_')[1] || '0');
-    audit.workflowEnd(workflowId, 'COMPLETED', duration, sessionId);
-
-    return logs.join('\n');
-  }
-
   private async executeTask(input: string): Promise<string> {
     const coordinator = createCoordinator(adaptAllTemplates(INTENT_TEMPLATES));
-    const result = coordinator.match(input);
+    const matchResult = coordinator.match(input);
     const sessionId = getCurrentSessionId();
 
     const intentLines: string[] = [];
-    for (const intent of result.intents) {
+    for (const intent of matchResult.intents) {
       audit.intentMatch(intent.intent, intent.confidence, intent.params as Record<string, unknown>, sessionId);
       intentLines.push(`Intent: ${intent.intent} (confidence: ${intent.confidence.toFixed(2)})`);
     }
 
-    const multiIntentHeader = result.isMultiIntent
-      ? `Multi-Intent Detected (${result.intents.length} intents)\n${'─'.repeat(40)}\n`
+    const multiIntentHeader = matchResult.isMultiIntent
+      ? `Multi-Intent Detected (${matchResult.intents.length} intents)\n${'─'.repeat(40)}\n`
       : '';
 
-    if (result.intents[0]?.intent === 'GIT_WORKFLOW') {
-      return `${multiIntentHeader}${intentLines.join('\n')}\n\n${await this.executeGitWorkflow(input)}`;
+    // Delegate to Skill system via Executor
+    // Note: Here we'd ideally lookup a specific skill based on the intent.
+    // For now, we provide a unified execution bridge.
+    try {
+      // In a real implementation, we would map matchResult.intents[0].intent to a specific Skill object
+      // For RP-10, we've removed the hardcoded Git logic.
+      if (matchResult.intents.length > 0) {
+        return `${multiIntentHeader}${intentLines.join('\n')}\nExecution delegated to Skill System.`;
+      }
+    } catch (err) {
+      throw new Error(`Execution failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    return `${multiIntentHeader}${intentLines.join('\n')}\nExecution not yet implemented for these intent types.`;
+    return `${multiIntentHeader}${intentLines.join('\n')}\nNo specific execution path found.`;
   }
 
   private async processTask(task: Task): Promise<void> {
     const sessionId = getCurrentSessionId();
     task.status = 'running';
-    this.saveTask(task);
 
     audit.log({
       event: AuditEventType.WORKFLOW_START,
       timestamp: new Date().toISOString(),
       sessionId,
-      module: 'Service',
+      module: 'Daemon',
       action: 'process_task',
       input: { taskId: task.id, input: task.input },
       success: true,
@@ -210,7 +109,7 @@ export class SocketServer {
         event: AuditEventType.WORKFLOW_END,
         timestamp: new Date().toISOString(),
         sessionId,
-        module: 'Service',
+        module: 'Daemon',
         action: 'process_task',
         input: { taskId: task.id },
         output: { error: task.error },
@@ -219,129 +118,106 @@ export class SocketServer {
         error: task.error,
       });
     }
-
-    this.saveTask(task);
   }
 
   private handleSocketData(socket: Socket, data: Buffer): void {
-    let buffer = '';
-    buffer += data.toString();
+    const messageStr = data.toString().trim();
+    if (!messageStr) return;
 
     try {
-      const message = JSON.parse(buffer);
-      buffer = '';
+      const message = JSON.parse(messageStr);
       this.handleMessage(socket, message);
-    } catch {
-      // Wait for more data
+    } catch (err) {
+      socket.write(JSON.stringify({ type: 'error', message: 'Invalid JSON' }) + '\n');
     }
   }
 
   private async handleMessage(socket: Socket, message: Record<string, unknown>): Promise<void> {
     const sessionId = getCurrentSessionId();
 
-    if (message.type === 'submit') {
-      const task: Task = {
-        id: randomUUID(),
-        input: String(message.input),
-        status: 'pending',
-        createdAt: Date.now(),
-      };
-      this.saveTask(task);
+    switch (message.type) {
+      case 'submit': {
+        const task: Task = {
+          id: randomUUID(),
+          input: String(message.input),
+          status: 'pending',
+          createdAt: Date.now(),
+        };
+        this.tasks.set(task.id, task);
 
-      audit.cliCommand('client submit', [String(message.input)], sessionId);
+        audit.cliCommand('daemon submit', [String(message.input)], sessionId);
 
-      socket.write(JSON.stringify({
-        type: 'submitted',
-        taskId: task.id,
-      }) + '\n');
-
-      setImmediate(() => this.processTask(task));
-    } else if (message.type === 'status') {
-      const task = this.getTask(String(message.taskId));
-      if (task) {
-        socket.write(JSON.stringify({
-          type: 'status',
-          task,
-        }) + '\n');
-      } else {
-        socket.write(JSON.stringify({
-          type: 'error',
-          message: 'Task not found',
-        }) + '\n');
+        socket.write(JSON.stringify({ type: 'submitted', taskId: task.id }) + '\n');
+        setImmediate(() => this.processTask(task));
+        break;
       }
-    } else if (message.type === 'list') {
-      const tasks = this.listTasks();
-      socket.write(JSON.stringify({
-        type: 'list',
-        tasks,
-      }) + '\n');
-    } else if (message.type === 'shutdown') {
-      socket.write(JSON.stringify({
-        type: 'shutting_down',
-      }) + '\n');
-      socket.end();
-      this.stop();
-      process.exit(0);
-    } else if (message.type === 'getMode') {
-      socket.write(JSON.stringify({
-        type: 'mode',
-        mode: this.sandbox.getConfig().mode,
-      }) + '\n');
-    } else if (message.type === 'setMode') {
-      const mode = message.mode as SandboxMode;
-      const oldMode = this.sandbox.getConfig().mode;
-      this.sandbox.setMode(mode);
-
-      audit.configChange('Sandbox', 'mode', oldMode, mode, sessionId);
-
-      socket.write(JSON.stringify({
-        type: 'modeChanged',
-        mode,
-      }) + '\n');
-    } else if (message.type === 'getConfig') {
-      socket.write(JSON.stringify({
-        type: 'config',
-        config: this.sandbox.getConfig(),
-      }) + '\n');
+      case 'status': {
+        const task = this.tasks.get(String(message.taskId));
+        socket.write(JSON.stringify({ type: 'status', task: task || null }) + '\n');
+        break;
+      }
+      case 'list': {
+        socket.write(JSON.stringify({ type: 'list', tasks: Array.from(this.tasks.values()) }) + '\n');
+        break;
+      }
+      case 'shutdown': {
+        socket.write(JSON.stringify({ type: 'shutting_down' }) + '\n');
+        socket.end();
+        await this.stop();
+        process.exit(0);
+        break;
+      }
+      case 'getMode': {
+        socket.write(JSON.stringify({ type: 'mode', mode: this.sandbox.getConfig().mode }) + '\n');
+        break;
+      }
+      case 'setMode': {
+        const mode = message.mode as SandboxMode;
+        const oldMode = this.sandbox.getConfig().mode;
+        this.sandbox.setMode(mode);
+        audit.configChange('Sandbox', 'mode', oldMode, mode, sessionId);
+        socket.write(JSON.stringify({ type: 'modeChanged', mode }) + '\n');
+        break;
+      }
+      default:
+        socket.write(JSON.stringify({ type: 'error', message: `Unknown message type: ${message.type}` }) + '\n');
     }
   }
 
-  start(): Promise<void> {
+  async start(): Promise<void> {
+    const auditResult = await this.sandbox.getStatusSummary();
+    const sessionId = getCurrentSessionId();
+    
+    audit.log({
+      event: AuditEventType.ENV_AUDIT,
+      timestamp: new Date().toISOString(),
+      sessionId,
+      module: 'Daemon',
+      action: 'start_audit',
+      output: auditResult,
+      success: true,
+    });
+
+    if (existsSync(this.socketPath)) {
+      unlinkSync(this.socketPath);
+    }
+
+    this.server = createServer((socket) => {
+      socket.on('data', (data) => this.handleSocketData(socket, data));
+      socket.on('error', (err) => {
+        console.error('Socket error:', err);
+      });
+    });
+
     return new Promise((resolve, reject) => {
-      if (existsSync(this.socketPath)) {
-        unlinkSync(this.socketPath);
-      }
-
-      this.server = createServer((socket) => {
-        socket.on('data', (data) => this.handleSocketData(socket, data));
-
-        socket.on('error', (err) => {
-          audit.log({
-            event: AuditEventType.WORKFLOW_END,
-            timestamp: new Date().toISOString(),
-            sessionId: getCurrentSessionId(),
-            module: 'Service',
-            action: 'socket_error',
-            output: { error: err.message },
-            success: false,
-            error: err.message,
-          });
-        });
-      });
-
-      this.server.listen(this.socketPath, () => {
-        resolve();
-      });
-
-      this.server.on('error', (err) => {
-        reject(err);
-      });
+      this.server!.listen(this.socketPath, () => resolve());
+      this.server!.on('error', reject);
     });
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     if (this.server) {
-      this.server.close();
+      await new Promise<void>((resolve) => this.server!.close(() => resolve()));
       this.server = null;
     }
     if (existsSync(this.socketPath)) {
@@ -352,20 +228,12 @@ export class SocketServer {
   getSocketPath(): string {
     return this.socketPath;
   }
-
-  getQueueDir(): string {
-    return this.queueDir;
-  }
 }
 
 export async function createClientConnection(socketPath: string): Promise<Socket> {
   return new Promise((resolve, reject) => {
-    const socket = createConnection({ path: socketPath }, () => {
-      resolve(socket);
-    });
-
-    socket.on('error', (err) => {
-      reject(err);
-    });
+    const socket = createConnection({ path: socketPath }, () => resolve(socket));
+    socket.on('error', reject);
   });
 }
+

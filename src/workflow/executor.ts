@@ -3,6 +3,8 @@ import type { Step, ExecutionStatus, SandboxMode } from '../types/index.js';
 import { createDetector, type Detector } from '../sandbox/detector.js';
 import { createSandboxManager, type SandboxManager } from '../sandbox/sandbox.js';
 import { interpolateString, interpolateStep } from './interpolation.js';
+import { evaluateExpression } from './expression-engine.js';
+import { contextManager } from './context-manager.js';
 import { audit, getCurrentSessionId } from '../utils/audit.js';
 import { createRBACManager, type RoleName } from '../security-protocol/rbac.js';
 
@@ -13,6 +15,7 @@ import { handleForEach } from './handlers/foreach-handler.js';
 import { createOpenCliHandler } from './handlers/opencli-handler.js';
 import { createExecHandler } from './handlers/exec-handler.js';
 import type { StepHandler, ExecuteStepFn, ExecutionContext, ExecutorOptions, ExecutionResult } from './handlers/types.js';
+export type { StepHandler, ExecuteStepFn, ExecutionContext, ExecutorOptions, ExecutionResult };
 
 const DEFAULT_TIMEOUT = 60000;
 
@@ -128,21 +131,46 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
   }
 
   function evaluateCondition(condition: string, context: ExecutionContext): boolean {
-    const exitCodeMatch = condition.match(/\$\{(\w+)\.exitCode\}\s*==\s*0/);
-    if (exitCodeMatch) {
-      const stepId = exitCodeMatch[1];
-      const outputs = context.previousOutputs[stepId];
-      return outputs && outputs.length === 0;
+    let data: any;
+
+    if (context.executionId) {
+      try {
+        data = contextManager.getExpressionData(context.executionId);
+      } catch (e) {
+        // Fallback to building data from context
+      }
     }
 
-    const eqMatch = condition.match(/(\w+)\s*==\s*(.+)/);
-    if (eqMatch) {
-      const [, varName, expectedValue] = eqMatch;
-      const actualValue = context.variables[varName]?.[0];
-      return actualValue?.trim() === expectedValue.trim();
+    if (!data) {
+      // Build basic expression data from context if no execution manager is available
+      data = {
+        steps: {},
+        env: { ...process.env, ...context.variables.env?.[0] ? JSON.parse(context.variables.env[0]) : {} },
+        vars: {},
+        config: {}
+      };
+
+      // Map context variables to data.vars
+      for (const [key, values] of Object.entries(context.variables)) {
+        data.vars[key] = values.length === 1 ? values[0] : values;
+      }
+
+      // Map previous outputs to data.steps
+      for (const [stepId, outputs] of Object.entries(context.previousOutputs)) {
+        data.steps[stepId] = {
+          output: outputs,
+          stdout: outputs.join('\n'),
+          exitCode: outputs.length > 0 ? 0 : 1 // Heuristic fallback
+        };
+      }
     }
 
-    return false;
+    try {
+      return !!evaluateExpression(condition, data);
+    } catch (e) {
+      console.error(`Expression evaluation failed for condition: "${condition}"`, e);
+      return false;
+    }
   }
 
   async function handleExec(step: Step, options: ExecutorOptions, context: ExecutionContext, _executeStep: ExecuteStepFn, startTime: number): Promise<ExecutionResult> {

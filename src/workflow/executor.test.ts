@@ -213,7 +213,7 @@ describe('Executor', () => {
       const result = await executor.execute(step, { mode: 'RELAXED' }, context);
 
       expect(result.status).toBe('COMPLETED');
-      expect(result.output).toBeUndefined();
+      expect(result.output).toEqual([]);
     });
 
     it('should evaluate exitCode condition with empty outputs', async () => {
@@ -262,7 +262,7 @@ describe('Executor', () => {
       const result = await executor.execute(step, { mode: 'RELAXED' }, context);
 
       expect(result.status).toBe('COMPLETED');
-      expect(result.output).toBeUndefined();
+      expect(result.output).toEqual([]);
     });
   });
 

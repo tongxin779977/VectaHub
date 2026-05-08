@@ -8,8 +8,9 @@ export interface NLResult {
   taskList?: TaskList;
   workflowYAML?: string;
   workflow?: Workflow;
+  params?: Record<string, unknown>; // Add params here
   metadata: {
-    path: 'skill-pipeline' | 'keyword-fallback' | 'keyword-match' | 'keyword-only' | 'coordinator' | 'coordinator-multi' | 'category-router' | 'direct-query' | 'dialog' | 'skill-individual' | 'no-match';
+    path: 'skill-pipeline' | 'keyword-fallback' | 'keyword-match' | 'keyword-only' | 'coordinator' | 'coordinator-multi' | 'category-router' | 'direct-query' | 'dialog' | 'skill-individual' | 'no-match' | 'llm-tool-calling';
     usedSkills?: string[];
     fallbackReason?: string;
     multiIntent?: MultiIntentResult;
