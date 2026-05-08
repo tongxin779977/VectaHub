@@ -4,6 +4,7 @@ import { parse, stringify } from 'yaml';
 import { createInterface, type Interface } from 'readline';
 import { createConsoleLogger } from '../utils/logger.js';
 import type { StepResult } from './priority-installer.js';
+import { getVectaHubPath } from '../utils/paths.js';
 
 const logger = createConsoleLogger('setup');
 
@@ -98,8 +99,7 @@ const DEFAULT_CONFIG: VectaHubConfig = {
 };
 
 function getConfigPath(): string {
-  const homeDir = process.env.HOME || process.env.USERPROFILE || '~';
-  return join(homeDir, '.vectahub', 'config.yaml');
+  return getVectaHubPath('config.yaml');
 }
 
 function getConfigDir(): string {

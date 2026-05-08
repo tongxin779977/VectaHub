@@ -8,14 +8,16 @@
 |------|-----|
 | **文档版本** | v2.0 |
 | **创建日期** | 2026-05-06 |
-| **最后更新** | 2026-05-06 |
-| **状态** | 草案 |
+| **最后更新** | 2026-05-08 |
+| **状态** | Go 重构数据迁移基线 |
 | **作者** | Data Team |
 | **技术栈** | Go 1.21+ |
 
 ---
 
 ## 2. 数据模型总览
+
+VectaHub 2.0 数据模型必须兼容当前 1.x 文件数据，并允许后续引入 SQLite / PostgreSQL 作为索引或服务化存储。默认 CLI 模式仍以本地文件为事实来源，避免破坏现有用户数据。
 
 ### 2.1 模型分类
 
@@ -27,6 +29,71 @@
 | **插件模型** | 3 | 文件/数据库 |
 | **监控模型** | 3 | 时序数据库 |
 | **安全模型** | 3 | 数据库 |
+
+---
+
+### 2.2 1.x 数据目录兼容
+
+2.0 继续支持以下解析优先级:
+
+```text
+VECTAHUB_HOME > $HOME/.vectahub
+```
+
+兼容目录布局:
+
+```text
+.vectahub/
+  config.yaml
+  workflows/
+    <workflow-id>.yaml
+    <workflow-id>.json
+  executions/
+    <execution-id>.json
+  outputs/
+    <execution-id>/<step-id>.stdout
+    <execution-id>/<step-id>.stderr
+  logs/
+    audit/
+      YYYY-MM-DD.jsonl
+    traces/
+  schedules.json
+  command-rules/
+    blocklist.json
+    allowlist.json
+  security-config.json
+  security-database.json
+  plugins/
+  plugins.json
+  templates/
+  archives/
+```
+
+迁移要求:
+
+- 2.0 首次启动不得自动破坏或重写 1.x 数据。
+- 2.0 读取旧数据失败时必须返回结构化诊断。
+- 2.0 写入新字段时必须保持旧字段可忽略。
+- 测试和插件调用必须能通过 `VECTAHUB_HOME` 隔离数据目录。
+
+### 2.3 必须迁移的 1.x 模型
+
+| 模型 | 1.x 来源 | 2.0 说明 |
+|------|----------|----------|
+| Config | `config.yaml` | 保留 LLM、external_cli、priority、模板目录 |
+| Workflow | `workflows/*.yaml/json` | 兼容 steps、mode、createdAt |
+| Step | workflow steps | 支持 exec、if、for_each、parallel、opencli 等类型 |
+| ExecutionRecord | `executions/*.json` | 保存状态、步骤、警告、metadata |
+| StepRecord | execution steps | 保存 output/error/iterations/outputRef |
+| OutputReference | `outputs/` | 大输出分离存储 |
+| AuditEvent | `logs/audit/*.jsonl` | 保持 JSONL |
+| ScheduleEntry | `schedules.json` | cron、workflowFile、command、args、lastStatus |
+| CommandRule | `command-rules` | blocklist/allowlist/default policy |
+| SecurityConfig | `security-config.json` | 安全策略配置 |
+| SecurityDatabase | `security-database.json` | 规则库和检测结果 |
+| ToolDefinition | 内置 registry | git/npm/docker/curl |
+| PluginManifest | `plugins/` | 插件元信息、状态、配置 |
+| Trace / Alert | trace-audit / monitor | trace span、告警和指标 |
 
 ---
 
@@ -44,6 +111,10 @@ type Config struct {
     Monitoring MonitoringConfig `yaml:"monitoring" json:"monitoring"`
     Logging    LoggingConfig    `yaml:"logging" json:"logging"`
     Security   SecurityConfig   `yaml:"security" json:"security"`
+    Paths      PathConfig       `yaml:"paths" json:"paths"`
+    AI         AIConfig         `yaml:"ai_providers" json:"ai_providers"`
+    ExternalCLI map[string]ExternalCLIConfig `yaml:"external_cli" json:"external_cli"`
+    Priority   []string        `yaml:"priority" json:"priority"`
 }
 
 type ServerConfig struct {
@@ -97,6 +168,31 @@ type SecurityConfig struct {
     RBACEnabled bool `yaml:"rbac_enabled" json:"rbac_enabled"`
     AuditEnabled bool `yaml:"audit_enabled" json:"audit_enabled"`
     EncryptionEnabled bool `yaml:"encryption_enabled" json:"encryption_enabled"`
+}
+
+type PathConfig struct {
+    Home         string `yaml:"home" json:"home"`
+    WorkflowsDir string `yaml:"workflows_dir" json:"workflows_dir"`
+    ExecutionsDir string `yaml:"executions_dir" json:"executions_dir"`
+    LogsDir      string `yaml:"logs_dir" json:"logs_dir"`
+}
+
+type AIConfig struct {
+    VectaHubLLM LLMProviderConfig `yaml:"vectahub_llm" json:"vectahub_llm"`
+}
+
+type LLMProviderConfig struct {
+    Provider  string `yaml:"provider" json:"provider"`
+    APIKey    string `yaml:"api_key,omitempty" json:"-"`
+    Model     string `yaml:"model,omitempty" json:"model,omitempty"`
+    BaseURL   string `yaml:"base_url,omitempty" json:"base_url,omitempty"`
+    TimeoutMS int    `yaml:"timeout_ms,omitempty" json:"timeout_ms,omitempty"`
+    Enabled   bool   `yaml:"enabled" json:"enabled"`
+}
+
+type ExternalCLIConfig struct {
+    Enabled       bool `yaml:"enabled" json:"enabled"`
+    HasPermission bool `yaml:"has_permission" json:"has_permission"`
 }
 ```
 
@@ -188,15 +284,19 @@ type Step struct {
     Retries   int                    `yaml:"retries" json:"retries" db:"retries"`
     OnError   string                 `yaml:"on_error" json:"on_error" db:"on_error"`
     Metadata  map[string]interface{} `yaml:"metadata" json:"metadata" db:"metadata"`
+    Items     []string               `yaml:"items,omitempty" json:"items,omitempty" db:"items"`
+    OutputVar string                 `yaml:"outputVar,omitempty" json:"outputVar,omitempty" db:"output_var"`
 }
 
 type StepType string
 
 const (
-    StepTypeCLI        StepType = "cli"
-    StepTypeCondition  StepType = "condition"
-    StepTypeLoop       StepType = "loop"
-    StepTypeParallel   StepType = "parallel"
+    StepTypeExec      StepType = "exec"
+    StepTypeCLI       StepType = "cli"
+    StepTypeIf        StepType = "if"
+    StepTypeForEach   StepType = "for_each"
+    StepTypeParallel  StepType = "parallel"
+    StepTypeOpenCLI   StepType = "opencli"
 )
 ```
 
@@ -768,12 +868,12 @@ CREATE TABLE audit_logs (
 
 | 数据类型 | 存储方式 | 说明 |
 |---------|---------|------|
-| **配置数据** | YAML 文件 | 本地配置文件 |
-| **工作流定义** | YAML 文件 | 版本控制 |
-| **执行记录** | 关系数据库 | 查询和分析 |
+| **配置数据** | YAML 文件 | 本地配置文件，兼容 `config.yaml` |
+| **工作流定义** | YAML/JSON 文件 | 兼容 `workflows/`，可版本控制 |
+| **执行记录** | JSON 文件 + 可选 SQLite 索引 | 兼容 `executions/`，服务模式可索引查询 |
 | **指标数据** | 时序数据库 | Prometheus |
-| **日志数据** | 日志系统 | Loki/ELK |
-| **审计日志** | 关系数据库 | 合规要求 |
+| **日志数据** | JSONL / 日志系统 | CLI 默认本地文件，服务模式可接 Loki/ELK |
+| **审计日志** | JSONL + 可选数据库索引 | 兼容 `logs/audit/*.jsonl`，合规场景可入库 |
 
 ### 10.2 备份策略
 
@@ -792,3 +892,4 @@ CREATE TABLE audit_logs (
 | 版本 | 日期 | 修改内容 | 作者 |
 |------|------|---------|------|
 | v2.0 | 2026-05-06 | Go 语言版本 | Data Team |
+| v2.1 | 2026-05-08 | 补充 1.x 数据目录、模型兼容和 VECTAHUB_HOME 策略 | Data Team |

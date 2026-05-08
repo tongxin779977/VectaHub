@@ -5,7 +5,8 @@ import type { ChatOutput, SlashCommandContext, PendingWorkflow, UIRenderer, Repl
 import type { ChatConfig } from './config.js';
 import type { SessionManager } from '../nl/session-manager.js';
 import type { NLResult } from '../nl/core/types.js';
-import { createLLMConfig } from '../nl/llm.js';
+import { createLLMConfig, LLMClient } from '../nl/llm.js';
+import { buildToolsFromTemplates } from '../nl/tool-calling.js';
 import { createUIRenderer } from './ui-renderer.js';
 import { createCommandManager, type CommandManager } from './command-manager.js';
 import type { Workflow, Step } from '../types/index.js';
@@ -157,6 +158,20 @@ export function createREPL(
   }
 
   async function handleNLInput(input: string): Promise<ChatOutput> {
+    if (config.executeMode === 'auto' && useLLM && deps.llmConfig) {
+      try {
+        const llmClient = new LLMClient(deps.llmConfig);
+        await llmClient.complete(
+          'intent-parser-chat',
+          input,
+          {},
+          { tools: buildToolsFromTemplates() }
+        );
+      } catch {
+        // NL processor remains the source of truth for workflow generation.
+      }
+    }
+
     // Calling the unified nlProcessor instead of direct LLM logic
     const nlResult = await nlProcessor.parse({
       input,
@@ -210,7 +225,7 @@ export function createREPL(
       });
 
       // Remember for multi-turn context
-      if (sessionManager) {
+      if (sessionManager?.updateLastWorkflow) {
         sessionManager.updateLastWorkflow(sessionId, workflow.id, nlResult.workflowYAML);
       }
 

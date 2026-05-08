@@ -1,13 +1,12 @@
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
-import { homedir } from 'os';
 import type { CommandRule, CommandRuleSet } from './types.js';
+import { getVectaHubPath } from '../utils/paths.js';
 
-const VECTAHUB_DIR = '.vectahub';
 const COMMAND_RULES_DIR = 'command-rules';
 
 function getGlobalConfigPath(): string {
-  return resolve(homedir(), VECTAHUB_DIR, COMMAND_RULES_DIR);
+  return getVectaHubPath(COMMAND_RULES_DIR);
 }
 
 export function loadRuleSet(filePath: string): CommandRule[] {

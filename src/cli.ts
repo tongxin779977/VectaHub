@@ -242,6 +242,11 @@ async function lazyLoadCliTools(): Promise<void> {
   }
 }
 
+const isDryRunInvocation = process.argv.includes('--dry-run');
+if (isDryRunInvocation) {
+  process.env.VECTAHUB_AUDIT_DISABLED = '1';
+}
+
 try {
   initAuditLogger();
 } catch (error) {
@@ -294,7 +299,7 @@ const program = new Command();
 program
   .name('vectahub')
   .description('VectaHub - Workflow Editor & Engine + OpenCLI')
-  .version('1.0.1')
+  .version('1.0.0')
   .option('-v, --verbose', '详细输出模式')
   .option('-d, --debug', '调试模式（包含详细输出）')
   .option('--non-interactive', '非交互模式（适用于 CI/CD）')
@@ -307,7 +312,21 @@ program
     if (opts.nonInteractive) {
       setNonInteractiveMode(true);
     }
-    
+  });
+
+program
+  .command('version')
+  .description('显示版本信息')
+  .option('--json', '以 JSON 格式输出')
+  .action((options) => {
+    const version = '1.0.0'; // TODO: 从 package.json 获取
+    if (options.json) {
+      console.log(JSON.stringify({ version, ok: true }));
+    } else {
+      console.log(`v${version}`);
+    }
+  });
+
     displayPolicyWarning();
   });
 

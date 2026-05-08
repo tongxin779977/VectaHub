@@ -1,23 +1,29 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createScheduleManager, type ScheduleEntry } from './scheduler.js';
-import { existsSync, unlinkSync, writeFileSync, mkdirSync, rmSync } from 'fs';
+import { createScheduleManager } from './scheduler.js';
+import { existsSync, rmSync, mkdtempSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { tmpdir } from 'os';
 import { createDetector } from '../sandbox/detector.js';
 
-const SCHEDULES_FILE = join(homedir(), '.vectahub', 'schedules.json');
-
 describe('scheduler', () => {
+  let vectahubHome: string;
+  const originalVectaHubHome = process.env.VECTAHUB_HOME;
+
   beforeEach(() => {
     vi.useFakeTimers();
-    if (existsSync(SCHEDULES_FILE)) {
-      unlinkSync(SCHEDULES_FILE);
-    }
+    vectahubHome = mkdtempSync(join(tmpdir(), 'vectahub-scheduler-'));
+    process.env.VECTAHUB_HOME = vectahubHome;
   });
 
   afterEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
+    rmSync(vectahubHome, { recursive: true, force: true });
+    if (originalVectaHubHome === undefined) {
+      delete process.env.VECTAHUB_HOME;
+    } else {
+      process.env.VECTAHUB_HOME = originalVectaHubHome;
+    }
   });
 
   it('creates a new schedule entry', () => {
@@ -32,6 +38,7 @@ describe('scheduler', () => {
     expect(entry.name).toBe('test schedule');
     expect(entry.enabled).toBe(true);
     expect(entry.createdAt).toBeDefined();
+    expect(existsSync(join(vectahubHome, 'schedules.json'))).toBe(true);
   });
 
   it('lists all schedules', () => {

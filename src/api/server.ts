@@ -1,7 +1,6 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
 import { createCoordinator, adaptAllTemplates } from '../nl/core/index.js';
 import { INTENT_TEMPLATES } from '../nl/templates/index.js';
 import { createLLMConfig, createLLMEnhancedParser } from '../nl/llm.js';
@@ -9,9 +8,12 @@ import { createWorkflowEngine } from '../workflow/engine.js';
 import { createStorage } from '../workflow/storage.js';
 import { createScheduleManager } from '../workflow/scheduler.js';
 import { audit, getCurrentSessionId, AuditEventType, queryAuditLogs } from '../utils/audit.js';
+import { getVectaHubPath } from '../utils/paths.js';
 import type { Workflow, Step } from '../types/index.js';
 
-const WORKFLOWS_DIR = join(homedir(), '.vectahub', 'workflows');
+function getWorkflowsDir(): string {
+  return getVectaHubPath('workflows');
+}
 
 interface APIResponse {
   success: boolean;
@@ -39,11 +41,13 @@ async function parseRequestBody(req: IncomingMessage): Promise<Record<string, un
 }
 
 function listWorkflows(): { id: string; name: string; steps: unknown[] }[] {
-  if (!existsSync(WORKFLOWS_DIR)) return [];
-  return readdirSync(WORKFLOWS_DIR)
+  const workflowsDir = getWorkflowsDir();
+
+  if (!existsSync(workflowsDir)) return [];
+  return readdirSync(workflowsDir)
     .filter((f) => f.endsWith('.json'))
     .map((f) => {
-      const content = readFileSync(join(WORKFLOWS_DIR, f), 'utf-8');
+      const content = readFileSync(join(workflowsDir, f), 'utf-8');
       const wf = JSON.parse(content);
       return { id: wf.id || f.replace('.json', ''), name: wf.name || 'unnamed', steps: wf.steps || [] };
     });

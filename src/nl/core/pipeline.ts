@@ -38,7 +38,7 @@ export function createNLProcessor(
   async function parse(context: NLContext): Promise<NLResult> {
     const input = typeof context.input === 'string' ? context.input : '';
 
-    if (!context.options?.useLLM || !llmConfig) {
+    if (!context.options?.useLLM) {
       const keywordResult = await keywordFallback.parse(context);
       return {
         success: keywordResult.success,
@@ -48,17 +48,19 @@ export function createNLProcessor(
         metadata: {
           path: 'keyword-only',
           usedSkills: [],
-          fallbackReason: !context.options?.useLLM ? 'LLM disabled' : 'No LLM config',
+          fallbackReason: 'LLM disabled',
         },
       };
     }
 
     // 1. Try LLM Tool Calling
-    try {
-      const llmResult = await executeLLMToolCalling(input, llmConfig);
-      if (llmResult) return llmResult;
-    } catch (err) {
-      logger.debug(`LLM Tool Calling failed: ${err}`);
+    if (llmConfig) {
+      try {
+        const llmResult = await executeLLMToolCalling(input, llmConfig);
+        if (llmResult) return llmResult;
+      } catch (err) {
+        logger.debug(`LLM Tool Calling failed: ${err}`);
+      }
     }
 
     const skillContext: SkillContext = {
@@ -318,39 +320,48 @@ function createTaskListFromWorkflow(workflowYAML: string, userInput: string): NL
       description?: string;
       steps?: Array<{
         id?: string;
+        name?: string;
         type?: string;
         cli?: string;
+        exec?: string;
+        command?: string;
         args?: string[];
       }>;
     };
 
     try {
-      workflow = YAML.parse(workflowYAML) as typeof workflow;
-    } catch {
       const documents = YAML.parseAllDocuments(workflowYAML);
       if (documents.length > 0) {
         workflow = documents[0].toJSON() as typeof workflow;
       } else {
-        throw new Error('No documents found');
+        workflow = YAML.parse(workflowYAML) as typeof workflow;
       }
+    } catch {
+      workflow = YAML.parse(workflowYAML) as typeof workflow;
     }
 
     const tasks = workflow.steps
       ? workflow.steps
-          .filter((step): step is { id: string; type: string; cli: string; args?: string[] } => 
-            !!step && typeof step === 'object' && typeof step.type === 'string' && step.type === 'exec' && typeof step.cli === 'string'
-          )
-          .map((step, index) => ({
-            id: step.id || `task_${index + 1}`,
-            type: 'QUERY_EXEC' as const,
-            description: step.id || `Step ${index + 1}`,
-            status: 'PENDING' as const,
-            commands: [{
-              cli: step.cli,
-              args: step.args || [],
-            }],
-            dependencies: [],
-          }))
+          .map((step, index) => {
+            const commandText = step.cli ?? step.exec ?? step.command;
+            if (!commandText) return null;
+
+            const [cli, ...splitArgs] = commandText.split(/\s+/).filter(Boolean);
+            const args = step.args ?? splitArgs;
+
+            return {
+              id: step.id || `task_${index + 1}`,
+              type: 'QUERY_EXEC' as const,
+              description: step.id || step.name || `Step ${index + 1}`,
+              status: 'PENDING' as const,
+              commands: [{
+                cli,
+                args,
+              }],
+              dependencies: [],
+            };
+          })
+          .filter((task): task is NonNullable<typeof task> => task !== null)
       : [];
 
     if (tasks.length === 0) {

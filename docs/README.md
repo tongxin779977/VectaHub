@@ -1,6 +1,6 @@
 # VectaHub 文档
 
-> 版本: 2.0 · 最后更新: 2026-05-06
+> 版本: 2.0 · 最后更新: 2026-05-08
 
 ---
 
@@ -28,10 +28,10 @@
 
 | 文档 | 说明 |
 |------|------|
-| [系统架构设计](./design/01_SYSTEM_ARCHITECTURE_V2.md) | 系统功能架构、模块划分、交互流程及技术选型 |
-| [功能点开发文档](./design/02_FEATURE_DEVELOPMENT_V2.md) | 各功能点的需求描述、实现方案、接口定义及开发进度 |
-| [API 接口设计](./design/03_API_INTERFACE_V2.md) | CLI、gRPC、REST API 及插件 API 接口定义 |
-| [数据模型设计](./design/04_DATA_MODEL_V2.md) | 核心数据模型、关系及存储策略 |
+| [系统架构设计](./design/01_SYSTEM_ARCHITECTURE_V2.md) | Go 重构总体架构、模块边界、1.x 能力迁移基线 |
+| [功能点开发文档](./design/02_FEATURE_DEVELOPMENT_V2.md) | 1.x 已有功能、Go 迁移目标、新增能力和开发阶段 |
+| [API 接口设计](./design/03_API_INTERFACE_V2.md) | CLI JSON 协议、gRPC、REST API 及插件 API 接口定义 |
+| [数据模型设计](./design/04_DATA_MODEL_V2.md) | 1.x 数据兼容、核心模型、存储目录和数据库策略 |
 
 ---
 
@@ -101,7 +101,9 @@
 
 ## VectaHub 2.0（Go 语言版本）
 
-**计划中** · Go 1.21+
+**Go 重构设计中** · Go 1.21+
+
+VectaHub 2.0 以当前 TypeScript 1.x 的稳定能力为迁移基线。当前 1.x 已通过 `npm run build`、`npm run typecheck` 和全量测试，测试结果为 `1178 passed | 18 skipped`。2.0 的目标是用 Go 重构 core、CLI、API 和插件接口，同时保持现有 workflow、execution、audit、config 等数据格式兼容。
 
 | 特性 | 说明 |
 |------|------|
@@ -116,14 +118,28 @@
 | **监控** | Prometheus + OpenTelemetry |
 | **测试** | testify |
 
+### 迁移范围
+
+| 1.x 已有能力 | 2.0 迁移要求 |
+|------|------|
+| 自然语言执行、规则 fallback、LLM 集成 | 迁移到 Go NL core |
+| Workflow 顺序/条件/循环/并行执行 | 迁移到 Go workflow engine |
+| `run --dry-run` 零副作用 | 保持行为，并新增 JSON 输出 |
+| `VECTAHUB_HOME` 数据目录隔离 | 保持兼容 |
+| Sandbox、危险命令检测、命令规则 | 迁移并强化 |
+| execution record、output store、audit log | 保持文件兼容，可增加 SQLite 索引 |
+| doctor、tools、security、history、templates、debug、monitor、plugins | 迁移 CLI 命令 |
+| REST API server | 迁移到 Gin，并补 gRPC |
+
 ### 开发计划
 
 | 阶段 | 时间 | 主要任务 |
 |------|------|---------|
-| **Phase 1** | 第 1 周 | 基础设施 + CLI 框架 |
-| **Phase 2** | 第 2-3 周 | 核心模块（NL、工作流、沙箱） |
-| **Phase 3** | 第 4 周 | 调试器 + 插件系统 |
-| **Phase 4** | 第 5 周 | 监控 + 后台服务 |
-| **Phase 5** | 第 6 周 | 安全增强 + 测试 |
+| **Phase 0** | 第 0 周 | 冻结 1.x 行为契约，补 CLI JSON 协议 |
+| **Phase 1** | 第 1 周 | Go 基础设施 + Cobra/Viper CLI |
+| **Phase 2** | 第 2-3 周 | 核心模块迁移（NL、工作流、沙箱、存储） |
+| **Phase 3** | 第 4 周 | REST/gRPC、调试器、插件系统 |
+| **Phase 4** | 第 5 周 | 监控、后台服务、VS Code 插件适配 |
+| **Phase 5** | 第 6 周 | 安全增强、迁移工具、兼容测试 |
 
 **总开发时间：6 周**

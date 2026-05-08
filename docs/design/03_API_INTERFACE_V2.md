@@ -8,8 +8,8 @@
 |------|-----|
 | **文档版本** | v2.0 |
 | **创建日期** | 2026-05-06 |
-| **最后更新** | 2026-05-06 |
-| **状态** | 草案 |
+| **最后更新** | 2026-05-08 |
+| **状态** | Go 重构接口基线 |
 | **作者** | API Team |
 | **技术栈** | Go 1.21+ |
 
@@ -17,15 +17,45 @@
 
 ## 2. API 总览
 
+VectaHub 2.0 API 必须覆盖当前 1.x 已有 CLI 能力，同时为 VS Code 插件、自动化脚本和未来 SDK 提供稳定结构化接口。所有面向机器调用的命令必须支持 `--json`，不得要求调用方解析人类日志。
+
 ### 2.1 接口分类
 
 | 分类 | 接口数 | 协议 | 状态 |
 |------|--------|------|------|
-| **CLI 命令** | 8 | 命令行 | 📋 计划中 |
-| **gRPC 服务** | 12 | gRPC | 📋 计划中 |
-| **REST API** | 10 | HTTP/REST | 📋 计划中 |
-| **插件 API** | 6 | Go 接口 | 📋 计划中 |
-| **内部模块** | 15 | Go 接口 | 📋 计划中 |
+| **CLI 命令** | 20+ | 命令行 + JSON | 🔄 迁移 1.x |
+| **gRPC 服务** | 12+ | gRPC | 🆕 2.0 新增 |
+| **REST API** | 10+ | HTTP/REST | 🔄 迁移并扩展 |
+| **插件 API** | 6+ | Go 接口 | 🔄 迁移并稳定 |
+| **内部模块** | 15+ | Go 接口 | 🔄 Go core |
+
+### 2.2 通用 JSON 响应
+
+所有 `--json` 命令统一返回:
+
+```go
+type CLIResponse[T any] struct {
+    OK          bool                `json:"ok"`
+    Data        T                   `json:"data,omitempty"`
+    Error       *APIError           `json:"error,omitempty"`
+    Diagnostics []DiagnosticMessage `json:"diagnostics,omitempty"`
+    Metadata    ResponseMetadata    `json:"metadata"`
+}
+
+type APIError struct {
+    Code    string `json:"code"`
+    Message string `json:"message"`
+    Details any    `json:"details,omitempty"`
+}
+
+type ResponseMetadata struct {
+    Version     string `json:"version"`
+    Command     string `json:"command"`
+    CWD         string `json:"cwd"`
+    VectaHubHome string `json:"vectahub_home,omitempty"`
+    DurationMS  int64  `json:"duration_ms"`
+}
+```
 
 ---
 
@@ -33,22 +63,51 @@
 
 ### 3.1 命令列表
 
-| 命令 | 描述 | 参数 |
-|------|------|------|
-| `vectahub run [input]` | 执行自然语言命令 | input: 自然语言输入 |
-| `vectahub serve` | 启动后台服务 | --port, --daemon |
-| `vectahub debug [workflow]` | 调试工作流 | workflow: 工作流文件 |
-| `vectahub workflow list` | 列出所有工作流 | --filter |
-| `vectahub workflow get [id]` | 获取工作流详情 | id: 工作流 ID |
-| `vectahub workflow create [file]` | 创建工作流 | file: YAML 文件 |
-| `vectahub workflow delete [id]` | 删除工作流 | id: 工作流 ID |
-| `vectahub plugin list` | 列出所有插件 | --status |
+| 命令 | 描述 | 2.0 要求 |
+|------|------|---------|
+| `vectahub --version` | 输出版本 | 支持稳定文本输出 |
+| `vectahub version --json` | 输出结构化版本 | 🆕 JSON |
+| `vectahub run [input]` | 执行自然语言命令 | 保持 1.x 行为 |
+| `vectahub run --dry-run [input]` | 零副作用预览 | 必须不安装、不扫描、不执行、不写记录 |
+| `vectahub run --json [input]` | 结构化执行结果 | 🆕 JSON |
+| `vectahub run -f [file]` | 执行 YAML workflow | 兼容现有 YAML |
+| `vectahub doctor` | 环境诊断 | 保持人类输出 |
+| `vectahub doctor --json` | 结构化环境诊断 | 🆕 JSON |
+| `vectahub tools list/info/search/commands` | 工具管理 | 迁移 git/npm/docker/curl |
+| `vectahub tools list --json` | 结构化工具列表 | 🆕 JSON |
+| `vectahub security test/list` | 安全检测和规则查看 | 迁移风险等级 |
+| `vectahub security test --json [command]` | 结构化安全检测 | 🆕 JSON |
+| `vectahub mode [mode]` | 查看/切换执行模式 | strict/relaxed/consensus |
+| `vectahub list` | 列出工作流 | 兼容 workflow 存储 |
+| `vectahub history` | 查看执行历史 | 兼容 execution record |
+| `vectahub history --json` | 结构化执行历史 | 🆕 JSON |
+| `vectahub detail [execution]` | 查看执行详情 | 兼容 output refs |
+| `vectahub rerun [execution]` | 重跑历史执行 | 保持 1.x 行为 |
+| `vectahub resume [execution]` | 从失败点恢复 | 保持 1.x 行为 |
+| `vectahub archive` | 归档执行记录 | 保持 1.x 行为 |
+| `vectahub templates list/use/save` | 模板管理 | 兼容模板目录 |
+| `vectahub schedule` | 调度工作流 | 兼容 schedules 数据 |
+| `vectahub serve` | 启动 HTTP/gRPC 服务 | Gin + gRPC |
+| `vectahub daemon` | 后台服务管理 | 显式启用 |
+| `vectahub debug [workflow]` | 调试工作流 | 迁移断点/单步 |
+| `vectahub monitor` | 监控状态 | 迁移 metrics/alerts |
+| `vectahub plugins` | 插件管理 | 迁移插件清单 |
+| `vectahub export/import` | 数据导入导出 | 保持数据包兼容 |
 
 ### 3.2 命令示例
 
 ```bash
 # 执行自然语言命令
 vectahub run "帮我查找所有 .go 文件"
+
+# 零副作用预览
+vectahub run --dry-run "查看 git 状态"
+
+# 插件/自动化使用 JSON 输出
+vectahub run --dry-run --json "查看 git 状态"
+vectahub doctor --json
+vectahub tools list --json
+vectahub security test --json "git status"
 
 # 启动后台服务
 vectahub serve --port 8080 --daemon
@@ -57,19 +116,36 @@ vectahub serve --port 8080 --daemon
 vectahub debug workflows/my-workflow.yaml
 
 # 列出工作流
-vectahub workflow list --filter status=active
-
-# 获取工作流详情
-vectahub workflow get workflow-123
-
-# 创建工作流
-vectahub workflow create workflows/new-workflow.yaml
-
-# 删除工作流
-vectahub workflow delete workflow-123
+vectahub list
 
 # 列出插件
-vectahub plugin list --status=active
+vectahub plugins list --status=active
+```
+
+### 3.3 CLI JSON 数据类型
+
+```go
+type PreviewResult struct {
+    OriginalInput string        `json:"original_input"`
+    Intent        string        `json:"intent"`
+    Confidence    float64       `json:"confidence"`
+    Commands      []CommandPlan `json:"commands"`
+    Risk          RiskSummary   `json:"risk"`
+    Executed      bool          `json:"executed"` // dry-run 必须为 false
+}
+
+type CommandPlan struct {
+    StepID string   `json:"step_id"`
+    CLI    string   `json:"cli"`
+    Args   []string `json:"args"`
+}
+
+type DoctorResult struct {
+    Checks   []DoctorCheck `json:"checks"`
+    Passed   int           `json:"passed"`
+    Warnings int           `json:"warnings"`
+    Failed   int           `json:"failed"`
+}
 ```
 
 ---
@@ -793,14 +869,15 @@ func NewError(code int, message string, details map[string]interface{}) *VectaHu
 
 | 版本 | 状态 | 说明 |
 |------|------|------|
-| **v1** | 已废弃 | TypeScript 版本 |
-| **v2** | 当前版本 | Go 版本 |
+| **v1** | 兼容基线 | TypeScript 1.x 已实现能力和数据格式 |
+| **v2** | 设计中 | Go 版本，兼容 v1 核心行为并新增 JSON/gRPC 协议 |
 
 ### 9.2 版本兼容性
 
-- gRPC 服务通过包名区分版本：`vectahub.v1`
-- REST API 通过路径区分版本：`/api/v1/`
-- 向后兼容：v2 API 兼容 v1 的核心功能
+- gRPC 服务通过包名区分版本：`vectahub.v2`
+- REST API 通过路径区分版本：`/api/v2/`
+- 向后兼容：v2 API 兼容 v1 的核心 CLI 行为、workflow 文件、execution record 和 audit log。
+- CLI JSON 协议从 v2 开始稳定，v1 人类日志不作为机器接口。
 
 ---
 
@@ -809,3 +886,4 @@ func NewError(code int, message string, details map[string]interface{}) *VectaHu
 | 版本 | 日期 | 修改内容 | 作者 |
 |------|------|---------|------|
 | v2.0 | 2026-05-06 | Go 语言版本 | API Team |
+| v2.1 | 2026-05-08 | 补充 1.x CLI 能力迁移、通用 JSON 响应和接口兼容策略 | API Team |

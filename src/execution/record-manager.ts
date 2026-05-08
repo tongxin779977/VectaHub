@@ -1,7 +1,7 @@
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
 import type { ExecutionRecord, ExecutionFilter, ExecutionSearchResult, ExecutionMetadata } from './types.js';
+import { getVectaHubPath } from '../utils/paths.js';
 
 export interface RecordManager {
   save(record: ExecutionRecord): Promise<void>;
@@ -27,7 +27,7 @@ function parseStartedAt(record: ExecutionRecord): string {
 }
 
 export function createRecordManager(baseDir?: string): RecordManager {
-  const dir = baseDir || join(homedir(), '.vectahub', 'executions');
+  const dir = baseDir || getVectaHubPath('executions');
 
   async function ensureDir(): Promise<void> {
     await mkdir(dir, { recursive: true });

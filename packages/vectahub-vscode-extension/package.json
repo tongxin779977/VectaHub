@@ -1,0 +1,103 @@
+{
+  "name": "vectahub-vscode-extension",
+  "displayName": "VectaHub Tasks",
+  "description": "Natural Language Workflow UI for VectaHub CLI",
+  "version": "0.1.0",
+  "publisher": "vectahub",
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Productivity",
+    "Other"
+  ],
+  "keywords": [
+    "vectahub",
+    "workflow",
+    "tasks",
+    "cli",
+    "automation",
+    "natural language"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "vectahub",
+          "title": "VectaHub",
+          "icon": "$(tasklist)"
+        }
+      ]
+    },
+    "views": {
+      "vectahub": [
+        {
+          "id": "vectahubTasks.tasksView",
+          "name": "Tasks"
+        },
+        {
+          "id": "vectahubTasks.advancedView",
+          "name": "Advanced"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "vectahubTasks.previewIntent",
+        "title": "VectaHub: Preview Intent",
+        "category": "VectaHub"
+      }
+    ],
+    "configuration": {
+      "title": "VectaHub",
+      "properties": {
+        "vectahubTasks.cliPath": {
+          "type": "string",
+          "default": "vectahub",
+          "description": "VectaHub CLI 可执行路径"
+        },
+        "vectahubTasks.executionMode": {
+          "type": "string",
+          "enum": [
+            "strict",
+            "relaxed",
+            "consensus"
+          ],
+          "default": "strict",
+          "description": "默认执行模式"
+        },
+        "vectahubTasks.previewBeforeRun": {
+          "type": "boolean",
+          "default": true,
+          "description": "执行前强制预览"
+        },
+        "vectahubTasks.autoDetectCli": {
+          "type": "boolean",
+          "default": true,
+          "description": "插件激活后自动检测 CLI"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "@vscode/test-electron": "^2.3.0",
+    "eslint": "^8.45.0",
+    "typescript": "^5.6.0"
+  }
+}

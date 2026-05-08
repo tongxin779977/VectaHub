@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
-import { homedir } from 'os';
 import type { SecurityRule, SecurityDatabase, SecurityConfig, DetectionResult } from './types.js';
 import { getDefaultRules } from './default-rules.js';
+import { getVectaHubPath } from '../utils/paths.js';
 
 let testMode = false;
 let testConfig: SecurityConfig | null = null;
@@ -47,7 +47,7 @@ export class SecurityProtocolManager {
       return;
     }
 
-    this.configPath = configPath || join(homedir(), '.vectahub', 'security-config.json');
+    this.configPath = configPath || getVectaHubPath('security-config.json');
     this.databasePath = join(dirname(this.configPath), 'security-database.json');
     this.config = this.loadConfig();
     this.database = this.loadDatabase();

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initAuditLogger, AuditEventType } from './index.js';
@@ -12,6 +12,7 @@ describe('audit infrastructure', () => {
   });
 
   afterEach(() => {
+    delete process.env.VECTAHUB_AUDIT_DISABLED;
     rmSync(testDir, { recursive: true, force: true });
   });
 
@@ -38,6 +39,23 @@ describe('audit infrastructure', () => {
 
     const files = readdirSync(testDir);
     expect(files.some((f: string) => f.endsWith('.jsonl'))).toBe(true);
+  });
+
+  it('does not create audit directory when audit is disabled', () => {
+    const auditDir = join(testDir, 'disabled-audit');
+    process.env.VECTAHUB_AUDIT_DISABLED = '1';
+
+    const logger = initAuditLogger('test-session', auditDir);
+    logger.write({
+      event: AuditEventType.WORKFLOW_START,
+      timestamp: new Date('2026-05-01T10:00:00Z').toISOString(),
+      sessionId: 'test-session',
+      module: 'engine',
+      action: 'workflow.start',
+      success: true,
+    });
+
+    expect(existsSync(auditDir)).toBe(false);
   });
 
   it('query returns matching entries', () => {

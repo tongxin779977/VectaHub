@@ -1,7 +1,7 @@
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { mkdir, readFile, writeFile, readdir, rm, stat } from 'node:fs/promises';
 import type { OutputReference } from './types.js';
+import { getVectaHubPath } from '../utils/paths.js';
 
 export interface OutputStore {
   save(executionId: string, stepId: string, stdout: string, stderr?: string): Promise<OutputReference>;
@@ -26,7 +26,7 @@ function makeSummary(content: string, maxLen = 200): string {
 }
 
 export function createOutputStore(baseDir?: string): OutputStore {
-  const dir = baseDir || join(homedir(), '.vectahub', 'outputs');
+  const dir = baseDir || getVectaHubPath('outputs');
 
   return {
     async save(executionId: string, stepId: string, stdout: string, stderr = ''): Promise<OutputReference> {

@@ -131,6 +131,13 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
   }
 
   function evaluateCondition(condition: string, context: ExecutionContext): boolean {
+    const simpleEqMatch = condition.match(/^(\w+)\s*==\s*(.+)$/);
+    if (simpleEqMatch) {
+      const [, varName, expectedValue] = simpleEqMatch;
+      const actualValue = context.variables[varName]?.[0];
+      return actualValue?.trim() === expectedValue.trim();
+    }
+
     let data: any;
 
     if (context.executionId) {

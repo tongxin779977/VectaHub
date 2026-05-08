@@ -274,11 +274,24 @@ function formatCategoryTools(category: string, tools: any[]): string {
 toolsCmd
   .command('list')
   .description('List all registered CLI tools')
-  .action(() => {
+  .option('--json', 'Output results in JSON format')
+  .action((options) => {
     const registry = getCliToolRegistry();
     const tools = registry.getAllTools();
 
-    console.log(formatToolList(tools));
+    if (options.json) {
+      console.log(JSON.stringify({
+        ok: true,
+        tools: tools.map(t => ({
+          name: t.name,
+          description: t.description,
+          commandCount: Object.keys(t.commands).length,
+          dangerousCount: t.dangerousCommands?.length || 0
+        }))
+      }, null, 2));
+    } else {
+      console.log(formatToolList(tools));
+    }
   });
 
 toolsCmd

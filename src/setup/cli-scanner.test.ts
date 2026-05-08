@@ -109,19 +109,17 @@ describe('cli-scanner', () => {
 
   describe('scanCLITools (fault-tolerant)', () => {
     it('should continue scanning when one tool fails', async () => {
-      let callCount = 0;
-      mockExec.mockImplementation((_cmd: string, cb: any) => {
-        callCount++;
-        // First tool (gemini) succeeds
-        if (callCount === 1) {
-          cb(null, { stdout: '1.0.0\n', stderr: '' });
-        } else if (callCount === 2) {
-          // Second tool (claude) throws unexpectedly
+      mockExec.mockImplementation((cmd: string, cb: any) => {
+        if (cmd.includes('claude')) {
           throw new Error('catastrophic failure');
-        } else {
-          // Remaining tools succeed
-          cb(null, { stdout: '3.0.0\n', stderr: '' });
         }
+
+        if (cmd.startsWith('which ')) {
+          cb(null, { stdout: `/usr/local/bin/${cmd.replace('which ', '')}\n`, stderr: '' });
+          return {} as any;
+        }
+
+        cb(null, { stdout: '3.0.0\n', stderr: '' });
         return {} as any;
       });
 

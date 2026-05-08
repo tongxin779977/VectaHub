@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { readdir } from 'fs/promises';
+import { readFile, readdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 
@@ -33,7 +33,18 @@ function formatDoctorResults(checks: { name: string; status: 'pass' | 'fail' | '
   return lines.join('\n');
 }
 
-async function runChecks(verbose = false): Promise<{ name: string; status: 'pass' | 'fail' | 'warn'; message: string }[]> {
+type DoctorCheck = { name: string; status: 'pass' | 'fail' | 'warn'; message: string };
+
+async function hasPackageDependency(name: string): Promise<boolean> {
+  try {
+    const packageJson = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf-8'));
+    return Boolean(packageJson.dependencies?.[name] || packageJson.devDependencies?.[name]);
+  } catch {
+    return false;
+  }
+}
+
+export async function runChecks(verbose = false): Promise<DoctorCheck[]> {
   const checks: { name: string; status: 'pass' | 'fail' | 'warn'; message: string }[] = [];
 
   try {
@@ -84,7 +95,19 @@ async function runChecks(verbose = false): Promise<{ name: string; status: 'pass
     const { stdout } = await execAsync('npx tsx --version');
     checks.push({ name: 'tsx', status: 'pass', message: stdout.trim() });
   } catch {
-    checks.push({ name: 'tsx', status: 'fail', message: 'Not found' });
+    const packageExists = existsSync(join(process.cwd(), 'package.json'));
+    const srcExists = existsSync(join(process.cwd(), 'src'));
+    const hasLocalTsx = packageExists && await hasPackageDependency('tsx');
+
+    if (hasLocalTsx && srcExists) {
+      checks.push({ name: 'tsx', status: 'pass', message: 'Declared in devDependencies' });
+    } else {
+      checks.push({
+        name: 'tsx',
+        status: 'warn',
+        message: 'Not available (only needed for source dev)',
+      });
+    }
   }
 
   try {
@@ -160,7 +183,21 @@ async function runChecks(verbose = false): Promise<{ name: string; status: 'pass
 export const doctorCmd = new Command('doctor')
   .description('Run diagnostics to check system requirements')
   .option('--verbose', 'Show detailed diagnostic information')
-  .action(async (options: { verbose?: boolean }) => {
+  .option('--json', 'Output results in JSON format')
+  .action(async (options: { verbose?: boolean; json?: boolean }) => {
     const checks = await runChecks(options.verbose || false);
-    console.log(formatDoctorResults(checks));
+    if (options.json) {
+      console.log(JSON.stringify({
+        ok: checks.every(c => c.status !== 'fail'),
+        checks,
+        summary: {
+          passed: checks.filter(c => c.status === 'pass').length,
+          failed: checks.filter(c => c.status === 'fail').length,
+          warnings: checks.filter(c => c.status === 'warn').length
+        }
+      }, null, 2));
+    } else {
+      console.log(formatDoctorResults(checks));
+    }
+    process.exit(0);
   });

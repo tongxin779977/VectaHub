@@ -2,9 +2,9 @@
 
 > Natural Language Workflow Engine — 用自然语言描述任务，自动执行本地工作流。
 
-[![Version](https://img.shields.io/badge/version-1.0.1-blue)]()
+[![Version](https://img.shields.io/badge/version-1.0.0-blue)]()
 [![Node.js](https://img.shields.io/badge/node-%3E%3D21.0.0-brightgreen)]()
-[![Tests](https://img.shields.io/badge/tests-905%2F905%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1178%20passing%20%7C%2018%20skipped-brightgreen)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)]()
 
 [English](./README.md) · [中文](./docs/README.md)
@@ -198,7 +198,9 @@ npm test
 | Executor | >= 75% |
 | 其他模块 | >= 70% |
 
-当前状态：**71 个测试文件 / 905 个测试用例，全部通过**。
+当前状态：**100 个测试文件通过，1178 个测试用例通过，18 个测试用例跳过**。
+
+说明：跳过项为需要外部条件的场景，例如当前环境不允许绑定本地 API 端口时的 API 集成测试。
 
 ### 代码规范
 

@@ -1,0 +1,98 @@
+import { spawn } from 'child_process';
+import * as vscode from 'vscode';
+import { getCliPath } from '../config/settings.js';
+import { CliResult, CliOptions } from './types.js';
+import { logToOutput } from '../ui/output.js';
+import path from 'path';
+
+let globalContext: vscode.ExtensionContext;
+
+export function initCliAdapter(context: vscode.ExtensionContext) {
+  globalContext = context;
+}
+
+export async function runCli<T = unknown>(args: string[], options: CliOptions = {}): Promise<CliResult<T>> {
+  const cliPath = getCliPath();
+  const cwd = options.cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  
+  const vectahubHome = path.join(globalContext.globalStorageUri.fsPath, 'vectahub-home');
+  
+  const env = {
+    ...process.env,
+    CI: '1',
+    VECTAHUB_NON_INTERACTIVE: '1',
+    VECTAHUB_HOME: vectahubHome,
+    ...options.env
+  };
+
+  logToOutput(`Running CLI: ${cliPath} ${args.join(' ')}`);
+
+  return new Promise((resolve) => {
+    const child = spawn(cliPath, args, {
+      cwd,
+      env,
+      timeout: options.timeout || 30000
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    child.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    options.token?.onCancellationRequested(() => {
+      child.kill();
+      resolve({
+        ok: false,
+        stdout,
+        stderr,
+        exitCode: null,
+        error: { code: 'CANCELLED', message: 'Command was cancelled by user' }
+      });
+    });
+
+    child.on('close', (code) => {
+      const isJson = args.includes('--json');
+      let data: T | undefined;
+      let ok = code === 0;
+      let error: CliResult['error'];
+
+      if (isJson && stdout.trim()) {
+        try {
+          data = JSON.parse(stdout.trim());
+        } catch (e: any) {
+          logToOutput(`Failed to parse JSON output: ${e.message}`, 'error');
+          if (ok) { // If exit code was 0 but JSON failed
+            ok = false;
+            error = { code: 'INVALID_JSON', message: 'Failed to parse CLI JSON output', details: e.message };
+          }
+        }
+      }
+
+      resolve({
+        ok,
+        data,
+        stdout,
+        stderr,
+        exitCode: code,
+        error
+      });
+    });
+
+    child.on('error', (err) => {
+      logToOutput(`CLI Spawn Error: ${err.message}`, 'error');
+      resolve({
+        ok: false,
+        stdout: '',
+        stderr: err.message,
+        exitCode: null,
+        error: { code: 'SPAWN_ERROR', message: err.message }
+      });
+    });
+  });
+}

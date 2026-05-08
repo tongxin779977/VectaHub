@@ -1,73 +1,84 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn } from 'child_process';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
 import { join } from 'path';
 
 describe('CLI Module', () => {
   const CLI_PATH = join(__dirname, 'cli.ts');
+  let testHome: string;
 
   beforeAll(() => {
+    testHome = mkdtempSync(join(tmpdir(), 'vectahub-cli-test-'));
   });
 
-  it('should display help command', async () => {
-    const code = await new Promise<number>((resolve) => {
-      const child = spawn('npx', ['tsx', CLI_PATH, '--help'], {
+  afterAll(() => {
+    rmSync(testHome, { recursive: true, force: true });
+  });
+
+  function runCli(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+    return new Promise((resolve) => {
+      const env = {
+        ...process.env,
+        CI: 'true',
+        HOME: testHome,
+        USERPROFILE: testHome,
+        VECTAHUB_HOME: join(testHome, '.vectahub'),
+      };
+      const child = spawn(process.execPath, ['--import', 'tsx', CLI_PATH, ...args], {
         cwd: join(__dirname, '..'),
-        stdio: 'pipe'
+        env,
+        stdio: 'pipe',
       });
 
-      let output = '';
+      let stdout = '';
+      let stderr = '';
       child.stdout.on('data', (data) => {
-        output += data.toString();
+        stdout += data.toString();
+      });
+      child.stderr.on('data', (data) => {
+        stderr += data.toString();
       });
 
       child.on('close', (exitCode) => {
-        resolve(exitCode || 0);
+        resolve({ code: exitCode || 0, stdout, stderr });
       });
 
-      child.on('error', () => {
-        resolve(1);
+      child.on('error', (error) => {
+        resolve({ code: 1, stdout, stderr: error.message });
       });
     });
+  }
 
-    expect(code).toBe(0);
+  it('should display help command', async () => {
+    const result = await runCli(['--help']);
+
+    expect(result.stderr).toBe('');
+    expect(result.code).toBe(0);
   });
 
   it('should display version', async () => {
-    const code = await new Promise<number>((resolve) => {
-      const child = spawn('npx', ['tsx', CLI_PATH, '--version'], {
-        cwd: join(__dirname, '..'),
-        stdio: 'pipe'
-      });
+    const result = await runCli(['--version']);
 
-      child.on('close', (exitCode) => {
-        resolve(exitCode || 0);
-      });
+    expect(result.stderr).toBe('');
+    expect(result.code).toBe(0);
+    expect(result.stdout.trim()).toBe('1.0.0');
+  });
 
-      child.on('error', () => {
-        resolve(1);
-      });
-    });
+  it('should run doctor and exit cleanly', async () => {
+    const result = await runCli(['doctor']);
 
-    expect(code).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('VectaHub Doctor');
+    expect(result.stdout).toContain('0 failed');
   });
 
   it('should display dev commands', async () => {
-    const code = await new Promise<number>((resolve) => {
-      const child = spawn('npx', ['tsx', CLI_PATH, 'dev', '--help'], {
-        cwd: join(__dirname, '..'),
-        stdio: 'pipe'
-      });
+    const result = await runCli(['dev', '--help']);
 
-      child.on('close', (exitCode) => {
-        resolve(exitCode || 0);
-      });
-
-      child.on('error', () => {
-        resolve(1);
-      });
-    });
-
-    expect(code).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.code).toBe(0);
   });
 
   it('should have core commands registered on --help', async () => {
@@ -78,108 +89,40 @@ describe('CLI Module', () => {
       'config'
     ];
 
-    const code = await new Promise<number>((resolve) => {
-      const child = spawn('npx', ['tsx', CLI_PATH, '--help'], {
-        cwd: join(__dirname, '..'),
-        stdio: 'pipe'
-      });
+    const result = await runCli(['--help']);
 
-      let output = '';
-      child.stdout.on('data', (data) => {
-        output += data.toString();
-      });
-
-      child.on('close', (exitCode) => {
-        for (const cmd of coreCommands) {
-          if (!output.includes(cmd)) {
-            resolve(1);
-            return;
-          }
-        }
-        resolve(exitCode || 0);
-      });
-
-      child.on('error', () => {
-        resolve(1);
-      });
-    });
-
-    expect(code).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.code).toBe(0);
+    for (const cmd of coreCommands) {
+      expect(result.stdout).toContain(cmd);
+    }
   });
 
   it('should lazily load serve command', async () => {
-    const code = await new Promise<number>((resolve) => {
-      const child = spawn('npx', ['tsx', CLI_PATH, 'serve', '--help'], {
-        cwd: join(__dirname, '..'),
-        stdio: 'pipe'
-      });
+    const result = await runCli(['serve', '--help']);
 
-      child.on('close', (exitCode) => {
-        resolve(exitCode || 0);
-      });
-
-      child.on('error', () => {
-        resolve(1);
-      });
-    });
-
-    expect(code).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.code).toBe(0);
   });
 
   it('should lazily load security command', async () => {
-    const code = await new Promise<number>((resolve) => {
-      const child = spawn('npx', ['tsx', CLI_PATH, 'security', '--help'], {
-        cwd: join(__dirname, '..'),
-        stdio: 'pipe'
-      });
+    const result = await runCli(['security', '--help']);
 
-      child.on('close', (exitCode) => {
-        resolve(exitCode || 0);
-      });
-
-      child.on('error', () => {
-        resolve(1);
-      });
-    });
-
-    expect(code).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.code).toBe(0);
   });
 
   it('should lazily load audit command', async () => {
-    const code = await new Promise<number>((resolve) => {
-      const child = spawn('npx', ['tsx', CLI_PATH, 'audit', '--help'], {
-        cwd: join(__dirname, '..'),
-        stdio: 'pipe'
-      });
+    const result = await runCli(['audit', '--help']);
 
-      child.on('close', (exitCode) => {
-        resolve(exitCode || 0);
-      });
-
-      child.on('error', () => {
-        resolve(1);
-      });
-    });
-
-    expect(code).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.code).toBe(0);
   });
 
   it('should lazily load export and import commands', async () => {
-    const code = await new Promise<number>((resolve) => {
-      const child = spawn('npx', ['tsx', CLI_PATH, 'export', '--help'], {
-        cwd: join(__dirname, '..'),
-        stdio: 'pipe'
-      });
+    const result = await runCli(['export', '--help']);
 
-      child.on('close', (exitCode) => {
-        resolve(exitCode || 0);
-      });
-
-      child.on('error', () => {
-        resolve(1);
-      });
-    });
-
-    expect(code).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.code).toBe(0);
   });
 });

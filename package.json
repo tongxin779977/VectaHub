@@ -26,6 +26,9 @@
   ],
   "author": "",
   "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ],
   "dependencies": {
     "commander": "^14.0.3",
     "json-logic-js": "^2.0.5",

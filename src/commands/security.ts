@@ -379,10 +379,26 @@ securityCmd
   .command('test <command>')
   .description('Test if a command is dangerous')
   .option('--cli-tool <tool>', 'CLI tool to test against')
+  .option('--json', 'Output results in JSON format')
   .action(async (command, options) => {
     const sessionId = getCurrentSessionId();
     const manager = getSecurityManager();
     const result = manager.detectCommand(command, options.cliTool);
+
+    if (options.json) {
+      console.log(JSON.stringify({
+        ok: true,
+        isDangerous: result.isDangerous,
+        severity: result.severity,
+        rule: result.rule ? {
+          id: result.rule.id,
+          name: result.rule.name,
+          description: result.rule.description
+        } : null,
+        matchedPattern: result.matchedPattern
+      }, null, 2));
+      return;
+    }
 
     const output: string[] = [];
     output.push('\n🔍 Test Result:');

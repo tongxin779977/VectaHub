@@ -1,13 +1,11 @@
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
 import { spawn } from 'child_process';
 import type { WorkflowEngine } from './engine.js';
 import type { Workflow } from '../types/index.js';
 import { getAuditInstance, AuditEventType, audit } from '../infrastructure/audit/index.js';
 import { createDetector } from '../sandbox/detector.js';
-
-const SCHEDULES_FILE = join(homedir(), '.vectahub', 'schedules.json');
+import { getVectaHubHome, getVectaHubPath } from '../utils/paths.js';
 
 export interface ScheduleEntry {
   id: string;
@@ -96,7 +94,7 @@ function updateEntryStatus(entry: ScheduleEntry, result: { success: boolean; err
 }
 
 function ensureSchedulesDir(): void {
-  const dir = join(homedir(), '.vectahub');
+  const dir = getVectaHubHome();
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
@@ -104,11 +102,12 @@ function ensureSchedulesDir(): void {
 
 function loadSchedules(): ScheduleEntry[] {
   ensureSchedulesDir();
-  if (!existsSync(SCHEDULES_FILE)) {
+  const schedulesFile = getVectaHubPath('schedules.json');
+  if (!existsSync(schedulesFile)) {
     return [];
   }
   try {
-    const raw = readFileSync(SCHEDULES_FILE, 'utf-8');
+    const raw = readFileSync(schedulesFile, 'utf-8');
     return JSON.parse(raw) as ScheduleEntry[];
   } catch {
     return [];
@@ -117,7 +116,7 @@ function loadSchedules(): ScheduleEntry[] {
 
 function saveSchedules(entries: ScheduleEntry[]): void {
   ensureSchedulesDir();
-  writeFileSync(SCHEDULES_FILE, JSON.stringify(entries, null, 2), 'utf-8');
+  writeFileSync(getVectaHubPath('schedules.json'), JSON.stringify(entries, null, 2), 'utf-8');
 }
 
 function parseCronInterval(cron: string): number {

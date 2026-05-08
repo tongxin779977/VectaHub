@@ -1,14 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { homedir } from 'node:os';
 import YAML from 'yaml';
 import type { Workflow, ExecutionRecord, StepRecord } from '../types/index.js';
 import { createConsoleLogger } from '../utils/logger.js';
 import { createOutputStore, type OutputStore } from '../execution/output-store.js';
+import { getVectaHubHome } from '../utils/paths.js';
 
 const logger = createConsoleLogger('storage');
-
-const DEFAULT_STORAGE_DIR = path.join(homedir(), '.vectahub');
 
 export interface StorageOptions {
   storageDir?: string;
@@ -40,7 +38,7 @@ async function ensureDir(dir: string): Promise<void> {
 }
 
 export function createStorage(options: StorageOptions = {}): Storage {
-  const storageDir = options.storageDir || DEFAULT_STORAGE_DIR;
+  const storageDir = options.storageDir || getVectaHubHome();
   const executionsDir = path.join(storageDir, 'executions');
   const workflowsDir = path.join(storageDir, 'workflows');
   const separateOutput = options.separateOutput !== false;

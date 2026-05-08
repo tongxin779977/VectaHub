@@ -1,10 +1,8 @@
 import { mkdirSync, existsSync, appendFileSync, readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
 import { VectaHubError, ErrorType } from '../errors/index.js';
 import { redactSensitiveData } from '../../utils/sensitive-data.js';
-
-const AUDIT_DIR = join(homedir(), '.vectahub', 'logs', 'audit');
+import { getVectaHubPath } from '../../utils/paths.js';
 
 let auditInstance: AuditLogger | null = null;
 
@@ -60,6 +58,10 @@ function getAuditFilePath(baseDir: string, date: Date = new Date()): string {
   return join(baseDir, `${dateStr}.jsonl`);
 }
 
+function isAuditDisabled(): boolean {
+  return process.env.VECTAHUB_AUDIT_DISABLED === '1';
+}
+
 class AuditLogger {
   private sessionId: string;
   private baseDir: string;
@@ -67,9 +69,11 @@ class AuditLogger {
 
   constructor(sessionId?: string, baseDir?: string) {
     this.sessionId = sessionId || generateSessionId();
-    this.baseDir = baseDir ?? AUDIT_DIR;
-    ensureDir(this.baseDir);
+    this.baseDir = baseDir ?? getVectaHubPath('logs', 'audit');
     this.filePath = getAuditFilePath(this.baseDir);
+    if (!isAuditDisabled()) {
+      ensureDir(this.baseDir);
+    }
   }
 
   getSessionId(): string {
@@ -77,7 +81,12 @@ class AuditLogger {
   }
 
   write(event: AuditEvent): void {
+    if (isAuditDisabled()) {
+      return;
+    }
+
     try {
+      ensureDir(this.baseDir);
       const sanitizedEvent = this.sanitizeEvent(event);
       const line = JSON.stringify(sanitizedEvent) + '\n';
       appendFileSync(this.filePath, line, 'utf-8');
