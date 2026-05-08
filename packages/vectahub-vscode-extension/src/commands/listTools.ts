@@ -6,11 +6,20 @@ export function registerListToolsCommand(context: vscode.ExtensionContext) {
   const disposable = vscode.commands.registerCommand('vectahubTasks.listTools', async () => {
     logToOutput('正在列出已注册的 CLI 工具...');
     
-    const result = await runCli<any>(['tools', 'list', '--json']);
+    interface ToolInfo {
+      name: string;
+      description: string;
+      commandCount: number;
+      dangerousCount: number;
+    }
+    interface ToolsResult {
+      tools: ToolInfo[];
+    }
+    const result = await runCli<ToolsResult>(['tools', 'list', '--json']);
     
     if (result.ok && result.data) {
       logToOutput('已注册工具:');
-      result.data.tools.forEach((tool: any) => {
+      result.data.tools.forEach((tool: ToolInfo) => {
         logToOutput(`- ${tool.name}: ${tool.description} (命令数: ${tool.commandCount}, 危险命令数: ${tool.dangerousCount})`);
       });
       vscode.window.showInformationMessage(`发现 ${result.data.tools.length} 个已注册的 CLI 工具。`);

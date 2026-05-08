@@ -90,11 +90,12 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
               error = { code: jsonResult.error.code || 'CLI_ERROR', message: jsonResult.error.message || 'Unknown error' };
             }
           }
-        } catch (e: any) {
-          logToOutput(`Failed to parse JSON output: ${e.message}`, 'error');
+        } catch (e: unknown) {
+          const parseError = e as Error;
+          logToOutput(`Failed to parse JSON output: ${parseError.message}`, 'error');
           if (ok) {
             ok = false;
-            error = { code: 'INVALID_JSON', message: 'Failed to parse CLI JSON output', details: e.message };
+            error = { code: 'INVALID_JSON', message: 'Failed to parse CLI JSON output', details: parseError.message };
           }
         }
       }

@@ -17,7 +17,12 @@ export function registerTestSecurityCommand(context: vscode.ExtensionContext) {
 
     logToOutput(`正在进行安全测试，命令: "${command}"`);
     
-    const result = await runCli<any>(['security', 'test', '--json', command]);
+    interface SecurityResult {
+      isDangerous: boolean;
+      severity?: string;
+      rule?: { name: string };
+    }
+    const result = await runCli<SecurityResult>(['security', 'test', '--json', command]);
     
     if (result.ok && result.data) {
       if (result.data.isDangerous) {

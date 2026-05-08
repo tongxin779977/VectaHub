@@ -20,6 +20,7 @@
 | [常见问题](./current/faq.md) | 安装、配置、使用、安全和排障说明 |
 | [CLI 命令](./current/cli-commands.md) | 当前 CLI 命令清单 |
 | [用户场景](./current/user-scenarios.md) | VectaHub 1.0.0 的常见使用场景 |
+| [全量模拟用户验收测试](./current/full-user-acceptance-test.md) | CLI、VS Code 插件和联动路径的端到端验收步骤 |
 | [已知问题](./current/BUGS.md) | 当前待修复问题与修复建议 |
 
 ## 开发者参考

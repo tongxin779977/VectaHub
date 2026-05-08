@@ -8,7 +8,10 @@ export function registerDoctorCommand(context: vscode.ExtensionContext) {
     logToOutput('正在运行 VectaHub 环境检查 (Doctor)...');
     updateStatusBar('Running');
     
-    const result = await runCli<any>(['doctor', '--json']);
+    interface DoctorResult {
+  summary: { passed: number; warnings: number; failed: number };
+}
+const result = await runCli<DoctorResult>(['doctor', '--json']);
     
     if (result.ok && result.data) {
       logToOutput('Doctor 检查摘要:');

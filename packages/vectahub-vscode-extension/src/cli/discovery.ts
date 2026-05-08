@@ -56,10 +56,11 @@ export async function discoverCli(): Promise<CliDiscoveryResult> {
       version: stdout.trim(),
       path: absolutePath || cliPath
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const err = error as Error;
     return {
       exists: false,
-      error: error.message
+      error: err.message
     };
   }
 }

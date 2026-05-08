@@ -69,7 +69,10 @@ export async function activate(context: vscode.ExtensionContext) {
       
       // 检测成功后自动运行一次 doctor
       logToOutput('Running initial VectaHub doctor...');
-      const doctorResult = await runCli<any>(['doctor', '--json']);
+      interface DoctorResult {
+        summary?: { passed: number; failed: number; warnings: number };
+      }
+      const doctorResult = await runCli<DoctorResult>(['doctor', '--json']);
       if (doctorResult.ok) {
         logToOutput('VectaHub doctor passed.');
       } else {
