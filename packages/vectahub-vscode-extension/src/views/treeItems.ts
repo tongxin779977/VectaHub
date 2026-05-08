@@ -16,9 +16,15 @@ export class TaskTreeItem extends VectaHubTreeItem {
   constructor(
     label: string,
     command: vscode.Command,
-    icon: string = 'play'
+    icon: string = 'play',
+    public readonly source?: string,
+    description?: string
   ) {
     super(label, vscode.TreeItemCollapsibleState.None, command, 'task', new vscode.ThemeIcon(icon));
+    this.description = description || source;
+    if (source) {
+      this.tooltip = `Source: ${source}${description ? '\n' + description : ''}`;
+    }
   }
 }
 

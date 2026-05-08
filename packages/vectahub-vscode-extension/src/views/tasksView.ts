@@ -1,9 +1,13 @@
 import * as vscode from 'vscode';
 import { CategoryTreeItem, TaskTreeItem, VectaHubTreeItem } from './treeItems.js';
+import { detectProjectTasks } from '../project/detector.js';
+import { ProjectTask } from '../project/taskModel.js';
 
 export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeItem> {
   private _onDidChangeTreeData: vscode.EventEmitter<VectaHubTreeItem | undefined | null | void> = new vscode.EventEmitter<VectaHubTreeItem | undefined | null | void>();
   readonly onDidChangeTreeData: vscode.Event<VectaHubTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
+
+  private projectTasks: ProjectTask[] = [];
 
   refresh(): void {
     this._onDidChangeTreeData.fire();
@@ -13,29 +17,57 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
     return element;
   }
 
-  getChildren(element?: VectaHubTreeItem): Thenable<VectaHubTreeItem[]> {
+  async getChildren(element?: VectaHubTreeItem): Promise<VectaHubTreeItem[]> {
     if (element instanceof CategoryTreeItem) {
-      return Promise.resolve(element.children);
+      return element.children;
     }
 
     if (!element) {
-      return Promise.resolve([
-        new CategoryTreeItem('Common', [
-          new TaskTreeItem('Git Status', { command: 'vectahubTasks.runCommonTask', title: 'Git Status', arguments: ['查看 git 状态'] }, 'git-compare'),
-          new TaskTreeItem('Run Tests', { command: 'vectahubTasks.runCommonTask', title: 'Run Tests', arguments: ['运行测试'] }, 'test-view-icon'),
-          new TaskTreeItem('Build Project', { command: 'vectahubTasks.runCommonTask', title: 'Build Project', arguments: ['构建项目'] }, 'build'),
-          new TaskTreeItem('Doctor', { command: 'vectahubTasks.doctor', title: 'Run Doctor' }, 'pulse'),
-        ]),
-        new CategoryTreeItem('Natural Language', [
-          new TaskTreeItem('Preview Intent', { command: 'vectahubTasks.previewIntent', title: 'Preview Intent' }, 'search'),
-          new TaskTreeItem('Run Intent', { command: 'vectahubTasks.runIntent', title: 'Run Intent' }, 'play-circle'),
-        ]),
+      this.projectTasks = await detectProjectTasks();
+      
+      const projectItems = this.projectTasks
+        .filter(t => t.source === 'package-json')
+        .map(t => new TaskTreeItem(t.label, { 
+          command: 'vectahubTasks.runProjectTask', 
+          title: t.label, 
+          arguments: [t] 
+        }, this.getIconForKind(t.kind), t.source, t.description));
+
+      const gitItems = this.projectTasks
+        .filter(t => t.source === 'git')
+        .map(t => new TaskTreeItem(t.label, { 
+          command: 'vectahubTasks.runProjectTask', 
+          title: t.label, 
+          arguments: [t] 
+        }, 'git-compare', t.source));
+
+      const vhItems = [
+        new TaskTreeItem('Doctor', { command: 'vectahubTasks.doctor', title: 'Run Doctor' }, 'pulse'),
+        new TaskTreeItem('Preview Intent', { command: 'vectahubTasks.previewIntent', title: 'Preview Intent' }, 'search'),
+        new TaskTreeItem('Run Intent', { command: 'vectahubTasks.runIntent', title: 'Run Intent' }, 'play-circle'),
+      ];
+
+      return [
+        new CategoryTreeItem('Project', projectItems),
+        new CategoryTreeItem('Git', gitItems),
+        new CategoryTreeItem('VectaHub', vhItems),
         new CategoryTreeItem('Recent', []),
         new CategoryTreeItem('Failed', []),
-      ]);
+      ];
     }
 
-    return Promise.resolve([]);
+    return [];
+  }
+
+  private getIconForKind(kind: string): string {
+    switch (kind) {
+      case 'test': return 'test-view-icon';
+      case 'build': return 'build';
+      case 'lint': return 'check-all';
+      case 'typecheck': return 'symbol-class';
+      case 'install': return 'cloud-download';
+      default: return 'play';
+    }
   }
 }
 

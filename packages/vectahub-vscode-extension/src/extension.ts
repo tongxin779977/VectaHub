@@ -17,6 +17,10 @@ import { registerPreviewCurrentWorkflowCommand } from './commands/previewCurrent
 import { registerRunCurrentWorkflowCommand } from './commands/runCurrentWorkflow.js';
 import { registerOpenWorkflowCommand } from './commands/openWorkflow.js';
 import { registerTestSecurityCommand } from './commands/testSecurity.js';
+import { registerRefreshProjectTasksCommand } from './commands/refreshProjectTasks.js';
+import { registerPreviewProjectTaskCommand } from './commands/previewProjectTask.js';
+import { registerRunProjectTaskCommand } from './commands/runProjectTask.js';
+import { registerListPackageScriptsCommand } from './commands/listPackageScripts.js';
 
 export async function activate(context: vscode.ExtensionContext) {
   // 初始化核心组件
@@ -27,7 +31,7 @@ export async function activate(context: vscode.ExtensionContext) {
   logToOutput('VectaHub Tasks extension is now active!');
 
   // 注册视图
-  registerTasksView(context);
+  const tasksProvider = registerTasksView(context);
   registerAdvancedView(context);
 
   // 注册命令
@@ -41,6 +45,10 @@ export async function activate(context: vscode.ExtensionContext) {
   registerRunCurrentWorkflowCommand(context);
   registerOpenWorkflowCommand(context);
   registerTestSecurityCommand(context);
+  registerRefreshProjectTasksCommand(context, tasksProvider);
+  registerPreviewProjectTaskCommand(context);
+  registerRunProjectTaskCommand(context);
+  registerListPackageScriptsCommand(context);
 
   context.subscriptions.push(outputChannel);
 
