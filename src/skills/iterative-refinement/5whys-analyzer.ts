@@ -85,6 +85,17 @@ const ERROR_PATTERNS: ErrorPattern[] = [
       '分批处理数据',
     ],
   },
+  {
+    pattern: /(?:401|403|unauthorized|forbidden|token.*expired|invalid.*credential|authentication.*failed)/i,
+    category: 'PERMISSION',
+    whyTemplate: '为什么认证失败或被拒绝访问?',
+    fixSuggestions: [
+      '检查是否已运行登录命令 (如 gh auth login)',
+      '确认环境变量 (如 GH_TOKEN, NPM_TOKEN) 是否正确配置',
+      '检查凭证是否已过期或权限不足',
+      '如果是私有仓库，请确保提供了相应的访问令牌',
+    ],
+  },
 ];
 
 function generateId(): string {

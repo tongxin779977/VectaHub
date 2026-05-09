@@ -1,8 +1,9 @@
 import type { CLIToolsConfig, Config } from '../../utils/config.js';
 import { loadConfig as loadAppConfig, getDefaultConfig } from '../../utils/config.js';
 import { writeFileSync, existsSync, mkdirSync } from 'fs';
-import { dirname, join } from 'path';
+import { dirname } from 'path';
 import { stringify } from 'yaml';
+import { getVectaHubPath } from '../../utils/paths.js';
 
 export interface RegistrationConfig {
   version: string;
@@ -19,8 +20,7 @@ export interface ValidationResult {
 }
 
 function getConfigPath(): string {
-  const homeDir = process.env.HOME || process.env.USERPROFILE || '.';
-  return join(homeDir, '.vectahub', 'config.yaml');
+  return getVectaHubPath('config.yaml');
 }
 
 let testMode = false;

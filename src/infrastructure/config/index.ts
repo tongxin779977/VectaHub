@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { parse, stringify } from 'yaml';
 import type { DefaultPolicy } from '../../command-rules/types.js';
+import { getVectaHubPath } from '../../utils/paths.js';
 
 export interface AIConfig {
   environment_scan: {
@@ -122,14 +123,13 @@ const DEFAULT_CONFIG: Config = {
     templates: { enabled: ['default'] },
   },
   storage: {
-    dir: '~/.vectahub',
+    dir: getVectaHubPath(),
   },
   priority: ['external_cli_with_permission', 'vectahub_llm', 'rules'],
 };
 
 function getConfigPath(): string {
-  const homeDir = process.env.HOME || process.env.USERPROFILE || '.';
-  return join(homeDir, '.vectahub', 'config.yaml');
+  return getVectaHubPath('config.yaml');
 }
 
 function validateConfig(config: Partial<Config>): { valid: boolean; errors: string[] } {
