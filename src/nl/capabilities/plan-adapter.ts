@@ -1,27 +1,16 @@
 import type { ExecutionPlan, ExecutionPlanStep } from './types.js';
 import type { Step, StepType } from '../../types/workflow.js';
-import type { TaskList, Task, IntentName } from '../../types/nl.js';
-
-const PLAN_STEP_TYPE_MAP: Record<ExecutionPlanStep['type'], StepType> = {
-  'command': 'exec',
-  'internal': 'exec',
-  'workflow': 'exec',
-};
+import type { TaskList, IntentName } from '../../types/nl.js';
 
 function planStepToStep(planStep: ExecutionPlanStep): Step | null {
   if (planStep.type === 'internal') {
-    return {
-      id: planStep.id,
-      type: 'exec',
-      cli: 'echo',
-      args: [`[internal] ${planStep.label}`],
-    };
+    return null;
   }
 
   if (planStep.type === 'command' && planStep.command) {
     return {
       id: planStep.id,
-      type: PLAN_STEP_TYPE_MAP[planStep.type],
+      type: 'exec',
       cli: planStep.command.cli,
       args: planStep.command.args,
     };
@@ -48,6 +37,14 @@ export function executionPlanToSteps(plan: ExecutionPlan): Step[] {
     }
   }
   return steps;
+}
+
+export function getExecutableSteps(plan: ExecutionPlan): ExecutionPlanStep[] {
+  return plan.steps.filter(s => s.type !== 'internal');
+}
+
+export function getInternalSteps(plan: ExecutionPlan): ExecutionPlanStep[] {
+  return plan.steps.filter(s => s.type === 'internal');
 }
 
 export function executionPlanToTaskList(plan: ExecutionPlan): TaskList {

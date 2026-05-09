@@ -31,7 +31,9 @@ export interface StepTemplate {
   condition?: string;
 }
 
-export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
+import { LEGACY_TEMPLATE_WHITELIST } from './metadata.js';
+
+const ALL_TEMPLATES: Record<string, IntentTemplate> = {
   FILE_FIND: {
     name: 'FILE_FIND',
     description: '查找文件',
@@ -707,12 +709,16 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
   }
 };
 
+export const INTENT_TEMPLATES: Record<string, IntentTemplate> = Object.fromEntries(
+  Object.entries(ALL_TEMPLATES).filter(([name]) => LEGACY_TEMPLATE_WHITELIST.includes(name))
+);
+
 export function getIntentTemplate(name: string): IntentTemplate | undefined {
-  return INTENT_TEMPLATES[name];
+  return ALL_TEMPLATES[name];
 }
 
 export function getAllIntentNames(): string[] {
-  return Object.keys(INTENT_TEMPLATES);
+  return Object.keys(ALL_TEMPLATES);
 }
 
 export function buildKeywordSummary(): string {

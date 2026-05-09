@@ -28,8 +28,9 @@ export interface ExecutionPlan {
   goal: ParsedGoal;
   steps: ExecutionPlanStep[];
   userReport: {
-    hideInternalStdout: boolean;
     summaryTemplate: string;
+    nextActions?: string[];
+    verificationSteps?: string[];
   };
 }
 

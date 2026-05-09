@@ -5,15 +5,10 @@ import { createStorage } from '../workflow/storage.js';
 import { isFirstRun, loadConfig, saveConfig } from '../setup/first-run-wizard.js';
 import { createDefaultInstaller } from '../setup/priority-installer.js';
 import { createLLMConfig } from '../nl/llm.js';
-import { createNLProcessor, adaptAllTemplates } from '../nl/core/index.js';
-import { createKeywordFallback } from '../nl/core/keyword-fallback.js';
-import { INTENT_TEMPLATES } from '../nl/templates/index.js';
-import { createSkillSystem } from '../skills/init.js';
-import { parseGoal } from '../nl/core/goal-parser.js';
-import { createCapabilityRouter } from '../nl/capabilities/router.js';
-import { executionPlanToSteps } from '../nl/capabilities/plan-adapter.js';
-import { formatDryRunText, formatJsonReport } from '../nl/capabilities/user-report.js';
+import { orchestrateIntent } from '../nl/orchestrator.js';
+import { formatDryRunText, formatJsonReport, formatExecutionResultText } from '../nl/capabilities/user-report.js';
 import type { Workflow, Step } from '../types/index.js';
+import type { ExecutionPlan } from '../nl/capabilities/types.js';
 import type { ExecutionMetadata, ExecutionRecord as ExecRecord } from '../execution/types.js';
 import { SYSTEM_WORKFLOWS } from '../workflow/system-workflows.js';
 
@@ -131,6 +126,7 @@ export const runCmd = new Command('run')
       }
 
       let workflow: Workflow | null = null;
+      let currentPlan: ExecutionPlan | null = null;
       let storage: ReturnType<typeof createStorage> | null = null;
       let workflowEngine: ReturnType<typeof createWorkflowEngine> | null = null;
 
@@ -202,77 +198,38 @@ export const runCmd = new Command('run')
         const text = intent.join(' ');
         getLogger().info(`解析意图: "${text}"`);
 
-        const goal = parseGoal(text);
-        const capabilityRouter = createCapabilityRouter();
-        const routeResult = capabilityRouter.route(goal, { cwd: process.cwd() });
-
-        let steps: Step[] = [];
-        let usedCapability = false;
-
-        if (routeResult.route === 'auto' && routeResult.plan) {
-          getLogger().info(`能力路由: ${routeResult.matchedCapability} (score=${routeResult.score?.toFixed(2)})`);
-          steps = executionPlanToSteps(routeResult.plan);
-          usedCapability = true;
+        const result = await orchestrateIntent(text, { cwd: process.cwd() });
+        const { steps: orchestrateSteps, plan, intentRecognitionMethod, matchedCapability, score, recognizedIntent } = result;
+        
+        if (intentRecognitionMethod === 'capability' && plan) {
+          getLogger().info(`能力路由: ${matchedCapability} (score=${score?.toFixed(2)})`);
+          currentPlan = plan;
 
           if (options.dryRun) {
             if (options.json) {
               console.log(JSON.stringify({
                 ok: true,
                 dryRun: true,
-                ...formatJsonReport(routeResult.plan),
+                ...formatJsonReport(plan),
               }, null, 2));
             } else {
-              getLogger().info(formatDryRunText(routeResult.plan));
+              getLogger().info(formatDryRunText(plan));
             }
             restoreEnvValue('VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
             process.exit(0);
             return;
           }
-        }
-
-        if (!usedCapability) {
-          const llmConfig = createLLMConfig();
-          const useLLM = !!llmConfig;
-
-          const { registry, executor } = await createSkillSystem({ llmConfig });
-          const patterns = adaptAllTemplates(INTENT_TEMPLATES);
-          const keywordFallback = createKeywordFallback(patterns);
-          const nlProcessor = createNLProcessor(registry, keywordFallback, { 
-            confidenceThreshold: 0.7, 
-            executor,
-            llmConfig
-          });
-
-          if (useLLM) {
-            getLogger().info(`意图解析模式: 优先 LLM (provider=${llmConfig.provider}, model=${llmConfig.model})`);
+        } else if (intentRecognitionMethod !== 'none') {
+          if (intentRecognitionMethod === 'llm') {
+            const llmConfig = createLLMConfig();
+            getLogger().info(`意图解析模式: 优先 LLM (provider=${llmConfig?.provider}, model=${llmConfig?.model})`);
           } else {
             getLogger().info(`意图解析模式: 规则匹配 (LLM 未配置)`);
           }
-
-          const nlResult = await nlProcessor.parse({ 
-            input: text, 
-            options: { useLLM } 
-          });
-
-          if (nlResult.success && nlResult.taskList && nlResult.taskList.tasks.length > 0) {
-            getLogger().info(`识别到意图: ${nlResult.intent || nlResult.taskList.intent}`);
-            let stepIndex = 1;
-            for (const task of nlResult.taskList.tasks) {
-              const commands = task.commands.length > 0 ? task.commands : [{ cli: 'echo', args: [] }];
-              for (const cmd of commands) {
-                steps.push({
-                  id: `step_${stepIndex}`,
-                  type: 'exec' as const,
-                  cli: cmd.cli,
-                  args: (cmd.args || []).filter((arg): arg is string => arg !== undefined && arg !== ''),
-                });
-                stepIndex++;
-              }
-            }
-          }
+          getLogger().info(`识别到意图: ${recognizedIntent}`);
         }
 
-        if (steps.length === 0) {
+        if (orchestrateSteps.length === 0) {
           exitWithError('❌ 无法解析意图，请尝试更明确的输入！', 'INTENT_PARSE_FAILED', options.json);
         }
 
@@ -281,14 +238,14 @@ export const runCmd = new Command('run')
             console.log(JSON.stringify({
               ok: true,
               dryRun: true,
-              steps: steps.map(s => ({
+              steps: orchestrateSteps.map(s => ({
                 cli: s.cli,
                 args: s.args ?? []
               }))
             }, null, 2));
           } else {
             getLogger().info('\n📋 将要执行的命令:');
-            for (const s of steps) {
+            for (const s of orchestrateSteps) {
               getLogger().info(`  ${s.cli} ${(s.args ?? []).join(' ')}`);
             }
             getLogger().info('\nDry-run: 未执行任何命令。');
@@ -300,10 +257,10 @@ export const runCmd = new Command('run')
 
         workflow = await (await getWorkflowEngine()).createWorkflow(
           `intent_${Date.now()}`,
-          steps
+          orchestrateSteps
         );
 
-        getLogger().info(`创建工作流，包含 ${steps.length} 个步骤`);
+        getLogger().info(`创建工作流，包含 ${orchestrateSteps.length} 个步骤`);
 
         if (options.save) {
           await getStorage().saveWorkflow(workflow);
@@ -366,7 +323,15 @@ export const runCmd = new Command('run')
           getLogger().info(`\n执行${result.status === 'COMPLETED' ? '✅ 成功' : '❌ 失败'}`);
           getLogger().info(`耗时: ${result.duration}ms`);
 
-          if (result.steps.length > 0) {
+          if (currentPlan) {
+            const reportText = formatExecutionResultText(currentPlan, result.steps.map(s => ({
+              stepId: s.stepId,
+              status: s.status,
+              output: s.output?.map(l => String(l)),
+              error: s.error,
+            })));
+            getLogger().info(`\n${reportText}`);
+          } else if (result.steps.length > 0) {
             getLogger().info('\n📊 步骤结果:');
             for (const step of result.steps) {
               getLogger().info(`  ${step.stepId}: ${step.status}`);

@@ -56,8 +56,9 @@ export function createPackageScriptCapability(): Capability {
         goal,
         steps,
         userReport: {
-          hideInternalStdout: false,
-          summaryTemplate: `${scriptName} 已执行完成。`,
+          summaryTemplate: `${scriptName} 脚本已准备就绪。`,
+          nextActions: [`运行 ${pkgManager} run ${scriptName}`],
+          verificationSteps: ['检查控制台输出确认结果'],
         },
       };
     },

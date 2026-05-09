@@ -49,20 +49,6 @@ export function createGitWorkflowCapability(): Capability {
           command: { cli: 'git', args: ['status'] },
           internalOutput: true,
         },
-        {
-          id: 'execute',
-          label: '执行 Git 操作',
-          type: 'command',
-          command: { cli: 'git', args: ['add', '.'] },
-          internalOutput: true,
-        },
-        {
-          id: 'commit',
-          label: '提交变更',
-          type: 'command',
-          command: { cli: 'git', args: ['commit', '-m', '${message:-chore: update}'] },
-          internalOutput: false,
-        },
       ];
 
       return {
@@ -72,8 +58,9 @@ export function createGitWorkflowCapability(): Capability {
         goal,
         steps,
         userReport: {
-          hideInternalStdout: true,
-          summaryTemplate: 'Git 操作已执行。',
+          summaryTemplate: '当前已生成 Git 操作建议。',
+          nextActions: ['确认变更内容', '执行 git commit/push'],
+          verificationSteps: ['检查 git log 确认提交'],
         },
       };
     },

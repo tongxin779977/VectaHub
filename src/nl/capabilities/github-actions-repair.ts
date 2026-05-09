@@ -51,7 +51,7 @@ export function createGitHubActionsRepairCapability(): Capability {
           id: 'discover',
           label: '发现失败的 GitHub Actions',
           type: 'command',
-          command: { cli: 'gh', args: ['run', 'list', '--status', 'failure', '--limit', '20', '--json', 'id,name,conclusion,createdAt'] },
+          command: { cli: 'gh', args: ['run', 'list', '--status', 'failure', '--limit', '20', '--json', 'databaseId,name,conclusion,createdAt'] },
           internalOutput: true,
         },
         {
@@ -94,8 +94,9 @@ export function createGitHubActionsRepairCapability(): Capability {
         goal,
         steps,
         userReport: {
-          hideInternalStdout: true,
-          summaryTemplate: '已完成 GitHub Actions 失败项的发现和诊断。如需自动修复，请确认后执行。',
+          summaryTemplate: '已完成 GitHub Actions 失败项的发现和诊断。',
+          nextActions: ['如有必要，请根据日志进行手动修复', '重新运行失败的 Job'],
+          verificationSteps: ['确认 GitHub Actions 状态变绿'],
         },
       };
     },
