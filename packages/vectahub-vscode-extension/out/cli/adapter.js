@@ -118,9 +118,14 @@ async function runCli(args, options = {}) {
                     data = JSON.parse(stdout.trim());
                     if (data && typeof data === 'object' && 'ok' in data) {
                         const jsonResult = data;
-                        if (jsonResult.ok === false && jsonResult.error) {
+                        if (jsonResult.ok === true || jsonResult.status === 'COMPLETED') {
+                            ok = true;
+                        }
+                        else if (jsonResult.ok === false) {
                             ok = false;
-                            error = { code: jsonResult.error.code || 'CLI_ERROR', message: jsonResult.error.message || 'Unknown error' };
+                            if (jsonResult.error) {
+                                error = { code: jsonResult.error.code || 'CLI_ERROR', message: jsonResult.error.message || 'Unknown error' };
+                            }
                         }
                     }
                 }

@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 export default defineConfig({
-  entry: ['src/cli.ts', 'src/utils/gh-to-queue.ts'],
+  entry: ['src/cli.ts', 'src/utils/gh-to-queue.ts', 'src/execution/index.ts'],
   format: ['esm'],
   clean: true,
   outExtension({ format }) {
@@ -27,13 +27,16 @@ export default defineConfig({
   banner: {
     js: `
 if (typeof process !== "undefined" && typeof process.setMaxListeners === "function") {
-  process.setMaxListeners(20);
-  process.on("warning", (warning) => {
-    if (warning.name === "MaxListenersExceededWarning" && warning.message.includes("exit listeners")) {
-      return;
-    }
-    process.stderr.write(warning.message + "\\n");
-  });
+  if (!globalThis.__vectahubWarningHooked) {
+    globalThis.__vectahubWarningHooked = true;
+    process.setMaxListeners(50);
+    process.on("warning", (warning) => {
+      if (warning.name === "MaxListenersExceededWarning") {
+        return;
+      }
+      process.stderr.write(warning.message + "\\n");
+    });
+  }
 }
 `.trimStart(),
   },

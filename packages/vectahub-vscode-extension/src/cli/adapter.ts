@@ -96,10 +96,14 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
         try {
           data = JSON.parse(stdout.trim());
           if (data && typeof data === 'object' && 'ok' in data) {
-            const jsonResult = data as { ok?: boolean; error?: { code?: string; message?: string } };
-            if (jsonResult.ok === false && jsonResult.error) {
+            const jsonResult = data as { ok?: boolean; status?: string; error?: { code?: string; message?: string } };
+            if (jsonResult.ok === true || jsonResult.status === 'COMPLETED') {
+              ok = true;
+            } else if (jsonResult.ok === false) {
               ok = false;
-              error = { code: jsonResult.error.code || 'CLI_ERROR', message: jsonResult.error.message || 'Unknown error' };
+              if (jsonResult.error) {
+                error = { code: jsonResult.error.code || 'CLI_ERROR', message: jsonResult.error.message || 'Unknown error' };
+              }
             }
           }
         } catch (e: unknown) {

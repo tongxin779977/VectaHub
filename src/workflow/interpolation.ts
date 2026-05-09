@@ -23,7 +23,41 @@ export function interpolateString(
     }
     const variable = context.variables[expression];
     if (variable) {
+      if (Array.isArray(variable) && variable.length > 0 && typeof variable[0] === 'object' && variable[0] !== null) {
+        return JSON.stringify(variable[0]);
+      }
       return Array.isArray(variable) ? variable.join('\n') : String(variable);
+    }
+
+    if (expression.includes('.')) {
+      const dotIdx = expression.indexOf('.');
+      const varName = expression.substring(0, dotIdx);
+      const path = expression.substring(dotIdx + 1);
+
+      const prevOutput = context.previousOutputs[varName];
+      if (prevOutput && prevOutput.length > 0) {
+        if (path === 'stdout') {
+          return prevOutput.join('\n');
+        }
+        return prevOutput[0];
+      }
+
+      const root = context.variables[varName];
+      if (root && root.length > 0) {
+        let current: unknown = root[0];
+        const parts = path.split('.');
+        for (const part of parts) {
+          if (current && typeof current === 'object' && part in (current as Record<string, unknown>)) {
+            current = (current as Record<string, unknown>)[part];
+          } else {
+            current = undefined;
+            break;
+          }
+        }
+        if (current !== undefined) {
+          return typeof current === 'object' ? JSON.stringify(current) : String(current);
+        }
+      }
     }
 
     // 2. Try complex expression evaluation if executionId is available
