@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { executionPlanToSteps, executionPlanToTaskList } from './plan-adapter.js';
-import { generateUserReport, formatDryRunText, formatJsonReport } from './user-report.js';
+import { executionPlanToSteps, executionPlanToTaskList, getExecutableSteps, getInternalSteps } from './plan-adapter.js';
+import { generateUserReport, formatDryRunText, formatJsonReport, formatExecutionResultText } from './user-report.js';
 import { createCapabilityRouter } from './router.js';
 import { parseGoal } from '../core/goal-parser.js';
 
@@ -27,6 +27,30 @@ describe('plan-adapter', () => {
     });
   });
 
+  describe('7.1 internal step 不转 echo', () => {
+    it('executionPlanToSteps 不包含 echo [internal] 伪执行', () => {
+      const goal = parseGoal('修复 git 上所有 actions 错误');
+      const result = router.route(goal);
+      const steps = executionPlanToSteps(result.plan!);
+      expect(steps.some(s => s.cli === 'echo' && s.args?.some(a => String(a).includes('[internal]')))).toBe(false);
+    });
+
+    it('internal steps 应被 getInternalSteps 正确识别', () => {
+      const goal = parseGoal('修复 git 上所有 actions 错误');
+      const result = router.route(goal);
+      const internals = getInternalSteps(result.plan!);
+      expect(internals.length).toBeGreaterThan(0);
+      expect(internals.every(s => s.type === 'internal')).toBe(true);
+    });
+
+    it('executable steps 不包含 internal type', () => {
+      const goal = parseGoal('修复 git 上所有 actions 错误');
+      const result = router.route(goal);
+      const execs = getExecutableSteps(result.plan!);
+      expect(execs.every(s => s.type !== 'internal')).toBe(true);
+    });
+  });
+
   describe('executionPlanToTaskList', () => {
     it('转换为有效 TaskList', () => {
       const goal = parseGoal('修复 git 上所有 actions 错误');
@@ -36,6 +60,33 @@ describe('plan-adapter', () => {
       expect(taskList.tasks.length).toBeGreaterThan(0);
       expect(taskList.tasks[0].type).toBe('CODE_TRANSFORM');
       expect(taskList.tasks[0].status).toBe('PENDING');
+    });
+  });
+
+  describe('7.4 git-workflow 不自动提交', () => {
+    it('提交代码不生成 git add .', () => {
+      const goal = parseGoal('提交代码');
+      const result = router.route(goal);
+      const steps = executionPlanToSteps(result.plan!);
+      expect(steps.some(s => s.cli === 'git' && s.args?.includes('add'))).toBe(false);
+    });
+
+    it('提交代码不生成 git commit', () => {
+      const goal = parseGoal('提交代码');
+      const result = router.route(goal);
+      const steps = executionPlanToSteps(result.plan!);
+      expect(steps.some(s => s.cli === 'git' && s.args?.includes('commit'))).toBe(false);
+    });
+
+    it('提交代码 plan 仅包含只读 git status', () => {
+      const goal = parseGoal('提交代码');
+      const result = router.route(goal);
+      const plan = result.plan!;
+      const execSteps = getExecutableSteps(plan);
+      expect(execSteps.length).toBe(1);
+      expect(execSteps[0].id).toBe('status');
+      expect(execSteps[0].command?.cli).toBe('git');
+      expect(execSteps[0].command?.args).toContain('status');
     });
   });
 });
@@ -50,6 +101,56 @@ describe('user-report', () => {
     expect(report.title).toBeTruthy();
     expect(report.phases.length).toBeGreaterThan(0);
     expect(report.summary).toBeTruthy();
+  });
+
+  describe('7.2 dry-run 展示完整阶段', () => {
+    it('dry-run 包含所有阶段 label', () => {
+      const goal = parseGoal('修复 git 上所有 actions 错误');
+      const result = router.route(goal);
+      const text = formatDryRunText(result.plan!);
+      expect(text).toContain('发现失败的 GitHub Actions');
+      expect(text).toContain('获取失败日志');
+      expect(text).toContain('分析失败原因');
+      expect(text).toContain('生成修复计划');
+      expect(text).toContain('执行验证');
+      expect(text).toContain('输出修复报告');
+    });
+
+    it('dry-run 不展示内部命令详情', () => {
+      const goal = parseGoal('修复 git 上所有 actions 错误');
+      const result = router.route(goal);
+      const text = formatDryRunText(result.plan!);
+      expect(text).not.toContain('gh run list');
+      expect(text).not.toContain('${runId}');
+      expect(text).not.toMatch(/gh run view/);
+    });
+  });
+
+  describe('7.3 普通输出隐藏 internal stdout', () => {
+    it('formatExecutionResultText 隐藏 internalOutput step', () => {
+      const goal = parseGoal('修复 git 上所有 actions 错误');
+      const result = router.route(goal);
+      const fakeResults = [
+        { stepId: 'discover', status: 'COMPLETED' as const, output: ['run/1234', 'run/5678'], duration: 100 },
+        { stepId: 'fetch-logs', status: 'COMPLETED' as const, output: ['log line 1', 'log line 2'], duration: 100 },
+        { stepId: 'diagnose', status: 'COMPLETED' as const, output: ['diagnostic info'], duration: 100 },
+        { stepId: 'report', status: 'COMPLETED' as const, output: ['report summary'], duration: 100 },
+      ];
+      const text = formatExecutionResultText(result.plan!, fakeResults);
+      expect(text).not.toContain('run/1234');
+      expect(text).not.toContain('log line 1');
+      expect(text).not.toContain('diagnostic info');
+      expect(text).toContain('report summary');
+    });
+
+    it('formatJsonReport 保留完整 step 信息', () => {
+      const goal = parseGoal('修复 git 上所有 actions 错误');
+      const result = router.route(goal);
+      const json = formatJsonReport(result.plan!);
+      const planData = json.plan as Record<string, unknown>;
+      const steps = planData.steps as Array<Record<string, unknown>>;
+      expect(steps.length).toBeGreaterThan(3);
+    });
   });
 
   it('formatDryRunText 包含 dry-run 提示', () => {

@@ -75,7 +75,6 @@ describe('createCapabilityRouter', () => {
       const goal = parseGoal('修复 git 上所有 actions 错误');
       const result = router.route(goal);
       expect(result.plan!.userReport.summaryTemplate).toBeTruthy();
-      expect(result.plan!.userReport.hideInternalStdout).toBe(true);
     });
   });
 

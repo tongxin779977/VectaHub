@@ -37,4 +37,26 @@ describe('createKeywordFallback', () => {
     expect(result.taskList?.version).toBe('1.0');
     expect(result.taskList?.tasks.length).toBeGreaterThan(0);
   });
+
+  it('should support multi-intent input', async () => {
+    const result = await fallback.parse(createContext('查找文件并提交'));
+
+    expect(result.success).toBe(true);
+    expect(result.taskList?.tasks.length).toBeGreaterThan(1);
+    const intents = result.taskList?.tasks.map(t => (t as any).commands?.[0]?.cli);
+    // 应该包含 find 和 git (取决于具体模版)
+    expect(intents).toContain('find');
+    expect(intents).toContain('git');
+  });
+
+  it('should support restored legacy intents', async () => {
+    const gitResult = await fallback.parse(createContext('git commit'));
+    expect(gitResult.success).toBe(true);
+
+    const scriptResult = await fallback.parse(createContext('npm run test'));
+    expect(scriptResult.success).toBe(true);
+
+    const installResult = await fallback.parse(createContext('npm install lodash'));
+    expect(installResult.success).toBe(true);
+  });
 });

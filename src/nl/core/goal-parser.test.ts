@@ -16,7 +16,7 @@ describe('parseGoal', () => {
     it('把 CI 全部修绿', () => {
       const goal = parseGoal('把 CI 全部修绿');
       expect(goal.action).toBe('repair');
-      expect(goal.domains).toContain('ci');
+      expect(goal.domains).toContain('github-actions');
       expect(goal.scope).toBe('all');
       expect(goal.successCriteria).toContain('ci-green');
     });
