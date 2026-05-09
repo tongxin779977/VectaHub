@@ -2,6 +2,12 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    // 删除对不存在的 test-setup.ts 的引用
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/out/**',
+      '**/*.test.js',
+      '**/vectahub-vscode-extension/src/test/**',
+    ],
   },
 });

@@ -45,6 +45,7 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
     CI: '1',
     VECTAHUB_NON_INTERACTIVE: '1',
     VECTAHUB_HOME: vectahubHome,
+    VECTAHUB_CLI_PATH: cliPath,
     ...options.env
   };
 

@@ -2,6 +2,10 @@ import { getQueueManager } from '../execution/queue-manager.js';
 import type { DiagnosticTask } from '../types/diagnostic.js';
 
 export async function processFailedRuns(input: string): Promise<number> {
+  console.log(`Received input of length: ${input.length}`);
+  if (input.length > 0) {
+    console.log(`Input preview: ${input.substring(0, 100)}...`);
+  }
   const runs = JSON.parse(input);
   if (!Array.isArray(runs)) {
     console.log('No failed runs found or invalid format.');
@@ -12,13 +16,14 @@ export async function processFailedRuns(input: string): Promise<number> {
   let count = 0;
 
   for (const run of runs) {
+    const cliPath = process.env.VECTAHUB_CLI_PATH || 'node dist/cli.js';
     const task: Omit<DiagnosticTask, 'createdAt' | 'updatedAt'> = {
       id: `gh_${run.databaseId}`,
       title: `GH Action 失败: ${run.workflowName}`,
       description: `任务 "${run.displayTitle}" 在 GitHub 上执行失败。`,
       source: 'github-actions',
       sourceId: String(run.databaseId),
-      commandToFix: `node dist/cli.js run -f templates/gh-auto-process.yaml --variable run_id=${run.databaseId} --mode relaxed`,
+      commandToFix: `${cliPath} run -f templates/gh-auto-process.yaml --variable run_id=${run.databaseId} --mode relaxed`,
       status: 'pending',
     };
     await queueManager.addTask(task);

@@ -71,9 +71,14 @@ class TasksViewProvider {
         }
         try {
             const content = fs.readFileSync(queueFile, 'utf-8');
-            return JSON.parse(content);
+            const data = JSON.parse(content);
+            if (!Array.isArray(data))
+                return [];
+            // 基础验证，确保包含必要字段
+            return data.filter(t => t && t.id && t.title && t.status);
         }
-        catch {
+        catch (error) {
+            console.error('Failed to parse diagnostic queue:', error);
             return [];
         }
     }

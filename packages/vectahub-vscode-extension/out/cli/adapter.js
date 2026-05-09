@@ -75,6 +75,7 @@ async function runCli(args, options = {}) {
         CI: '1',
         VECTAHUB_NON_INTERACTIVE: '1',
         VECTAHUB_HOME: vectahubHome,
+        VECTAHUB_CLI_PATH: cliPath,
         ...options.env
     };
     (0, output_js_1.logToOutput)(`Running CLI: ${cliPath} ${args.join(' ')}`);

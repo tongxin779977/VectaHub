@@ -10,3 +10,5 @@ export type {
   ExecutionPlanStep,
   RouterResult,
 } from './types.js';
+export { executionPlanToSteps, getExecutableSteps, getInternalSteps } from './plan-adapter.js';
+export { generateUserReport, formatUserReportText, formatDryRunText, formatJsonReport, formatExecutionResultText } from './user-report.js';

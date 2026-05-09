@@ -1,8 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn } from 'child_process';
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdtempSync, rmSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(join(__dirname, '../package.json'), 'utf-8'));
+const EXPECTED_VERSION: string = pkg.version;
 
 describe('CLI Module', () => {
   const CLI_PATH = join(__dirname, 'cli.ts');
@@ -62,7 +67,7 @@ describe('CLI Module', () => {
 
     expect(result.stderr).toBe('');
     expect(result.code).toBe(0);
-    expect(result.stdout.trim()).toBe('1.0.0');
+    expect(result.stdout.trim()).toBe(EXPECTED_VERSION);
   });
 
   it('should run doctor and exit cleanly', async () => {
