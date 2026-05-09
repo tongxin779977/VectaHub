@@ -1,0 +1,21 @@
+name: gh-auto-process-all
+description: 批量自动处理 GitHub 最近失败的运行记录
+mode: relaxed
+steps:
+  - id: list_ids
+    name: 获取失败记录ID列表
+    type: exec
+    cli: gh
+    args: ["run", "list", "--status", "failure", "--limit", "3", "--json", "databaseId", "-q", ".[].databaseId"]
+  
+  - id: process_queue
+    name: 逐一启动诊断流程
+    type: for_each
+    items: "${list_ids}"
+    body:
+      - id: run_processor
+        name: 诊断并记录
+        type: exec
+        cli: node
+        args: ["dist/cli.js", "run", "-f", "templates/gh-auto-process.yaml", "--variable", "run_id=${item}", "--mode", "relaxed"]
+        timeout: 300000

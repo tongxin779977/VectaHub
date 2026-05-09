@@ -6,6 +6,7 @@ export { gitTool } from './tools/git.js';
 export { npmTool } from './tools/npm.js';
 export { dockerTool } from './tools/docker.js';
 export { curlTool } from './tools/curl.js';
+export { ghTool } from './tools/gh.js';
 
 // Command Rules Engine (Section 12)
 export * from './command-rules/index.js';

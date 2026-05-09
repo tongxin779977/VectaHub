@@ -5,6 +5,7 @@ import { gitTool } from './tools/git.js';
 import { npmTool } from './tools/npm.js';
 import { dockerTool } from './tools/docker.js';
 import { curlTool } from './tools/curl.js';
+import { ghTool } from './tools/gh.js';
 
 export interface ToolServiceOptions {
   autoRegister?: boolean;
@@ -74,7 +75,7 @@ export class ToolService {
   }
 
   private registerBuiltinTools(): void {
-    const builtinTools = [gitTool, npmTool, dockerTool, curlTool];
+    const builtinTools = [gitTool, npmTool, dockerTool, curlTool, ghTool];
     
     for (const tool of builtinTools) {
       try {

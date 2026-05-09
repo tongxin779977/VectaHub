@@ -650,6 +650,31 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     priority: 5,
     tags: ['content', 'summary'],
     category: IntentCategory.GENERATE,
+  },
+
+  GH_MAINTENANCE: {
+    name: 'GH_MAINTENANCE',
+    description: 'GitHub 自动维护与批量处理',
+    keywords: ['获取 GitHub 最近失败的运行记录', '处理这些', '批量处理github', '修复所有失败'],
+    weight: 1.0,
+    cli: ['gh', 'vectahub'],
+    params: {},
+    steps: [
+      {
+        type: 'exec',
+        cli: 'vectahub',
+        args: ['run', '-f', 'templates/gh-auto-process-all.yaml', '--mode', 'relaxed']
+      }
+    ],
+    weightedKeywords: [
+      { text: '获取 GitHub 最近失败的运行记录', tier: 'core' },
+      { text: '处理这些', tier: 'core' },
+      { text: 'github', tier: 'important' },
+      { text: '失败', tier: 'important' },
+    ],
+    priority: 10,
+    tags: ['github', 'maintenance'],
+    category: IntentCategory.EXECUTE,
   }
 };
 

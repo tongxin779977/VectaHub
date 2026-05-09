@@ -40,9 +40,14 @@ export const createExecHandler = (deps: {
     }
 
     try {
+      const stepOptions = {
+        ...options,
+        timeout: (step as any).timeout || options.timeout
+      };
+
       const result = options.useSandbox && deps.sandboxManager
-        ? await deps.execInSandbox(interpolatedCli, interpolatedArgs, options)
-        : await deps.exec(interpolatedCli, interpolatedArgs, options);
+        ? await deps.execInSandbox(interpolatedCli, interpolatedArgs, stepOptions)
+        : await deps.exec(interpolatedCli, interpolatedArgs, stepOptions);
 
       deps.audit.executorResult(
         step.id,

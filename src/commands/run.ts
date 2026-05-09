@@ -71,6 +71,7 @@ interface RunCommandOptions {
   yes?: boolean;
   edit?: boolean;
   dryRun?: boolean;
+  variable?: string[];
 }
 
 export const runCmd = new Command('run')
@@ -83,6 +84,10 @@ export const runCmd = new Command('run')
   .option('--no-edit', 'Skip command review')
   .option('--dry-run', 'Show what would be executed without running')
   .option('--json', 'Output results in JSON format')
+  .option('--variable <key=value>', 'Pass initial variables to the workflow (multiple allowed)', (val, memo: string[]) => {
+    memo.push(val);
+    return memo;
+  }, [])
   .action(async (intent: string[], options: RunCommandOptions & { json?: boolean }) => {
     const wasMuted = isLoggerMuted();
     try {
@@ -265,6 +270,17 @@ export const runCmd = new Command('run')
         exitWithError('❌ 请提供自然语言描述或使用 --file 选项指定工作流文件', 'NO_INPUT', options.json);
       }
 
+      // 处理初始变量
+      const initialVariables: Record<string, unknown> = {};
+      if (options.variable) {
+        for (const v of options.variable) {
+          const [key, ...valueParts] = v.split('=');
+          if (key && valueParts.length > 0) {
+            initialVariables[key] = valueParts.join('=');
+          }
+        }
+      }
+
       
       let shouldRetry = true;
       while (shouldRetry) {
@@ -274,7 +290,7 @@ export const runCmd = new Command('run')
           mode: options.mode, 
           dryRun: options.dryRun,
           onProgress: createProgressCallback(workflow!.steps.length, options.json),
-        });
+        }, initialVariables);
 
         const recordManager = createRecordManager();
         const metadata: ExecutionMetadata = {

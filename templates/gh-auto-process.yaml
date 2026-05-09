@@ -1,0 +1,10 @@
+name: gh-auto-process
+description: 自动获取并处理 GitHub Workflow Run
+mode: relaxed
+steps:
+  - id: process_run
+    name: 获取日志并诊断
+    type: exec
+    cli: bash
+    args: ["-c", "gh run view ${run_id} --log-failed > fail_${run_id}.log && node dist/cli.js run \"分析 fail_${run_id}.log 文件并给出修复建议\" -y --no-edit --non-interactive"]
+    timeout: 120000
