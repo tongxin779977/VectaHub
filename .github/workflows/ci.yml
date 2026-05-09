@@ -38,7 +38,7 @@ jobs:
         run: npm run typecheck
 
       - name: Test
-        run: npm exec -- vitest --run --exclude 'packages/vectahub-vscode-extension/src/test/**'
+        run: npm exec -- vitest --run --exclude '**/packages/vectahub-vscode-extension/**'
 
       - name: Build
         run: npm run build

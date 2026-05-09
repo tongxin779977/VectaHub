@@ -6,6 +6,8 @@ export const npmTool: CliTool = {
   version: '>=6.0.0',
   category: 'package-management',
   tags: ['node', 'package', 'npm', 'dependency', 'javascript', 'typescript'],
+  authCheckCommand: 'npm whoami',
+  authHelpMessage: '检测到 NPM 未登录。请运行 `npm login` 进行授权，或确保环境变量 NPM_TOKEN 已正确配置。',
   examples: [
     {
       description: 'Initialize package.json',

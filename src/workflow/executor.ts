@@ -7,6 +7,8 @@ import { evaluateExpression } from './expression-engine.js';
 import { contextManager } from './context-manager.js';
 import { audit, getCurrentSessionId } from '../utils/audit.js';
 import { createRBACManager, type RoleName } from '../security-protocol/rbac.js';
+import { getCliToolRegistry } from '../cli-tools/index.js';
+import { ShellTokenizer } from '../utils/shell-tokenizer.js';
 
 // Import decoupled handlers
 import { handleIf } from './handlers/if-handler.js';
@@ -393,6 +395,36 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     },
 
     async executeWorkflow(steps: Step[], options: ExecutorOptions = { mode: 'STRICT' }, context: ExecutionContext = { variables: {}, previousOutputs: {} }): Promise<ExecutionResult[]> {
+      // 1. 自动化凭证预检 (Pre-flight Checks)
+      if (!options.dryRun) {
+        const toolsToCheck = new Set<string>();
+        for (const step of steps) {
+          if (step.cli) toolsToCheck.add(step.cli);
+        }
+
+        const registry = getCliToolRegistry();
+        for (const toolName of toolsToCheck) {
+          const tool = registry.getTool(toolName);
+          if (tool?.authCheckCommand) {
+            const tokens = ShellTokenizer.tokenize(tool.authCheckCommand);
+            if (tokens.length > 0) {
+              const checkResult = await exec(tokens[0].cli, tokens[0].args, { 
+                ...options, 
+                timeout: 10000 // 预检命令超时设为 10s
+              });
+              if (!checkResult.success) {
+                return [{
+                  stepId: 'pre-flight',
+                  status: 'FAILED',
+                  error: tool.authHelpMessage || `检测到工具 ${toolName} 未通过凭证预检。`
+                }];
+              }
+            }
+          }
+        }
+      }
+
+      // 2. 按序执行步骤
       const results: ExecutionResult[] = [];
       for (const step of steps) {
         const result = await executeStep(step, options, context);

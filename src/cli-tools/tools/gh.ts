@@ -6,6 +6,8 @@ export const ghTool: CliTool = {
   version: '>=2.0.0',
   category: 'developer-tools',
   tags: ['github', 'cli', 'automation', 'repo', 'workflow'],
+  authCheckCommand: 'gh auth status',
+  authHelpMessage: '检测到 GitHub CLI 未登录或 Token 无效。请运行 `gh auth login` 进行授权，或确保环境变量 GH_TOKEN 已正确配置。',
   examples: [
     {
       description: 'List recent workflow runs',

@@ -38,7 +38,7 @@ export interface WorkflowEngine {
   removeStep(workflowId: string, stepId: string): Promise<void>;
   getWorkflow(id: string): Promise<Workflow | undefined>;
   listWorkflows(): Promise<Workflow[]>;
-  execute(workflow: Workflow, options?: ExecuteOptions): Promise<ExecutionRecord>;
+  execute(workflow: Workflow, options?: ExecuteOptions, initialVariables?: Record<string, unknown>): Promise<ExecutionRecord>;
   executeAsync(workflow: Workflow, options?: ExecuteOptions): void;
   pause(): boolean;
   resume(): boolean;

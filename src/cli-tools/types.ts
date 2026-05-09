@@ -8,6 +8,8 @@ export interface CliTool {
   dangerousCommands?: string[];
   examples?: ToolExample[];
   relatedTools?: string[];
+  authCheckCommand?: string;
+  authHelpMessage?: string;
 }
 
 export interface ToolExample {
