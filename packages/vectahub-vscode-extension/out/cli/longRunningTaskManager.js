@@ -108,19 +108,23 @@ class LongRunningTaskManager {
             outputChannel.appendLine(`${prefix} [stderr] ${data.toString()}`);
         });
         child.on('exit', (code) => {
-            this.runningTasks.delete(task.id);
+            const wasKnown = this.runningTasks.delete(task.id);
             const exitMsg = code === 0
                 ? `${prefix} 进程正常退出 (code: 0)`
                 : `${prefix} 进程退出 (code: ${code ?? 'null'})`;
             outputChannel.appendLine(exitMsg);
-            this._onTaskStopped.fire({ id: task.id, kind: task.kind, reason: 'exit' });
-            this.updateGlobalStatusBar();
+            if (wasKnown) {
+                this._onTaskStopped.fire({ id: task.id, kind: task.kind, reason: 'exit' });
+                this.updateGlobalStatusBar();
+            }
         });
         child.on('error', (err) => {
-            this.runningTasks.delete(task.id);
+            const wasKnown = this.runningTasks.delete(task.id);
             outputChannel.appendLine(`${prefix} 进程启动错误: ${err.message}`);
-            this._onTaskStopped.fire({ id: task.id, kind: task.kind, reason: 'error' });
-            this.updateGlobalStatusBar();
+            if (wasKnown) {
+                this._onTaskStopped.fire({ id: task.id, kind: task.kind, reason: 'error' });
+                this.updateGlobalStatusBar();
+            }
         });
         this._onTaskStarted.fire({ id: task.id, kind: task.kind });
         this.updateGlobalStatusBar();

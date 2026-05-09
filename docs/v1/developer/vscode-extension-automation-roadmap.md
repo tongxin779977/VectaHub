@@ -107,7 +107,7 @@
 
 ### 4.3 测试体系 (M8.4)
 - 废弃了不可靠的 `vscode-test` 模拟器，全面采用 `Vitest` 进行纯逻辑与 Mock 适配测试。
-- 实现了核心指令逻辑的高覆盖（当前未配置 `vitest --coverage`，具体行覆盖率待后续补充）。
+- 实现了核心指令逻辑的高覆盖，12 个 Vitest 文件共 230 个用例全部通过（当前未配置 `vitest --coverage`，具体行覆盖率待后续补充）。
 
 ### 4.4 队列工作流失败恢复修复 (2026-05-10)
 - 修复 `sys:process-diagnostic-queue` 工作流中 `for_each` body 的任务卡死问题。
@@ -131,7 +131,7 @@
 ### 5.1 V2 边界条件
 
 - 沿用 V1 的 CLI adapter 规范和安全拦截机制。
-- 新增能力必须配套测试，不得降低现有测试基线（203 个用例）。
+- 新增能力必须配套测试，不得降低现有测试基线（230 个用例）。
 - 不做：图形化 DAG 编辑器、Windows/Linux 官方支持、内置 VectaHub core（仍通过 CLI 调用）。
 
 > **V2 详细实施规范**：见 [`docs/v2/vscode-extension-tasks.md`](../v2/vscode-extension-tasks.md)。

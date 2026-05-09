@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerRunProjectTaskCommand = registerRunProjectTaskCommand;
 const vscode = __importStar(require("vscode"));
+const node_crypto_1 = require("node:crypto");
 const output_js_1 = require("../ui/output.js");
 const planBuilder_js_1 = require("../execution/planBuilder.js");
 const planRunner_js_1 = require("../execution/planRunner.js");
@@ -43,6 +44,9 @@ const settings_js_1 = require("../config/settings.js");
 const dangerDetection_js_1 = require("../cli/dangerDetection.js");
 const adapter_js_1 = require("../cli/adapter.js");
 const readiness_js_1 = require("../cli/readiness.js");
+function generateTaskRecordId() {
+    return `task-${Date.now()}-${(0, node_crypto_1.randomBytes)(4).toString('hex')}`;
+}
 const SAFE_TASK_KINDS = new Set([
     'test', 'lint', 'typecheck', 'build', 'dev', 'start', 'serve',
     'preview', 'watch', 'format', 'format:check', 'coverage',
@@ -86,7 +90,7 @@ function registerRunProjectTaskCommand(context, tasksProvider) {
                 const confirmed = await confirmHighRisk(task, `命令包含危险模式: "${dangerousMatch}"`);
                 if (!confirmed) {
                     (0, taskHistory_js_1.addTaskRecord)({
-                        id: `task-${Date.now()}`,
+                        id: generateTaskRecordId(),
                         label: task.label,
                         kind: task.kind,
                         source: task.source,
@@ -107,7 +111,7 @@ function registerRunProjectTaskCommand(context, tasksProvider) {
                         const confirmed = await confirmHighRisk(task, `dry-run 检测: ${dryRun.reason}`);
                         if (!confirmed) {
                             (0, taskHistory_js_1.addTaskRecord)({
-                                id: `task-${Date.now()}`,
+                                id: generateTaskRecordId(),
                                 label: task.label,
                                 kind: task.kind,
                                 source: task.source,
@@ -154,7 +158,7 @@ function registerRunProjectTaskCommand(context, tasksProvider) {
         finally {
             const endedAt = new Date();
             (0, taskHistory_js_1.addTaskRecord)({
-                id: `task-${Date.now()}`,
+                id: generateTaskRecordId(),
                 label: task.label,
                 kind: task.kind,
                 source: task.source,
