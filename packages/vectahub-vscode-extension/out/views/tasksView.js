@@ -42,7 +42,9 @@ const treeItems_js_1 = require("./treeItems.js");
 const detector_js_1 = require("../project/detector.js");
 const taskModel_js_1 = require("../project/taskModel.js");
 const adapter_js_1 = require("../cli/adapter.js");
+const diagnosticModel_js_1 = require("../project/diagnosticModel.js");
 const longRunningTaskManager_js_1 = require("../cli/longRunningTaskManager.js");
+const taskHistory_js_1 = require("../project/taskHistory.js");
 const DEV_KINDS = ['dev', 'start', 'serve'];
 const QUALITY_KINDS = ['test', 'build', 'lint', 'typecheck', 'check', 'validate', 'format', 'format:check', 'coverage', 'storybook'];
 class TasksViewProvider {
@@ -83,12 +85,7 @@ class TasksViewProvider {
         try {
             const content = fs.readFileSync(queueFile, 'utf-8');
             const data = JSON.parse(content);
-            if (!Array.isArray(data)) {
-                return { tasks: [], error: '队列数据格式不正确' };
-            }
-            return {
-                tasks: data.filter((t) => t && t.id && t.title && t.status)
-            };
+            return (0, diagnosticModel_js_1.normalizeDiagnosticQueue)(data);
         }
         catch {
             return { tasks: [], error: '队列数据不可读' };
@@ -108,6 +105,7 @@ class TasksViewProvider {
             this.addQualitySection(categories);
             this.addCISection(categories);
             this.addQueueSection(categories);
+            this.addRecentFailuresSection(categories);
             this.addGitSection(categories);
             this.addCoreSection(categories);
             this.addOtherScriptsSection(categories);
@@ -194,10 +192,11 @@ class TasksViewProvider {
                 continue;
             const statusItems = tasks.map(t => {
                 const icon = this.getIconForStatus(t.status);
+                const action = (0, diagnosticModel_js_1.getExecutableAction)(t);
                 return new treeItems_js_1.TaskTreeItem(t.title, {
-                    command: 'vectahubTasks.runIntent',
+                    command: action ? 'vectahubTasks.runIntent' : 'workbench.action.output.toggleOutput',
                     title: t.title,
-                    arguments: [t.commandToFix]
+                    arguments: action ? [action] : undefined
                 }, icon, t.status, t.description);
             });
             queueChildren.push(new treeItems_js_1.CategoryTreeItem(`${statusLabels[status] || status} (${tasks.length})`, statusItems));
@@ -205,6 +204,24 @@ class TasksViewProvider {
         if (queueChildren.length > 0) {
             categories.push(new treeItems_js_1.CategoryTreeItem('自动化队列', queueChildren));
         }
+    }
+    addRecentFailuresSection(categories) {
+        const failures = (0, taskHistory_js_1.getFailedTasks)(5);
+        if (failures.length === 0)
+            return;
+        const items = failures.map(record => {
+            const timeStr = record.endedAt
+                ? new Date(record.endedAt).toLocaleTimeString()
+                : '';
+            const desc = record.errorMessage
+                ? `${timeStr} · ${record.errorMessage}`
+                : timeStr;
+            return new treeItems_js_1.TaskTreeItem(record.label, {
+                command: 'workbench.action.output.toggleOutput',
+                title: `查看 ${record.label} 详情`
+            }, 'error', 'failed', desc);
+        });
+        categories.push(new treeItems_js_1.CategoryTreeItem('最近失败', items));
     }
     addGitSection(categories) {
         const gitItems = this.projectTasks
@@ -243,10 +260,9 @@ class TasksViewProvider {
     groupDiagnosticsByStatus() {
         const groups = new Map();
         for (const task of this.diagnosticTasks) {
-            const validStatuses = ['pending', 'processing', 'completed', 'failed', 'cancelled', 'needs-confirmation'];
-            const status = validStatuses.includes(task.status)
+            const status = diagnosticModel_js_1.VALID_DIAGNOSTIC_STATUSES.includes(task.status)
                 ? task.status
-                : 'failed';
+                : 'needs-confirmation';
             const list = groups.get(status) || [];
             list.push(task);
             groups.set(status, list);

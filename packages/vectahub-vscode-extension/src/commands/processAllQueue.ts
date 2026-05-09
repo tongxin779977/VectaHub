@@ -1,32 +1,161 @@
 import * as vscode from 'vscode';
 import { runCli } from '../cli/adapter.js';
+import { waitForCliReady } from '../cli/readiness.js';
 import { TasksViewProvider } from '../views/tasksView.js';
+import { addTaskRecord } from '../project/taskHistory.js';
+import { logToOutput } from '../ui/output.js';
+import { QueueSummary } from '../project/diagnosticModel.js';
 
-export function registerProcessAllQueueCommand(context: vscode.ExtensionContext, tasksProvider?: TasksViewProvider) {
+interface WorkflowResult {
+  ok: boolean;
+  status?: string;
+  summary?: QueueSummary;
+  error?: { code?: string; message?: string };
+}
+
+export function registerProcessAllQueueCommand(context: vscode.ExtensionContext, tasksProvider: TasksViewProvider) {
   const disposable = vscode.commands.registerCommand('vectahubTasks.processAllQueue', async () => {
+    const ready = await waitForCliReady();
+    if (!ready) return;
+
+    const beforeQueue = tasksProvider.readDiagnosticQueue();
+    const pendingCount = beforeQueue.tasks.filter(t => t.status === 'pending').length;
+    const processingCount = beforeQueue.tasks.filter(t => t.status === 'processing').length;
+
+    if (pendingCount === 0) {
+      const hint = processingCount > 0
+        ? `队列中有 ${processingCount} 个处理中任务，无待处理任务。`
+        : '队列为空，无需处理。';
+      logToOutput(`[processAllQueue] ${hint}`);
+      vscode.window.showInformationMessage(hint);
+      return;
+    }
+
+    const confirmParts = [`队列中有 ${pendingCount} 个待处理任务`];
+    if (processingCount > 0) confirmParts.push(`${processingCount} 个处理中`);
+    confirmParts.push('确定要启动批量修复流程吗？');
+
     const confirm = await vscode.window.showWarningMessage(
-      '确定要启动批量修复流程吗？系统将逐一处理诊断队列中的所有任务。',
+      confirmParts.join('，'),
       { modal: true },
       '开始处理'
     );
 
-    if (confirm === '开始处理') {
-      vscode.window.withProgress({
-        location: vscode.ProgressLocation.Notification,
-        title: "VectaHub 正在进行批量诊断修复...",
-        cancellable: true
-      }, async (progress, token) => {
-        const result = await runCli(['run', '-f', 'sys:process-diagnostic-queue', '--mode', 'relaxed'], { token });
-        tasksProvider?.refresh();
-        if (result.ok) {
-          vscode.window.showInformationMessage('✅ 批量诊断任务处理完成');
-        } else if (result.error?.code === 'CANCELLED') {
+    if (confirm !== '开始处理') return;
+
+    logToOutput(`[processAllQueue] 开始批量处理: ${pendingCount} 个待处理任务`);
+    const startedAt = new Date();
+
+    vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      title: `VectaHub 正在进行批量诊断修复 (${pendingCount} 个任务)...`,
+      cancellable: true
+    }, async (progress, token) => {
+      const result = await runCli<WorkflowResult>(
+        ['run', '-f', 'sys:process-diagnostic-queue', '--mode', 'relaxed', '--json'],
+        { token }
+      );
+
+      tasksProvider.refresh();
+
+      if (!result.ok) {
+        const endedAt = new Date();
+
+        if (result.error?.code === 'CANCELLED') {
+          logToOutput(`[processAllQueue] 批量处理已由用户中止`);
+          addTaskRecord({
+            id: `process-queue-${Date.now()}`,
+            label: '批量处理诊断队列',
+            kind: 'process-queue',
+            source: 'vectahub',
+            status: 'cancelled',
+            command: `process ${pendingCount} pending tasks`,
+            startedAt,
+            endedAt
+          });
           vscode.window.showInformationMessage('⏸ 批量处理已由用户中止');
         } else {
-          vscode.window.showErrorMessage(`❌ 批量处理中断: ${result.error?.message || '未知错误'}`);
+          const errMsg = result.error?.message || '未知错误';
+          logToOutput(`[processAllQueue] 批量处理中断: ${errMsg}`, 'error');
+          addTaskRecord({
+            id: `process-queue-${Date.now()}`,
+            label: '批量处理诊断队列',
+            kind: 'process-queue',
+            source: 'vectahub',
+            status: 'failed',
+            command: `process ${pendingCount} pending tasks`,
+            startedAt,
+            endedAt,
+            errorMessage: errMsg
+          });
+          vscode.window.showErrorMessage(`❌ 批量处理中断: ${errMsg}`);
         }
+        return;
+      }
+
+      const afterQueue = tasksProvider.readDiagnosticQueue();
+      const workflowData = result.data as WorkflowResult | undefined;
+      
+      let completedNow: number;
+      let failedCount: number;
+      let pendingAfter: number;
+      let needsConfirmCount: number;
+
+      if (workflowData?.summary) {
+        const s = workflowData.summary;
+        completedNow = s.processedCount ?? 0;
+        failedCount = s.failedCount ?? 0;
+        pendingAfter = s.remainingCount ?? 0;
+        needsConfirmCount = s.needsConfirmationCount ?? 0;
+        logToOutput(`[processAllQueue] 使用CLI summary: processed=${completedNow}, failed=${failedCount}, remaining=${pendingAfter}, needsConfirmation=${needsConfirmCount}`);
+      } else {
+        const beforePendingIds = new Set(
+          beforeQueue.tasks.filter(t => t.status === 'pending').map(t => t.id)
+        );
+        completedNow = afterQueue.tasks.filter(t => t.status === 'completed' && beforePendingIds.has(t.id)).length;
+        failedCount = afterQueue.tasks.filter(t => t.status === 'failed').length;
+        pendingAfter = afterQueue.tasks.filter(t => t.status === 'pending').length;
+        needsConfirmCount = afterQueue.tasks.filter(t => t.status === 'needs-confirmation').length;
+        logToOutput(`[processAllQueue] 使用snapshot推算: completed=${completedNow}, failed=${failedCount}, pending=${pendingAfter}, needsConfirmation=${needsConfirmCount}`);
+      }
+
+      const endedAt = new Date();
+
+      const historyStatus = failedCount > 0 ? 'failed' : 'success';
+      addTaskRecord({
+        id: `process-queue-${Date.now()}`,
+        label: '批量处理诊断队列',
+        kind: 'process-queue',
+        source: 'vectahub',
+        status: historyStatus,
+        command: `处理 ${pendingCount} 个: 完成 ${completedNow}, 失败 ${failedCount}, 剩余 ${pendingAfter}, 待确认 ${needsConfirmCount}`,
+        startedAt,
+        endedAt,
+        errorMessage: failedCount > 0 ? `${failedCount} 个任务处理失败` : undefined
       });
-    }
+
+      logToOutput(`[processAllQueue] 批量处理完成: 已处理 ${completedNow}, 失败 ${failedCount}, 剩余待处理 ${pendingAfter}, 待确认 ${needsConfirmCount}`);
+
+      const parts: string[] = [];
+      if (completedNow > 0) parts.push(`✅ 已处理 ${completedNow}`);
+      if (pendingAfter > 0) parts.push(`⏳ 剩余待处理 ${pendingAfter}`);
+      if (failedCount > 0) parts.push(`❌ 失败 ${failedCount}`);
+      if (needsConfirmCount > 0) parts.push(`⚠️ 待确认 ${needsConfirmCount}`);
+
+      const msg = parts.length > 0
+        ? `批量处理完成: ${parts.join(' / ')}`
+        : '✅ 批量诊断任务处理完成';
+
+      if (failedCount > 0 || pendingAfter > 0 || needsConfirmCount > 0) {
+        vscode.window.showWarningMessage(msg, '查看详情').then(choice => {
+          if (choice === '查看详情') {
+            vscode.commands.executeCommand('workbench.action.output.toggleOutput');
+          }
+        });
+      } else {
+        vscode.window.showInformationMessage(msg);
+      }
+    });
   });
   context.subscriptions.push(disposable);
 }

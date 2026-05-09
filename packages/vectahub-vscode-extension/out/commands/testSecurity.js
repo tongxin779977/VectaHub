@@ -37,6 +37,9 @@ exports.registerTestSecurityCommand = registerTestSecurityCommand;
 const vscode = __importStar(require("vscode"));
 const adapter_js_1 = require("../cli/adapter.js");
 const output_js_1 = require("../ui/output.js");
+const readiness_js_1 = require("../cli/readiness.js");
+const dangerDetection_js_1 = require("../cli/dangerDetection.js");
+const SECURITY_TEST_TIMEOUT = 15000;
 function registerTestSecurityCommand(context) {
     const disposable = vscode.commands.registerCommand('vectahubTasks.testSecurity', async () => {
         const editor = vscode.window.activeTextEditor;
@@ -48,21 +51,54 @@ function registerTestSecurityCommand(context) {
         });
         if (!command)
             return;
-        (0, output_js_1.logToOutput)(`正在进行安全测试，命令: "${command}"`);
-        const result = await (0, adapter_js_1.runCli)(['security', 'test', '--json', command]);
-        if (result.ok && result.data) {
-            if (result.data.isDangerous) {
+        const dangerousMatch = (0, dangerDetection_js_1.getDangerousMatch)(command);
+        if (dangerousMatch) {
+            (0, output_js_1.logToOutput)(`[testSecurity] 本地危险检测命中: ${dangerousMatch}`);
+            vscode.window.showErrorMessage(`🚨 危险命令! 命中本地规则: "${dangerousMatch}"`);
+            return;
+        }
+        const ready = await (0, readiness_js_1.waitForCliReady)();
+        if (!ready) {
+            (0, output_js_1.logToOutput)('[testSecurity] CLI 未就绪，使用本地检测结果');
+            if ((0, dangerDetection_js_1.isDangerousCommand)(command)) {
+                vscode.window.showErrorMessage('🚨 命令被本地安全规则标记为危险');
+            }
+            else {
+                vscode.window.showInformationMessage('⚠️ CLI 未就绪，本地检测未发现危险模式');
+            }
+            return;
+        }
+        (0, output_js_1.logToOutput)(`[testSecurity] 正在进行安全测试，命令: "${command}"`);
+        vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: "VectaHub: 正在进行安全检测...",
+            cancellable: true
+        }, async (progress, token) => {
+            const result = await (0, adapter_js_1.runCli)(['security', 'test', '--json', command], { token, timeout: SECURITY_TEST_TIMEOUT });
+            if (!result.ok) {
+                if (result.error?.code === 'CANCELLED') {
+                    (0, output_js_1.logToOutput)('[testSecurity] 安全检测已取消');
+                    return;
+                }
+                const errMsg = result.error?.message || result.stderr || '未知错误';
+                (0, output_js_1.logToOutput)(`[testSecurity] CLI 安全检测失败: ${errMsg}，回退到本地检测`, 'warn');
+                if ((0, dangerDetection_js_1.isDangerousCommand)(command)) {
+                    vscode.window.showErrorMessage('🚨 命令被本地安全规则标记为危险 (CLI 检测失败)');
+                }
+                else {
+                    vscode.window.showWarningMessage(`安全检测异常: ${errMsg}，本地检测未发现危险模式`);
+                }
+                return;
+            }
+            if (result.data?.isDangerous) {
                 vscode.window.showErrorMessage(`🚨 危险命令! 风险等级: ${result.data.severity}. 命中规则: ${result.data.rule?.name}`);
-                (0, output_js_1.logToOutput)(`安全警报: ${result.data.rule?.name} (风险: ${result.data.severity})`, 'warn');
+                (0, output_js_1.logToOutput)(`[testSecurity] 安全警报: ${result.data.rule?.name} (风险: ${result.data.severity})`, 'warn');
             }
             else {
                 vscode.window.showInformationMessage('✅ 命令安全合规。');
-                (0, output_js_1.logToOutput)('安全检查: 通过。');
+                (0, output_js_1.logToOutput)('[testSecurity] 安全检查: 通过。');
             }
-        }
-        else {
-            (0, output_js_1.logToOutput)(`安全测试失败: ${result.error?.message || result.stderr}`, 'error');
-        }
+        });
     });
     context.subscriptions.push(disposable);
 }

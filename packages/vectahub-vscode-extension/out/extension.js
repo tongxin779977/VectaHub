@@ -5,11 +5,11 @@ exports.activate = activate;
 exports.deactivate = deactivate;
 const discovery_js_1 = require("./cli/discovery.js");
 const statusBar_js_1 = require("./ui/statusBar.js");
-const notifications_js_1 = require("./ui/notifications.js");
 const installCli_js_1 = require("./commands/installCli.js");
 const settings_js_1 = require("./config/settings.js");
 const output_js_1 = require("./ui/output.js");
 const adapter_js_1 = require("./cli/adapter.js");
+const readiness_js_1 = require("./cli/readiness.js");
 const tasksView_js_1 = require("./views/tasksView.js");
 const advancedView_js_1 = require("./views/advancedView.js");
 const doctor_js_1 = require("./commands/doctor.js");
@@ -31,20 +31,16 @@ const runCheckPipeline_js_1 = require("./commands/runCheckPipeline.js");
 const runDevPipeline_js_1 = require("./commands/runDevPipeline.js");
 const startDevServer_js_1 = require("./commands/startDevServer.js");
 const stopRunningTask_js_1 = require("./commands/stopRunningTask.js");
-let globalCliPath;
 function getGlobalCliPath() {
-    return globalCliPath;
+    return (0, readiness_js_1.getResolvedCliPath)();
 }
 async function activate(context) {
-    // 初始化核心组件
     const outputChannel = (0, output_js_1.initOutputChannel)();
     (0, adapter_js_1.initCliAdapter)(context);
     (0, statusBar_js_1.initStatusBar)(context);
     (0, output_js_1.logToOutput)('VectaHub Tasks extension is now active!');
-    // 注册视图
     const tasksProvider = (0, tasksView_js_1.registerTasksView)(context);
     (0, advancedView_js_1.registerAdvancedView)(context);
-    // 注册命令
     (0, installCli_js_1.registerInstallCliCommand)(context);
     (0, doctor_js_1.registerDoctorCommand)(context);
     (0, previewIntent_js_1.registerPreviewIntentCommand)(context);
@@ -66,15 +62,20 @@ async function activate(context) {
     (0, startDevServer_js_1.registerStartDevServerCommand)(context, tasksProvider);
     (0, stopRunningTask_js_1.registerStopRunningTaskCommand)(context, tasksProvider);
     context.subscriptions.push(outputChannel);
-    // 自动检测 CLI
+    const cliDetector = async () => {
+        const result = await (0, discovery_js_1.discoverCli)();
+        return {
+            exists: result.exists,
+            path: result.path,
+            version: result.version,
+            error: result.error
+        };
+    };
     if ((0, settings_js_1.getAutoDetectCli)()) {
         (0, output_js_1.logToOutput)('Detecting VectaHub CLI...');
-        const result = await (0, discovery_js_1.discoverCli)();
-        if (result.exists) {
-            globalCliPath = result.path;
-            (0, output_js_1.logToOutput)(`VectaHub CLI detected: ${result.version} at ${globalCliPath}`);
+        const state = await (0, readiness_js_1.startCliDetection)(cliDetector);
+        if (state === 'ready') {
             (0, statusBar_js_1.updateStatusBar)('Ready');
-            // 检测成功后自动运行一次 doctor
             (0, output_js_1.logToOutput)('Running initial VectaHub doctor...');
             const doctorResult = await (0, adapter_js_1.runCli)(['doctor', '--json']);
             if (doctorResult.ok) {
@@ -88,10 +89,11 @@ async function activate(context) {
             }
         }
         else {
-            (0, output_js_1.logToOutput)(`VectaHub CLI not found: ${result.error}`, 'error');
             (0, statusBar_js_1.updateStatusBar)('CLI Missing');
-            (0, notifications_js_1.showCliMissingWarning)();
         }
+    }
+    else {
+        (0, readiness_js_1.registerCliDetector)(cliDetector);
     }
 }
 const process_manager_js_1 = require("./cli/process-manager.js");

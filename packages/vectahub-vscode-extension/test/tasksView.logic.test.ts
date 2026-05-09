@@ -1,14 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { DiagnosticTask, DiagnosticTaskStatus } from '../src/project/diagnosticModel.js';
+import { DiagnosticTask, DiagnosticTaskStatus, VALID_DIAGNOSTIC_STATUSES } from '../src/project/diagnosticModel.js';
 import { EmptyStateTreeItem } from '../src/views/treeItems.js';
 
 function groupDiagnosticsByStatus(tasks: DiagnosticTask[]): Map<DiagnosticTaskStatus, DiagnosticTask[]> {
   const groups = new Map<DiagnosticTaskStatus, DiagnosticTask[]>();
   for (const task of tasks) {
-    const validStatuses: DiagnosticTaskStatus[] = ['pending', 'processing', 'completed', 'failed', 'cancelled', 'needs-confirmation'];
-    const status: DiagnosticTaskStatus = validStatuses.includes(task.status as DiagnosticTaskStatus)
+    const status: DiagnosticTaskStatus = VALID_DIAGNOSTIC_STATUSES.includes(task.status as DiagnosticTaskStatus)
       ? (task.status as DiagnosticTaskStatus)
-      : 'failed';
+      : 'needs-confirmation';
     const list = groups.get(status) || [];
     list.push(task);
     groups.set(status, list);
@@ -42,7 +41,6 @@ function makeTask(overrides: Partial<DiagnosticTask>): DiagnosticTask {
     title: 'Test Task',
     description: 'desc',
     source: 'manual',
-    commandToFix: 'echo ok',
     status: 'pending',
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -89,13 +87,14 @@ describe('M2 队列分组逻辑', () => {
     expect(groups.get('needs-confirmation')!.length).toBe(1);
   });
 
-  it('未知状态应映射为 failed', () => {
+  it('未知状态应映射为 needs-confirmation', () => {
     const tasks = [
       makeTask({ id: '1', status: 'unknown-status' as any })
     ];
     const groups = groupDiagnosticsByStatus(tasks);
-    expect(groups.has('failed')).toBe(true);
-    expect(groups.get('failed')!.length).toBe(1);
+    expect(groups.has('needs-confirmation')).toBe(true);
+    expect(groups.get('needs-confirmation')!.length).toBe(1);
+    expect(groups.has('failed')).toBe(false);
   });
 
   it('新状态类型 cancelled 和 needs-confirmation 应被识别', () => {

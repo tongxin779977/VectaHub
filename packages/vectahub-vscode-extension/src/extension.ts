@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
 import { discoverCli } from './cli/discovery.js';
 import { initStatusBar, updateStatusBar } from './ui/statusBar.js';
-import { showCliMissingWarning } from './ui/notifications.js';
 import { registerInstallCliCommand } from './commands/installCli.js';
 import { getAutoDetectCli } from './config/settings.js';
 import { initOutputChannel, logToOutput } from './ui/output.js';
 import { initCliAdapter, runCli } from './cli/adapter.js';
+import { startCliDetection, registerCliDetector, getResolvedCliPath, CliDetectionResult } from './cli/readiness.js';
 import { registerTasksView } from './views/tasksView.js';
 import { registerAdvancedView } from './views/advancedView.js';
 import { registerDoctorCommand } from './commands/doctor.js';
@@ -28,25 +28,20 @@ import { registerRunDevPipelineCommand } from './commands/runDevPipeline.js';
 import { registerStartDevServerCommand } from './commands/startDevServer.js';
 import { registerStopRunningTaskCommand } from './commands/stopRunningTask.js';
 
-let globalCliPath: string | undefined;
-
 export function getGlobalCliPath(): string | undefined {
-  return globalCliPath;
+  return getResolvedCliPath();
 }
 
 export async function activate(context: vscode.ExtensionContext) {
-  // 初始化核心组件
   const outputChannel = initOutputChannel();
   initCliAdapter(context);
   initStatusBar(context);
   
   logToOutput('VectaHub Tasks extension is now active!');
 
-  // 注册视图
   const tasksProvider = registerTasksView(context);
   registerAdvancedView(context);
 
-  // 注册命令
   registerInstallCliCommand(context);
   registerDoctorCommand(context);
   registerPreviewIntentCommand(context);
@@ -70,16 +65,22 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(outputChannel);
 
-  // 自动检测 CLI
+  const cliDetector = async (): Promise<CliDetectionResult> => {
+    const result = await discoverCli();
+    return {
+      exists: result.exists,
+      path: result.path,
+      version: result.version,
+      error: result.error
+    };
+  };
+
   if (getAutoDetectCli()) {
     logToOutput('Detecting VectaHub CLI...');
-    const result = await discoverCli();
-    if (result.exists) {
-      globalCliPath = result.path;
-      logToOutput(`VectaHub CLI detected: ${result.version} at ${globalCliPath}`);
+    const state = await startCliDetection(cliDetector);
+
+    if (state === 'ready') {
       updateStatusBar('Ready');
-      
-      // 检测成功后自动运行一次 doctor
       logToOutput('Running initial VectaHub doctor...');
       interface DoctorResult {
         summary?: { passed: number; failed: number; warnings: number };
@@ -94,10 +95,10 @@ export async function activate(context: vscode.ExtensionContext) {
         }
       }
     } else {
-      logToOutput(`VectaHub CLI not found: ${result.error}`, 'error');
       updateStatusBar('CLI Missing');
-      showCliMissingWarning();
     }
+  } else {
+    registerCliDetector(cliDetector);
   }
 }
 

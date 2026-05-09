@@ -76,7 +76,7 @@ export class LongRunningTaskManager {
 
     const outputChannel = vscode.window.createOutputChannel(`VectaHub: ${task.label}`);
 
-    const child = spawn(task.command.cli, args, {
+    const child = spawn(spawnCmd, args, {
       cwd,
       env,
       stdio: ['ignore', 'pipe', 'pipe']

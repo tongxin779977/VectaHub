@@ -1,7 +1,7 @@
 # VS Code 插件开发自动化路线图
 
-> 版本: 1.0.0 | 最后更新: 2026-05-09
-> 定位: VectaHub TypeScript 版本 VS Code 插件的开发自动化实施文档
+> 版本：1.0.0 | 最后更新：2026-05-09
+> 定位：VectaHub TypeScript 版本 VS Code 插件的开发自动化实施文档
 
 ---
 
@@ -10,7 +10,7 @@
 本文档用于指导 `packages/vectahub-vscode-extension` 后续开发，目标是把插件从
 “任务入口面板”升级为“开发自动化控制台”。
 
-最终用户目标:
+最终用户目标：
 
 - 自动识别项目里的开发任务。
 - 一键执行开发、检查、测试、构建等任务链。
@@ -30,7 +30,7 @@
 - 任何执行路径必须经过统一 CLI adapter，不得绕过 VectaHub CLI 直接执行自然语言生成的命令。
 - 自然语言执行默认 `strict + preview first`。
 - 危险命令、高风险修复、批量修复必须有确认或暂停机制。
-- 自动化任务必须有状态: pending、running、completed、failed、cancelled 或 needs-confirmation。
+- 自动化任务必须有状态：pending、running、completed、failed、cancelled 或 needs-confirmation。
 - 长驻任务必须可停止，插件退出时必须清理子进程。
 - 所有新增能力必须配套测试，不能只改 UI。
 - 错误消息必须告诉用户失败点和下一步，不能只显示 unknown error。
@@ -50,7 +50,7 @@
 
 ### 1.3 Agent 实施硬性检查
 
-每个阶段完成前，Agent 必须回答:
+每个阶段完成前，Agent 必须回答：
 
 1. 改了哪些文件，为什么必须改这些文件。
 2. 哪些功能是已实现，哪些只是保留入口。
@@ -66,7 +66,7 @@
 
 ## 2. 当前基础
 
-当前插件已有能力:
+当前插件已有能力：
 
 - Activity Bar 容器和 Tasks / Advanced 两个视图。
 - CLI 自动检测和 `doctor --json` 初始检查。
@@ -76,7 +76,7 @@
 - 诊断队列读取和一键处理入口。
 - ProcessManager 用于插件退出时回收进程。
 
-当前主要缺口:
+当前主要缺口：
 
 - 开发任务识别不完整，缺少 dev、start、serve、preview、watch、format、coverage 等任务类型。
 - `previewBeforeRun` 配置没有贯穿所有执行路径。
@@ -90,22 +90,23 @@
 
 ## 3. 总体阶段拆分
 
-实施分为 7 个大阶段。每个大阶段都可以继续拆成多个小阶段独立交付。
+实施分为 M0-M8 共 9 个大阶段。每个大阶段都可以继续拆成多个小阶段独立交付。
 
-| 阶段 | 名称 | 目标 |
-| --- | --- | --- |
-| M0 | 基线确认 | 明确 CLI / 插件当前可用能力和协议缺口 (✅ 已完成) |
-| M1 | 任务识别增强 | 自动发现真实开发任务和质量检查任务 (✅ 已完成) |
-| M2 | 任务面板重组 | 把侧边栏升级为高频开发控制台 |
-| M3 | 一键任务链 | 支持一键检查全部和开发任务链 |
-| M4 | 长驻任务管理 | 支持 dev server 启动、状态和停止 |
-| M5 | CI 失败闭环 | 拉取 CI 错误并进入诊断队列 |
-| M6 | 队列自动化 | 批量处理、取消、状态刷新和失败摘要 |
-| M7 | 风险控制与体验收口 | 预览、确认、历史、通知和最终验证 |
+| 阶段 | 名称 | 状态 | 目标 |
+| --- | --- | --- | --- |
+| M0 | 基线确认 | 已完成 | 明确 CLI / 插件当前可用能力和协议缺口 |
+| M1 | 任务识别增强 | 已完成 | 自动发现真实开发任务和质量检查任务 |
+| M2 | 任务面板重组 | 已完成 | 把侧边栏升级为高频开发控制台 |
+| M3 | 一键任务链 | 已完成 | 支持一键检查全部和开发任务链 |
+| M4 | 长驻任务管理 | 已完成 | 支持 dev server 启动、状态和停止 |
+| M5 | CI 失败闭环 | 已收敛 | 拉取 CI 错误并进入诊断队列 |
+| M6 | 队列自动化 | 边界确认 | 批量处理、取消、状态刷新和失败摘要 |
+| M7 | 风险控制与体验收口 | 边界确认 | 预览、确认、历史、通知和最终验证 |
+| M8 | 协议收敛和可靠性补强 | 已完成 | 统一队列 schema、补齐 summary、安全检测和测试体系 |
 
 ---
 
-## 4. M0 基线确认 (✅ 已完成)
+## 4. M0 基线确认
 
 ### 4.1 目标
 
@@ -115,7 +116,7 @@
 
 #### M0.1 插件构建基线
 
-验收结果:
+验收结果：
 
 - `npm run compile`: **Available** (成功编译)。
 - `npm run lint`: **Failed**。由于项目根目录升级到 ESLint 9 但缺失 `eslint.config.js` 导致配置迁移错误。
@@ -127,7 +128,7 @@
 
 #### M0.2 CLI JSON 协议基线
 
-验收结果:
+验收结果：
 
 - `vectahub doctor --json`: **Available**。
 - `vectahub run --dry-run --json <intent>`: **Available**。
@@ -136,11 +137,11 @@
 - `vectahub tools list --json`: **Available**。
 - `vectahub security test --json <command>`: **Failed/Partial**。执行卡死或触发 `EventEmitter memory leak` 警告，未能稳定输出 JSON。
   - **插件 fallback 策略**：插件暂时改用 `run-command --dry-run --json` 获取安全状态。
-  - **修复计划**：这是 CLI 核心的安全检测 Bug，必须在 **M7 阶段**（风险控制与体验收口）完善安全预览机制之前彻底修复。
+  - **修复计划**：这是 CLI 核心的安全检测 Bug。M7 阶段先使用 `run-command --dry-run --json` 和插件侧轻量危险模式作为临时防线；后续接入精确安全判定前必须修复 `security test --json`。
 
 #### M0.3 自动化系统命令基线
 
-验收结果:
+验收结果：
 
 - `sys:fetch-gh-actions-errors`: **Available** (正常输出包含 `gh run list` 和 JS 转换脚本的工作流)。
 - `sys:process-diagnostic-queue`: **Available** (正常输出包含读取状态并 `for_each` 的工作流)。
@@ -154,13 +155,13 @@
 
 ### 4.4 完成标准
 
-- ✅ 有真实验证结果。
-- ✅ 有协议缺口列表。
-- ✅ 后续阶段知道哪些能直接开发，哪些需要先补 CLI。
+- 有真实验证结果。
+- 有协议缺口列表。
+- 后续阶段知道哪些能直接开发，哪些需要先补 CLI。
 
 ---
 
-## 5. M1 任务识别增强 (✅ 已完成)
+## 5. M1 任务识别增强
 
 ### 5.1 目标
 
@@ -170,13 +171,13 @@
 
 #### 开发服务
 
-识别脚本:
+识别脚本：
 
 - `dev`
 - `start`
 - `serve`
 
-展示建议:
+展示建议：
 
 - 启动开发服务
 - 启动项目
@@ -184,14 +185,14 @@
 
 #### 预览和监听
 
-识别脚本:
+识别脚本：
 
 - `preview`
 - `watch`
 - `build:watch`
 - `test:watch`
 
-展示建议:
+展示建议：
 
 - 预览构建结果
 - 监听构建
@@ -199,7 +200,7 @@
 
 #### 质量检查
 
-识别脚本:
+识别脚本：
 
 - `lint`
 - `typecheck`
@@ -208,7 +209,7 @@
 - `format`
 - `format:check`
 
-展示建议:
+展示建议：
 
 - 代码检查
 - 类型检查
@@ -219,14 +220,14 @@
 
 #### 测试和覆盖率
 
-识别脚本:
+识别脚本：
 
 - `test`
 - `test:unit`
 - `test:e2e`
 - `coverage`
 
-展示建议:
+展示建议：
 
 - 运行测试
 - 单元测试
@@ -235,12 +236,12 @@
 
 #### 构建和组件预览
 
-识别脚本:
+识别脚本：
 
 - `build`
 - `storybook`
 
-展示建议:
+展示建议：
 
 - 构建项目
 - 启动 Storybook
@@ -249,24 +250,24 @@
 
 #### M1.1 扩展任务类型
 
-改动:
+改动：
 
 - 扩展 `ProjectTask.kind`。
 - 保留已有 kind 兼容性。
 
-验收:
+验收：
 
 - TypeScript 类型不退化为 `string` 或 `any`。
 - 现有测试不因类型变化失效。
 
 #### M1.2 扩展 package scripts 识别规则
 
-改动:
+改动：
 
 - 增加脚本名到任务 kind / label / description 的映射。
 - 按实际 package manager 生成执行命令。
 
-验收:
+验收：
 
 - npm、pnpm 项目均可识别。
 - 没有脚本时不生成假任务。
@@ -274,12 +275,12 @@
 
 #### M1.3 增加更多脚本入口
 
-目标:
+目标：
 
 - 主面板只放高频脚本。
 - 低频或未知脚本进入“更多 package scripts”。
 
-验收:
+验收：
 
 - 不把所有脚本平铺到主面板。
 - 用户仍能找到非标准脚本。
@@ -343,24 +344,24 @@ VectaHub 核心
 
 #### M2.1 分类渲染
 
-改动:
+改动：
 
 - 按任务 kind 和 source 分组。
 - 空分类不展示或展示明确空状态。
 
-验收:
+验收：
 
 - 高频任务在首屏可见。
 - Advanced 仍保留工具、安全、工作流等低频入口。
 
 #### M2.2 队列状态展示
 
-改动:
+改动：
 
 - 读取 `diagnostic-queue.json`。
 - 按状态分组展示。
 
-验收:
+验收：
 
 - 队列为空时显示明确状态。
 - 文件变化后自动刷新。
@@ -368,12 +369,12 @@ VectaHub 核心
 
 #### M2.3 刷新体验
 
-改动:
+改动：
 
 - 保留刷新按钮。
 - 拉取 CI / 处理队列后主动刷新。
 
-验收:
+验收：
 
 - 用户不需要重启 VS Code 才看到变化。
 
@@ -399,13 +400,13 @@ VectaHub 核心
 
 ### 7.2 默认任务链
 
-第一版默认顺序:
+第一版默认顺序：
 
 ```text
 typecheck -> lint -> test -> build
 ```
 
-规则:
+规则：
 
 - 只执行当前项目真实存在的任务。
 - 不存在的任务跳过并写入摘要。
@@ -416,35 +417,35 @@ typecheck -> lint -> test -> build
 
 #### M3.1 任务链生成
 
-新增建议:
+新增建议：
 
 - `src/execution/devPipeline.ts`
 
-职责:
+职责：
 
 - 从已识别任务中选出质量检查任务。
 - 按固定优先级排序。
 - 生成可执行计划列表。
 
-验收:
+验收：
 
 - 不依赖 UI 才能测试。
 - 任务顺序稳定。
 
 #### M3.2 一键检查命令
 
-新增建议:
+新增建议：
 
 - `src/commands/runCheckPipeline.ts`
 
-职责:
+职责：
 
 - 执行 typecheck / lint / test / build。
 - 显示进度。
 - 支持取消。
 - 输出摘要。
 
-验收:
+验收：
 
 - 失败即停止。
 - 取消后不继续执行后续任务。
@@ -452,16 +453,16 @@ typecheck -> lint -> test -> build
 
 #### M3.3 开发任务链命令
 
-新增建议:
+新增建议：
 
 - `src/commands/runDevPipeline.ts`
 
-职责:
+职责：
 
 - 面向“开发前准备”或“提交前检查”。
 - 可包含 install / format:check / typecheck / lint / test / build。
 
-验收:
+验收：
 
 - install 不能默认每次强制执行，除非用户选择或检测到依赖缺失。
 - 不允许自动修改代码格式，除非用户明确选择 format。
@@ -491,36 +492,36 @@ typecheck -> lint -> test -> build
 
 #### M4.1 长驻任务识别
 
-规则:
+规则：
 
 - dev / start / serve / preview 默认视为 long-running。
 - watch / test:watch / build:watch 默认视为 long-running。
 
-验收:
+验收：
 
 - 长驻任务不进入普通“等待退出后完成”流程。
 
 #### M4.2 启动和停止
 
-新增建议:
+新增建议：
 
 - `src/commands/startDevServer.ts`
 - `src/commands/stopRunningTask.ts`
 
-要求:
+要求：
 
 - 启动前检查是否已有同类任务运行。
 - 提供停止入口。
 - 插件 deactivate 时回收进程。
 
-验收:
+验收：
 
 - 重复启动不会产生多个失控进程。
 - 停止后状态栏和任务面板更新。
 
 #### M4.3 状态栏集成
 
-状态建议:
+状态建议：
 
 - `VectaHub: Ready`
 - `VectaHub: Running`
@@ -528,7 +529,7 @@ typecheck -> lint -> test -> build
 - `VectaHub: Failed`
 - `VectaHub: CLI Missing`
 
-验收:
+验收：
 
 - 点击状态栏能打开相关输出或任务面板。
 
@@ -555,42 +556,42 @@ typecheck -> lint -> test -> build
 
 #### M5.1 拉取前检查
 
-检查:
+检查：
 
 - 当前目录是否是 Git 仓库。
 - 是否存在远程 GitHub 仓库。
 - GitHub CLI 或 VectaHub 相关能力是否可用。
 - 当前用户是否已授权。
 
-验收:
+验收：
 
 - 没有权限时提示授权，而不是显示未知错误。
 
 #### M5.2 拉取失败记录
 
-入口:
+入口：
 
 - `vectahub run -f sys:fetch-gh-actions-errors`
 
-要求:
+要求：
 
 - 执行时显示进度。
 - 成功后刷新队列。
 - 发现失败项时提示用户处理队列。
 
-验收:
+验收：
 
 - 拉取成功后 Tasks 视图能看到队列变化。
 - 拉取失败时 Output 有具体原因。
 
 #### M5.3 队列转换协议
 
-要求:
+要求：
 
 - CI 失败必须转成结构化诊断任务。
 - 每个任务至少包含 title、description、status、commandToFix 或 nextAction。
 
-验收:
+验收：
 
 - 插件不猜测日志格式。
 - 缺字段时显示 needs-confirmation。
@@ -599,7 +600,7 @@ typecheck -> lint -> test -> build
 
 - `packages/vectahub-vscode-extension/src/commands/fetchGhErrors.ts`
 - `packages/vectahub-vscode-extension/src/views/tasksView.ts`
-- CLI 侧系统工作流: `sys:fetch-gh-actions-errors`
+- CLI 侧系统工作流：`sys:fetch-gh-actions-errors`
 
 ### 9.4 完成标准
 
@@ -617,7 +618,7 @@ typecheck -> lint -> test -> build
 
 ### 10.2 队列状态
 
-标准状态:
+标准状态：
 
 ```text
 pending
@@ -632,30 +633,30 @@ needs-confirmation
 
 #### M6.1 队列读取和校验
 
-要求:
+要求：
 
 - 队列文件不存在时返回空队列。
 - JSON 损坏时提示错误。
 - 未知状态进入 needs-confirmation 或 failed。
 
-验收:
+验收：
 
 - 插件不会因队列文件异常崩溃。
 
 #### M6.2 批量处理
 
-入口:
+入口：
 
 - `vectahub run -f sys:process-diagnostic-queue`
 
-要求:
+要求：
 
 - 启动前确认。
 - 显示总任务数和当前任务。
 - 支持取消。
 - 每个任务结束后刷新视图。
 
-验收:
+验收：
 
 - 队列为空不执行。
 - 中途取消能停止。
@@ -663,13 +664,13 @@ needs-confirmation
 
 #### M6.3 失败摘要
 
-要求:
+要求：
 
 - 完成后展示成功数、失败数、跳过数。
 - 失败项保留在队列或历史里。
 - 用户能打开 Output 查看详情。
 
-验收:
+验收：
 
 - 用户离开一段时间后回来，能知道最终结果。
 
@@ -699,40 +700,40 @@ needs-confirmation
 
 #### M7.1 预览策略贯穿
 
-要求:
+要求：
 
 - `previewBeforeRun=true` 时，自然语言任务必须先 dry-run。
 - 危险命令必须确认。
 - 批量任务启动前必须确认。
 - 队列中高风险项必须暂停。
 
-验收:
+验收：
 
 - runIntent 不得绕过 previewBeforeRun。
 - runProjectTask 对高风险命令必须进入确认路径。
 
 #### M7.2 历史记录
 
-要求:
+要求：
 
 - 记录最近运行。
 - 记录最近失败。
 - 面板可展示最近失败入口。
 
-验收:
+验收：
 
 - 失败任务不会被写成 success。
 - 历史至少在当前 VS Code 会话内可用。
 
 #### M7.3 通知和输出
 
-要求:
+要求：
 
 - 长任务完成后通知。
 - 失败通知可打开 Output。
 - Output 不输出 secrets、完整环境变量或 token。
 
-验收:
+验收：
 
 - 错误可定位。
 - 通知不刷屏。
@@ -757,7 +758,7 @@ needs-confirmation
 
 ### 12.1 必测范围
 
-每个阶段至少覆盖以下之一:
+每个阶段至少覆盖以下之一：
 
 - 纯逻辑单元测试。
 - VS Code 命令注册或执行测试。
@@ -766,13 +767,13 @@ needs-confirmation
 
 ### 12.2 推荐测试文件
 
-现有:
+现有：
 
 - `packages/vectahub-vscode-extension/test/crossProject.logic.test.ts`
 - `packages/vectahub-vscode-extension/test/taskHistory.test.ts`
 - `packages/vectahub-vscode-extension/src/test/extension.test.ts`
 
-建议新增:
+建议新增：
 
 - `packages/vectahub-vscode-extension/test/packageScripts.test.ts`
 - `packages/vectahub-vscode-extension/test/devPipeline.test.ts`
@@ -780,7 +781,7 @@ needs-confirmation
 
 ### 12.3 验证命令
 
-插件侧:
+插件侧：
 
 ```bash
 cd packages/vectahub-vscode-extension
@@ -789,7 +790,7 @@ npm run lint
 npm test
 ```
 
-根项目受影响时:
+根项目受影响时：
 
 ```bash
 npm run typecheck
@@ -839,7 +840,7 @@ npm test -- --run
 
 ## 14. 第一轮建议实施范围
 
-第一轮只做高收益闭环，不直接做全自动改代码:
+第一轮只做高收益闭环，不直接做全自动改代码：
 
 1. 扩展开发任务识别。
 2. 重组 Tasks 面板。
@@ -847,7 +848,7 @@ npm test -- --run
 4. 增强 GitHub CI 错误拉取后的队列刷新和提示。
 5. 增强“一键处理诊断队列”的进度、取消和失败提示。
 
-第一轮不做:
+第一轮不做：
 
 - 自动提交代码。
 - 自动 push。
@@ -856,7 +857,7 @@ npm test -- --run
 - 图形化 workflow 编辑器。
 - 跨仓库批量自动修复。
 
-第一轮验收:
+第一轮验收：
 
 - 打开 VS Code 后，用户能在 VectaHub 面板看到开发、检查、CI、队列四类高频入口。
 - 用户能一键跑 typecheck / lint / test / build 中项目实际存在的任务。
@@ -868,7 +869,7 @@ npm test -- --run
 
 ## 15. 阶段完成模板
 
-每完成一个阶段，开发 Agent 必须在回复中按以下格式说明:
+每完成一个阶段，开发 Agent 必须在回复中按以下格式说明：
 
 ```markdown
 ## 完成范围
@@ -885,3 +886,257 @@ npm test -- --run
 ```
 
 如果存在未完成项，必须说明原因和下一步，不能用“后续优化”笼统带过。
+
+---
+
+## 16. 当前进度更新
+
+> 更新时间：2026-05-09
+> 范围：M5 / M6 / M7 当前实施边界和已确认决策
+
+### 16.1 M5 当前状态
+
+M5 的方向已确认：
+
+- `fetchGhErrors` 使用 `vectahub run -f sys:fetch-gh-actions-errors --mode relaxed --json`。
+- 当前只依赖通用 workflow JSON 的 `ok/status/error`，不依赖业务级 `summary.addedCount`。
+- CLI 成功后刷新并读取 `diagnostic-queue.json` 快照，用队列状态展示 pending / needs-confirmation 数量。
+- CLI 失败或取消时必须提前返回，不得继续显示“队列为空”。
+- CI 拉取类命令豁免 `previewBeforeRun`，但必须有进度、结果摘要和失败提示。
+
+M5 不做：
+
+- 不解析 CLI 人类日志。
+- 不要求 `sys:fetch-gh-actions-errors` 直接返回 `DiagnosticTask[]`。
+- 不在 M5 统一 CLI diagnostic schema。
+- 不改变 `diagnostic-queue.json` 文件结构。
+
+M5 已收敛的审查项：
+
+- `waitForCliReady()` 支持自动检测中的等待和 lazy detection。
+- 未知队列状态进入 `needs-confirmation`，不误判为 failed。
+- `processAllQueue` 启动前只把 `pending` 计入待处理任务，`processing` 单独提示。
+
+### 16.2 M5 未完成或需要确认
+
+1. CLI JSON summary：当前 `sys:fetch-gh-actions-errors` 没有稳定业务 summary。后续可补：
+
+```json
+{
+  "ok": true,
+  "status": "COMPLETED",
+  "summary": {
+    "fetchedCount": 10,
+    "addedCount": 3,
+    "duplicateCount": 7,
+    "pendingCount": 3
+  }
+}
+```
+
+2. Diagnostic schema：当前插件只做防御性读取。CLI 侧 `DiagnosticTaskStatus`、validator、`commandToFix` 必填/可选语义留到共享 schema P1 统一。
+
+3. GitHub 权限和远程仓库检查：M5 插件侧应尽量给出明确错误，但不在插件里重新实现 GitHub 认证流程。
+
+### 16.3 M6 当前实施范围
+
+M6 只做队列级自动化，不扩展 CLI 协议：
+
+1. `processAllQueue` 集成 `taskHistory` 和 `logToOutput`。
+2. 执行前读取 pending 总数。
+3. 执行中显示通用 notification 进度。
+4. 执行后重新读取队列 snapshot。
+5. 用前后 snapshot 推算已处理数量、剩余待处理数量、失败数量和待确认数量。
+6. 对 success / failed / cancelled 写入会话内 taskHistory。
+7. 补充对应测试。
+
+M6.1 队列读取和校验已在 M5 前置完成：
+
+- 文件不存在返回空队列。
+- JSON 损坏提示错误。
+- 非数组 JSON 提示格式错误。
+- 未知状态归入 `needs-confirmation`。
+- 插件不因队列文件异常崩溃。
+
+M6.1 后续只建议做工程收口：
+
+- 将队列 normalize 和摘要计算抽成纯函数。
+- 测试真实生产函数，减少测试中复制实现逻辑。
+
+### 16.4 M6 未完成或需要确认
+
+1. taskHistory 持久化：当前为会话内内存存储。跨 VS Code 重启后历史丢失。如需跨会话历史，需独立 P1/P2 把 `taskHistory` 持久化到 extension globalStorage。M6 不扩大范围。
+
+2. CLI per-task 进度：当前 CLI `--json` 只提供通用 workflow 执行结果，未提供诊断队列任务级实时进度。因此插件 M6 只展示队列级进度和执行前后快照摘要。如 CLI 后续提供 task-level summary，插件可优先使用。
+
+3. “跳过数”语义：当前用“剩余待处理”替代。CLI 不返回 skipped 信息，插件无法区分“跳过”和“未处理到”。
+
+### 16.5 M7 当前实施范围
+
+M7 重点是执行前预览、风险确认、最近失败入口和通知输出收口。
+
+#### M7.1 预览策略
+
+`runIntent` 必须遵守 `previewBeforeRun`：
+
+- `previewBeforeRun=true` 时，先 dry-run，再确认执行。
+- 预览失败则不执行。
+- 用户取消确认则不执行。
+- `previewBeforeRun=false` 时，普通自然语言任务可直接执行。
+- 危险或高风险任务不能被配置绕过确认。
+
+`runProjectTask` 的安全策略：
+
+- 不强依赖 `vectahub security test --json`，因为当前该命令存在卡死 / EventEmitter leak 风险。
+- 优先使用 `vectahub run-command --dry-run --json -- <cli> <args...>` 作为备选预览路径。
+- 插件侧只加轻量危险关键词确认，作为临时防线。
+- 正式精确安全判定留到 CLI security JSON bug 修复后接入。
+
+当前危险模式最小集：
+
+- `rm -rf`
+- `sudo`
+- `chmod 777`
+- `curl | sh`
+- `wget | sh`
+- `dd`
+- `mkfs`
+- fork bomb
+
+关键词检测只是临时防线，最终安全判定仍以 CLI security 协议为准。
+
+#### M7.2 最近失败入口
+
+Tasks 视图应增加轻量“最近失败”区域：
+
+- 只展示当前 VS Code 会话内失败记录。
+- 最多显示 3-5 条。
+- 不做持久化。
+- 不做完整历史管理页。
+- 点击失败项时按以下规则处理：有 `intent` 可走 `runIntent(intent)`；有 `command` 可展示详情或打开 Output；没有可重试信息时只展示详情，不自动执行。
+
+#### M7.3 通知和输出
+
+要求：
+
+- 长任务完成后通知。
+- 失败通知可打开 Output。
+- Output 不输出 secrets、完整环境变量或 token。
+- `fetchGhErrors` / `processAllQueue` 失败时不得显示成功或“队列为空”。
+
+### 16.6 M7 未完成或需要确认
+
+1. CLI security test bug：当前 M7 使用 `vectahub run-command --dry-run --json -- <cli> <args...>` 作为安全检测的备选方案。当 CLI 修复 `vectahub security test --json` 的卡死 / EventEmitter leak 后，`runProjectTask` 可优先接入 `security test` 作为更精确的安全判定。
+
+2. “最近失败”持久化：当前只展示会话内记录。如需跨 VS Code 重启后仍能看到历史，需独立 P1/P2 把 `taskHistory` 持久化到 extension globalStorage。
+
+3. 危险关键词列表维护：`dangerDetection.ts` 中的危险模式列表需要根据实际使用场景持续更新。当前覆盖 `rm -rf` / `sudo` / `chmod 777` / `curl | sh` / `wget | sh` / `dd` / `mkfs` / fork bomb，后续可根据用户反馈扩展。
+
+---
+
+## 17. M8 协议收敛和可靠性补强
+
+> 更新时间：2026-05-09
+> 范围：M8 协议收敛和可靠性补强
+
+### 17.1 目标
+
+把 M5-M7 的临时兼容层升级成稳定协议，让插件自动化从“能用”变成“可维护、可扩展”。
+
+### 17.2 小阶段
+
+#### M8.1 DiagnosticQueue 共享 schema
+
+改动：
+
+- 统一 CLI 和插件的 `DiagnosticTask` 类型。
+- `commandToFix` 改为可选字段。
+- 新增 `nextAction` 可选字段。
+- 新增 `QueueSummary` 接口用于 CLI 返回的结构化数据。
+- 新增 `getExecutableAction()` 辅助函数，优先返回 `commandToFix`，其次 `nextAction`。
+
+验收：
+
+- 插件不再散落式读取队列字段。
+- `tasksView.ts` 使用 `getExecutableAction()` 统一获取可执行命令。
+- TypeScript 类型不退化为 `string` 或 `any`。
+
+#### M8.2 CI / 队列 JSON summary
+
+改动：
+
+- `sys:fetch-gh-actions-errors --json` 支持返回 `summary` 字段。
+- `sys:process-diagnostic-queue --json` 支持返回 `summary` 字段。
+- 插件优先读 summary，不再依赖 snapshot 推算。
+
+验收：
+
+- CLI 返回 summary 时，插件使用 summary 数据。
+- CLI 不返回 summary 时，插件回退到 snapshot 推算。
+- 日志区分两种数据来源。
+
+#### M8.3 安全检测协议修复
+
+改动：
+
+- `testSecurity.ts` 增加本地危险检测前置。
+- CLI 未就绪时回退到本地检测。
+- CLI 检测失败时回退到本地检测。
+- 添加 15 秒超时防止卡死。
+- 添加进度条和取消支持。
+
+验收：
+
+- 本地危险命令无需调用 CLI 即可拦截。
+- CLI 卡死时超时后回退到本地检测。
+- 用户可取消安全检测。
+
+#### M8.4 测试体系收口
+
+改动：
+
+- 更新 `package.json` 使用 vitest 替代 vscode-test。
+- 创建 `vitest.config.ts` 配置文件。
+- 新增 `diagnosticModel.test.ts` 测试共享 schema。
+- 更新 `tasksView.logic.test.ts` 使用真实 `VALID_DIAGNOSTIC_STATUSES`。
+- 移除 `@vscode/test-electron` 和 `@types/mocha` 依赖。
+
+验收：
+
+- `npm test` 使用 vitest 运行。
+- 所有测试通过。
+- 测试真实纯函数，不复制实现逻辑。
+
+### 17.3 涉及模块
+
+- `packages/vectahub-vscode-extension/src/project/diagnosticModel.ts`
+- `packages/vectahub-vscode-extension/src/commands/fetchGhErrors.ts`
+- `packages/vectahub-vscode-extension/src/commands/processAllQueue.ts`
+- `packages/vectahub-vscode-extension/src/commands/testSecurity.ts`
+- `packages/vectahub-vscode-extension/src/views/tasksView.ts`
+- `packages/vectahub-vscode-extension/test/diagnosticModel.test.ts`
+- `packages/vectahub-vscode-extension/test/tasksView.logic.test.ts`
+
+### 17.4 完成标准
+
+- DiagnosticQueue 有统一的共享 schema。
+- CI / 队列处理优先读取 CLI summary。
+- 安全检测有本地兜底和超时保护。
+- 测试体系使用 vitest，测试真实纯函数。
+
+### 17.5 M8 不做
+
+- 不做新的 Webview Chat。
+- 不做图形化 workflow 编辑器。
+- 不做自动 commit / push。
+- 不做跨项目批量修复。
+- 不做更多按钮和入口。
+
+### 17.6 当前状态
+
+M8 已完成实施：
+
+- DiagnosticQueue 共享 schema 已统一。
+- CI / 队列 JSON summary 支持已添加。
+- 安全检测协议已修复，支持本地兜底和超时。
+- 测试体系已收口，使用 vitest。

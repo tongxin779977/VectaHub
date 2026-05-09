@@ -36,22 +36,64 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerFetchGhErrorsCommand = registerFetchGhErrorsCommand;
 const vscode = __importStar(require("vscode"));
 const adapter_js_1 = require("../cli/adapter.js");
+const readiness_js_1 = require("../cli/readiness.js");
+const output_js_1 = require("../ui/output.js");
+function extractPendingCount(workflowResult, queue) {
+    if (workflowResult?.summary?.pendingCount !== undefined) {
+        return workflowResult.summary.pendingCount;
+    }
+    return queue.tasks.filter(t => t.status === 'pending' || t.status === 'needs-confirmation').length;
+}
 function registerFetchGhErrorsCommand(context, tasksProvider) {
     const disposable = vscode.commands.registerCommand('vectahubTasks.fetchGhErrors', async () => {
+        const ready = await (0, readiness_js_1.waitForCliReady)();
+        if (!ready)
+            return;
+        (0, output_js_1.logToOutput)('[fetchGhErrors] 开始拉取 GitHub Actions 错误');
+        const startedAt = new Date();
         vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
-            title: "正在同步 GitHub Actions 失败记录...",
-            cancellable: false
-        }, async (progress) => {
-            progress.report({ message: '正在连接 GitHub...' });
-            const result = await (0, adapter_js_1.runCli)(['run', '-f', 'sys:fetch-gh-actions-errors', '--mode', 'relaxed']);
-            progress.report({ message: '同步完成，正在更新视图...' });
-            tasksProvider.refresh();
-            if (result.ok) {
-                vscode.window.showInformationMessage('✅ GitHub 错误记录同步完成');
+            title: "VectaHub: 正在同步 GitHub Actions 错误...",
+            cancellable: true
+        }, async (progress, token) => {
+            const result = await (0, adapter_js_1.runCli)(['run', '-f', 'sys:fetch-gh-actions-errors', '--json'], { token });
+            if (!result.ok) {
+                if (result.error?.code === 'CANCELLED') {
+                    (0, output_js_1.logToOutput)('[fetchGhErrors] 拉取已由用户取消');
+                    vscode.window.showInformationMessage('拉取已取消');
+                }
+                else {
+                    const errMsg = result.error?.message || result.stderr || '未知错误';
+                    (0, output_js_1.logToOutput)(`[fetchGhErrors] 拉取失败: ${errMsg}`, 'error');
+                    vscode.window.showErrorMessage(`同步失败: ${errMsg}`, '查看详情').then(choice => {
+                        if (choice === '查看详情') {
+                            vscode.commands.executeCommand('workbench.action.output.toggleOutput');
+                        }
+                    });
+                }
+                return;
+            }
+            const endedAt = new Date();
+            const queue = tasksProvider.readDiagnosticQueue();
+            const workflowData = result.data;
+            const pendingCount = extractPendingCount(workflowData, queue);
+            if (workflowData?.summary) {
+                const s = workflowData.summary;
+                (0, output_js_1.logToOutput)(`[fetchGhErrors] 拉取完成，耗时 ${endedAt.getTime() - startedAt.getTime()}ms，summary: fetched=${s.fetchedCount}, added=${s.addedCount}, pending=${s.pendingCount}`);
             }
             else {
-                vscode.window.showErrorMessage(`❌ 同步失败: ${result.error?.message || '未知错误'}`);
+                (0, output_js_1.logToOutput)(`[fetchGhErrors] 拉取完成，耗时 ${endedAt.getTime() - startedAt.getTime()}ms，队列 pending: ${pendingCount}`);
+            }
+            tasksProvider.refresh();
+            if (pendingCount > 0) {
+                vscode.window.showWarningMessage(`新发现 ${pendingCount} 个待处理项`, '立即处理队列').then(choice => {
+                    if (choice === '立即处理队列') {
+                        vscode.commands.executeCommand('vectahubTasks.processAllQueue');
+                    }
+                });
+            }
+            else {
+                vscode.window.showInformationMessage('✅ 同步完成，队列为空');
             }
         });
     });

@@ -5,8 +5,9 @@ import { CategoryTreeItem, TaskTreeItem, VectaHubTreeItem, EmptyStateTreeItem } 
 import { detectProjectTasks } from '../project/detector.js';
 import { ProjectTask, isLongRunning } from '../project/taskModel.js';
 import { getVectaHubHome } from '../cli/adapter.js';
-import { DiagnosticTask, DiagnosticTaskStatus } from '../project/diagnosticModel.js';
+import { DiagnosticTask, DiagnosticTaskStatus, VALID_DIAGNOSTIC_STATUSES, normalizeDiagnosticQueue, getExecutableAction } from '../project/diagnosticModel.js';
 import { LongRunningTaskManager } from '../cli/longRunningTaskManager.js';
+import { getFailedTasks } from '../project/taskHistory.js';
 
 const DEV_KINDS = ['dev', 'start', 'serve'];
 const QUALITY_KINDS = ['test', 'build', 'lint', 'typecheck', 'check', 'validate', 'format', 'format:check', 'coverage', 'storybook'];
@@ -48,7 +49,7 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
     return element;
   }
 
-  private readDiagnosticQueue(): { tasks: DiagnosticTask[]; error?: string } {
+  readDiagnosticQueue(): { tasks: DiagnosticTask[]; error?: string } {
     const queueFile = path.join(getVectaHubHome(), 'diagnostic-queue.json');
     if (!fs.existsSync(queueFile)) {
       return { tasks: [] };
@@ -56,12 +57,7 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
     try {
       const content = fs.readFileSync(queueFile, 'utf-8');
       const data = JSON.parse(content);
-      if (!Array.isArray(data)) {
-        return { tasks: [], error: '队列数据格式不正确' };
-      }
-      return {
-        tasks: data.filter((t: DiagnosticTask) => t && t.id && t.title && t.status)
-      };
+      return normalizeDiagnosticQueue(data);
     } catch {
       return { tasks: [], error: '队列数据不可读' };
     }
@@ -84,6 +80,7 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
       this.addQualitySection(categories);
       this.addCISection(categories);
       this.addQueueSection(categories);
+      this.addRecentFailuresSection(categories);
       this.addGitSection(categories);
       this.addCoreSection(categories);
       this.addOtherScriptsSection(categories);
@@ -193,10 +190,11 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
 
       const statusItems = tasks.map(t => {
         const icon = this.getIconForStatus(t.status);
+        const action = getExecutableAction(t);
         return new TaskTreeItem(t.title, {
-          command: 'vectahubTasks.runIntent',
+          command: action ? 'vectahubTasks.runIntent' : 'workbench.action.output.toggleOutput',
           title: t.title,
-          arguments: [t.commandToFix]
+          arguments: action ? [action] : undefined
         }, icon, t.status, t.description);
       });
 
@@ -206,6 +204,26 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
     if (queueChildren.length > 0) {
       categories.push(new CategoryTreeItem('自动化队列', queueChildren));
     }
+  }
+
+  private addRecentFailuresSection(categories: CategoryTreeItem[]): void {
+    const failures = getFailedTasks(5);
+    if (failures.length === 0) return;
+
+    const items = failures.map(record => {
+      const timeStr = record.endedAt
+        ? new Date(record.endedAt).toLocaleTimeString()
+        : '';
+      const desc = record.errorMessage
+        ? `${timeStr} · ${record.errorMessage}`
+        : timeStr;
+      return new TaskTreeItem(record.label, {
+        command: 'workbench.action.output.toggleOutput',
+        title: `查看 ${record.label} 详情`
+      }, 'error', 'failed', desc);
+    });
+
+    categories.push(new CategoryTreeItem('最近失败', items));
   }
 
   private addGitSection(categories: CategoryTreeItem[]): void {
@@ -257,10 +275,9 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
   groupDiagnosticsByStatus(): Map<DiagnosticTaskStatus, DiagnosticTask[]> {
     const groups = new Map<DiagnosticTaskStatus, DiagnosticTask[]>();
     for (const task of this.diagnosticTasks) {
-      const validStatuses: DiagnosticTaskStatus[] = ['pending', 'processing', 'completed', 'failed', 'cancelled', 'needs-confirmation'];
-      const status: DiagnosticTaskStatus = validStatuses.includes(task.status as DiagnosticTaskStatus)
+      const status: DiagnosticTaskStatus = VALID_DIAGNOSTIC_STATUSES.includes(task.status as DiagnosticTaskStatus)
         ? (task.status as DiagnosticTaskStatus)
-        : 'failed';
+        : 'needs-confirmation';
       const list = groups.get(status) || [];
       list.push(task);
       groups.set(status, list);
