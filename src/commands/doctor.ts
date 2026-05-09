@@ -7,6 +7,23 @@ import { existsSync } from 'fs';
 
 const execAsync = promisify(exec);
 
+async function execWithTimeout(command: string, timeoutMs = 5000): Promise<{ stdout: string; stderr: string }> {
+  const controller = new AbortController();
+  const { signal } = controller;
+  
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    const result = await execAsync(command, { signal } as any);
+    return {
+      stdout: String(result.stdout),
+      stderr: String(result.stderr),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function formatDoctorResults(checks: { name: string; status: 'pass' | 'fail' | 'warn'; message: string }[]): string {
   const lines = ['\n🔍 VectaHub Doctor\n' + '─'.repeat(50)];
 
@@ -75,7 +92,7 @@ export async function runChecks(verbose = false): Promise<DoctorCheck[]> {
   }
 
   try {
-    const { stdout } = await execAsync('npx tsc --version');
+    const { stdout } = await execWithTimeout('npx tsc --version');
     checks.push({ name: 'TypeScript', status: 'pass', message: stdout.trim() });
 
     if (verbose) {
@@ -92,7 +109,7 @@ export async function runChecks(verbose = false): Promise<DoctorCheck[]> {
   }
 
   try {
-    const { stdout } = await execAsync('npx tsx --version');
+    const { stdout } = await execWithTimeout('npx tsx --version');
     checks.push({ name: 'tsx', status: 'pass', message: stdout.trim() });
   } catch {
     const packageExists = existsSync(join(process.cwd(), 'package.json'));
@@ -111,7 +128,7 @@ export async function runChecks(verbose = false): Promise<DoctorCheck[]> {
   }
 
   try {
-    const { stdout } = await execAsync('npx vitest --version');
+    const { stdout } = await execWithTimeout('npx vitest --version');
     checks.push({ name: 'Vitest', status: 'pass', message: stdout.trim() });
 
     if (verbose) {

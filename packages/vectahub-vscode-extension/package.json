@@ -2,7 +2,8 @@
   "name": "vectahub-vscode-extension",
   "displayName": "VectaHub 任务助手",
   "description": "为 VectaHub CLI 提供自然语言工作流 UI 界面",
-  "version": "1.1.6",
+  "version": "1.1.7",
+
   "publisher": "vectahub",
   "license": "MIT",
   "repository": {
@@ -116,6 +117,7 @@
     "@typescript-eslint/parser": "^8.0.0",
     "@vscode/test-electron": "^2.3.0",
     "eslint": "^9.0.0",
+    "import-fresh": "^3.3.0",
     "typescript": "^5.6.0"
   }
 }

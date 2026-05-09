@@ -5,7 +5,8 @@ export type ExecutionMode = 'strict' | 'relaxed' | 'consensus';
 export type ExecutionPlan =
   | IntentExecutionPlan
   | CommandExecutionPlan
-  | WorkflowFileExecutionPlan;
+  | WorkflowFileExecutionPlan
+  | CapabilityExecutionPlan;
 
 export interface BaseExecutionPlan {
   id: string;
@@ -31,6 +32,27 @@ export interface CommandExecutionPlan extends BaseExecutionPlan {
 export interface WorkflowFileExecutionPlan extends BaseExecutionPlan {
   type: 'workflowFile';
   file: string;
+}
+
+/**
+ * CLI 标准能力执行计划 (Capability Plan)
+ * 对应 src/nl/capabilities/types.ts 中的 ExecutionPlan
+ */
+export interface CapabilityExecutionPlan extends BaseExecutionPlan {
+  type: 'capability';
+  capabilityId: string;
+  steps: Array<{
+    id: string;
+    label: string;
+    type: 'workflow' | 'command' | 'internal';
+    command?: { cli: string; args: string[] };
+    workflowFile?: string;
+  }>;
+  userReport: {
+    summaryTemplate: string;
+    nextActions?: string[];
+    verificationSteps?: string[];
+  };
 }
 
 export function getWorkspaceCwd(): string | undefined {
