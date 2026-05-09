@@ -88,10 +88,14 @@ async function runCli(args, options = {}) {
         let stdout = '';
         let stderr = '';
         child.stdout.on('data', (data) => {
-            stdout += data.toString();
+            const output = data.toString();
+            stdout += output;
+            (0, output_js_1.logToOutput)(output);
         });
         child.stderr.on('data', (data) => {
-            stderr += data.toString();
+            const output = data.toString();
+            stderr += output;
+            (0, output_js_1.logToOutput)(output, 'error');
         });
         options.token?.onCancellationRequested(() => {
             child.kill();

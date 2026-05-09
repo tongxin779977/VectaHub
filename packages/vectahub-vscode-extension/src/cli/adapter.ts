@@ -63,11 +63,15 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
     let stderr = '';
 
     child.stdout.on('data', (data) => {
-      stdout += data.toString();
+      const output = data.toString();
+      stdout += output;
+      logToOutput(output);
     });
 
     child.stderr.on('data', (data) => {
-      stderr += data.toString();
+      const output = data.toString();
+      stderr += output;
+      logToOutput(output, 'error');
     });
 
     options.token?.onCancellationRequested(() => {

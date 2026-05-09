@@ -332,7 +332,7 @@ export function createWorkflowEngine(): WorkflowEngine {
     },
 
     async getWorkflow(id: string): Promise<Workflow | undefined> {
-      return workflows.get(id);
+      return SYSTEM_WORKFLOWS[id] || workflows.get(id);
     },
 
     async getSystemWorkflow(id: string): Promise<Workflow | undefined> {
@@ -373,6 +373,10 @@ export function createWorkflowEngine(): WorkflowEngine {
         if (idNum > workflowCounter) {
           workflowCounter = idNum;
         }
+      }
+      // 加载系统工作流
+      for (const [id, wf] of Object.entries(SYSTEM_WORKFLOWS)) {
+        workflows.set(id, wf);
       }
     },
 

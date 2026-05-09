@@ -17,7 +17,11 @@ export const SYSTEM_WORKFLOWS: Record<string, Workflow> = {
         id: 'save_to_queue',
         type: 'exec',
         cli: 'node',
-        args: ['dist/utils/gh-to-queue.js', '${fetch_runs.stdout}']
+        args: [
+          '-e',
+          "const fs = require('fs'); const os = require('os'); const path = require('path'); const input = process.argv[1]; if (!input) { console.error('No input'); process.exit(1); } try { const runs = JSON.parse(input); if (!Array.isArray(runs) || runs.length === 0) { console.log('No failed runs found'); process.exit(0); } const vectahubHome = path.join(os.homedir(), '.vectahub'); const queueFile = path.join(vectahubHome, 'diagnostic-queue.json'); function ensureDir() { if (!fs.existsSync(vectahubHome)) fs.mkdirSync(vectahubHome, { recursive: true }); } function loadTasks() { try { return JSON.parse(fs.readFileSync(queueFile, 'utf-8')); } catch { return []; } } function saveTasks(tasks) { ensureDir(); fs.writeFileSync(queueFile, JSON.stringify(tasks, null, 2), 'utf-8'); } const tasks = loadTasks(); const now = new Date().toISOString(); let added = 0; for (const run of runs) { const taskId = 'gh_' + run.databaseId; if (tasks.some(t => t.sourceId === String(run.databaseId))) continue; tasks.unshift({ id: taskId, title: 'GH Action 失败: ' + run.workflowName, description: '任务 \"' + run.displayTitle + '\" 在 GitHub 上执行失败。', source: 'github-actions', sourceId: String(run.databaseId), commandToFix: 'node dist/cli.js run -f templates/gh-auto-process.yaml --variable run_id=' + run.databaseId + ' --mode relaxed', status: 'pending', createdAt: now, updatedAt: now }); added++; } saveTasks(tasks); console.log('Successfully added ' + added + ' failed runs to the diagnostic queue.'); } catch (e) { console.error('Failed to parse or save runs:', e); process.exit(1); }",
+          '${fetch_runs.stdout}'
+        ]
       }
     ]
   },

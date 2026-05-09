@@ -5,14 +5,18 @@
 
 本文件只记录当前仍会影响使用或发布判断的问题。
 历史修复过程不再保留在 1.0 用户文档中。
-要求输出的问题可追溯到一些具体的代码行，而不是模糊的描述。
+要求输出的问题必须包含：
+1. **代码溯源 (Trace)**: 精确到具体文件和行号。
+2. **预期行为 (DoD)**: 明确定义修复后的正确状态。
+3. **验证方式**: 提供具体的测试步骤或检查项，确保修复可闭环验证。
 
 ## 当前问题
 
-| ID   | 问题                                                         | 影响范围           | 状态   |
-| ---- | ------------------------------------------------------------ | ------------------ | ------ |
-| 1    | VS插件 GitHub Actions 按钮位置错误：应在 Git 仓库分类下。 (Trace: `tasksView.ts:L88`) | UI/UX 体验         | 待修复 |
-| 2    | 获取 GitHub Actions 错误按钮仅显示日志，无过程反馈且不刷新。 (Trace: `fetchGhErrors.ts:L11`) | 功能可用性/反馈机制 | 待修复 |
+| ID | 问题描述 (溯源) | 预期行为 (Definition of Done) | 验证方式 | 状态 |
+| :--- | :--- | :--- | :--- | :--- |
+| 1 | **GH Actions 按钮位置错误**<br>(Trace: `tasksView.ts:L88`) | 将 `fetchGhErrors` 按钮从 `vhItems` 移动到 `gitItems` 集合中。 | 侧边栏“Git 仓库”分类下出现该按钮，且功能正常。 | 已修复 |
+| 2 | **获取错误记录无反馈/不刷新**<br>(Trace: `fetchGhErrors.ts:L11`) | 1. 实时流式输出 CLI 的 stdout/stderr 到 Output Channel；<br>2. 同步成功后自动触发 `TasksViewProvider.refresh()`。 | 点击后 Output 频道出现实时命令执行日志；完成后“诊断队列”分类自动更新。 | 已修复 |
+| 3 | **缺少“执行自定义意图”入口**<br>(Trace: `tasksView.ts:L93`) | 在 `vhItems` 数组中新增一个关联 `vectahubTasks.runIntent` 的 `TaskTreeItem`。 | 插件“VectaHub 核心”分类下出现该按钮，点击可弹出自然语言输入框。 | 已修复 |
 
 
 ## 发布前检查

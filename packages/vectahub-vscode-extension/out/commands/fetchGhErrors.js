@@ -36,14 +36,17 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerFetchGhErrorsCommand = registerFetchGhErrorsCommand;
 const vscode = __importStar(require("vscode"));
 const adapter_js_1 = require("../cli/adapter.js");
-function registerFetchGhErrorsCommand(context) {
+function registerFetchGhErrorsCommand(context, tasksProvider) {
     const disposable = vscode.commands.registerCommand('vectahubTasks.fetchGhErrors', async () => {
         vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
             title: "正在同步 GitHub Actions 失败记录...",
             cancellable: false
         }, async (progress) => {
+            progress.report({ message: '正在连接 GitHub...' });
             const result = await (0, adapter_js_1.runCli)(['run', '-f', 'sys:fetch-gh-actions-errors', '--mode', 'relaxed']);
+            progress.report({ message: '同步完成，正在更新视图...' });
+            tasksProvider.refresh();
             if (result.ok) {
                 vscode.window.showInformationMessage('✅ GitHub 错误记录同步完成');
             }

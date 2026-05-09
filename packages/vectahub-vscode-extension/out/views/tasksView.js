@@ -91,13 +91,16 @@ class TasksViewProvider {
                 title: t.label,
                 arguments: [t]
             }, this.getIconForKind(t.kind), t.source, t.description));
-            const gitItems = this.projectTasks
-                .filter(t => t.source === 'git')
-                .map(t => new treeItems_js_1.TaskTreeItem(t.label, {
-                command: 'vectahubTasks.runProjectTask',
-                title: t.label,
-                arguments: [t]
-            }, 'git-compare', t.source));
+            const gitItems = [
+                ...this.projectTasks
+                    .filter(t => t.source === 'git')
+                    .map(t => new treeItems_js_1.TaskTreeItem(t.label, {
+                    command: 'vectahubTasks.runProjectTask',
+                    title: t.label,
+                    arguments: [t]
+                }, 'git-compare', t.source)),
+                new treeItems_js_1.TaskTreeItem('获取 GitHub Actions 错误', { command: 'vectahubTasks.fetchGhErrors', title: '拉取最新失败记录' }, 'cloud-download')
+            ];
             const diagnosticItems = this.diagnosticTasks
                 .map(t => {
                 const icon = t.status === 'completed' ? 'check' : t.status === 'processing' ? 'sync~spin' : t.status === 'failed' ? 'error' : 'warning';
@@ -109,7 +112,7 @@ class TasksViewProvider {
             });
             const vhItems = [
                 new treeItems_js_1.TaskTreeItem('环境检查 (Doctor)', { command: 'vectahubTasks.doctor', title: '运行环境检查' }, 'pulse'),
-                new treeItems_js_1.TaskTreeItem('获取 GitHub Actions 错误', { command: 'vectahubTasks.fetchGhErrors', title: '拉取最新失败记录' }, 'cloud-download'),
+                new treeItems_js_1.TaskTreeItem('执行自定义意图', { command: 'vectahubTasks.runIntent', title: '输入自然语言意图' }, 'comment'),
                 new treeItems_js_1.TaskTreeItem('一键处理诊断队列', { command: 'vectahubTasks.processAllQueue', title: '开始批量修复' }, 'play-all'),
             ];
             return [

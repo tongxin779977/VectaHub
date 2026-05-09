@@ -18,20 +18,17 @@ src/security-protocol/        # Security rules engine
 src/command-rules/            # Command blacklist/whitelist
 src/infrastructure/           # Audit/config/errors/logger
 src/utils/                    # CLI commands (run/generate/serve/tools/etc)
-.trae/rules/                  # Trae IDE rules (global/project/security/test/git)
-.trae/skills/                 # Trae IDE skills (SKILL.md registrations)
-.trae/commands/               # Trae IDE commands (usage docs)
 ```
 
 Tech stack: TypeScript + Node.js + Commander.js + Vitest
 
 ## Rule Priority
 
-1. `.trae/rules/global_rules.md` — highest priority, conflict resolution
-2. `.trae/rules/project-rules.md` — project-specific conventions
-3. `.trae/rules/security-rules.md` — danger classification
-4. `.trae/rules/test-rules.md` — test conventions
-5. This file (AGENTS.md) — quick reference summary
+1. System/developer instructions
+2. User request
+3. This file (AGENTS.md)
+
+Note: `.trae/` is Trae IDE-specific configuration and is not part of Codex instructions.
 
 ## Rules
 
@@ -39,6 +36,21 @@ Tech stack: TypeScript + Node.js + Commander.js + Vitest
 - Single file change or user says "直接改" → do it directly
 - 2+ options, 3+ files, delete/change interface/architecture → ask first
 - When uncertain: say "需要确认 X", don't guess
+
+## Planning Alignment
+
+- 默认使用中文回复用户，除非用户明确要求其他语言。
+- 当用户要求规划任务时，不要静默替换用户预期方案。
+- 规划前先复述：用户目标、用户倾向方案、禁止事项、可改动范围。
+- 明确列出所有假设；不要把假设当成事实执行。
+- 明确列出预计修改的文件/模块，以及不应修改的文件/模块。
+- 必须包含：实现思路、边界情况、测试计划、需要用户确认的问题。
+- 如果用户预期方案有风险或不是最佳方案，先说明原因并等待确认，不要直接切换方案。
+- 如果存在 2+ 个可行方案，输出：
+  1. 严格按用户预期的最小改动方案
+  2. 推荐的工程化方案
+  3. 两者取舍
+- 除非用户明确说“直接改”，否则规划完成后等待用户批准再改文件。
 
 ## Output
 
@@ -67,16 +79,7 @@ Run typecheck: `npm run typecheck`
 
 ## Skills
 
-Available project skills (in `.trae/skills/`):
-
-| Skill | Trigger | Purpose |
-|-------|---------|---------|
-| command-auditor | Reviewing command safety | Audit commands for danger patterns |
-| intent-matcher-designer | Designing NL intent | Create/optimize keyword matching rules |
-| test-generator | Writing new tests | Generate Vitest tests following TDD |
-| workflow-builder | Creating YAML workflows | Build workflow configurations |
-
-Code-implemented skills (in `src/skills/`):
+Code-implemented skills:
 
 | Skill | Purpose |
 |-------|---------|

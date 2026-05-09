@@ -57,7 +57,7 @@ export async function activate(context: vscode.ExtensionContext) {
   registerPreviewProjectTaskCommand(context);
   registerRunProjectTaskCommand(context, tasksProvider);
   registerListPackageScriptsCommand(context);
-  registerFetchGhErrorsCommand(context);
+  registerFetchGhErrorsCommand(context, tasksProvider);
   registerProcessAllQueueCommand(context);
 
   context.subscriptions.push(outputChannel);

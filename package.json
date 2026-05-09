@@ -1,6 +1,6 @@
 {
   "name": "vectahub",
-  "version": "1.1.1",
+  "version": "1.1.5",
   "type": "module",
   "description": "VectaHub - Natural Language Workflow Engine",
   "main": "dist/index.js",
@@ -8,8 +8,8 @@
     "vectahub": "dist/cli.js"
   },
   "scripts": {
-    "build": "tsup src/cli.ts --format esm --clean",
-    "build:watch": "tsup src/cli.ts --format esm --watch",
+    "build": "tsup",
+    "build:watch": "tsup --watch",
     "dev": "tsx src/cli.ts",
     "test": "vitest",
     "test:run": "vitest --run",

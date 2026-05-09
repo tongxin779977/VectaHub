@@ -101,7 +101,195 @@ export interface ParsedGoal {
 }
 ```
 
-## 4. P0 任务卡
+## 4. 架构决策与执行边界
+
+本节回答实施前必须统一的关键问题。后续 agent 必须按以下结论执行。
+
+### 4.1 新旧类型关系
+
+P0 阶段不得让下游直接消费 `ExecutionPlan`，也不得重写 workflow engine。
+
+正确链路：
+
+```text
+ParsedGoal / NormalizedInput
+  -> Capability Router
+  -> ExecutionPlan
+  -> Adapter
+  -> 现有 TaskList 或 Step[]
+  -> Workflow Engine
+```
+
+结论：
+
+- `ParsedGoal` 是新的语义中间层。
+- `ExecutionPlan` 是预览、路由、报告层结构。
+- 真正执行时，P0 仍转换成现有 `TaskList` 或 `Step[]`。
+- 不在 P0 大改 `src/workflow/*` 执行模型。
+
+### 4.2 `parseGoal` 入参
+
+`parseGoal(input: string | NormalizedInput): ParsedGoal` 中的 `string` 只作为便捷重载。
+
+推荐实现：
+
+```typescript
+export function parseGoal(input: string | NormalizedInput): ParsedGoal {
+  const normalized = typeof input === 'string'
+    ? normalizeInput(input)
+    : input;
+
+  // parse normalized input
+}
+```
+
+调用方推荐显式执行：
+
+```typescript
+const normalized = normalizeInput(text);
+const goal = parseGoal(normalized);
+```
+
+测试可以直接传 `string`，用于覆盖便捷入口。
+
+### 4.3 与现有 Coordinator / Precedence Rules 的关系
+
+P0 阶段，Goal/Capability 是前置层，不替代 `coordinator.ts`。
+
+执行顺序：
+
+```text
+Goal/Capability Router
+  -> 成功：使用 capability plan
+  -> 失败/低置信度：走现有 NL processor
+      -> LLM tool calling
+      -> skill pipeline
+      -> keyword fallback
+      -> coordinator / matching pipeline
+```
+
+`coordinator.ts` 继续负责旧模板体系、多意图拆分和 precedence。
+
+Capability Router 中“分差小于 0.08 时返回 needsClarification”的规则只用于 capability 层内部裁决，不影响 `src/nl/core/precedence-rules.ts` 的现有行为。
+
+### 4.4 `ProjectContext` 来源
+
+P0 阶段 `ProjectContext` 全部 optional，不强制实现完整项目探测。
+
+最小接口：
+
+```typescript
+export interface ProjectContext {
+  cwd?: string;
+  packageManager?: 'npm' | 'pnpm' | 'yarn' | 'bun' | 'unknown';
+  packageScripts?: string[];
+  gitRemote?: string;
+  ciProvider?: 'github-actions' | 'unknown';
+}
+```
+
+P0 可以只传：
+
+```typescript
+{ cwd: process.cwd() }
+```
+
+或者不传。package manager、scripts、git remote、CI provider 自动检测放到 P2。
+
+### 4.5 `ExecutionPlan` 与现有 `Workflow` 的对接
+
+P0 必须通过适配层对接现有执行系统，不直接替换 `run.ts` 中 `Step[] -> Workflow` 的执行链路。
+
+新增文件：
+
+```text
+src/nl/capabilities/plan-adapter.ts
+```
+
+职责：
+
+```typescript
+executionPlanToSteps(plan: ExecutionPlan): Step[];
+executionPlanToTaskList(plan: ExecutionPlan): TaskList;
+```
+
+`run.ts` 中目标流程：
+
+```typescript
+const plan = routeGoalToPlan(text);
+
+if (plan) {
+  const steps = executionPlanToSteps(plan);
+  // 继续走现有 createWorkflow / execute
+}
+```
+
+这样保留 workflow engine、executor、sandbox、audit 的现有行为。
+
+### 4.6 `GIT_WORKFLOW` 模板定位
+
+P0 不优先修改 `GIT_WORKFLOW` 模板。
+
+原则：
+
+- 如果 Goal/Capability 路由成功，就不进入旧 `GIT_WORKFLOW` fallback。
+- `git 上 actions 错误` 中的 `git` 是平台提示，不是普通 git 操作。
+- 只有当 fallback 场景仍大量误判时，再给 `GIT_WORKFLOW` 增加 soft negative。
+
+可选 P1 修正：
+
+```typescript
+negativeKeywords: [
+  { text: 'actions', strength: 'soft' },
+  { text: 'ci', strength: 'soft' },
+  { text: 'workflow', strength: 'soft' },
+  { text: '失败', strength: 'soft' }
+]
+```
+
+该修正不得作为 P0 主路径。
+
+### 4.7 Dry-run 输出格式
+
+当前 `run.ts` 已有 `--dry-run`。P0 不新增 dry-run 功能，只扩展 capability plan 的 dry-run 展示。
+
+规则：
+
+- 旧 NL processor 路径保持现有 dry-run 输出。
+- Capability Plan 路径输出 plan summary，不直接展示内部命令裸列表。
+- `--json` 可以包含完整 steps 和内部 command。
+- 普通文本模式必须隐藏裸 Action ID、内部 stdout、临时日志路径等中间数据。
+
+示例普通文本输出：
+
+```text
+执行计划: 修复 GitHub Actions 失败项
+
+阶段:
+1. 发现失败的 GitHub Actions
+2. 获取失败日志
+3. 分析失败原因
+4. 生成修复计划
+5. 执行验证
+6. 输出修复报告
+
+Dry-run: 未执行任何命令。
+```
+
+### 4.8 P0 总原则
+
+P0 改动边界：
+
+```text
+P0 不改下游执行模型
+P0 不替换 coordinator
+P0 不重写 workflow engine
+P0 新增 Goal/Capability 前置层
+P0 成功则走 plan adapter
+P0 失败则完全回退旧链路
+```
+
+## 5. P0 任务卡
 
 ### P0-1: 输入标准化
 
@@ -184,12 +372,36 @@ export interface Capability {
 }
 ```
 
+路由常量（`src/nl/capabilities/router.ts`）：
+
+```typescript
+export const CAPABILITY_AUTO_ROUTE_THRESHOLD = 0.7;
+export const CAPABILITY_CLARIFICATION_DELTA = 0.08;
+export const CAPABILITY_PREVIEW_LOW = 0.5;
+```
+
+路由规则：
+
+```text
+score >= 0.70 且 top1 - top2 >= 0.08
+  -> 自动使用 capability plan
+
+0.50 <= score < 0.70
+  -> 不自动执行；dry-run/preview 可展示候选 plan，真实执行走 fallback
+
+score < 0.50
+  -> 回退现有 NL processor
+
+top1 - top2 < 0.08
+  -> needsClarification，不自动选择；回退旧链路
+```
+
 开发要求：
 
 1. `github-actions-repair` 处理 `action=repair` 且 domain 包含 `github-actions` 或 `ci` 且 target 为 `failure` 的目标。
 2. `git-workflow` 只处理 commit、push、pull、branch、merge 等普通 Git 操作。
 3. `package-script` 处理测试、构建、lint、package script。
-4. Router 返回最高分能力；分差小于 0.08 时返回 `needsClarification`。
+4. Router 返回最高分能力；分差小于 `CAPABILITY_CLARIFICATION_DELTA` 时返回 `needsClarification`。
 5. `git 上 actions 错误` 中的 `git` 只能作为平台提示，不得使 `git-workflow` 胜出。
 
 验收测试：
@@ -204,6 +416,7 @@ export interface Capability {
 修改范围：
 
 - 新增或复用 `src/nl/capabilities/types.ts` 中的 `ExecutionPlan`
+- 新增 `src/nl/capabilities/plan-adapter.ts`（ExecutionPlan → Step[]/TaskList 适配）
 - 新增 `src/nl/capabilities/user-report.ts`
 - 更新 `src/commands/run.ts`
 - 必要时更新 `packages/vectahub-vscode-extension/src/execution/plan.ts`
@@ -270,12 +483,13 @@ file workflow
 开发要求：
 
 1. `--file` 行为保持不变。
-2. 自然语言输入先尝试 Goal/Capability。
-3. 若 capability confidence 足够高，生成 ExecutionPlan。
-4. 旧 `createNLProcessor()` 仍作为 fallback。
-5. 不移除旧模板，避免破坏已有测试。
+2. 自然语言输入先尝试 Goal/Capability Router。
+3. 若 `score >= CAPABILITY_AUTO_ROUTE_THRESHOLD (0.7)` 且 `top1 - top2 >= CAPABILITY_CLARIFICATION_DELTA (0.08)`，生成 ExecutionPlan 并走 `executionPlanToSteps` 执行。
+4. 否则完全回退旧链路：LLM tool calling → skill pipeline → keyword fallback → coordinator。
+5. P0 不引入交互确认分支，保证兼容性。
+6. 不移除旧模板，避免破坏已有测试。
 
-## 5. P1 任务卡
+## 6. P1 任务卡
 
 ### P1-1: LLM 只做结构化补全
 
@@ -307,7 +521,7 @@ file workflow
 2. “获取 GitHub Actions 错误”和“一键处理诊断队列”逐步迁移为 `github-actions-repair` capability 的显式入口。
 3. 插件输出面板显示用户报告，不把中间 ID 列表作为主结果。
 
-## 6. P2 任务卡
+## 7. P2 任务卡
 
 1. 增加更多 capability：
    - `test-repair`
@@ -323,7 +537,7 @@ file workflow
 3. 增加历史学习：
    - 用户确认过的路由结果可作为后续偏好。
 
-## 7. 禁止事项
+## 8. 禁止事项
 
 - 不要用新增几个关键词代替 Goal/Capability 架构。
 - 不要删除现有 `INTENT_TEMPLATES`。
@@ -332,7 +546,7 @@ file workflow
 - 不要让 `git` 这个词在 `git 上 actions 错误` 场景中压过 `github-actions` 领域。
 - 不要绕过现有 sandbox、audit、workflow engine。
 
-## 8. 总体验证命令
+## 9. 总体验证命令
 
 ```bash
 npm run typecheck
@@ -351,7 +565,7 @@ npm run lint -w packages/vectahub-vscode-extension
 npm test -w packages/vectahub-vscode-extension
 ```
 
-## 9. 手工验收
+## 10. 手工验收
 
 在隔离 HOME 中执行：
 
@@ -382,7 +596,7 @@ node dist/cli.js run --dry-run "运行测试"
 - 用户输出包含计划摘要和阶段说明。
 - 内部 ID、stdout、日志路径仅在 debug/json 模式展示。
 
-## 10. 完成标准
+## 11. 完成标准
 
 P0 完成需要同时满足：
 

@@ -1,6 +1,34 @@
 import { getQueueManager } from '../execution/queue-manager.js';
 import type { DiagnosticTask } from '../types/diagnostic.js';
 
+export async function processFailedRuns(input: string): Promise<number> {
+  const runs = JSON.parse(input);
+  if (!Array.isArray(runs)) {
+    console.log('No failed runs found or invalid format.');
+    return 0;
+  }
+
+  const queueManager = getQueueManager();
+  let count = 0;
+
+  for (const run of runs) {
+    const task: Omit<DiagnosticTask, 'createdAt' | 'updatedAt'> = {
+      id: `gh_${run.databaseId}`,
+      title: `GH Action 失败: ${run.workflowName}`,
+      description: `任务 "${run.displayTitle}" 在 GitHub 上执行失败。`,
+      source: 'github-actions',
+      sourceId: String(run.databaseId),
+      commandToFix: `node dist/cli.js run -f templates/gh-auto-process.yaml --variable run_id=${run.databaseId} --mode relaxed`,
+      status: 'pending',
+    };
+    await queueManager.addTask(task);
+    count++;
+  }
+
+  console.log(`Successfully added ${count} failed runs to the diagnostic queue.`);
+  return count;
+}
+
 async function main() {
   const input = process.argv[2];
   if (!input) {
@@ -9,34 +37,13 @@ async function main() {
   }
 
   try {
-    const runs = JSON.parse(input);
-    if (!Array.isArray(runs)) {
-      console.log('No failed runs found or invalid format.');
-      return;
-    }
-
-    const queueManager = getQueueManager();
-    let count = 0;
-
-    for (const run of runs) {
-      const task: Omit<DiagnosticTask, 'createdAt' | 'updatedAt'> = {
-        id: `gh_${run.databaseId}`,
-        title: `GH Action 失败: ${run.workflowName}`,
-        description: `任务 "${run.displayTitle}" 在 GitHub 上执行失败。`,
-        source: 'github-actions',
-        sourceId: String(run.databaseId),
-        commandToFix: `node dist/cli.js run -f templates/gh-auto-process.yaml --variable run_id=${run.databaseId} --mode relaxed`,
-        status: 'pending',
-      };
-      await queueManager.addTask(task);
-      count++;
-    }
-
-    console.log(`Successfully added ${count} failed runs to the diagnostic queue.`);
+    await processFailedRuns(input);
   } catch (error) {
     console.error(`Failed to parse or save runs: ${error}`);
     process.exit(1);
   }
 }
 
-main();
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main();
+}

@@ -9,8 +9,13 @@ import { createNLProcessor, adaptAllTemplates } from '../nl/core/index.js';
 import { createKeywordFallback } from '../nl/core/keyword-fallback.js';
 import { INTENT_TEMPLATES } from '../nl/templates/index.js';
 import { createSkillSystem } from '../skills/init.js';
+import { parseGoal } from '../nl/core/goal-parser.js';
+import { createCapabilityRouter } from '../nl/capabilities/router.js';
+import { executionPlanToSteps } from '../nl/capabilities/plan-adapter.js';
+import { formatDryRunText, formatJsonReport } from '../nl/capabilities/user-report.js';
 import type { Workflow, Step } from '../types/index.js';
 import type { ExecutionMetadata, ExecutionRecord as ExecRecord } from '../execution/types.js';
+import { SYSTEM_WORKFLOWS } from '../workflow/system-workflows.js';
 
 import path from 'node:path';
 import fs from 'node:fs';
@@ -143,21 +148,28 @@ export const runCmd = new Command('run')
       };
 
       if (options.file) {
-        let filepath = path.resolve(options.file);
-        
-        if (!fs.existsSync(filepath)) {
-          const workflowsDir = getVectaHubPath('workflows');
-          const fallbackPath = path.join(workflowsDir, options.file);
-          if (fs.existsSync(fallbackPath)) {
-            filepath = fallbackPath;
+        // 首先检查是否是系统工作流
+        if (SYSTEM_WORKFLOWS[options.file]) {
+          getLogger().info(`加载系统工作流: ${options.file}`);
+          workflow = SYSTEM_WORKFLOWS[options.file];
+        } else {
+          // 否则尝试从文件加载
+          let filepath = path.resolve(options.file);
+          
+          if (!fs.existsSync(filepath)) {
+            const workflowsDir = getVectaHubPath('workflows');
+            const fallbackPath = path.join(workflowsDir, options.file);
+            if (fs.existsSync(fallbackPath)) {
+              filepath = fallbackPath;
+            }
           }
-        }
-        
-        getLogger().info(`从文件加载工作流: ${filepath}`);
-        workflow = await getStorage().loadWorkflowFromFile(filepath);
-        
-        if (!workflow) {
-          exitWithError(`❌ 无法加载工作流文件: ${filepath}`, 'WORKFLOW_LOAD_FAILED', options.json);
+          
+          getLogger().info(`从文件加载工作流: ${filepath}`);
+          workflow = await getStorage().loadWorkflowFromFile(filepath);
+          
+          if (!workflow) {
+            exitWithError(`❌ 无法加载工作流: ${options.file}`, 'WORKFLOW_LOAD_FAILED', options.json);
+          }
         }
         
         getLogger().info(`✅ 工作流加载成功: ${workflow.name}`);
@@ -190,44 +202,72 @@ export const runCmd = new Command('run')
         const text = intent.join(' ');
         getLogger().info(`解析意图: "${text}"`);
 
-        const llmConfig = createLLMConfig();
-        const useLLM = !!llmConfig;
-
-        const { registry, executor } = await createSkillSystem({ llmConfig });
-        const patterns = adaptAllTemplates(INTENT_TEMPLATES);
-        const keywordFallback = createKeywordFallback(patterns);
-        const nlProcessor = createNLProcessor(registry, keywordFallback, { 
-          confidenceThreshold: 0.7, 
-          executor,
-          llmConfig
-        });
-
-        if (useLLM) {
-          getLogger().info(`意图解析模式: 优先 LLM (provider=${llmConfig.provider}, model=${llmConfig.model})`);
-        } else {
-          getLogger().info(`意图解析模式: 规则匹配 (LLM 未配置)`);
-        }
-
-        const nlResult = await nlProcessor.parse({ 
-          input: text, 
-          options: { useLLM } 
-        });
+        const goal = parseGoal(text);
+        const capabilityRouter = createCapabilityRouter();
+        const routeResult = capabilityRouter.route(goal, { cwd: process.cwd() });
 
         let steps: Step[] = [];
+        let usedCapability = false;
 
-        if (nlResult.success && nlResult.taskList && nlResult.taskList.tasks.length > 0) {
-          getLogger().info(`识别到意图: ${nlResult.intent || nlResult.taskList.intent}`);
-          let stepIndex = 1;
-          for (const task of nlResult.taskList.tasks) {
-            const commands = task.commands.length > 0 ? task.commands : [{ cli: 'echo', args: [] }];
-            for (const cmd of commands) {
-              steps.push({
-                id: `step_${stepIndex}`,
-                type: 'exec' as const,
-                cli: cmd.cli,
-                args: (cmd.args || []).filter((arg): arg is string => arg !== undefined && arg !== ''),
-              });
-              stepIndex++;
+        if (routeResult.route === 'auto' && routeResult.plan) {
+          getLogger().info(`能力路由: ${routeResult.matchedCapability} (score=${routeResult.score?.toFixed(2)})`);
+          steps = executionPlanToSteps(routeResult.plan);
+          usedCapability = true;
+
+          if (options.dryRun) {
+            if (options.json) {
+              console.log(JSON.stringify({
+                ok: true,
+                dryRun: true,
+                ...formatJsonReport(routeResult.plan),
+              }, null, 2));
+            } else {
+              getLogger().info(formatDryRunText(routeResult.plan));
+            }
+            restoreEnvValue('VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+            process.exit(0);
+            return;
+          }
+        }
+
+        if (!usedCapability) {
+          const llmConfig = createLLMConfig();
+          const useLLM = !!llmConfig;
+
+          const { registry, executor } = await createSkillSystem({ llmConfig });
+          const patterns = adaptAllTemplates(INTENT_TEMPLATES);
+          const keywordFallback = createKeywordFallback(patterns);
+          const nlProcessor = createNLProcessor(registry, keywordFallback, { 
+            confidenceThreshold: 0.7, 
+            executor,
+            llmConfig
+          });
+
+          if (useLLM) {
+            getLogger().info(`意图解析模式: 优先 LLM (provider=${llmConfig.provider}, model=${llmConfig.model})`);
+          } else {
+            getLogger().info(`意图解析模式: 规则匹配 (LLM 未配置)`);
+          }
+
+          const nlResult = await nlProcessor.parse({ 
+            input: text, 
+            options: { useLLM } 
+          });
+
+          if (nlResult.success && nlResult.taskList && nlResult.taskList.tasks.length > 0) {
+            getLogger().info(`识别到意图: ${nlResult.intent || nlResult.taskList.intent}`);
+            let stepIndex = 1;
+            for (const task of nlResult.taskList.tasks) {
+              const commands = task.commands.length > 0 ? task.commands : [{ cli: 'echo', args: [] }];
+              for (const cmd of commands) {
+                steps.push({
+                  id: `step_${stepIndex}`,
+                  type: 'exec' as const,
+                  cli: cmd.cli,
+                  args: (cmd.args || []).filter((arg): arg is string => arg !== undefined && arg !== ''),
+                });
+                stepIndex++;
+              }
             }
           }
         }
@@ -241,7 +281,6 @@ export const runCmd = new Command('run')
             console.log(JSON.stringify({
               ok: true,
               dryRun: true,
-              intent: nlResult.intent || nlResult.taskList?.intent,
               steps: steps.map(s => ({
                 cli: s.cli,
                 args: s.args ?? []

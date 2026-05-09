@@ -1,0 +1,46 @@
+import type { ParsedGoal, ProjectContext, GoalAction, GoalScope } from '../core/goal-types.js';
+
+export interface CapabilityMatch {
+  capabilityId: string;
+  score: number;
+  reason: string;
+}
+
+export interface Capability {
+  id: string;
+  canHandle(goal: ParsedGoal, context?: ProjectContext): CapabilityMatch;
+  plan(goal: ParsedGoal, context?: ProjectContext): ExecutionPlan;
+}
+
+export interface ExecutionPlanStep {
+  id: string;
+  label: string;
+  type: 'workflow' | 'command' | 'internal';
+  command?: { cli: string; args: string[] };
+  workflowFile?: string;
+  internalOutput?: boolean;
+}
+
+export interface ExecutionPlan {
+  id: string;
+  label: string;
+  capabilityId: string;
+  goal: ParsedGoal;
+  steps: ExecutionPlanStep[];
+  userReport: {
+    hideInternalStdout: boolean;
+    summaryTemplate: string;
+  };
+}
+
+export interface RouterResult {
+  plan: ExecutionPlan | null;
+  route: 'auto' | 'preview' | 'fallback' | 'clarify';
+  matchedCapability?: string;
+  score?: number;
+  reason: string;
+}
+
+export interface CapabilityRouter {
+  route(goal: ParsedGoal, context?: ProjectContext): RouterResult;
+}

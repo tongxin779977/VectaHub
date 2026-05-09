@@ -55,7 +55,7 @@ async function activate(context) {
     (0, previewProjectTask_js_1.registerPreviewProjectTaskCommand)(context);
     (0, runProjectTask_js_1.registerRunProjectTaskCommand)(context, tasksProvider);
     (0, listPackageScripts_js_1.registerListPackageScriptsCommand)(context);
-    (0, fetchGhErrors_js_1.registerFetchGhErrorsCommand)(context);
+    (0, fetchGhErrors_js_1.registerFetchGhErrorsCommand)(context, tasksProvider);
     (0, processAllQueue_js_1.registerProcessAllQueueCommand)(context);
     context.subscriptions.push(outputChannel);
     // 自动检测 CLI
