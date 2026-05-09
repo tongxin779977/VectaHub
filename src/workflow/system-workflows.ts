@@ -45,16 +45,10 @@ export const SYSTEM_WORKFLOWS: Record<string, Workflow> = {
             args: ['-e', "const { getQueueManager } = require('./dist/execution/index.js'); getQueueManager().updateTaskStatus('${item.id}', 'processing')"]
           },
           {
-            id: 'run_fix',
+            id: 'run_fix_and_mark',
             type: 'exec',
             cli: 'node',
-            args: ['-e', "const child = require('child_process').spawnSync('${item.commandToFix}', { shell: true, stdio: 'inherit' }); process.exit(child.status || 0)"]
-          },
-          {
-            id: 'mark_done',
-            type: 'exec',
-            cli: 'node',
-            args: ['-e', "const { getQueueManager } = require('./dist/execution/index.js'); getQueueManager().updateTaskStatus('${item.id}', 'completed')"]
+            args: ['-e', "const child = require('child_process').spawnSync('${item.commandToFix}', { shell: true, stdio: 'inherit' }); const exitCode = child.status || 0; const { getQueueManager } = require('./dist/execution/index.js'); getQueueManager().updateTaskStatus('${item.id}', exitCode === 0 ? 'completed' : 'failed'); process.exit(exitCode)"]
           }
         ]
       }

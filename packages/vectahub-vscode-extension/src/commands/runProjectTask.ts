@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { randomBytes } from 'node:crypto';
 import { ProjectTask } from '../project/taskModel.js';
 import { logToOutput, getOutputChannel } from '../ui/output.js';
 import { PlanBuilder } from '../execution/planBuilder.js';
@@ -9,6 +10,10 @@ import { getPreviewBeforeRun } from '../config/settings.js';
 import { getDangerousMatch } from '../cli/dangerDetection.js';
 import { runCli } from '../cli/adapter.js';
 import { waitForCliReady } from '../cli/readiness.js';
+
+function generateTaskRecordId(): string {
+  return `task-${Date.now()}-${randomBytes(4).toString('hex')}`;
+}
 
 const SAFE_TASK_KINDS: ReadonlySet<string> = new Set([
   'test', 'lint', 'typecheck', 'build', 'dev', 'start', 'serve',
@@ -71,7 +76,7 @@ export function registerRunProjectTaskCommand(context: vscode.ExtensionContext, 
         const confirmed = await confirmHighRisk(task, `命令包含危险模式: "${dangerousMatch}"`);
         if (!confirmed) {
           addTaskRecord({
-            id: `task-${Date.now()}`,
+            id: generateTaskRecordId(),
             label: task.label,
             kind: task.kind,
             source: task.source,
@@ -91,7 +96,7 @@ export function registerRunProjectTaskCommand(context: vscode.ExtensionContext, 
             const confirmed = await confirmHighRisk(task, `dry-run 检测: ${dryRun.reason}`);
             if (!confirmed) {
               addTaskRecord({
-                id: `task-${Date.now()}`,
+                id: generateTaskRecordId(),
                 label: task.label,
                 kind: task.kind,
                 source: task.source,
@@ -141,7 +146,7 @@ export function registerRunProjectTaskCommand(context: vscode.ExtensionContext, 
     } finally {
       const endedAt = new Date();
       addTaskRecord({
-        id: `task-${Date.now()}`,
+        id: generateTaskRecordId(),
         label: task.label,
         kind: task.kind,
         source: task.source,
