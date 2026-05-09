@@ -1,5 +1,4 @@
 import fs from 'node:fs/promises';
-import path from 'node:path';
 import crypto from 'node:crypto';
 import { createConsoleLogger } from './logger.js';
 import { getVectaHubPath } from './paths.js';
