@@ -1,1 +1,1 @@
-{"version":3,"file":"taskModel.js","sourceRoot":"","sources":["../../src/project/taskModel.ts"],"names":[],"mappings":""}
+{"version":3,"file":"taskModel.js","sourceRoot":"","sources":["../../src/project/taskModel.ts"],"names":[],"mappings":";;;AA2BA,sCAEC;AANY,QAAA,kBAAkB,GAA+B;IAC5D,KAAK,EAAE,OAAO,EAAE,OAAO,EAAE,SAAS,EAAE,OAAO;CACnC,CAAC;AAEX,SAAgB,aAAa,CAAC,IAAqB;IACjD,OAAQ,0BAAwC,CAAC,QAAQ,CAAC,IAAI,CAAC,CAAC;AAClE,CAAC"}

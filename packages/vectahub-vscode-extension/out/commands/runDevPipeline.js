@@ -54,7 +54,7 @@ async function runPlansSequentially(plans, runner, token) {
 function hasNodeModules() {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceFolder)
-        return true;
+        return false;
     return fs.existsSync(path.join(workspaceFolder, 'node_modules'));
 }
 function registerRunDevPipelineCommand(context, tasksProvider) {

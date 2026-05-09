@@ -13,15 +13,23 @@ export class VectaHubTreeItem extends vscode.TreeItem {
 }
 
 export class TaskTreeItem extends VectaHubTreeItem {
+  public readonly isRunning: boolean;
+  public readonly taskId?: string;
+
   constructor(
     label: string,
     command: vscode.Command,
     icon: string = 'play',
     public readonly source?: string,
-    description?: string
+    description?: string,
+    options?: { isRunning?: boolean; taskId?: string }
   ) {
-    super(label, vscode.TreeItemCollapsibleState.None, command, 'task', new vscode.ThemeIcon(icon));
-    this.description = description || source;
+    const resolvedIcon = options?.isRunning ? 'sync~spin' : icon;
+    const contextValue = options?.isRunning ? 'longRunningTask-running' : 'task';
+    super(label, vscode.TreeItemCollapsibleState.None, command, contextValue, new vscode.ThemeIcon(resolvedIcon));
+    this.description = options?.isRunning ? '运行中' : (description || source);
+    this.isRunning = options?.isRunning || false;
+    this.taskId = options?.taskId;
     if (source) {
       this.tooltip = `Source: ${source}${description ? '\n' + description : ''}`;
     }

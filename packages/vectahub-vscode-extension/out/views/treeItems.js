@@ -53,10 +53,16 @@ class VectaHubTreeItem extends vscode.TreeItem {
 exports.VectaHubTreeItem = VectaHubTreeItem;
 class TaskTreeItem extends VectaHubTreeItem {
     source;
-    constructor(label, command, icon = 'play', source, description) {
-        super(label, vscode.TreeItemCollapsibleState.None, command, 'task', new vscode.ThemeIcon(icon));
+    isRunning;
+    taskId;
+    constructor(label, command, icon = 'play', source, description, options) {
+        const resolvedIcon = options?.isRunning ? 'sync~spin' : icon;
+        const contextValue = options?.isRunning ? 'longRunningTask-running' : 'task';
+        super(label, vscode.TreeItemCollapsibleState.None, command, contextValue, new vscode.ThemeIcon(resolvedIcon));
         this.source = source;
-        this.description = description || source;
+        this.description = options?.isRunning ? '运行中' : (description || source);
+        this.isRunning = options?.isRunning || false;
+        this.taskId = options?.taskId;
         if (source) {
             this.tooltip = `Source: ${source}${description ? '\n' + description : ''}`;
         }

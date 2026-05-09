@@ -29,6 +29,8 @@ const fetchGhErrors_js_1 = require("./commands/fetchGhErrors.js");
 const processAllQueue_js_1 = require("./commands/processAllQueue.js");
 const runCheckPipeline_js_1 = require("./commands/runCheckPipeline.js");
 const runDevPipeline_js_1 = require("./commands/runDevPipeline.js");
+const startDevServer_js_1 = require("./commands/startDevServer.js");
+const stopRunningTask_js_1 = require("./commands/stopRunningTask.js");
 let globalCliPath;
 function getGlobalCliPath() {
     return globalCliPath;
@@ -61,6 +63,8 @@ async function activate(context) {
     (0, processAllQueue_js_1.registerProcessAllQueueCommand)(context, tasksProvider);
     (0, runCheckPipeline_js_1.registerRunCheckPipelineCommand)(context, tasksProvider);
     (0, runDevPipeline_js_1.registerRunDevPipelineCommand)(context, tasksProvider);
+    (0, startDevServer_js_1.registerStartDevServerCommand)(context, tasksProvider);
+    (0, stopRunningTask_js_1.registerStopRunningTaskCommand)(context, tasksProvider);
     context.subscriptions.push(outputChannel);
     // 自动检测 CLI
     if ((0, settings_js_1.getAutoDetectCli)()) {
@@ -91,7 +95,9 @@ async function activate(context) {
     }
 }
 const process_manager_js_1 = require("./cli/process-manager.js");
+const longRunningTaskManager_js_1 = require("./cli/longRunningTaskManager.js");
 function deactivate() {
+    longRunningTaskManager_js_1.LongRunningTaskManager.getInstance().stopAll();
     process_manager_js_1.ProcessManager.getInstance().killAll();
 }
 //# sourceMappingURL=extension.js.map

@@ -25,7 +25,7 @@ async function runPlansSequentially(
 
 function hasNodeModules(): boolean {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (!workspaceFolder) return true;
+  if (!workspaceFolder) return false;
   return fs.existsSync(path.join(workspaceFolder, 'node_modules'));
 }
 

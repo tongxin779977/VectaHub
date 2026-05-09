@@ -25,6 +25,8 @@ import { registerFetchGhErrorsCommand } from './commands/fetchGhErrors.js';
 import { registerProcessAllQueueCommand } from './commands/processAllQueue.js';
 import { registerRunCheckPipelineCommand } from './commands/runCheckPipeline.js';
 import { registerRunDevPipelineCommand } from './commands/runDevPipeline.js';
+import { registerStartDevServerCommand } from './commands/startDevServer.js';
+import { registerStopRunningTaskCommand } from './commands/stopRunningTask.js';
 
 let globalCliPath: string | undefined;
 
@@ -63,6 +65,8 @@ export async function activate(context: vscode.ExtensionContext) {
   registerProcessAllQueueCommand(context, tasksProvider);
   registerRunCheckPipelineCommand(context, tasksProvider);
   registerRunDevPipelineCommand(context, tasksProvider);
+  registerStartDevServerCommand(context, tasksProvider);
+  registerStopRunningTaskCommand(context, tasksProvider);
 
   context.subscriptions.push(outputChannel);
 
@@ -98,7 +102,9 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 import { ProcessManager } from './cli/process-manager.js';
+import { LongRunningTaskManager } from './cli/longRunningTaskManager.js';
 
 export function deactivate() {
+  LongRunningTaskManager.getInstance().stopAll();
   ProcessManager.getInstance().killAll();
 }

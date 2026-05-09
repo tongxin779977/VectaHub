@@ -69,6 +69,17 @@
         "command": "vectahubTasks.runDevPipeline",
         "title": "VectaHub: 运行开发任务链",
         "category": "VectaHub"
+      },
+      {
+        "command": "vectahubTasks.startDevServer",
+        "title": "VectaHub: 启动长驻任务",
+        "category": "VectaHub"
+      },
+      {
+        "command": "vectahubTasks.stopRunningTask",
+        "title": "VectaHub: 停止运行中的任务",
+        "category": "VectaHub",
+        "icon": "$(stop)"
       }
     ],
     "menus": {
@@ -77,6 +88,13 @@
           "command": "vectahubTasks.refreshProjectTasks",
           "when": "view == vectahubTasks.tasksView",
           "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "vectahubTasks.stopRunningTask",
+          "when": "viewItem == longRunningTask-running",
+          "group": "inline@1"
         }
       ]
     },

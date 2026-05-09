@@ -40,7 +40,9 @@ const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const treeItems_js_1 = require("./treeItems.js");
 const detector_js_1 = require("../project/detector.js");
+const taskModel_js_1 = require("../project/taskModel.js");
 const adapter_js_1 = require("../cli/adapter.js");
+const longRunningTaskManager_js_1 = require("../cli/longRunningTaskManager.js");
 const DEV_KINDS = ['dev', 'start', 'serve'];
 const QUALITY_KINDS = ['test', 'build', 'lint', 'typecheck', 'check', 'validate', 'format', 'format:check', 'coverage', 'storybook'];
 class TasksViewProvider {
@@ -52,6 +54,7 @@ class TasksViewProvider {
     watcher;
     constructor() {
         this.setupWatcher();
+        this.setupLrtListeners();
     }
     setupWatcher() {
         const home = (0, adapter_js_1.getVectaHubHome)();
@@ -60,6 +63,11 @@ class TasksViewProvider {
         this.watcher.onDidChange(() => this.refresh());
         this.watcher.onDidCreate(() => this.refresh());
         this.watcher.onDidDelete(() => this.refresh());
+    }
+    setupLrtListeners() {
+        const lrt = longRunningTaskManager_js_1.LongRunningTaskManager.getInstance();
+        lrt.onTaskStarted(() => this.refresh());
+        lrt.onTaskStopped(() => this.refresh());
     }
     refresh() {
         this._onDidChangeTreeData.fire();
@@ -108,9 +116,24 @@ class TasksViewProvider {
         return [];
     }
     addDevSection(categories) {
+        const lrt = longRunningTaskManager_js_1.LongRunningTaskManager.getInstance();
+        const hasAnyRunning = this.projectTasks.some(t => DEV_KINDS.includes(t.kind) && lrt.isRunning(t.id));
         const devItems = this.projectTasks
             .filter(t => DEV_KINDS.includes(t.kind))
-            .map(t => this.createTaskItem(t));
+            .map(t => {
+            const running = lrt.isRunning(t.id);
+            return new treeItems_js_1.TaskTreeItem(t.label, { command: 'vectahubTasks.startDevServer', title: t.label, arguments: [t] }, this.getIconForKind(t.kind), t.source, t.description, { isRunning: running, taskId: t.id });
+        });
+        if (hasAnyRunning) {
+            devItems.push(new treeItems_js_1.TaskTreeItem('停止当前任务', {
+                command: 'vectahubTasks.stopRunningTask',
+                title: '停止运行中的任务'
+            }, 'stop-circle'));
+        }
+        devItems.push(new treeItems_js_1.TaskTreeItem('运行开发任务链', {
+            command: 'vectahubTasks.runDevPipeline',
+            title: '运行 format:check / typecheck / lint / test / build'
+        }, 'play-circle'));
         if (devItems.length > 0) {
             categories.push(new treeItems_js_1.CategoryTreeItem('一键开发', devItems));
         }
@@ -205,7 +228,14 @@ class TasksViewProvider {
     addOtherScriptsSection(categories) {
         const otherPkgItems = this.projectTasks
             .filter(t => t.source === 'package-json' && !DEV_KINDS.includes(t.kind) && !QUALITY_KINDS.includes(t.kind) && t.kind !== 'install')
-            .map(t => this.createTaskItem(t));
+            .map(t => {
+            if ((0, taskModel_js_1.isLongRunning)(t.kind)) {
+                const lrt = longRunningTaskManager_js_1.LongRunningTaskManager.getInstance();
+                const running = lrt.isRunning(t.id);
+                return new treeItems_js_1.TaskTreeItem(t.label, { command: 'vectahubTasks.startDevServer', title: t.label, arguments: [t] }, this.getIconForKind(t.kind), t.source, t.description, { isRunning: running, taskId: t.id });
+            }
+            return this.createTaskItem(t);
+        });
         if (otherPkgItems.length > 0) {
             categories.push(new treeItems_js_1.CategoryTreeItem('其他项目脚本', otherPkgItems));
         }

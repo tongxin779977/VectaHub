@@ -9,14 +9,17 @@ export function initStatusBar(context: vscode.ExtensionContext) {
   statusBarItem.show();
 }
 
-export function updateStatusBar(status: 'Ready' | 'CLI Missing' | 'Running' | 'Failed') {
+export type StatusBarStatus = 'Ready' | 'CLI Missing' | 'Running' | 'Failed' | 'Dev Server';
+
+export function updateStatusBar(status: StatusBarStatus) {
   if (!statusBarItem) return;
 
-  const statusTextMap = {
+  const statusTextMap: Record<StatusBarStatus, string> = {
     'Ready': '就绪',
     'CLI Missing': 'CLI 缺失',
     'Running': '运行中...',
-    'Failed': '失败'
+    'Failed': '失败',
+    'Dev Server': 'Dev Server 运行中'
   };
 
   statusBarItem.text = `$(tasklist) VectaHub: ${statusTextMap[status]}`;
@@ -31,6 +34,11 @@ export function updateStatusBar(status: 'Ready' | 'CLI Missing' | 'Running' | 'F
       statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
       statusBarItem.tooltip = '上个任务执行失败。点击查看输出。';
       statusBarItem.command = 'workbench.action.output.toggleOutput';
+      break;
+    case 'Dev Server':
+      statusBarItem.backgroundColor = undefined;
+      statusBarItem.tooltip = 'VectaHub Dev Server 正在运行。点击查看任务面板。';
+      statusBarItem.command = 'vectahubTasks.tasksView.focus';
       break;
     default:
       statusBarItem.backgroundColor = undefined;

@@ -21,6 +21,14 @@ export type ProjectTaskKind =
   | 'intent-run'
   | 'other';
 
+export const LONG_RUNNING_KINDS: readonly ProjectTaskKind[] = [
+  'dev', 'start', 'serve', 'preview', 'watch'
+] as const;
+
+export function isLongRunning(kind: ProjectTaskKind): boolean {
+  return (LONG_RUNNING_KINDS as readonly string[]).includes(kind);
+}
+
 export interface ProjectTask {
   id: string;
   kind: ProjectTaskKind;

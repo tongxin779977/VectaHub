@@ -3,9 +3,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { CategoryTreeItem, TaskTreeItem, VectaHubTreeItem, EmptyStateTreeItem } from './treeItems.js';
 import { detectProjectTasks } from '../project/detector.js';
-import { ProjectTask } from '../project/taskModel.js';
+import { ProjectTask, isLongRunning } from '../project/taskModel.js';
 import { getVectaHubHome } from '../cli/adapter.js';
 import { DiagnosticTask, DiagnosticTaskStatus } from '../project/diagnosticModel.js';
+import { LongRunningTaskManager } from '../cli/longRunningTaskManager.js';
 
 const DEV_KINDS = ['dev', 'start', 'serve'];
 const QUALITY_KINDS = ['test', 'build', 'lint', 'typecheck', 'check', 'validate', 'format', 'format:check', 'coverage', 'storybook'];
@@ -21,6 +22,7 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
 
   constructor() {
     this.setupWatcher();
+    this.setupLrtListeners();
   }
 
   private setupWatcher() {
@@ -30,6 +32,12 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
     this.watcher.onDidChange(() => this.refresh());
     this.watcher.onDidCreate(() => this.refresh());
     this.watcher.onDidDelete(() => this.refresh());
+  }
+
+  private setupLrtListeners() {
+    const lrt = LongRunningTaskManager.getInstance();
+    lrt.onTaskStarted(() => this.refresh());
+    lrt.onTaskStopped(() => this.refresh());
   }
 
   refresh(): void {
@@ -87,9 +95,34 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
   }
 
   private addDevSection(categories: CategoryTreeItem[]): void {
+    const lrt = LongRunningTaskManager.getInstance();
+    const hasAnyRunning = this.projectTasks.some(t => DEV_KINDS.includes(t.kind) && lrt.isRunning(t.id));
+
     const devItems = this.projectTasks
       .filter(t => DEV_KINDS.includes(t.kind))
-      .map(t => this.createTaskItem(t));
+      .map(t => {
+        const running = lrt.isRunning(t.id);
+        return new TaskTreeItem(
+          t.label,
+          { command: 'vectahubTasks.startDevServer', title: t.label, arguments: [t] },
+          this.getIconForKind(t.kind),
+          t.source,
+          t.description,
+          { isRunning: running, taskId: t.id }
+        );
+      });
+
+    if (hasAnyRunning) {
+      devItems.push(new TaskTreeItem('停止当前任务', {
+        command: 'vectahubTasks.stopRunningTask',
+        title: '停止运行中的任务'
+      }, 'stop-circle'));
+    }
+
+    devItems.push(new TaskTreeItem('运行开发任务链', {
+      command: 'vectahubTasks.runDevPipeline',
+      title: '运行 format:check / typecheck / lint / test / build'
+    }, 'play-circle'));
 
     if (devItems.length > 0) {
       categories.push(new CategoryTreeItem('一键开发', devItems));
@@ -200,7 +233,21 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
   private addOtherScriptsSection(categories: CategoryTreeItem[]): void {
     const otherPkgItems = this.projectTasks
       .filter(t => t.source === 'package-json' && !DEV_KINDS.includes(t.kind) && !QUALITY_KINDS.includes(t.kind) && t.kind !== 'install')
-      .map(t => this.createTaskItem(t));
+      .map(t => {
+        if (isLongRunning(t.kind)) {
+          const lrt = LongRunningTaskManager.getInstance();
+          const running = lrt.isRunning(t.id);
+          return new TaskTreeItem(
+            t.label,
+            { command: 'vectahubTasks.startDevServer', title: t.label, arguments: [t] },
+            this.getIconForKind(t.kind),
+            t.source,
+            t.description,
+            { isRunning: running, taskId: t.id }
+          );
+        }
+        return this.createTaskItem(t);
+      });
 
     if (otherPkgItems.length > 0) {
       categories.push(new CategoryTreeItem('其他项目脚本', otherPkgItems));
