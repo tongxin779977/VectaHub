@@ -41,11 +41,14 @@ const path = __importStar(require("path"));
 const treeItems_js_1 = require("./treeItems.js");
 const detector_js_1 = require("../project/detector.js");
 const adapter_js_1 = require("../cli/adapter.js");
+const DEV_KINDS = ['dev', 'start', 'serve'];
+const QUALITY_KINDS = ['test', 'build', 'lint', 'typecheck', 'check', 'validate', 'format', 'format:check', 'coverage', 'storybook'];
 class TasksViewProvider {
     _onDidChangeTreeData = new vscode.EventEmitter();
     onDidChangeTreeData = this._onDidChangeTreeData.event;
     projectTasks = [];
     diagnosticTasks = [];
+    queueError;
     watcher;
     constructor() {
         this.setupWatcher();
@@ -64,22 +67,23 @@ class TasksViewProvider {
     getTreeItem(element) {
         return element;
     }
-    async getDiagnosticTasks() {
+    readDiagnosticQueue() {
         const queueFile = path.join((0, adapter_js_1.getVectaHubHome)(), 'diagnostic-queue.json');
         if (!fs.existsSync(queueFile)) {
-            return [];
+            return { tasks: [] };
         }
         try {
             const content = fs.readFileSync(queueFile, 'utf-8');
             const data = JSON.parse(content);
-            if (!Array.isArray(data))
-                return [];
-            // 基础验证，确保包含必要字段
-            return data.filter(t => t && t.id && t.title && t.status);
+            if (!Array.isArray(data)) {
+                return { tasks: [], error: '队列数据格式不正确' };
+            }
+            return {
+                tasks: data.filter((t) => t && t.id && t.title && t.status)
+            };
         }
-        catch (error) {
-            console.error('Failed to parse diagnostic queue:', error);
-            return [];
+        catch {
+            return { tasks: [], error: '队列数据不可读' };
         }
     }
     async getChildren(element) {
@@ -88,46 +92,141 @@ class TasksViewProvider {
         }
         if (!element) {
             this.projectTasks = await (0, detector_js_1.detectProjectTasks)();
-            this.diagnosticTasks = await this.getDiagnosticTasks();
-            const projectItems = this.projectTasks
-                .filter(t => t.source === 'package-json')
-                .map(t => new treeItems_js_1.TaskTreeItem(t.label, {
-                command: 'vectahubTasks.runProjectTask',
-                title: t.label,
-                arguments: [t]
-            }, this.getIconForKind(t.kind), t.source, t.description));
-            const gitItems = [
-                ...this.projectTasks
-                    .filter(t => t.source === 'git')
-                    .map(t => new treeItems_js_1.TaskTreeItem(t.label, {
-                    command: 'vectahubTasks.runProjectTask',
-                    title: t.label,
-                    arguments: [t]
-                }, 'git-compare', t.source)),
-                new treeItems_js_1.TaskTreeItem('获取 GitHub Actions 错误', { command: 'vectahubTasks.fetchGhErrors', title: '拉取最新失败记录' }, 'cloud-download')
-            ];
-            const diagnosticItems = this.diagnosticTasks
-                .map(t => {
-                const icon = t.status === 'completed' ? 'check' : t.status === 'processing' ? 'sync~spin' : t.status === 'failed' ? 'error' : 'warning';
+            const queueResult = this.readDiagnosticQueue();
+            this.diagnosticTasks = queueResult.tasks;
+            this.queueError = queueResult.error;
+            const categories = [];
+            this.addDevSection(categories);
+            this.addQualitySection(categories);
+            this.addCISection(categories);
+            this.addQueueSection(categories);
+            this.addGitSection(categories);
+            this.addCoreSection(categories);
+            this.addOtherScriptsSection(categories);
+            return categories;
+        }
+        return [];
+    }
+    addDevSection(categories) {
+        const devItems = this.projectTasks
+            .filter(t => DEV_KINDS.includes(t.kind))
+            .map(t => this.createTaskItem(t));
+        if (devItems.length > 0) {
+            categories.push(new treeItems_js_1.CategoryTreeItem('一键开发', devItems));
+        }
+    }
+    addQualitySection(categories) {
+        const qualityItems = this.projectTasks
+            .filter(t => QUALITY_KINDS.includes(t.kind))
+            .map(t => this.createTaskItem(t));
+        if (qualityItems.length > 0) {
+            categories.push(new treeItems_js_1.CategoryTreeItem('质量检查', qualityItems));
+        }
+    }
+    addCISection(categories) {
+        const gitAvailable = this.projectTasks.some(t => t.source === 'git');
+        if (!gitAvailable)
+            return;
+        const ciItems = [
+            new treeItems_js_1.TaskTreeItem('拉取 GitHub Actions 错误', {
+                command: 'vectahubTasks.fetchGhErrors',
+                title: '拉取最新失败记录'
+            }, 'cloud-download'),
+            new treeItems_js_1.TaskTreeItem('自动处理诊断队列', {
+                command: 'vectahubTasks.processAllQueue',
+                title: '开始批量修复'
+            }, 'play-all')
+        ];
+        categories.push(new treeItems_js_1.CategoryTreeItem('CI 修复', ciItems));
+    }
+    addQueueSection(categories) {
+        if (this.queueError) {
+            categories.push(new treeItems_js_1.CategoryTreeItem('自动化队列', [
+                new treeItems_js_1.EmptyStateTreeItem(this.queueError, 'warning')
+            ]));
+            return;
+        }
+        if (this.diagnosticTasks.length === 0) {
+            categories.push(new treeItems_js_1.CategoryTreeItem('自动化队列', [
+                new treeItems_js_1.EmptyStateTreeItem('队列为空，当前无待处理诊断', 'check')
+            ]));
+            return;
+        }
+        const statusGroups = this.groupDiagnosticsByStatus();
+        const statusOrder = ['pending', 'processing', 'failed', 'needs-confirmation', 'completed', 'cancelled'];
+        const statusLabels = {
+            'pending': '待处理',
+            'processing': '处理中',
+            'completed': '已完成',
+            'failed': '失败',
+            'cancelled': '已取消',
+            'needs-confirmation': '待确认'
+        };
+        const queueChildren = [];
+        for (const status of statusOrder) {
+            const tasks = statusGroups.get(status);
+            if (!tasks || tasks.length === 0)
+                continue;
+            const statusItems = tasks.map(t => {
+                const icon = this.getIconForStatus(t.status);
                 return new treeItems_js_1.TaskTreeItem(t.title, {
                     command: 'vectahubTasks.runIntent',
                     title: t.title,
                     arguments: [t.commandToFix]
                 }, icon, t.status, t.description);
             });
-            const vhItems = [
-                new treeItems_js_1.TaskTreeItem('环境检查 (Doctor)', { command: 'vectahubTasks.doctor', title: '运行环境检查' }, 'pulse'),
-                new treeItems_js_1.TaskTreeItem('执行自定义意图', { command: 'vectahubTasks.runIntent', title: '输入自然语言意图' }, 'comment'),
-                new treeItems_js_1.TaskTreeItem('一键处理诊断队列', { command: 'vectahubTasks.processAllQueue', title: '开始批量修复' }, 'play-all'),
-            ];
-            return [
-                new treeItems_js_1.CategoryTreeItem('诊断与维护队列', diagnosticItems),
-                new treeItems_js_1.CategoryTreeItem('项目任务', projectItems),
-                new treeItems_js_1.CategoryTreeItem('Git 仓库', gitItems),
-                new treeItems_js_1.CategoryTreeItem('VectaHub 核心', vhItems),
-            ];
+            queueChildren.push(new treeItems_js_1.CategoryTreeItem(`${statusLabels[status] || status} (${tasks.length})`, statusItems));
         }
-        return [];
+        if (queueChildren.length > 0) {
+            categories.push(new treeItems_js_1.CategoryTreeItem('自动化队列', queueChildren));
+        }
+    }
+    addGitSection(categories) {
+        const gitItems = this.projectTasks
+            .filter(t => t.source === 'git')
+            .map(t => new treeItems_js_1.TaskTreeItem(t.label, {
+            command: 'vectahubTasks.runProjectTask',
+            title: t.label,
+            arguments: [t]
+        }, 'git-compare', t.source));
+        if (gitItems.length > 0) {
+            categories.push(new treeItems_js_1.CategoryTreeItem('Git 仓库', gitItems));
+        }
+    }
+    addCoreSection(categories) {
+        const vhItems = [
+            new treeItems_js_1.TaskTreeItem('环境检查 (Doctor)', { command: 'vectahubTasks.doctor', title: '运行环境检查' }, 'pulse'),
+            new treeItems_js_1.TaskTreeItem('执行自定义意图', { command: 'vectahubTasks.runIntent', title: '输入自然语言意图' }, 'comment')
+        ];
+        categories.push(new treeItems_js_1.CategoryTreeItem('VectaHub 核心', vhItems));
+    }
+    addOtherScriptsSection(categories) {
+        const otherPkgItems = this.projectTasks
+            .filter(t => t.source === 'package-json' && !DEV_KINDS.includes(t.kind) && !QUALITY_KINDS.includes(t.kind) && t.kind !== 'install')
+            .map(t => this.createTaskItem(t));
+        if (otherPkgItems.length > 0) {
+            categories.push(new treeItems_js_1.CategoryTreeItem('其他项目脚本', otherPkgItems));
+        }
+    }
+    groupDiagnosticsByStatus() {
+        const groups = new Map();
+        for (const task of this.diagnosticTasks) {
+            const validStatuses = ['pending', 'processing', 'completed', 'failed', 'cancelled', 'needs-confirmation'];
+            const status = validStatuses.includes(task.status)
+                ? task.status
+                : 'failed';
+            const list = groups.get(status) || [];
+            list.push(task);
+            groups.set(status, list);
+        }
+        return groups;
+    }
+    createTaskItem(task) {
+        return new treeItems_js_1.TaskTreeItem(task.label, {
+            command: 'vectahubTasks.runProjectTask',
+            title: task.label,
+            arguments: [task]
+        }, this.getIconForKind(task.kind), task.source, task.description);
     }
     getIconForKind(kind) {
         switch (kind) {
@@ -136,7 +235,24 @@ class TasksViewProvider {
             case 'lint': return 'check-all';
             case 'typecheck': return 'symbol-class';
             case 'install': return 'cloud-download';
+            case 'dev':
+            case 'start':
+            case 'serve': return 'rocket';
+            case 'preview':
+            case 'watch': return 'eye';
+            case 'format': return 'edit';
+            case 'coverage': return 'graph-line';
             default: return 'play';
+        }
+    }
+    getIconForStatus(status) {
+        switch (status) {
+            case 'completed': return 'check';
+            case 'processing': return 'sync~spin';
+            case 'failed': return 'error';
+            case 'cancelled': return 'circle-slash';
+            case 'needs-confirmation': return 'question';
+            default: return 'warning';
         }
     }
 }

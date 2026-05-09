@@ -73,6 +73,14 @@ class PlanRunner {
                         plan.file
                     ], { cwd: plan.cwd });
                     break;
+                case 'capability':
+                    result = await (0, adapter_js_1.runCli)([
+                        'run',
+                        '--mode', plan.mode,
+                        '--json',
+                        plan.goal?.originalInput || plan.label
+                    ], { cwd: plan.cwd });
+                    break;
             }
             this.outputChannel.appendLine(`[PlanRunner] Result: ${JSON.stringify(result, null, 2)}`);
             if (result && result.ok === false) {
@@ -115,6 +123,13 @@ class PlanRunner {
                     '--dry-run',
                     '--json',
                     plan.file
+                ], { cwd: plan.cwd });
+            case 'capability':
+                return (0, adapter_js_1.runCli)([
+                    'run',
+                    '--dry-run',
+                    '--json',
+                    plan.goal?.originalInput || plan.label
                 ], { cwd: plan.cwd });
         }
     }

@@ -5,7 +5,7 @@ import { PlanRunner } from '../execution/planRunner.js';
 import { getOutputChannel } from '../ui/output.js';
 
 export async function previewProjectTask(task: ProjectTask) {
-  const plan = PlanBuilder.createProjectTaskPlan(task as any);
+  const plan = PlanBuilder.createProjectTaskPlan(task);
   if (!plan) {
     return undefined;
   }

@@ -7,7 +7,11 @@ import { getExecutionMode } from '../config/settings';
 export interface ProjectTaskStub {
   label: string;
   kind: string;
-  command: string;
+  source: 'package-json' | 'git' | 'vectahub' | 'manual';
+  command?: {
+    cli: string;
+    args: string[];
+  };
 }
 
 export class PlanBuilder {
@@ -49,12 +53,11 @@ export class PlanBuilder {
 
   static createProjectTaskPlan(task: ProjectTaskStub): ExecutionPlan | undefined {
     if (!task.command) return undefined;
-    const parts = task.command.split(' ');
     return this.buildCommandPlan(
-      parts[0],
-      parts.slice(1),
+      task.command.cli,
+      task.command.args,
       task.label,
-      task.kind === 'package-json' ? 'package-json' : 'git'
+      task.source === 'package-json' ? 'package-json' : 'git'
     );
   }
 }

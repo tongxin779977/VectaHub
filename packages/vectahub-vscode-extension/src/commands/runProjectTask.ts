@@ -11,7 +11,7 @@ export function registerRunProjectTaskCommand(context: vscode.ExtensionContext, 
     logToOutput(`[DEBUG] runProjectTask 开始执行，task: ${task.label}`);
     const startedAt = new Date();
 
-    const plan = PlanBuilder.createProjectTaskPlan(task as any);
+    const plan = PlanBuilder.createProjectTaskPlan(task);
     if (!plan) {
       vscode.window.showWarningMessage('该任务缺少可执行命令。');
       return;

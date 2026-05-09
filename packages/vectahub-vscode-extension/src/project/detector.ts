@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { ProjectTask } from './taskModel.js';
 import { detectPackageManager } from './packageManager.js';
-import { detectPackageTasks } from './packageScripts.js';
+import { detectPackageTasks, PackageJson } from './packageScripts.js';
 
 export async function detectProjectTasks(): Promise<ProjectTask[]> {
   const activeEditor = vscode.window.activeTextEditor;
@@ -22,6 +22,17 @@ export async function detectProjectTasks(): Promise<ProjectTask[]> {
   }
 
   const tasks: ProjectTask[] = [];
+  
+  const packageJsonPath = path.join(workspaceFolder, 'package.json');
+  let pkg: PackageJson | undefined;
+  if (fs.existsSync(packageJsonPath)) {
+    try {
+      pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+    } catch {
+      // ignore
+    }
+  }
+
   const pm = detectPackageManager(workspaceFolder);
 
   if (fs.existsSync(path.join(workspaceFolder, '.git'))) {
@@ -35,7 +46,7 @@ export async function detectProjectTasks(): Promise<ProjectTask[]> {
     });
   }
 
-  const pkgTasks = detectPackageTasks(workspaceFolder, pm);
+  const pkgTasks = detectPackageTasks(workspaceFolder, pm, pkg);
   tasks.push(...pkgTasks);
 
   tasks.push({

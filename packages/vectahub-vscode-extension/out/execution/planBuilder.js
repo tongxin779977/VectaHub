@@ -40,8 +40,7 @@ class PlanBuilder {
     static createProjectTaskPlan(task) {
         if (!task.command)
             return undefined;
-        const parts = task.command.split(' ');
-        return this.buildCommandPlan(parts[0], parts.slice(1), task.label, task.kind === 'package-json' ? 'package-json' : 'git');
+        return this.buildCommandPlan(task.command.cli, task.command.args, task.label, task.source === 'package-json' ? 'package-json' : 'git');
     }
 }
 exports.PlanBuilder = PlanBuilder;

@@ -41,6 +41,9 @@ export interface WorkflowFileExecutionPlan extends BaseExecutionPlan {
 export interface CapabilityExecutionPlan extends BaseExecutionPlan {
   type: 'capability';
   capabilityId: string;
+  goal?: {
+    originalInput?: string;
+  };
   steps: Array<{
     id: string;
     label: string;

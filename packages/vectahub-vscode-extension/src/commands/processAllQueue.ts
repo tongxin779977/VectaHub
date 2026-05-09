@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { runCli } from '../cli/adapter.js';
+import { TasksViewProvider } from '../views/tasksView.js';
 
-export function registerProcessAllQueueCommand(context: vscode.ExtensionContext) {
+export function registerProcessAllQueueCommand(context: vscode.ExtensionContext, tasksProvider?: TasksViewProvider) {
   const disposable = vscode.commands.registerCommand('vectahubTasks.processAllQueue', async () => {
     const confirm = await vscode.window.showWarningMessage(
       '确定要启动批量修复流程吗？系统将逐一处理诊断队列中的所有任务。',
@@ -16,6 +17,7 @@ export function registerProcessAllQueueCommand(context: vscode.ExtensionContext)
         cancellable: true
       }, async (progress, token) => {
         const result = await runCli(['run', '-f', 'sys:process-diagnostic-queue', '--mode', 'relaxed'], { token });
+        tasksProvider?.refresh();
         if (result.ok) {
           vscode.window.showInformationMessage('✅ 批量诊断任务处理完成');
         } else if (result.error?.code === 'CANCELLED') {

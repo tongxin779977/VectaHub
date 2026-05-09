@@ -33,8 +33,8 @@ export class ProcessManager {
         try {
           // On Unix, we might want to kill the process group, but child.kill() is a good start.
           child.kill('SIGTERM');
-        } catch (e) {
-          // Ignore
+        } catch {
+          // ignore
         }
       }
     }

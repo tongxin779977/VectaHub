@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CategoryTreeItem = exports.TaskTreeItem = exports.VectaHubTreeItem = void 0;
+exports.EmptyStateTreeItem = exports.CategoryTreeItem = exports.TaskTreeItem = exports.VectaHubTreeItem = void 0;
 const vscode = __importStar(require("vscode"));
 class VectaHubTreeItem extends vscode.TreeItem {
     label;
@@ -71,4 +71,10 @@ class CategoryTreeItem extends VectaHubTreeItem {
     children;
 }
 exports.CategoryTreeItem = CategoryTreeItem;
+class EmptyStateTreeItem extends VectaHubTreeItem {
+    constructor(message, icon = 'info') {
+        super(message, vscode.TreeItemCollapsibleState.None, undefined, 'empty-state', new vscode.ThemeIcon(icon));
+    }
+}
+exports.EmptyStateTreeItem = EmptyStateTreeItem;
 //# sourceMappingURL=treeItems.js.map

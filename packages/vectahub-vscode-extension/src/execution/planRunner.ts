@@ -42,13 +42,21 @@ export class PlanRunner {
             plan.file
           ], { cwd: plan.cwd });
           break;
+        case 'capability':
+          result = await runCli([
+            'run',
+            '--mode', plan.mode,
+            '--json',
+            plan.goal?.originalInput || plan.label
+          ], { cwd: plan.cwd });
+          break;
       }
 
       this.outputChannel.appendLine(`[PlanRunner] Result: ${JSON.stringify(result, null, 2)}`);
       
       if (result && result.ok === false) {
         const error = result.error || { message: 'Unknown error' };
-        const errorCode = (error as any).code || 'N/A';
+        const errorCode = (error as { code?: string }).code || 'N/A';
         vscode.window.showErrorMessage(`Task Failed: ${error.message} (${errorCode})`);
       } else {
         vscode.window.showInformationMessage(`Task Completed: ${plan.label}`);
@@ -60,7 +68,7 @@ export class PlanRunner {
     }
   }
 
-  async preview(plan: ExecutionPlan): Promise<any> {
+  async preview(plan: ExecutionPlan): Promise<{ ok: boolean; error?: { message: string; code?: string } } | undefined> {
     this.outputChannel.appendLine(`\n[PlanRunner] Previewing Plan: ${plan.label}`);
     
     switch (plan.type) {
@@ -86,6 +94,13 @@ export class PlanRunner {
           '--dry-run',
           '--json',
           plan.file
+        ], { cwd: plan.cwd });
+      case 'capability':
+        return runCli([
+          'run',
+          '--dry-run',
+          '--json',
+          plan.goal?.originalInput || plan.label
         ], { cwd: plan.cwd });
     }
   }

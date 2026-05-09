@@ -35,3 +35,9 @@ export class CategoryTreeItem extends VectaHubTreeItem {
   }
   public children: VectaHubTreeItem[];
 }
+
+export class EmptyStateTreeItem extends VectaHubTreeItem {
+  constructor(message: string, icon: string = 'info') {
+    super(message, vscode.TreeItemCollapsibleState.None, undefined, 'empty-state', new vscode.ThemeIcon(icon));
+  }
+}

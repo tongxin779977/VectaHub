@@ -36,7 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerProcessAllQueueCommand = registerProcessAllQueueCommand;
 const vscode = __importStar(require("vscode"));
 const adapter_js_1 = require("../cli/adapter.js");
-function registerProcessAllQueueCommand(context) {
+function registerProcessAllQueueCommand(context, tasksProvider) {
     const disposable = vscode.commands.registerCommand('vectahubTasks.processAllQueue', async () => {
         const confirm = await vscode.window.showWarningMessage('确定要启动批量修复流程吗？系统将逐一处理诊断队列中的所有任务。', { modal: true }, '开始处理');
         if (confirm === '开始处理') {
@@ -46,6 +46,7 @@ function registerProcessAllQueueCommand(context) {
                 cancellable: true
             }, async (progress, token) => {
                 const result = await (0, adapter_js_1.runCli)(['run', '-f', 'sys:process-diagnostic-queue', '--mode', 'relaxed'], { token });
+                tasksProvider?.refresh();
                 if (result.ok) {
                     vscode.window.showInformationMessage('✅ 批量诊断任务处理完成');
                 }

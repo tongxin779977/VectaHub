@@ -38,14 +38,25 @@ exports.getAllPackageScripts = getAllPackageScripts;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const packageManager_js_1 = require("./packageManager.js");
-function detectPackageTasks(workspaceFolder, pm) {
+function readPackageJson(workspaceFolder) {
     const packageJsonPath = path.join(workspaceFolder, 'package.json');
     if (!fs.existsSync(packageJsonPath)) {
-        return [];
+        return null;
     }
     try {
         const content = fs.readFileSync(packageJsonPath, 'utf-8');
-        const pkg = JSON.parse(content);
+        return JSON.parse(content);
+    }
+    catch {
+        return null;
+    }
+}
+function detectPackageTasks(workspaceFolder, pm, preParsedPkg) {
+    const pkg = preParsedPkg || readPackageJson(workspaceFolder);
+    if (!pkg) {
+        return [];
+    }
+    try {
         const scripts = pkg.scripts || {};
         const tasks = [];
         // Install task
@@ -59,11 +70,32 @@ function detectPackageTasks(workspaceFolder, pm) {
         });
         // Mapping common scripts
         const mappings = [
-            { key: 'test', kind: 'test', label: '运行测试 (Test)' },
-            { key: 'build', kind: 'build', label: '构建项目 (Build)' },
+            // 开发服务
+            { key: 'dev', kind: 'dev', label: '启动开发服务 (Dev)' },
+            { key: 'start', kind: 'start', label: '启动项目 (Start)' },
+            { key: 'serve', kind: 'serve', label: '启动服务 (Serve)' },
+            // 预览和监听
+            { key: 'preview', kind: 'preview', label: '预览构建结果 (Preview)' },
+            { key: 'watch', kind: 'watch', label: '监听构建 (Watch)' },
+            { key: 'build:watch', kind: 'watch', label: '监听构建 (Build Watch)' },
+            { key: 'test:watch', kind: 'watch', label: '监听测试 (Test Watch)' },
+            // 质量检查
             { key: 'lint', kind: 'lint', label: '代码检查 (Lint)' },
             { key: 'typecheck', kind: 'typecheck', label: '类型检查 (Typecheck)' },
+            { key: 'check', kind: 'check', label: '项目检查 (Check)' },
+            { key: 'validate', kind: 'validate', label: '项目验证 (Validate)' },
+            { key: 'format', kind: 'format', label: '格式化代码 (Format)' },
+            { key: 'format:check', kind: 'format', label: '检查格式 (Format Check)' },
+            // 测试和覆盖率
+            { key: 'test', kind: 'test', label: '运行测试 (Test)' },
+            { key: 'test:unit', kind: 'test', label: '单元测试 (Unit Test)' },
+            { key: 'test:e2e', kind: 'test', label: 'E2E 测试 (E2E Test)' },
+            { key: 'coverage', kind: 'coverage', label: '测试覆盖率 (Coverage)' },
+            // 构建和组件预览
+            { key: 'build', kind: 'build', label: '构建项目 (Build)' },
+            { key: 'storybook', kind: 'storybook', label: '启动 Storybook' },
         ];
+        const processedKeys = new Set();
         for (const mapping of mappings) {
             const scriptContent = scripts[mapping.key];
             if (scriptContent) {
@@ -76,6 +108,7 @@ function detectPackageTasks(workspaceFolder, pm) {
                     available: true,
                     command: (0, packageManager_js_1.getRunCommand)(pm, mapping.key)
                 });
+                processedKeys.add(mapping.key);
             }
             else if (mapping.key === 'typecheck') {
                 // Fallback for typecheck in lint
@@ -93,31 +126,39 @@ function detectPackageTasks(workspaceFolder, pm) {
                 }
             }
         }
+        // 处理“其他”脚本
+        for (const [key, content] of Object.entries(scripts)) {
+            if (!processedKeys.has(key)) {
+                tasks.push({
+                    id: `pkg-other-${key}`,
+                    kind: 'other',
+                    label: key,
+                    description: content,
+                    source: 'package-json',
+                    available: true,
+                    command: (0, packageManager_js_1.getRunCommand)(pm, key)
+                });
+            }
+        }
         return tasks;
-    }
-    catch (e) {
-        return [];
-    }
-}
-function getAllPackageScripts(workspaceFolder, pm) {
-    const packageJsonPath = path.join(workspaceFolder, 'package.json');
-    if (!fs.existsSync(packageJsonPath))
-        return [];
-    try {
-        const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
-        const scripts = pkg.scripts || {};
-        return Object.keys(scripts).map(name => ({
-            id: `script-${name}`,
-            kind: 'list-scripts',
-            label: name,
-            description: scripts[name],
-            source: 'package-json',
-            available: true,
-            command: (0, packageManager_js_1.getRunCommand)(pm, name)
-        }));
     }
     catch {
         return [];
     }
+}
+function getAllPackageScripts(workspaceFolder, pm, preParsedPkg) {
+    const pkg = preParsedPkg || readPackageJson(workspaceFolder);
+    if (!pkg)
+        return [];
+    const scripts = pkg.scripts || {};
+    return Object.keys(scripts).map(name => ({
+        id: `script-${name}`,
+        kind: 'list-scripts',
+        label: name,
+        description: scripts[name],
+        source: 'package-json',
+        available: true,
+        command: (0, packageManager_js_1.getRunCommand)(pm, name)
+    }));
 }
 //# sourceMappingURL=packageScripts.js.map

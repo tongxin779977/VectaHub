@@ -52,6 +52,16 @@ async function detectProjectTasks() {
         return [];
     }
     const tasks = [];
+    const packageJsonPath = path.join(workspaceFolder, 'package.json');
+    let pkg;
+    if (fs.existsSync(packageJsonPath)) {
+        try {
+            pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+        }
+        catch {
+            // ignore
+        }
+    }
     const pm = (0, packageManager_js_1.detectPackageManager)(workspaceFolder);
     if (fs.existsSync(path.join(workspaceFolder, '.git'))) {
         tasks.push({
@@ -63,7 +73,7 @@ async function detectProjectTasks() {
             command: { cli: 'git', args: ['status'] }
         });
     }
-    const pkgTasks = (0, packageScripts_js_1.detectPackageTasks)(workspaceFolder, pm);
+    const pkgTasks = (0, packageScripts_js_1.detectPackageTasks)(workspaceFolder, pm, pkg);
     tasks.push(...pkgTasks);
     tasks.push({
         id: 'vh-doctor',

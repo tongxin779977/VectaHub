@@ -5,10 +5,21 @@ export type ProjectTaskKind =
   | 'build'
   | 'lint'
   | 'typecheck'
+  | 'dev'
+  | 'start'
+  | 'serve'
+  | 'preview'
+  | 'watch'
+  | 'format'
+  | 'coverage'
+  | 'storybook'
+  | 'check'
+  | 'validate'
   | 'list-scripts'
   | 'doctor'
   | 'intent-preview'
-  | 'intent-run';
+  | 'intent-run'
+  | 'other';
 
 export interface ProjectTask {
   id: string;
