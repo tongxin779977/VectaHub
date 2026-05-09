@@ -1,6 +1,7 @@
 import { promises as fs, existsSync, mkdirSync } from 'node:fs';
 import { getVectaHubPath, getVectaHubHome } from '../utils/paths.js';
 import type { DiagnosticTask, DiagnosticTaskStatus } from '../types/diagnostic.js';
+import { validateDiagnosticQueue } from '../types/diagnostic.js';
 import { createConsoleLogger } from '../utils/logger.js';
 
 const logger = createConsoleLogger('queue-manager');
@@ -35,6 +36,7 @@ export class QueueManager {
     });
     const currentLock = this.lock;
     this.lock = nextLock;
+
     await currentLock;
     return release!;
   }
@@ -46,7 +48,13 @@ export class QueueManager {
         return [];
       }
       const content = await fs.readFile(QUEUE_FILE, 'utf-8');
-      return JSON.parse(content);
+      const data = JSON.parse(content);
+
+      const validTasks = validateDiagnosticQueue(data);
+      if (Array.isArray(data) && validTasks.length !== data.length) {
+        logger.warn(`Filtered out ${data.length - validTasks.length} invalid tasks from queue`);
+      }
+      return validTasks;
     } catch (error) {
       logger.error(`Failed to load diagnostic queue: ${error}`);
       return [];

@@ -9,6 +9,7 @@ import { audit, getCurrentSessionId } from '../utils/audit.js';
 import { createRBACManager, type RoleName } from '../security-protocol/rbac.js';
 import { getCliToolRegistry } from '../cli-tools/index.js';
 import { ShellTokenizer } from '../utils/shell-tokenizer.js';
+import { PolicyManager } from './policy-manager.js';
 
 // Import decoupled handlers
 import { handleIf } from './handlers/if-handler.js';
@@ -54,25 +55,21 @@ function shouldAllow(
 
 export function createExecutor(sandboxManager?: SandboxManager): Executor {
   const detector: Detector = createDetector();
+  const policyManager = new PolicyManager();
 
   async function exec(cli: string, args: string[], options: ExecutorOptions): Promise<CLIResult> {
     const startTime = Date.now();
     const timeout = options.timeout || DEFAULT_TIMEOUT;
 
-    if (options.role) {
-      const rbac = createRBACManager();
-      const fullCommand = `${cli} ${args.join(' ')}`;
-      if (!rbac.canExecute(options.role, fullCommand, cli)) {
-        const sessionId = getCurrentSessionId();
-        audit.securityAction('RBAC_DENIED', fullCommand, `Role ${options.role} blocked command`, sessionId);
-        return {
-          success: false,
-          exitCode: 1,
-          stdout: '',
-          stderr: `Command denied by RBAC: role "${options.role}" cannot execute "${cli}"`,
-          duration: Date.now() - startTime,
-        };
-      }
+    const rbacResult = policyManager.checkRBAC(cli, args, options);
+    if (!rbacResult.allowed) {
+      return {
+        success: false,
+        exitCode: 1,
+        stdout: '',
+        stderr: rbacResult.error || 'Denied by RBAC',
+        duration: Date.now() - startTime,
+      };
     }
 
     return new Promise((resolve, reject) => {
@@ -396,32 +393,13 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
 
     async executeWorkflow(steps: Step[], options: ExecutorOptions = { mode: 'STRICT' }, context: ExecutionContext = { variables: {}, previousOutputs: {} }): Promise<ExecutionResult[]> {
       // 1. 自动化凭证预检 (Pre-flight Checks)
-      if (!options.dryRun) {
-        const toolsToCheck = new Set<string>();
-        for (const step of steps) {
-          if (step.cli) toolsToCheck.add(step.cli);
-        }
-
-        const registry = getCliToolRegistry();
-        for (const toolName of toolsToCheck) {
-          const tool = registry.getTool(toolName);
-          if (tool?.authCheckCommand) {
-            const tokens = ShellTokenizer.tokenize(tool.authCheckCommand);
-            if (tokens.length > 0) {
-              const checkResult = await exec(tokens[0].cli, tokens[0].args, { 
-                ...options, 
-                timeout: 10000 // 预检命令超时设为 10s
-              });
-              if (!checkResult.success) {
-                return [{
-                  stepId: 'pre-flight',
-                  status: 'FAILED',
-                  error: tool.authHelpMessage || `检测到工具 ${toolName} 未通过凭证预检。`
-                }];
-              }
-            }
-          }
-        }
+      const preFlightResult = await policyManager.runPreFlightCheck(steps, exec, options);
+      if (!preFlightResult.success) {
+        return [{
+          stepId: 'pre-flight',
+          status: 'FAILED',
+          error: preFlightResult.error || 'Pre-flight check failed'
+        }];
       }
 
       // 2. 按序执行步骤
