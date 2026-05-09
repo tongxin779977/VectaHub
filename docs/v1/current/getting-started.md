@@ -102,16 +102,29 @@ vectahub setup
 vectahub config show
 ```
 
-## 历史记录
+## 核心架构
 
-查看最近的任务执行情况：
+VectaHub 采用分层架构：
 
-```bash
-vectahub history
-vectahub detail <id>
-```
+| 层级 | 职责 |
+|------|------|
+| **交互层** | 处理自然语言/YAML 输入，提供命令编辑与预览 |
+| **引擎层** | 步骤编排、上下文管理、DryRun 预览、执行记录持久化 |
+| **执行层** | 安全协议检查、正则检测、沙箱隔离、审计日志 |
+
+核心组件：NL Parser、Workflow Engine、Executor、Sandbox、LLM Client、Storage。
+
+## 安全机制
+
+1. **规则引擎**: 检查黑白名单配置
+2. **安全协议**: 匹配预定义的安全性规则
+3. **危险检测**: ShellTokenizer 分解复合命令并正则扫描
+
+执行模式：
+- `strict`: 阻断所有潜在风险命令
+- `relaxed`: 允许常规操作，阻断已知高危操作
+- `consensus`: 关键操作需人工确认
 
 ---
 **相关链接**:
 - [CLI 命令参考](./cli-commands.md)
-- [开发规范](../developer/coding-standards.md)
