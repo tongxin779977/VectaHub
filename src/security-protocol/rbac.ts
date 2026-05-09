@@ -1,5 +1,6 @@
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'fs';
 import { getVectaHubPath, getVectaHubHome } from '../utils/paths.js';
+import { ShellTokenizer } from '../utils/shell-tokenizer.js';
 
 const RBAC_FILE = getVectaHubPath('rbac.json');
 
@@ -131,30 +132,28 @@ export function createRBACManager(): RBACManager {
   function canExecute(role: RoleName, command: string, tool?: string): boolean {
     const roleConfig = getRole(role);
 
-    const normalizedCommand = command.trim().toLowerCase();
+    // 1. 分解复合命令，确保每一部分都经过校验
+    const subCommands = ShellTokenizer.tokenize(command);
 
-    for (const blocked of roleConfig.blocked_commands) {
-      if (matchBlockedCommand(normalizedCommand, blocked)) {
-        return false;
-      }
-    }
+    for (const subCmd of subCommands) {
+      const normalizedSubCmd = subCmd.raw.toLowerCase();
 
-    if (tool) {
-      const normalizedTool = tool.toLowerCase();
-      
-      if (roleConfig.allowed_tools.length === 0) {
-        return false;
+      // 校验黑名单
+      for (const blocked of roleConfig.blocked_commands) {
+        if (matchBlockedCommand(normalizedSubCmd, blocked)) {
+          return false;
+        }
       }
 
-      if (roleConfig.allowed_tools.includes('*')) {
-        return true;
+      // 校验允许的工具列表
+      if (roleConfig.allowed_tools[0] !== '*') {
+        const cmdCli = subCmd.cli.toLowerCase();
+        const isAllowed = roleConfig.allowed_tools.some(t => t.toLowerCase() === cmdCli);
+        
+        if (!isAllowed) {
+          return false;
+        }
       }
-
-      if (roleConfig.allowed_tools.some(t => t.toLowerCase() === normalizedTool)) {
-        return true;
-      }
-
-      return false;
     }
 
     return true;
