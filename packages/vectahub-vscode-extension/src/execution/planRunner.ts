@@ -57,7 +57,9 @@ export class PlanRunner {
       if (result && result.ok === false) {
         const error = result.error || { message: 'Unknown error' };
         const errorCode = (error as { code?: string }).code || 'N/A';
-        vscode.window.showErrorMessage(`Task Failed: ${error.message} (${errorCode})`);
+        const errorMsg = `Task Failed: ${error.message} (${errorCode})`;
+        vscode.window.showErrorMessage(errorMsg);
+        throw new Error(errorMsg);
       } else {
         vscode.window.showInformationMessage(`Task Completed: ${plan.label}`);
       }
@@ -65,6 +67,7 @@ export class PlanRunner {
       const msg = error instanceof Error ? error.message : String(error);
       this.outputChannel.appendLine(`[PlanRunner] Error: ${msg}`);
       vscode.window.showErrorMessage(`Execution Error: ${msg}`);
+      throw error;
     }
   }
 

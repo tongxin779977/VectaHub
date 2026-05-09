@@ -40,7 +40,20 @@ class PlanBuilder {
     static createProjectTaskPlan(task) {
         if (!task.command)
             return undefined;
-        return this.buildCommandPlan(task.command.cli, task.command.args, task.label, task.source === 'package-json' ? 'package-json' : 'git');
+        let cli;
+        let args;
+        if (typeof task.command === 'string') {
+            // 向后兼容：处理字符串格式的命令
+            const parts = task.command.split(' ');
+            cli = parts[0];
+            args = parts.slice(1);
+        }
+        else {
+            // 新格式：对象格式的命令
+            cli = task.command.cli;
+            args = task.command.args;
+        }
+        return this.buildCommandPlan(cli, args, task.label, task.source === 'package-json' ? 'package-json' : 'git');
     }
 }
 exports.PlanBuilder = PlanBuilder;

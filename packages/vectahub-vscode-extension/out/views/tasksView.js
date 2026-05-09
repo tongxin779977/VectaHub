@@ -119,9 +119,11 @@ class TasksViewProvider {
         const qualityItems = this.projectTasks
             .filter(t => QUALITY_KINDS.includes(t.kind))
             .map(t => this.createTaskItem(t));
-        if (qualityItems.length > 0) {
-            categories.push(new treeItems_js_1.CategoryTreeItem('质量检查', qualityItems));
-        }
+        qualityItems.push(new treeItems_js_1.TaskTreeItem('一键检查全部', {
+            command: 'vectahubTasks.runCheckPipeline',
+            title: '运行 typecheck / lint / test / build'
+        }, 'play-circle'));
+        categories.push(new treeItems_js_1.CategoryTreeItem('质量检查', qualityItems));
     }
     addCISection(categories) {
         const gitAvailable = this.projectTasks.some(t => t.source === 'git');

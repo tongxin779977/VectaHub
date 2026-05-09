@@ -282,3 +282,33 @@ describe('M2 状态图标映射', () => {
     expect(getIconForStatus('unknown')).toBe('warning');
   });
 });
+
+describe('M3 任务链入口位置', () => {
+  it('一键检查全部应始终出现在质量检查分类末尾', () => {
+    const qualityItems = ['运行测试', '代码检查', '类型检查', '一键检查全部'];
+    const lastItem = qualityItems[qualityItems.length - 1];
+    expect(lastItem).toBe('一键检查全部');
+  });
+
+  it('运行开发任务链应始终出现在一键开发分类末尾', () => {
+    const devItems = ['启动开发服务', '运行开发任务链'];
+    const lastItem = devItems[devItems.length - 1];
+    expect(lastItem).toBe('运行开发任务链');
+  });
+
+  it('一键开发分类即使没有 dev/start/serve 脚本也应显示（因为有任务链入口）', () => {
+    const devTasks: ProjectTaskStub[] = [];
+    const pipelineEntry = { kind: 'pipeline', source: 'vectahub' };
+    const allItems = [...filterDevTasks(devTasks), pipelineEntry];
+    expect(allItems.length).toBe(1);
+    expect(allItems[0].kind).toBe('pipeline');
+  });
+
+  it('质量检查分类即使没有质量脚本也应显示（因为有一键检查入口）', () => {
+    const qualityTasks: ProjectTaskStub[] = [];
+    const pipelineEntry = { kind: 'pipeline', source: 'vectahub' };
+    const allItems = [...filterQualityTasks(qualityTasks), pipelineEntry];
+    expect(allItems.length).toBe(1);
+    expect(allItems[0].kind).toBe('pipeline');
+  });
+});

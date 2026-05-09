@@ -49,19 +49,28 @@ function registerRunProjectTaskCommand(context, tasksProvider) {
             return;
         }
         const runner = new planRunner_js_1.PlanRunner((0, output_js_1.getOutputChannel)());
-        await runner.run(plan);
-        const endedAt = new Date();
-        (0, taskHistory_js_1.addTaskRecord)({
-            id: `task-${Date.now()}`,
-            label: task.label,
-            kind: task.kind,
-            source: task.source,
-            status: 'success', // PlanRunner handles failure UI, history shows triggered
-            command: task.command ? `${task.command.cli} ${task.command.args.join(' ')}` : undefined,
-            startedAt,
-            endedAt
-        });
-        tasksProvider.refresh();
+        let status = 'success';
+        try {
+            await runner.run(plan);
+        }
+        catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            status = message.includes('cancelled') ? 'cancelled' : 'failed';
+        }
+        finally {
+            const endedAt = new Date();
+            (0, taskHistory_js_1.addTaskRecord)({
+                id: `task-${Date.now()}`,
+                label: task.label,
+                kind: task.kind,
+                source: task.source,
+                status,
+                command: task.command ? `${task.command.cli} ${task.command.args.join(' ')}` : undefined,
+                startedAt,
+                endedAt
+            });
+            tasksProvider.refresh();
+        }
     });
     context.subscriptions.push(disposable);
 }

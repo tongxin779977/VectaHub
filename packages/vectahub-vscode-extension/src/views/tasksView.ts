@@ -101,9 +101,12 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
       .filter(t => QUALITY_KINDS.includes(t.kind))
       .map(t => this.createTaskItem(t));
 
-    if (qualityItems.length > 0) {
-      categories.push(new CategoryTreeItem('质量检查', qualityItems));
-    }
+    qualityItems.push(new TaskTreeItem('一键检查全部', {
+      command: 'vectahubTasks.runCheckPipeline',
+      title: '运行 typecheck / lint / test / build'
+    }, 'play-circle'));
+
+    categories.push(new CategoryTreeItem('质量检查', qualityItems));
   }
 
   private addCISection(categories: CategoryTreeItem[]): void {

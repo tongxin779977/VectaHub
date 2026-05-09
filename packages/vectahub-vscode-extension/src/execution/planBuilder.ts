@@ -8,7 +8,8 @@ export interface ProjectTaskStub {
   label: string;
   kind: string;
   source: 'package-json' | 'git' | 'vectahub' | 'manual';
-  command?: {
+  /** @deprecated 向后兼容 - 使用新的 command 对象格式 */
+  command?: string | {
     cli: string;
     args: string[];
   };
@@ -53,9 +54,24 @@ export class PlanBuilder {
 
   static createProjectTaskPlan(task: ProjectTaskStub): ExecutionPlan | undefined {
     if (!task.command) return undefined;
+
+    let cli: string;
+    let args: string[];
+
+    if (typeof task.command === 'string') {
+      // 向后兼容：处理字符串格式的命令
+      const parts = task.command.split(' ');
+      cli = parts[0];
+      args = parts.slice(1);
+    } else {
+      // 新格式：对象格式的命令
+      cli = task.command.cli;
+      args = task.command.args;
+    }
+
     return this.buildCommandPlan(
-      task.command.cli,
-      task.command.args,
+      cli,
+      args,
       task.label,
       task.source === 'package-json' ? 'package-json' : 'git'
     );

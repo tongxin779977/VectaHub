@@ -23,6 +23,8 @@ import { registerRunProjectTaskCommand } from './commands/runProjectTask.js';
 import { registerListPackageScriptsCommand } from './commands/listPackageScripts.js';
 import { registerFetchGhErrorsCommand } from './commands/fetchGhErrors.js';
 import { registerProcessAllQueueCommand } from './commands/processAllQueue.js';
+import { registerRunCheckPipelineCommand } from './commands/runCheckPipeline.js';
+import { registerRunDevPipelineCommand } from './commands/runDevPipeline.js';
 
 let globalCliPath: string | undefined;
 
@@ -59,6 +61,8 @@ export async function activate(context: vscode.ExtensionContext) {
   registerListPackageScriptsCommand(context);
   registerFetchGhErrorsCommand(context, tasksProvider);
   registerProcessAllQueueCommand(context, tasksProvider);
+  registerRunCheckPipelineCommand(context, tasksProvider);
+  registerRunDevPipelineCommand(context, tasksProvider);
 
   context.subscriptions.push(outputChannel);
 

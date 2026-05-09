@@ -18,20 +18,26 @@ export function registerRunProjectTaskCommand(context: vscode.ExtensionContext, 
     }
 
     const runner = new PlanRunner(getOutputChannel());
-    await runner.run(plan);
-    const endedAt = new Date();
-
-    addTaskRecord({
-      id: `task-${Date.now()}`,
-      label: task.label,
-      kind: task.kind,
-      source: task.source,
-      status: 'success', // PlanRunner handles failure UI, history shows triggered
-      command: task.command ? `${task.command.cli} ${task.command.args.join(' ')}` : undefined,
-      startedAt,
-      endedAt
-    });
-    tasksProvider.refresh();
+    let status: 'success' | 'failed' | 'cancelled' = 'success';
+    try {
+      await runner.run(plan);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      status = message.includes('cancelled') ? 'cancelled' : 'failed';
+    } finally {
+      const endedAt = new Date();
+      addTaskRecord({
+        id: `task-${Date.now()}`,
+        label: task.label,
+        kind: task.kind,
+        source: task.source,
+        status,
+        command: task.command ? `${task.command.cli} ${task.command.args.join(' ')}` : undefined,
+        startedAt,
+        endedAt
+      });
+      tasksProvider.refresh();
+    }
   });
   context.subscriptions.push(disposable);
 }
