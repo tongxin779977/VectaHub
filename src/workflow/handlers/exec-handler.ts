@@ -65,7 +65,7 @@ export const createExecHandler = (deps: {
         stepId: step.id,
         status: result.success ? 'COMPLETED' : 'FAILED',
         output: outputs,
-        error: result.success ? undefined : result.stderr,
+        error: result.success ? undefined : (result.stderr || `Command exited with code ${result.exitCode}`),
         duration: Date.now() - startTime,
         sandboxed: options.useSandbox && deps.sandboxManager ? true : undefined,
       };

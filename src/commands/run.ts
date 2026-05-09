@@ -275,7 +275,7 @@ export const runCmd = new Command('run')
       if (options.variable) {
         for (const v of options.variable) {
           const [key, ...valueParts] = v.split('=');
-          if (key && valueParts.length > 0) {
+          if (key && valueParts.length > 0 && valueParts.join('=').trim() !== '') {
             initialVariables[key] = valueParts.join('=');
           }
         }

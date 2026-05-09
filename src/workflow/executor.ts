@@ -180,64 +180,6 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     }
   }
 
-  async function handleExec(step: Step, options: ExecutorOptions, context: ExecutionContext, _executeStep: ExecuteStepFn, startTime: number): Promise<ExecutionResult> {
-    const interpolatedCli = interpolateString(step.cli!, context);
-    const interpolatedArgs = (step.args || []).map(arg => interpolateString(arg, context));
-
-    const detection = detector.detect(interpolatedCli);
-
-    audit.sandboxDetect(
-      interpolatedCli,
-      detection.isDangerous,
-      detection.level || 'none',
-      'unknown'
-    );
-
-    if (!shouldAllow(detection, options.mode)) {
-      return {
-        stepId: step.id,
-        status: 'FAILED',
-        error: `Dangerous command blocked: ${detection.reason}`,
-        duration: Date.now() - startTime,
-      };
-    }
-
-    try {
-      const result = options.useSandbox && sandboxManager
-        ? await execInSandbox(interpolatedCli, interpolatedArgs, options)
-        : await exec(interpolatedCli, interpolatedArgs, options);
-
-      audit.executorResult(
-        step.id,
-        interpolatedCli,
-        result.exitCode,
-        result.duration,
-        'unknown',
-        { stdoutLength: result.stdout.length, stderrLength: result.stderr.length }
-      );
-
-      const outputs = result.stdout ? [result.stdout] : [];
-      context.previousOutputs[step.id] = outputs;
-
-      return {
-        stepId: step.id,
-        status: result.success ? 'COMPLETED' : 'FAILED',
-        output: outputs,
-        error: result.success ? undefined : result.stderr,
-        duration: Date.now() - startTime,
-        sandboxed: options.useSandbox && sandboxManager ? true : undefined,
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      return {
-        stepId: step.id,
-        status: 'FAILED',
-        error: errorMessage,
-        duration: Date.now() - startTime,
-      };
-    }
-  }
-
   async function handleOpenCli(step: Step, options: ExecutorOptions, context: ExecutionContext, _executeStep: ExecuteStepFn, startTime: number): Promise<ExecutionResult> {
     const site = interpolateString(step.site || '', context);
     const command = interpolateString(step.command || '', context);
@@ -395,13 +337,17 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
       };
     }
 
-    const handler = extendedStepHandlers[step.type] || stepHandlers[step.type] || (step.cli ? handleExec : null);
+    const handler = extendedStepHandlers[step.type] || stepHandlers[step.type];
 
     if (handler) {
       return handler(step, options, context, executeStep, startTime);
     }
 
-    // Default fallback for legacy or unknown types
+    // Default fallback for legacy or unknown types (e.g. older YAMLs without explicit type)
+    if (step.cli && !step.type) {
+      return stepHandlers.exec(step, options, context, executeStep, startTime);
+    }
+
     if (step.type === 'delegate') {
       return {
         stepId: step.id,
