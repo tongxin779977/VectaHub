@@ -4,7 +4,7 @@ import { generateId, parseTimestamp } from './id-generator.js';
 describe('generateId', () => {
   it('should generate ID with correct format', () => {
     const id = generateId();
-    expect(id).toMatch(/^exec_\d{8}_\d{6}_[a-f0-9]{4}$/);
+    expect(id).toMatch(/^exec_\d{8}_\d{6}_[a-f0-9]{8}$/);
   });
 
   it('should generate unique IDs on multiple calls', () => {
@@ -16,7 +16,7 @@ describe('generateId', () => {
   });
 
   it('should match the required regex pattern', () => {
-    const pattern = /^exec_\d{8}_\d{6}_[a-f0-9]{4}$/;
+    const pattern = /^exec_\d{8}_\d{6}_[a-f0-9]{8}$/;
     for (let i = 0; i < 10; i++) {
       expect(generateId()).toMatch(pattern);
     }
@@ -25,7 +25,7 @@ describe('generateId', () => {
 
 describe('parseTimestamp', () => {
   it('should parse valid ID to correct date', () => {
-    const date = parseTimestamp('exec_20260507_143025_a1b2');
+    const date = parseTimestamp('exec_20260507_143025_a1b2c3d4');
     expect(date).not.toBeNull();
     expect(date!.getFullYear()).toBe(2026);
     expect(date!.getMonth()).toBe(4);

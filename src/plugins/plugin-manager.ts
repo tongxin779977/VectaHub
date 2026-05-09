@@ -1,12 +1,12 @@
 import { join, basename, extname } from 'path';
-import { homedir } from 'os';
 import { promises as fs } from 'fs';
 import vm from 'vm';
 import { createConsoleLogger } from '../utils/logger.js';
 import { type PluginInstance, type PluginManifest, type PluginContext, type PluginCommand, PluginStatus } from './plugin-api.js';
+import { getVectaHubPath } from '../utils/paths.js';
 
-const PLUGINS_DIR = join(homedir(), '.vectahub', 'plugins');
-const PLUGINS_CONFIG_FILE = join(homedir(), '.vectahub', 'plugins.json');
+const PLUGINS_DIR = getVectaHubPath('plugins');
+const PLUGINS_CONFIG_FILE = getVectaHubPath('plugins.json');
 
 const ALLOWED_PLUGIN_PERMISSIONS = ['read', 'write', 'execute', 'network', 'hooks'];
 

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-import { createWorkflowFilePlan } from '../execution/planBuilder.js';
-import { runPlan } from '../execution/planRunner.js';
+import { PlanBuilder } from '../execution/planBuilder.js';
+import { PlanRunner } from '../execution/planRunner.js';
+import { getOutputChannel } from '../ui/output.js';
 
 export function registerRunCurrentWorkflowCommand(context: vscode.ExtensionContext) {
   const disposable = vscode.commands.registerCommand('vectahubTasks.runCurrentWorkflow', async () => {
@@ -12,7 +13,9 @@ export function registerRunCurrentWorkflowCommand(context: vscode.ExtensionConte
       return;
     }
 
-    await runPlan(createWorkflowFilePlan(doc.uri.fsPath));
+    const plan = PlanBuilder.buildWorkflowFilePlan(doc.uri.fsPath);
+    const runner = new PlanRunner(getOutputChannel());
+    await runner.run(plan);
   });
   context.subscriptions.push(disposable);
 }

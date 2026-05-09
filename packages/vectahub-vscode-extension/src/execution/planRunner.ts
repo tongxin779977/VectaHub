@@ -1,86 +1,92 @@
 import * as vscode from 'vscode';
+import { ExecutionPlan } from './plan';
 import { runCli } from '../cli/adapter.js';
-import { getPreviewBeforeRun } from '../config/settings.js';
-import { logToOutput } from '../ui/output.js';
-import { updateStatusBar } from '../ui/statusBar.js';
-import { ExecutionPlan } from './plan.js';
-import { renderPlanCommand, renderPlanPreview } from './planRenderer.js';
 
-export async function previewPlan(plan: ExecutionPlan): Promise<boolean> {
-  if (plan.type === 'intent') {
-    const result = await runCli(['run', '--dry-run', '--json', plan.intent], { cwd: plan.cwd });
-    if (!result.ok) {
-      showPlanError('预览失败', result.error?.message || result.stderr);
-      return false;
+export class PlanRunner {
+  private outputChannel: vscode.OutputChannel;
+
+  constructor(outputChannel: vscode.OutputChannel) {
+    this.outputChannel = outputChannel;
+  }
+
+  async run(plan: ExecutionPlan): Promise<void> {
+    this.outputChannel.appendLine(`\n[PlanRunner] Running Plan: ${plan.label}`);
+    this.outputChannel.appendLine(`[PlanRunner] Type: ${plan.type}, Mode: ${plan.mode}`);
+
+    try {
+      let result;
+      switch (plan.type) {
+        case 'intent':
+          result = await runCli([
+            'run',
+            '--mode', plan.mode,
+            '--json',
+            plan.intent
+          ], { cwd: plan.cwd });
+          break;
+        case 'command':
+          result = await runCli([
+            'run-command',
+            '--mode', plan.mode,
+            '--json',
+            '--',
+            plan.command.cli,
+            ...plan.command.args
+          ], { cwd: plan.cwd });
+          break;
+        case 'workflowFile':
+          result = await runCli([
+            'run',
+            '--mode', plan.mode,
+            '--json',
+            plan.file
+          ], { cwd: plan.cwd });
+          break;
+      }
+
+      this.outputChannel.appendLine(`[PlanRunner] Result: ${JSON.stringify(result, null, 2)}`);
+      
+      if (result && result.ok === false) {
+        const error = result.error || { message: 'Unknown error' };
+        const errorCode = (error as any).code || 'N/A';
+        vscode.window.showErrorMessage(`Task Failed: ${error.message} (${errorCode})`);
+      } else {
+        vscode.window.showInformationMessage(`Task Completed: ${plan.label}`);
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.outputChannel.appendLine(`[PlanRunner] Error: ${msg}`);
+      vscode.window.showErrorMessage(`Execution Error: ${msg}`);
     }
-    logToOutput(renderPlanPreview(plan));
-    return true;
   }
 
-  if (plan.type === 'workflowFile') {
-    const result = await runCli(['run', '-f', plan.file, '--dry-run', '--json'], { cwd: plan.cwd });
-    if (!result.ok) {
-      showPlanError('工作流预览失败', result.error?.message || result.stderr);
-      return false;
+  async preview(plan: ExecutionPlan): Promise<any> {
+    this.outputChannel.appendLine(`\n[PlanRunner] Previewing Plan: ${plan.label}`);
+    
+    switch (plan.type) {
+      case 'intent':
+        return runCli([
+          'run',
+          '--dry-run',
+          '--json',
+          plan.intent
+        ], { cwd: plan.cwd });
+      case 'command':
+        return runCli([
+          'run-command',
+          '--dry-run',
+          '--json',
+          '--',
+          plan.command.cli,
+          ...plan.command.args
+        ], { cwd: plan.cwd });
+      case 'workflowFile':
+        return runCli([
+          'run',
+          '--dry-run',
+          '--json',
+          plan.file
+        ], { cwd: plan.cwd });
     }
-    logToOutput(renderPlanPreview(plan));
-    return true;
   }
-
-  logToOutput(renderPlanPreview(plan));
-  return true;
-}
-
-export async function runPlan(plan: ExecutionPlan): Promise<boolean> {
-  if (getPreviewBeforeRun()) {
-    const ok = await previewPlan(plan);
-    if (!ok) return false;
-  }
-
-  const confirm = await vscode.window.showWarningMessage(
-    `确认执行?\n\n${renderPlanPreview(plan)}`,
-    { modal: true },
-    '确认执行',
-    '在终端中手动执行'
-  );
-
-  if (confirm === '在终端中手动执行') {
-    const terminal = vscode.window.createTerminal(`VectaHub: ${plan.label}`);
-    terminal.show();
-    terminal.sendText(renderPlanCommand(plan), false);
-    return false;
-  }
-
-  if (confirm !== '确认执行') return false;
-
-  if (plan.type === 'command') {
-    vscode.window.showWarningMessage('当前 CLI 尚未支持明确命令执行接口，已改为在终端中展示真实命令。');
-    const terminal = vscode.window.createTerminal(`VectaHub: ${plan.label}`);
-    terminal.show();
-    terminal.sendText(renderPlanCommand(plan), false);
-    return false;
-  }
-
-  updateStatusBar('Running');
-  const args = plan.type === 'intent'
-    ? ['run', '--json', '--mode', plan.mode, plan.intent]
-    : ['run', '-f', plan.file, '--json', '--mode', plan.mode];
-
-  const result = await runCli(args, { cwd: plan.cwd });
-
-  if (result.ok) {
-    updateStatusBar('Ready');
-    vscode.window.showInformationMessage('任务执行成功。');
-    return true;
-  }
-
-  updateStatusBar('Failed');
-  showPlanError('任务执行失败', result.error?.message || result.stderr);
-  return false;
-}
-
-function showPlanError(title: string, detail?: string): void {
-  const message = detail || '未知错误';
-  logToOutput(`${title}: ${message}`, 'error');
-  vscode.window.showErrorMessage(`${title}: ${message}`);
 }

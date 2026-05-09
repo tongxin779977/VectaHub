@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { homedir } from 'node:os';
 import { createConsoleLogger } from './logger.js';
+import { getVectaHubPath } from './paths.js';
 
 const logger = createConsoleLogger('data-cleanup');
 
@@ -72,7 +72,7 @@ export class DataCleanupService {
   }
 
   private async cleanupLogs(): Promise<void> {
-    const logDir = path.join(homedir(), '.vectahub', 'logs');
+    const logDir = getVectaHubPath('logs');
     const cutoffDate = new Date(Date.now() - this.config.logRetentionDays * 24 * 60 * 60 * 1000);
 
     try {
@@ -105,7 +105,7 @@ export class DataCleanupService {
   }
 
   private async cleanupExecutions(): Promise<void> {
-    const executionsDir = path.join(homedir(), '.vectahub', 'executions');
+    const executionsDir = getVectaHubPath('executions');
     const cutoffDate = new Date(Date.now() - this.config.executionRetentionDays * 24 * 60 * 60 * 1000);
 
     try {
@@ -140,7 +140,7 @@ export class DataCleanupService {
   }
 
   private async cleanupWorkflows(): Promise<void> {
-    const workflowsDir = path.join(homedir(), '.vectahub', 'workflows');
+    const workflowsDir = getVectaHubPath('workflows');
     const cutoffDate = new Date(Date.now() - this.config.workflowRetentionDays * 24 * 60 * 60 * 1000);
 
     try {
@@ -178,9 +178,9 @@ export class DataCleanupService {
     const cutoffDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     const results = { logs: 0, executions: 0, workflows: 0 };
 
-    const logDir = path.join(homedir(), '.vectahub', 'logs');
-    const executionsDir = path.join(homedir(), '.vectahub', 'executions');
-    const workflowsDir = path.join(homedir(), '.vectahub', 'workflows');
+    const logDir = getVectaHubPath('logs');
+    const executionsDir = getVectaHubPath('executions');
+    const workflowsDir = getVectaHubPath('workflows');
 
     results.logs = await this.deleteOldFiles(logDir, cutoffDate);
     results.executions = await this.deleteOldFiles(executionsDir, cutoffDate);
@@ -217,9 +217,9 @@ export class DataCleanupService {
   }
 
   async getStorageUsage(): Promise<{ logs: number; executions: number; workflows: number; totalBytes: number }> {
-    const logDir = path.join(homedir(), '.vectahub', 'logs');
-    const executionsDir = path.join(homedir(), '.vectahub', 'executions');
-    const workflowsDir = path.join(homedir(), '.vectahub', 'workflows');
+    const logDir = getVectaHubPath('logs');
+    const executionsDir = getVectaHubPath('executions');
+    const workflowsDir = getVectaHubPath('workflows');
 
     const [logStats, executionStats, workflowStats] = await Promise.all([
       this.getDirStats(logDir),

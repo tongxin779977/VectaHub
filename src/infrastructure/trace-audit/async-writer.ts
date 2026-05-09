@@ -31,6 +31,7 @@ interface WriteQueueItem {
  * Async Log Writer Class
  */
 export class AsyncLogWriter {
+  private static activeWriters: Set<AsyncLogWriter> = new Set();
   private config: AsyncWriteConfig;
   private logDir: string;
   private queue: WriteQueueItem[] = [];
@@ -43,6 +44,13 @@ export class AsyncLogWriter {
     this.logDir = logDir;
     this.ensureDirectory();
     this.startFlushTimer();
+    AsyncLogWriter.activeWriters.add(this);
+  }
+
+  /** 刷盘所有活跃的写入器 */
+  static async flushAll(): Promise<void> {
+    const promises = Array.from(AsyncLogWriter.activeWriters).map(writer => writer.flush());
+    await Promise.all(promises);
   }
 
   /** 确保日志目录存在 */
@@ -164,6 +172,7 @@ export class AsyncLogWriter {
   /** 销毁写入器 */
   async destroy(): Promise<void> {
     this.isDestroyed = true;
+    AsyncLogWriter.activeWriters.delete(this);
     
     if (this.flushTimer) {
       clearInterval(this.flushTimer);

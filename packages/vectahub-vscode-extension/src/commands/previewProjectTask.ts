@@ -1,15 +1,17 @@
 import * as vscode from 'vscode';
 import { ProjectTask } from '../project/taskModel.js';
-import { createProjectTaskPlan } from '../execution/planBuilder.js';
-import { previewPlan } from '../execution/planRunner.js';
+import { PlanBuilder } from '../execution/planBuilder.js';
+import { PlanRunner } from '../execution/planRunner.js';
+import { getOutputChannel } from '../ui/output.js';
 
 export async function previewProjectTask(task: ProjectTask) {
-  const plan = createProjectTaskPlan(task);
+  const plan = PlanBuilder.createProjectTaskPlan(task as any);
   if (!plan) {
     return undefined;
   }
-  const ok = await previewPlan(plan);
-  return { ok, intent: task.label, steps: [] };
+  const runner = new PlanRunner(getOutputChannel());
+  const result = await runner.preview(plan);
+  return { ok: result?.ok ?? false, intent: task.label, steps: [] };
 }
 
 export function registerPreviewProjectTaskCommand(context: vscode.ExtensionContext) {

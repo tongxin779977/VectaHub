@@ -1,7 +1,8 @@
 import { spawn } from 'child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync, accessSync, constants } from 'fs';
 import { join } from 'path';
-import { homedir, platform } from 'os';
+import { platform } from 'os';
+import { getVectaHubPath } from '../utils/paths.js';
 import { createHash } from 'crypto';
 import { createDetector } from './detector.js';
 import { CommandRuleEngine, createCommandRuleEngine, loadGlobalBlocklist, loadGlobalAllowlist, loadProjectBlocklist, loadProjectAllowlist } from '../command-rules/index.js';
@@ -71,10 +72,10 @@ interface SignatureValidation {
 }
 
 const DEFAULT_CONFIG: SandboxConfig = {
-  root: join(homedir(), '.vectahub', 'sandbox'),
-  workspace: join(homedir(), '.vectahub', 'sandbox', 'workspace'),
-  tempDir: join(homedir(), '.vectahub', 'sandbox', 'tmp'),
-  cacheDir: join(homedir(), '.vectahub', 'sandbox', 'cache'),
+  root: getVectaHubPath('sandbox'),
+  workspace: getVectaHubPath('sandbox', 'workspace'),
+  tempDir: getVectaHubPath('sandbox', 'tmp'),
+  cacheDir: getVectaHubPath('sandbox', 'cache'),
   mode: 'RELAXED',
   maxMemoryMB: 512,
   timeoutMs: 60000,

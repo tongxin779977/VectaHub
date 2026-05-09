@@ -1,11 +1,11 @@
 import { promises as fs } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { homedir } from 'node:os';
+import { getVectaHubHome, getVectaHubPath } from '../../utils/paths.js';
 import type { ToolInfo, CommandInfo, KnowledgeBaseData } from '../types/command.js';
 
 const KB_VERSION = '1.0.0';
-const KB_DIR = join(homedir(), '.vectahub');
-const KB_PATH = join(KB_DIR, 'commands.json');
+const KB_DIR = getVectaHubHome();
+const KB_PATH = getVectaHubPath('commands.json');
 
 export interface KnowledgeBase {
   load(): Promise<void>;

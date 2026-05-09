@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
-const ID_PATTERN = /^exec_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})_([a-f0-9]{4})$/;
+const ID_PATTERN = /^exec_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})_([a-f0-9]{8})$/;
 
 export function generateId(): string {
   const now = new Date();
@@ -10,7 +10,7 @@ export function generateId(): string {
   const hh = now.getHours().toString().padStart(2, '0');
   const mi = now.getMinutes().toString().padStart(2, '0');
   const ss = now.getSeconds().toString().padStart(2, '0');
-  const hex = randomBytes(2).toString('hex');
+  const hex = randomBytes(4).toString('hex');
   return `exec_${yyyy}${mm}${dd}_${hh}${mi}${ss}_${hex}`;
 }
 

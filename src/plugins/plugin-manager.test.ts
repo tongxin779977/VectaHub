@@ -2,12 +2,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PluginManager } from './plugin-manager.js';
 import { promises as fs } from 'fs';
 import { join, dirname } from 'path';
-import { homedir } from 'os';
+import { getVectaHubPath } from '../utils/paths.js';
 
 describe('PluginManager', () => {
   let pluginManager: PluginManager;
-  const testPluginsDir = join(homedir(), '.vectahub', 'plugins-test');
-  const testConfigFile = join(homedir(), '.vectahub', 'plugins-test.json');
+  const testPluginsDir = getVectaHubPath('plugins-test');
+  const testConfigFile = getVectaHubPath('plugins-test.json');
 
   beforeEach(async () => {
     vi.spyOn(fs, 'readFile').mockImplementation(async (path: any) => {

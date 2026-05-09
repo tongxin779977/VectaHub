@@ -169,7 +169,7 @@ describe('LLM Client', () => {
 
     beforeEach(() => {
       mockFetch = vi.fn();
-      global.fetch = mockFetch;
+      global.fetch = mockFetch as any;
     });
 
     afterEach(() => {
@@ -367,7 +367,7 @@ describe('LLM Client', () => {
 
     beforeEach(() => {
       mockFetch = vi.fn();
-      global.fetch = mockFetch;
+      global.fetch = mockFetch as any;
     });
 
     afterEach(() => {
@@ -405,7 +405,7 @@ describe('LLM Client', () => {
 
     beforeEach(() => {
       mockFetch = vi.fn();
-      global.fetch = mockFetch;
+      global.fetch = mockFetch as any;
     });
 
     afterEach(() => {
@@ -554,7 +554,7 @@ describe('LLM Client', () => {
 
     beforeEach(() => {
       mockFetch = vi.fn();
-      global.fetch = mockFetch;
+      global.fetch = mockFetch as any;
     });
 
     afterEach(() => {

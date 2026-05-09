@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-import { createIntentPlan } from '../execution/planBuilder.js';
-import { previewPlan } from '../execution/planRunner.js';
+import { PlanBuilder } from '../execution/planBuilder.js';
+import { PlanRunner } from '../execution/planRunner.js';
+import { getOutputChannel } from '../ui/output.js';
 
 export interface PreviewResult {
   ok: boolean;
@@ -19,12 +20,13 @@ export async function previewIntent(intent?: string): Promise<PreviewResult | un
     return undefined;
   }
 
-  const plan = createIntentPlan(input);
-  const ok = await previewPlan(plan);
+  const plan = PlanBuilder.buildIntentPlan(input);
+  const runner = new PlanRunner(getOutputChannel());
+  const result = await runner.preview(plan);
   
   // 保持现有调用兼容
   return {
-    ok,
+    ok: result?.ok ?? false,
     intent: input,
     steps: []
   };

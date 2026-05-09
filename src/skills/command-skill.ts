@@ -2,7 +2,7 @@ import type { Skill, SkillContext, SkillResult } from './types.js';
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import { join, extname } from 'path';
 import { execSync } from 'child_process';
-import { homedir } from 'os';
+import { getVectaHubHome } from '../utils/paths.js';
 import { createCoordinator, type Coordinator } from '../nl/core/coordinator.js';
 import { adaptAllTemplates } from '../nl/core/adapter.js';
 import { INTENT_TEMPLATES } from '../nl/templates/index.js';
@@ -32,9 +32,9 @@ const CORE_SKILLS = [
 ];
 
 const DEFAULT_SEARCH_PATHS = [
-  homedir(),
-  join(homedir(), 'Documents'),
-  join(homedir(), 'Desktop'),
+  getVectaHubHome(),
+  join(getVectaHubHome(), 'Documents'),
+  join(getVectaHubHome(), 'Desktop'),
 ];
 
 const MAX_RESULTS = 100;

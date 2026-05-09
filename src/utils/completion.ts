@@ -1,9 +1,9 @@
-import { homedir } from 'os';
 import { join } from 'path';
 import { promises as fs } from 'fs';
+import { getVectaHubPath } from './paths.js';
 
-const WORKFLOWS_DIR = join(homedir(), '.vectahub', 'workflows');
-const TEMPLATES_DIR = join(homedir(), '.vectahub', 'templates');
+const WORKFLOWS_DIR = getVectaHubPath('workflows');
+const TEMPLATES_DIR = getVectaHubPath('templates');
 
 export async function getWorkflowNames(): Promise<string[]> {
   try {

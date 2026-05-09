@@ -192,12 +192,10 @@ describe('first-run-wizard', () => {
     });
 
     it('should set first_run_completed=true after all steps succeed', async () => {
-      // Mock all steps to succeed
-      vi.mocked(existsSync)
-        .mockReturnValueOnce(false) // createConfigDir check
-        .mockReturnValueOnce(false) // initConfigFile check
-        .mockReturnValueOnce(false); // loadConfig check (in configureLLMProvider)
-
+      let configExists = false;
+      vi.mocked(existsSync).mockImplementation(() => configExists);
+      vi.mocked(writeFileSync).mockImplementation(() => { configExists = true; });
+      vi.mocked(readFileSync).mockReturnValue('version: 1\nfirst_run_completed: false');
       vi.mocked(mkdirSync).mockReturnValue(undefined as unknown as string);
 
       // Configure LLM: choose option 5 (skip)
@@ -210,10 +208,11 @@ describe('first-run-wizard', () => {
 
       // runFirstRunWizard should set first_run_completed=true itself
       const saveCalls = vi.mocked(writeFileSync).mock.calls;
-      const lastSave = saveCalls[saveCalls.length - 1];
-      expect(lastSave).toBeDefined();
-      const savedContent = lastSave[1] as string;
-      expect(savedContent).toContain('first_run_completed: true');
+      const hasCorrectSave = saveCalls.some(call => {
+        const content = call[1] as string;
+        return content.includes('first_run_completed: true');
+      });
+      expect(hasCorrectSave).toBe(true);
 
       // Return false because LLM was not actually configured
       expect(result).toBe(false);

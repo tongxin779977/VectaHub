@@ -89,4 +89,8 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 }
 
-export function deactivate() {}
+import { ProcessManager } from './cli/process-manager.js';
+
+export function deactivate() {
+  ProcessManager.getInstance().killAll();
+}

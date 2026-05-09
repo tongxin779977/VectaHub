@@ -39,7 +39,7 @@ export interface ExecutionFilter {
 }
 
 // 文档 Section 5.1 定义的扩展类型
-export type ExecutionSource = 'nl' | 'file' | 'rerun' | 'resume' | 'api';
+export type ExecutionSource = 'nl' | 'file' | 'rerun' | 'resume' | 'api' | 'direct';
 
 export interface ExecutionMetadata {
   source: ExecutionSource;

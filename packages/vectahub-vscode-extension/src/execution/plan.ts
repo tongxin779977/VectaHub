@@ -10,9 +10,9 @@ export type ExecutionPlan =
 export interface BaseExecutionPlan {
   id: string;
   label: string;
+  source: 'intent' | 'package-json' | 'git' | 'workflow-file' | 'manual';
   mode: ExecutionMode;
   cwd?: string;
-  source: 'intent' | 'package-json' | 'git' | 'workflow-file' | 'manual' | 'vectahub';
 }
 
 export interface IntentExecutionPlan extends BaseExecutionPlan {

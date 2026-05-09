@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createCommandSkill, CommandSkill } from './command-skill.js';
 import { join } from 'path';
-import { homedir } from 'os';
+import { getVectaHubHome } from '../utils/paths.js';
 
 vi.mock('child_process', () => ({
   execSync: vi.fn((cmd: string) => {
@@ -51,7 +51,7 @@ describe('CommandSkill', () => {
   });
 
   it('should search files by query', () => {
-    const results = skill.searchFiles('package', [join(homedir())]);
+    const results = skill.searchFiles('package', [getVectaHubHome()]);
     expect(Array.isArray(results)).toBe(true);
   });
 

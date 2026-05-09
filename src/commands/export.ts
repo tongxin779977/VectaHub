@@ -1,14 +1,15 @@
 import { Command } from 'commander';
 import { existsSync, mkdirSync, rmSync, statSync, readdirSync, copyFileSync, writeFileSync, readFileSync } from 'fs';
 import { join, relative } from 'path';
-import { homedir, platform } from 'os';
+import { platform } from 'os';
 import { execSync } from 'child_process';
+import { getVectaHubPath } from '../utils/paths.js';
 import { createConsoleLogger } from '../utils/logger.js';
 import { createRecordManager } from '../execution/record-manager.js';
 
 const logger = createConsoleLogger('export');
 
-const VECTAHUB_DIR = join(homedir(), '.vectahub');
+const VECTAHUB_DIR = getVectaHubPath();
 
 interface ExportOptions {
   output: string;

@@ -19,11 +19,12 @@ export const createExecHandler = (deps: {
   ): Promise<ExecutionResult> => {
     const interpolatedCli = interpolateString(step.cli!, context);
     const interpolatedArgs = (step.args || []).map(arg => interpolateString(arg, context));
+    const fullCommand = `${interpolatedCli} ${interpolatedArgs.join(' ')}`.trim();
 
-    const detection = deps.detector.detect(interpolatedCli);
+    const detection = deps.detector.detect(fullCommand);
 
     deps.audit.sandboxDetect(
-      interpolatedCli,
+      fullCommand,
       detection.isDangerous,
       detection.level || 'none',
       'unknown'

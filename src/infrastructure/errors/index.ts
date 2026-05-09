@@ -3,7 +3,18 @@ export enum ErrorType {
   PERMISSION = 'PERMISSION',
   FILESYSTEM = 'FILESYSTEM',
   RUNTIME = 'RUNTIME',
+  SECURITY = 'SECURITY',
   UNKNOWN = 'UNKNOWN',
+}
+
+export interface JSONErrorResponse {
+  ok: false;
+  error: {
+    code: string;
+    message: string;
+    type: ErrorType;
+    details?: unknown;
+  };
 }
 
 export class VectaHubError extends Error {
@@ -53,6 +64,14 @@ export function classifyError(error: unknown): { type: ErrorType; message: strin
       };
     }
 
+    if (msg.includes('security') || msg.includes('blocked') || msg.includes('forbidden')) {
+      return {
+        type: ErrorType.SECURITY,
+        message: error.message,
+        cause: error,
+      };
+    }
+
     return {
       type: ErrorType.RUNTIME,
       message: error.message,
@@ -76,8 +95,22 @@ export function formatErrorMessage(error: unknown, context?: string): string {
     [ErrorType.PERMISSION]: '权限错误',
     [ErrorType.FILESYSTEM]: '文件系统错误',
     [ErrorType.RUNTIME]: '运行时错误',
+    [ErrorType.SECURITY]: '安全阻断',
     [ErrorType.UNKNOWN]: '未知错误',
   };
 
   return `${contextPrefix}${typeLabels[type]}: ${message}`;
+}
+
+export function toJSONError(error: unknown): JSONErrorResponse {
+  const { type, message, cause } = classifyError(error);
+  return {
+    ok: false,
+    error: {
+      code: type.toString(),
+      message,
+      type,
+      details: cause instanceof Error ? { stack: cause.stack } : cause,
+    },
+  };
 }

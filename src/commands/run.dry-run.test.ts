@@ -19,6 +19,8 @@ vi.mock('../utils/logger.js', () => ({
     error: vi.fn(),
     debug: vi.fn(),
   }),
+  isLoggerMuted: vi.fn(() => false),
+  setMuted: vi.fn(),
 }));
 
 vi.mock('../setup/first-run-wizard.js', () => ({

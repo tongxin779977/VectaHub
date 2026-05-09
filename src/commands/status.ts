@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { getVectaHubPath } from '../utils/paths.js';
 import { parse } from 'yaml';
 
 interface ModuleStatus {
@@ -21,7 +21,7 @@ function findConfigFile(): string | null {
   const searchPaths = [
     join(process.cwd(), 'config/vectahub-dev.config.yaml'),
     join(process.cwd(), 'vectahub-dev.config.yaml'),
-    join(homedir(), '.vectahub/vectahub-dev.config.yaml'),
+    getVectaHubPath('vectahub-dev.config.yaml'),
   ];
   
   for (const path of searchPaths) {

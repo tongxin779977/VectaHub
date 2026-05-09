@@ -1,11 +1,13 @@
 import * as vscode from 'vscode';
-import { createWorkflowFilePlan } from '../execution/planBuilder.js';
-import { previewPlan } from '../execution/planRunner.js';
+import { PlanBuilder } from '../execution/planBuilder.js';
+import { PlanRunner } from '../execution/planRunner.js';
+import { getOutputChannel } from '../ui/output.js';
 
 export async function previewWorkflowFile(uri: vscode.Uri) {
-  const plan = createWorkflowFilePlan(uri.fsPath);
-  const ok = await previewPlan(plan);
-  return ok ? { workflow: { name: uri.fsPath } } : undefined;
+  const plan = PlanBuilder.buildWorkflowFilePlan(uri.fsPath);
+  const runner = new PlanRunner(getOutputChannel());
+  const result = await runner.preview(plan);
+  return result;
 }
 
 export function registerPreviewCurrentWorkflowCommand(context: vscode.ExtensionContext) {

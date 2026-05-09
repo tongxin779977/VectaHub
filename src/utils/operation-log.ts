@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { homedir } from 'node:os';
 import { createConsoleLogger } from './logger.js';
 import { redactSensitiveData } from './sensitive-data.js';
+import { getVectaHubPath } from './paths.js';
 
 const logger = createConsoleLogger('operation-log');
 
@@ -41,7 +41,7 @@ export class OperationLog {
 
   constructor(config?: Partial<OperationLogConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config };
-    this.logFile = this.config.logFile || path.join(homedir(), '.vectahub', 'logs', 'operations.jsonl');
+    this.logFile = this.config.logFile || getVectaHubPath('logs', 'operations.jsonl');
     this.loadEntries();
   }
 

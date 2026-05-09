@@ -1,8 +1,8 @@
 import { join, basename } from 'path';
-import { homedir } from 'os';
 import { promises as fs } from 'fs';
 import { spawn } from 'child_process';
 import { type WorkflowTemplate, listTemplates } from './template.js';
+import { getVectaHubPath } from '../utils/paths.js';
 
 export interface TemplateSource {
   id: string;
@@ -20,8 +20,8 @@ export interface TemplateMetadata {
   localPath: string;
 }
 
-const SOURCES_FILE = join(homedir(), '.vectahub', 'sources.json');
-const CACHE_DIR = join(homedir(), '.vectahub', 'template-cache');
+const SOURCES_FILE = getVectaHubPath('sources.json');
+const CACHE_DIR = getVectaHubPath('template-cache');
 
 export async function getSources(): Promise<TemplateSource[]> {
   try {
@@ -196,7 +196,7 @@ export async function searchTemplates(
 }
 
 export async function installTemplate(metadata: TemplateMetadata, targetDir?: string): Promise<string> {
-  const target = targetDir || join(homedir(), '.vectahub', 'templates');
+  const target = targetDir || getVectaHubPath('templates');
   await fs.mkdir(target, { recursive: true });
   
   const destPath = join(target, `${metadata.template.name}.yaml`);

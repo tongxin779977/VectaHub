@@ -1,10 +1,10 @@
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { mkdir, readFile, writeFile, readdir, rm, stat } from 'node:fs/promises';
 import { createGzip, createGunzip } from 'node:zlib';
 import { pipeline } from 'node:stream/promises';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
+import { getVectaHubPath } from '../utils/paths.js';
 import type { ArchiveInfo, ArchiveResult } from './types.js';
 
 export interface Archiver {
@@ -24,8 +24,8 @@ export function createArchiver(options?: {
   executionsDir?: string;
   archiveAge?: number;
 }): Archiver {
-  const baseDir = options?.baseDir || join(homedir(), '.vectahub', 'archives');
-  const executionsDir = options?.executionsDir || join(homedir(), '.vectahub', 'executions');
+  const baseDir = options?.baseDir || getVectaHubPath('archives');
+  const executionsDir = options?.executionsDir || getVectaHubPath('executions');
 
   async function ensureDir(): Promise<void> {
     await mkdir(baseDir, { recursive: true });

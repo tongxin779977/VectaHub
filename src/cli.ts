@@ -21,13 +21,15 @@ const setupGlobalSignals = (() => {
     if (initialized) return;
     initialized = true;
 
-    globalEventManager.on('SIGINT', () => {
+    globalEventManager.on('SIGINT', async () => {
       console.log('\n\n🛑 Shutting down...');
+      await AsyncLogWriter.flushAll();
       process.exit(0);
     });
 
-    globalEventManager.on('SIGTERM', () => {
+    globalEventManager.on('SIGTERM', async () => {
       console.log('\n\n🛑 Shutting down...');
+      await AsyncLogWriter.flushAll();
       process.exit(0);
     });
   };
@@ -44,8 +46,39 @@ import { setGlobalOptions, isVerbose } from './utils/global-options.js';
 import { setLogLevel, setMuted } from './infrastructure/logger/index.js';
 import { runCmd } from './commands/run.js';
 import { doctorCmd } from './commands/doctor.js';
-import { formatErrorMessage } from './utils/errors.js';
+import { formatErrorMessage, toJSONError } from './utils/errors.js';
 import { loadConfig as loadUtilsConfig } from './utils/config.js';
+import { AsyncLogWriter } from './infrastructure/trace-audit/async-writer.js';
+
+// Error handling helper
+async function handleError(error: unknown): Promise<never> {
+  const isJson = process.argv.includes('--json');
+  
+  // 确保审计日志刷盘
+  try {
+    await AsyncLogWriter.flushAll();
+  } catch {
+    // 忽略刷盘错误
+  }
+  
+  if (isJson) {
+    console.log(JSON.stringify(toJSONError(error), null, 2));
+  } else {
+    console.error(`\n❌ ${formatErrorMessage(error)}`);
+    if (isVerbose()) {
+      console.error(error);
+    }
+  }
+  process.exit(1);
+}
+
+process.on('unhandledRejection', (reason) => {
+  handleError(reason);
+});
+
+process.on('uncaughtException', (error) => {
+  handleError(error);
+});
 import { isFirstRun, runFirstRunWizard, loadConfig as loadSetupConfig, saveConfig as saveSetupConfig, setNonInteractiveMode } from './setup/first-run-wizard.js';
 import { scanCLITools, updateCLIToolConfig, getAvailableExternalCLI } from './setup/cli-scanner.js';
 import { createDefaultInstaller } from './setup/priority-installer.js';
@@ -118,6 +151,20 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
         removePlaceholderCommand('history');
         program.addCommand(historyCmd);
         loadedCommands.add('history');
+        break;
+      }
+      case 'detail': {
+        const { detailCmd } = await import('./commands/detail.js');
+        removePlaceholderCommand('detail');
+        program.addCommand(detailCmd);
+        loadedCommands.add('detail');
+        break;
+      }
+      case 'run-command': {
+        const { runCommandCmd } = await import('./commands/run-command.js');
+        removePlaceholderCommand('run-command');
+        program.addCommand(runCommandCmd);
+        loadedCommands.add('run-command');
         break;
       }
       case 'generate': {
@@ -463,6 +510,8 @@ const lazyLoadableCommands = [
   { name: 'list', description: '列出工作流' },
   { name: 'mode', description: '切换执行模式', argument: '[mode]' },
   { name: 'history', description: '查看执行历史' },
+  { name: 'detail', description: '查看执行详情', argument: '<executionId>' },
+  { name: 'run-command', description: '直接运行 CLI 命令并进行安全扫描' },
   { name: 'generate', description: '生成工作流' },
   { name: 'schedule', description: '调度工作流' },
   { name: 'daemon', description: '守护进程管理' },
@@ -508,4 +557,4 @@ for (const cmdInfo of lazyLoadableCommands) {
   program.addCommand(placeholderCmd);
 }
 
-program.parse();
+program.parseAsync(process.argv).catch(handleError);

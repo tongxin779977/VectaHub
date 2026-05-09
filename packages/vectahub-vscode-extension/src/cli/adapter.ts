@@ -5,6 +5,7 @@ import { getGlobalCliPath } from '../extension.js';
 import { CliResult, CliOptions } from './types.js';
 import { logToOutput } from '../ui/output.js';
 import path from 'path';
+import { ProcessManager } from './process-manager.js';
 
 let globalContext: vscode.ExtensionContext;
 
@@ -51,6 +52,8 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
       env,
       timeout: options.timeout || 30000
     });
+
+    ProcessManager.getInstance().register(child);
 
     let stdout = '';
     let stderr = '';

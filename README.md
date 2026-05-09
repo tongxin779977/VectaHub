@@ -163,12 +163,9 @@ vectahub/
 │   ├── infrastructure/         # 基础设施（审计/配置/日志）
 │   └── utils/                  # 工具函数
 ├── docs/                       # 文档目录
-│   ├── getting-started.md      # 快速开始
-│   ├── faq.md                  # 常见问题
-│   ├── guides/                 # 使用指南
-│   ├── reference/              # 技术参考
-│   ├── product/                # 产品文档
-│   └── archive/                # 归档文档
+│   ├── current/                # 当前可用功能（用户指南）
+│   ├── developer/              # 开发者参考
+│   └── v2/                     # V2.0 Go 迁移设计
 └── package.json
 ```
 

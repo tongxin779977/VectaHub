@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { homedir } from 'node:os';
 import crypto from 'node:crypto';
 import { createConsoleLogger } from './logger.js';
+import { getVectaHubPath } from './paths.js';
 
 const logger = createConsoleLogger('config-security');
 
@@ -33,7 +33,7 @@ export interface SecurityIssue {
   suggestion: string;
 }
 
-const DEFAULT_CONFIG_PATH = path.join(homedir(), '.vectahub', 'config.yaml');
+const DEFAULT_CONFIG_PATH = getVectaHubPath('config.yaml');
 
 export class ConfigSecurity {
   private configPath: string;
@@ -71,7 +71,7 @@ export class ConfigSecurity {
   }
 
   private getHashFilePath(): string {
-    return path.join(homedir(), '.vectahub', '.config-hashes.json');
+    return getVectaHubPath('.config-hashes.json');
   }
 
   async verifyConfigIntegrity(filePath?: string): Promise<{ valid: boolean; hash: string }> {
@@ -222,7 +222,7 @@ export class ConfigSecurity {
   }
 
   async backupConfig(destination?: string): Promise<string> {
-    const dest = destination || path.join(homedir(), '.vectahub', `config.backup.${Date.now()}.yaml`);
+    const dest = destination || getVectaHubPath(`config.backup.${Date.now()}.yaml`);
     
     try {
       await fs.copyFile(this.configPath, dest);

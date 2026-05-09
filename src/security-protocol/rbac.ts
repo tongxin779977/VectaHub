@@ -1,8 +1,7 @@
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'fs';
-import { join } from 'path';
-import { homedir } from 'os';
+import { getVectaHubPath, getVectaHubHome } from '../utils/paths.js';
 
-const RBAC_FILE = join(homedir(), '.vectahub', 'rbac.json');
+const RBAC_FILE = getVectaHubPath('rbac.json');
 
 export type RoleName = 'developer' | 'ci-runner' | 'admin';
 
@@ -49,7 +48,7 @@ export interface RBACManager {
 }
 
 function ensureRbacDir(): void {
-  const dir = join(homedir(), '.vectahub');
+  const dir = getVectaHubHome();
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-import { createIntentPlan } from '../execution/planBuilder.js';
-import { runPlan } from '../execution/planRunner.js';
+import { PlanBuilder } from '../execution/planBuilder.js';
+import { PlanRunner } from '../execution/planRunner.js';
+import { getOutputChannel } from '../ui/output.js';
 
 export function registerRunIntentCommand(context: vscode.ExtensionContext) {
   const disposable = vscode.commands.registerCommand('vectahubTasks.runIntent', async (intent?: string) => {
@@ -14,7 +15,9 @@ export function registerRunIntentCommand(context: vscode.ExtensionContext) {
       return;
     }
 
-    await runPlan(createIntentPlan(input));
+    const plan = PlanBuilder.buildIntentPlan(input);
+    const runner = new PlanRunner(getOutputChannel());
+    await runner.run(plan);
   });
   context.subscriptions.push(disposable);
 }

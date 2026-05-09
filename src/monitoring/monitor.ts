@@ -303,9 +303,9 @@ export class PerformanceMonitor {
 
   private logToFile(alert: Alert): void {
     const fs = require('fs');
-    const path = require('path');
-    const logDir = path.join(os.homedir(), '.vectahub', 'logs');
-    const logFile = path.join(logDir, `alerts-${new Date().toISOString().split('T')[0]}.log`);
+    const { getVectaHubPath } = require('../utils/paths.js');
+    const logDir = getVectaHubPath('logs');
+    const logFile = require('path').join(logDir, `alerts-${new Date().toISOString().split('T')[0]}.log`);
 
     try {
       fs.mkdirSync(logDir, { recursive: true });

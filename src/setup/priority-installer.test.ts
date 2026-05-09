@@ -317,7 +317,7 @@ describe('PriorityInstaller', () => {
       await installer.run();
 
       expect(warnSpy).toHaveBeenCalled();
-      const warnCalls = warnSpy.mock.calls.map((c) => c[0]) as string[];
+      const warnCalls = warnSpy.mock.calls.map((c: any) => c[0]) as string[];
       expect(warnCalls.some((msg) => msg.includes('可选组件') && msg.includes('Step t-fail'))).toBe(true);
     });
   });
@@ -329,7 +329,7 @@ describe('PriorityInstaller', () => {
       const installer = createPriorityInstaller([critical1]);
       await installer.run();
 
-      const allLogs = logSpy.mock.calls.map((c) => c[0]) as string[];
+      const allLogs = logSpy.mock.calls.map((c: any) => c[0]) as string[];
       // Start
       expect(allLogs.some((msg) => msg.includes('核心配置') && msg.includes('正在') && msg.includes('Step c1'))).toBe(true);
       // Success
@@ -345,7 +345,7 @@ describe('PriorityInstaller', () => {
       const installer = createPriorityInstaller([criticalFail, secondary1]);
       await installer.run();
 
-      const allLogs = logSpy.mock.calls.map((c) => c[0]) as string[];
+      const allLogs = logSpy.mock.calls.map((c: any) => c[0]) as string[];
       expect(allLogs.some((msg) => msg.includes('核心配置') && msg.includes('失败') && msg.includes('config error'))).toBe(true);
     });
 
@@ -356,7 +356,7 @@ describe('PriorityInstaller', () => {
       const installer = createPriorityInstaller([critical1, secondary1]);
       await installer.run();
 
-      const allLogs = logSpy.mock.calls.map((c) => c[0]) as string[];
+      const allLogs = logSpy.mock.calls.map((c: any) => c[0]) as string[];
       expect(allLogs.some((msg) => msg.includes('外部工具'))).toBe(true);
     });
 
@@ -367,7 +367,7 @@ describe('PriorityInstaller', () => {
       const installer = createPriorityInstaller([critical1, tertiary1]);
       await installer.run();
 
-      const allLogs = logSpy.mock.calls.map((c) => c[0]) as string[];
+      const allLogs = logSpy.mock.calls.map((c: any) => c[0]) as string[];
       expect(allLogs.some((msg) => msg.includes('可选组件'))).toBe(true);
     });
   });

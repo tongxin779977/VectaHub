@@ -35,7 +35,7 @@ export type {
 } from './types.js';
 
 import path from 'node:path';
-import { homedir } from 'node:os';
+import { getVectaHubPath } from '../../utils/paths.js';
 import { createConsoleLogger } from '../../utils/logger.js';
 import { AsyncLogWriter } from './async-writer.js';
 import { TraceCore } from './trace-core.js';
@@ -108,7 +108,7 @@ export class TraceAuditSystem {
   private rotationTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(config?: Partial<TraceAuditConfig>) {
-    const logDir = config?.logDir || path.join(homedir(), '.vectahub', 'logs', 'traces');
+    const logDir = config?.logDir || getVectaHubPath('logs', 'traces');
     
     this.config = {
       enabled: true,

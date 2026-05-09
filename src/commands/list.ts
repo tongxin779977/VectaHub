@@ -1,13 +1,13 @@
 import { Command } from 'commander';
 import { join } from 'path';
-import { homedir } from 'os';
 import { writeFileSync } from 'fs';
+import { getVectaHubPath } from '../utils/paths.js';
 import { createStorage } from '../workflow/storage.js';
 import { createConsoleLogger } from '../utils/logger.js';
 import { listVersions, rollbackVersion } from '../workflow/versioning.js';
 
 const logger = createConsoleLogger('list');
-const VECTAHUB_DIR = join(homedir(), '.vectahub');
+const VECTAHUB_DIR = getVectaHubPath();
 
 export const listCmd = new Command('list')
   .description('List saved workflows and manage versions');
