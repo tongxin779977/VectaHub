@@ -50,6 +50,10 @@ function restoreEnvValue(name: string, previousValue: string | undefined): void 
   }
 }
 
+function isValidVariableValue(valueParts: string[]): boolean {
+  return valueParts.length > 0 && valueParts.join('=').trim() !== '';
+}
+
 function createProgressCallback(totalSteps: number, jsonMode?: boolean): (info: ProgressInfo) => void {
   return (info: ProgressInfo) => {
     if (jsonMode) return;
@@ -275,7 +279,7 @@ export const runCmd = new Command('run')
       if (options.variable) {
         for (const v of options.variable) {
           const [key, ...valueParts] = v.split('=');
-          if (key && valueParts.length > 0 && valueParts.join('=').trim() !== '') {
+          if (key && isValidVariableValue(valueParts)) {
             initialVariables[key] = valueParts.join('=');
           }
         }
