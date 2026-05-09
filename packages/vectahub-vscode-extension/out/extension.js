@@ -25,6 +25,8 @@ const refreshProjectTasks_js_1 = require("./commands/refreshProjectTasks.js");
 const previewProjectTask_js_1 = require("./commands/previewProjectTask.js");
 const runProjectTask_js_1 = require("./commands/runProjectTask.js");
 const listPackageScripts_js_1 = require("./commands/listPackageScripts.js");
+const fetchGhErrors_js_1 = require("./commands/fetchGhErrors.js");
+const processAllQueue_js_1 = require("./commands/processAllQueue.js");
 let globalCliPath;
 function getGlobalCliPath() {
     return globalCliPath;
@@ -53,6 +55,8 @@ async function activate(context) {
     (0, previewProjectTask_js_1.registerPreviewProjectTaskCommand)(context);
     (0, runProjectTask_js_1.registerRunProjectTaskCommand)(context, tasksProvider);
     (0, listPackageScripts_js_1.registerListPackageScriptsCommand)(context);
+    (0, fetchGhErrors_js_1.registerFetchGhErrorsCommand)(context);
+    (0, processAllQueue_js_1.registerProcessAllQueueCommand)(context);
     context.subscriptions.push(outputChannel);
     // 自动检测 CLI
     if ((0, settings_js_1.getAutoDetectCli)()) {

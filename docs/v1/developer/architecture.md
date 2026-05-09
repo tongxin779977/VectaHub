@@ -114,6 +114,6 @@ interface Step {
 -   **测试**: Vitest
 
 ```yaml
-version: 1.1.0
+version: 1.1.1
 lastUpdated: 2026-05-09
 ```

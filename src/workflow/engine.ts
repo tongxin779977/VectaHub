@@ -8,6 +8,7 @@ import { topologicalSort } from './dag.js';
 import { audit } from '../utils/audit.js';
 import { createRetryManager } from '../skills/iterative-refinement/retry-manager.js';
 import { generateId } from '../execution/id-generator.js';
+import { SYSTEM_WORKFLOWS } from './system-workflows.js';
 
 export interface RetryOptions {
   maxAttempts?: number;
@@ -37,6 +38,7 @@ export interface WorkflowEngine {
   addStep(workflowId: string, step: Step): Promise<void>;
   removeStep(workflowId: string, stepId: string): Promise<void>;
   getWorkflow(id: string): Promise<Workflow | undefined>;
+  getSystemWorkflow(id: string): Promise<Workflow | undefined>;
   listWorkflows(): Promise<Workflow[]>;
   execute(workflow: Workflow, options?: ExecuteOptions, initialVariables?: Record<string, unknown>): Promise<ExecutionRecord>;
   executeAsync(workflow: Workflow, options?: ExecuteOptions): void;
@@ -331,6 +333,10 @@ export function createWorkflowEngine(): WorkflowEngine {
 
     async getWorkflow(id: string): Promise<Workflow | undefined> {
       return workflows.get(id);
+    },
+
+    async getSystemWorkflow(id: string): Promise<Workflow | undefined> {
+      return SYSTEM_WORKFLOWS[id];
     },
 
     async listWorkflows(): Promise<Workflow[]> {

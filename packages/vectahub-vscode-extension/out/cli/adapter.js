@@ -37,6 +37,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.initCliAdapter = initCliAdapter;
+exports.getVectaHubHome = getVectaHubHome;
 exports.runCli = runCli;
 const child_process_1 = require("child_process");
 const vscode = __importStar(require("vscode"));
@@ -55,6 +56,9 @@ function getActualCliPath() {
         return cachedPath;
     }
     return (0, settings_js_1.getCliPath)();
+}
+function getVectaHubHome() {
+    return path_1.default.join(globalContext.globalStorageUri.fsPath, 'vectahub-home');
 }
 async function runCli(args, options = {}) {
     const cliPath = getActualCliPath();

@@ -11,7 +11,7 @@ interface DiagnosisDeps {
   detector?: Detector | null;
 }
 
-const SYSTEM_PROMPT = 'You are an expert error diagnostician for a CLI workflow engine. Analyze the following error and provide: 1) Root cause, 2) Category (dependency|configuration|permission|network|logic|environment), 3) Fix suggestions with risk levels, 4) Confidence (0-1), 5) Whether human review is needed. Respond in JSON format: {rootCause, category, fixSuggestions: [{description, command?, risk}], confidence, needsHumanReview}';
+const SYSTEM_PROMPT = '你是一个CLI工作流引擎的错误诊断专家。请用中文分析以下错误并提供：1) 根本原因, 2) 类别 (dependency|configuration|permission|network|logic|environment), 3) 修复建议及风险级别, 4) 置信度 (0-1), 5) 是否需要人工审查。请用JSON格式回复: {rootCause, category, fixSuggestions: [{description, command?, risk}], confidence, needsHumanReview}';
 
 function buildUserPrompt(input: DiagnosisInput): string {
   const parts: string[] = [];

@@ -38,9 +38,13 @@ const setupGlobalSignals = (() => {
 setupGlobalSignals();
 
 import { Command } from 'commander';
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const packageJson = JSON.parse(readFileSync(join(__dirname, '../package.json'), 'utf-8'));
+const VERSION = packageJson.version;
 import { initAuditLogger, getCurrentSessionId, audit } from './utils/audit.js';
 import { setGlobalOptions, isVerbose } from './utils/global-options.js';
 import { setLogLevel, setMuted } from './infrastructure/logger/index.js';
@@ -346,7 +350,7 @@ const program = new Command();
 program
   .name('vectahub')
   .description('VectaHub - Workflow Editor & Engine + OpenCLI')
-  .version('1.0.0')
+  .version(VERSION)
   .option('-v, --verbose', '详细输出模式')
   .option('-d, --debug', '调试模式（包含详细输出）')
   .option('--non-interactive', '非交互模式（适用于 CI/CD）')
@@ -370,7 +374,7 @@ program
   .description('显示版本信息')
   .option('--json', '以 JSON 格式输出')
   .action((options) => {
-    const version = '1.0.0'; // TODO: 从 package.json 获取
+    const version = VERSION;
     if (options.json) {
       console.log(JSON.stringify({ version, ok: true }));
     } else {

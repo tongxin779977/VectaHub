@@ -21,6 +21,8 @@ import { registerRefreshProjectTasksCommand } from './commands/refreshProjectTas
 import { registerPreviewProjectTaskCommand } from './commands/previewProjectTask.js';
 import { registerRunProjectTaskCommand } from './commands/runProjectTask.js';
 import { registerListPackageScriptsCommand } from './commands/listPackageScripts.js';
+import { registerFetchGhErrorsCommand } from './commands/fetchGhErrors.js';
+import { registerProcessAllQueueCommand } from './commands/processAllQueue.js';
 
 let globalCliPath: string | undefined;
 
@@ -55,6 +57,8 @@ export async function activate(context: vscode.ExtensionContext) {
   registerPreviewProjectTaskCommand(context);
   registerRunProjectTaskCommand(context, tasksProvider);
   registerListPackageScriptsCommand(context);
+  registerFetchGhErrorsCommand(context);
+  registerProcessAllQueueCommand(context);
 
   context.subscriptions.push(outputChannel);
 

@@ -20,18 +20,18 @@ const BUILTIN_PROMPTS: Prompt[] = [
     description: 'Parse user input, identify intent and extract parameters',
     category: 'parsing',
     tags: ['intent', 'parsing', 'core'],
-    systemTemplate: `You are a workflow parsing expert. Your task is to parse the user's input and identify their intent.
+    systemTemplate: `你是一个工作流解析专家。你的任务是解析用户输入并识别他们的意图。
 
-Available intent types:
+可用的意图类型:
 {{intentList}}
 
-Always respond with a JSON object in this format:
+请始终用JSON格式回复:
 {
   "intent": "INTENT_NAME",
   "confidence": 0.0-1.0,
   "params": {},
   "workflow": {
-    "name": "workflow name",
+    "name": "工作流名称",
     "steps": [
       { "type": "exec", "cli": "command", "args": ["arg1"] }
     ]
@@ -63,9 +63,9 @@ Always respond with a JSON object in this format:
     description: 'Generate CLI commands based on intent and parameters',
     category: 'generation',
     tags: ['command', 'generation'],
-    systemTemplate: `You are a command generation expert. Generate appropriate CLI commands based on the user's intent and parameters.
+    systemTemplate: `你是一个命令生成专家。根据用户的意图和参数生成合适的CLI命令。
 
-Respond with a JSON object in this format:
+请用JSON格式回复:
 {
   "commands": [
     { "cli": "tool_name", "args": ["arg1", "arg2"] }
@@ -96,19 +96,19 @@ User input: {{userInput}}`,
     description: 'Generate complete VectaHub workflow YAML',
     category: 'workflow',
     tags: ['workflow', 'yaml', 'generation'],
-    systemTemplate: `You are a VectaHub workflow generation expert. Generate a complete YAML workflow based on the user's input and commands.
+    systemTemplate: `你是一个VectaHub工作流生成专家。根据用户输入和命令生成完整的YAML工作流。
 
-VectaHub workflow spec:
-- Step types: exec, opencli, for_each, if, parallel
+VectaHub工作流规范:
+- 步骤类型: exec, opencli, for_each, if, parallel
 - exec: { id, type: exec, cli, args }
 - opencli: { id, type: opencli, site, command, args }
-- YAML must include: name, description, steps, mode (strict/relaxed/consensus)
+- YAML必须包含: name, description, steps, mode (strict/relaxed/consensus)
 
-Respond with only the YAML content, no markdown formatting or extra text.
+只回复YAML内容，不要markdown格式或额外文本。
 
-Example:
-name: "Example Workflow"
-description: "An example workflow"
+示例:
+name: "示例工作流"
+description: "一个示例工作流"
 mode: relaxed
 steps:
   - id: step1
@@ -142,18 +142,18 @@ Commands: {{commands}}`,
     description: 'Help generate Git workflows including commit, push, pull, etc.',
     category: 'assistant',
     tags: ['git', 'workflow', 'assistant'],
-    systemTemplate: `You are a professional Git assistant that helps users generate correct Git commands and workflows.
+    systemTemplate: `你是一个专业的Git助手，帮助用户生成正确的Git命令和工作流。
 
-Common Git tasks:
-- Commit changes: git add, git commit
-- Push updates: git push
-- Pull latest: git pull
-- Create branch: git branch, git checkout
-- Merge branch: git merge
-- View status: git status
-- View history: git log
+常见Git任务:
+- 提交变更: git add, git commit
+- 推送更新: git push
+- 拉取最新: git pull
+- 创建分支: git branch, git checkout
+- 合并分支: git merge
+- 查看状态: git status
+- 查看历史: git log
 
-Output format: Generate VectaHub executable YAML workflow format.`,
+输出格式: 生成VectaHub可执行的YAML工作流格式。`,
     userTemplate: '{{userInput}}',
     variables: [
       { name: 'userInput', type: 'string', required: true },
@@ -177,17 +177,17 @@ Output format: Generate VectaHub executable YAML workflow format.`,
     description: 'Help run npm scripts, install dependencies, publish packages',
     category: 'assistant',
     tags: ['npm', 'scripts', 'assistant'],
-    systemTemplate: `You are a professional NPM assistant that helps users execute npm-related tasks.
+    systemTemplate: `你是一个专业的NPM助手，帮助用户执行npm相关任务。
 
-Common NPM tasks:
-- Install dependencies: npm install, npm ci
-- Run scripts: npm run <script>
-- Build project: npm run build
-- Test project: npm test
-- Publish package: npm publish
-- Update packages: npm update
+常见NPM任务:
+- 安装依赖: npm install, npm ci
+- 运行脚本: npm run <script>
+- 构建项目: npm run build
+- 测试项目: npm test
+- 发布包: npm publish
+- 更新包: npm update
 
-Output format: Generate VectaHub executable YAML workflow format.`,
+输出格式: 生成VectaHub可执行的YAML工作流格式。`,
     userTemplate: '{{userInput}}',
     variables: [
       { name: 'userInput', type: 'string', required: true },
@@ -211,17 +211,17 @@ Output format: Generate VectaHub executable YAML workflow format.`,
     description: 'Help review code, find issues and provide suggestions',
     category: 'assistant',
     tags: ['code-review', 'review', 'assistant'],
-    systemTemplate: `You are a professional code review assistant. Help users review code and provide suggestions.
+    systemTemplate: `你是一个专业的代码审查助手。帮助用户审查代码并提供建议。
 
-Code review focus areas:
-- Code style and conventions
-- Potential bugs and issues
-- Performance optimization suggestions
-- Security vulnerabilities
-- Maintainability improvements
-- Best practices
+代码审查重点领域:
+- 代码风格和约定
+- 潜在的bug和问题
+- 性能优化建议
+- 安全漏洞
+- 可维护性改进
+- 最佳实践
 
-Provide review feedback in a friendly and professional tone.`,
+请用友好且专业的语气提供审查反馈。`,
     userTemplate: '{{userInput}}',
     variables: [
       { name: 'userInput', type: 'string', required: true },

@@ -675,6 +675,35 @@ export const INTENT_TEMPLATES: Record<string, IntentTemplate> = {
     priority: 10,
     tags: ['github', 'maintenance'],
     category: IntentCategory.EXECUTE,
+  },
+
+  GH_LOG_ANALYZE: {
+    name: 'GH_LOG_ANALYZE',
+    description: '分析 GitHub 错误日志并给出修复建议',
+    keywords: ['分析日志', '修复建议', '排查错误', 'log analyze'],
+    weight: 0.9,
+    cli: ['grep', 'vectahub'],
+    params: {
+      file: {
+        type: 'string',
+        required: true,
+        description: '日志文件路径'
+      }
+    },
+    steps: [
+      {
+        type: 'exec',
+        cli: 'grep',
+        args: ['-E', 'error|failed|exception|timeout', '${file}']
+      }
+    ],
+    phrases: [
+      { pattern: '分析.*文件', isRegex: true, weight: 1.0, bonus: 2.0 },
+      { pattern: '修复建议', isRegex: false, weight: 1.0, bonus: 1.5 },
+    ],
+    priority: 8,
+    tags: ['github', 'debug'],
+    category: IntentCategory.GENERATE,
   }
 };
 

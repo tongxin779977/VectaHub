@@ -1,6 +1,6 @@
 # VectaHub LLM-Native 优化方案 (2026)
 
-> 版本: 1.1.0 | 状态: 推进中 (Execution Phase 2)
+> 版本: 1.1.1 | 状态: 推进中 (Execution Phase 2)
 > 目标: 将 VectaHub 从“启发式规则引擎”升级为“LLM-Native 代理框架”
 
 ---

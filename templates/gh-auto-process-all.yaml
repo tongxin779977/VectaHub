@@ -6,12 +6,13 @@ steps:
     name: 获取失败记录ID列表
     type: exec
     cli: gh
-    args: ["run", "list", "--status", "failure", "--limit", "3", "--json", "databaseId", "-q", ".[].databaseId"]
+    args: ["run", "list", "--status", "failure", "--limit", "18", "--json", "databaseId", "-q", ".[].databaseId"]
   
   - id: process_queue
     name: 逐一启动诊断流程
     type: for_each
     items: "${list_ids}"
+    timeout: 3600000
     body:
       - id: run_processor
         name: 诊断并记录

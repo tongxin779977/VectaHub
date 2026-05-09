@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/cli.ts'],
+  entry: ['src/cli.ts', 'src/utils/gh-to-queue.ts'],
   format: ['esm'],
   clean: true,
   banner: {

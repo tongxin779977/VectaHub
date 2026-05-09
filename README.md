@@ -2,7 +2,7 @@
 
 > Natural Language Workflow Engine — 将任务描述转换为本地执行指令。
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue)]()
+[![Version](https://img.shields.io/badge/version-1.1.1-blue)]()
 [![Node.js](https://img.shields.io/badge/node-%3E%3D21.0.0-brightgreen)]()
 [![Tests](https://img.shields.io/badge/tests-1185%20passing%20%7C%2014%20skipped-brightgreen)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)]()

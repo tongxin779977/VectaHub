@@ -21,6 +21,10 @@ function getActualCliPath(): string {
   return getCliPath();
 }
 
+export function getVectaHubHome(): string {
+  return path.join(globalContext.globalStorageUri.fsPath, 'vectahub-home');
+}
+
 export async function runCli<T = unknown>(args: string[], options: CliOptions = {}): Promise<CliResult<T>> {
   const cliPath = getActualCliPath();
   

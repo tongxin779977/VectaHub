@@ -1,7 +1,7 @@
 import type { CLIToolsConfig, Config } from '../../utils/config.js';
 import { loadConfig as loadAppConfig, getDefaultConfig } from '../../utils/config.js';
 import { writeFileSync, existsSync, mkdirSync } from 'fs';
-import { dirname } from 'path';
+import * as path from 'path';
 import { stringify } from 'yaml';
 import { getVectaHubPath } from '../../utils/paths.js';
 
@@ -54,7 +54,7 @@ export async function saveConfig(config: RegistrationConfig): Promise<void> {
   }
 
   const configPath = getConfigPath();
-  const configDir = dirname(configPath);
+  const configDir = path.dirname(configPath);
 
   if (!existsSync(configDir)) {
     mkdirSync(configDir, { recursive: true });
