@@ -120,8 +120,6 @@ class LLMOrchestratorImpl {
         formattedContext,
       };
 
-      this.sessionManager.buildContextAwarePrompt('', sessionId);
-
       const llmResponse: LLMClientResponse = await this.llmClient.complete(
         promptId,
         request.input,

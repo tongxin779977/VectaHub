@@ -68,7 +68,7 @@ describe('Intent-to-Workflow Mapping Drift Tests', () => {
       { intent: 'session_inspect', params: { sessionId: 'abc' }, expectedCLI: 'vectahub', expectedArgs: ['session', 'inspect', 'abc'] },
       { intent: 'workflow_generate', params: { description: 'CI pipeline' }, expectedCLI: 'vectahub', expectedArgs: ['workflow', 'generate', 'CI pipeline'] },
       { intent: 'workflow_run', params: { workflowId: 'wf-1' }, expectedCLI: 'vectahub', expectedArgs: ['workflow', 'run', 'wf-1'] },
-      { intent: 'vscode_diagnostic', params: {}, expectedCLI: 'vectahub', expectedArgs: ['vscode', 'diagnostic'] },
+      { intent: 'vscode_diagnostic', params: {}, expectedCLI: 'vectahub', expectedArgs: ['vscode', 'diagnostic', '--json'] },
       { intent: 'self_healing_run', params: {}, expectedCLI: 'vectahub', expectedArgs: ['self-heal', 'run'] },
     ];
 

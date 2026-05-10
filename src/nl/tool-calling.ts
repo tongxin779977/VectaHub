@@ -126,7 +126,7 @@ export const EXTRA_INTENT_MAPPINGS: Record<string, IntentStepMapping> = {
   vscode_diagnostic: {
     type: 'exec',
     cli: 'vectahub',
-    args: ['vscode', 'diagnostic'],
+    args: ['vscode', 'diagnostic', '--json'],
   },
   self_healing_run: {
     type: 'exec',

@@ -72,7 +72,6 @@ describe('LLMOrchestrator', () => {
       });
 
       expect(mockPromptManager.buildSystemPrompt).toHaveBeenCalled();
-      expect(mockSessionManager.buildContextAwarePrompt).toHaveBeenCalled();
       expect(mockLLMClient.complete).toHaveBeenCalled();
       expect(result).toHaveProperty('content');
       expect(result).toHaveProperty('traceId');

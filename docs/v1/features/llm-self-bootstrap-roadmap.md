@@ -346,7 +346,11 @@ Week 7:  Buffer + Bug Fix
 |------|------|------|------|
 | D1 | 不考虑 LLM 降级 | 架构更简洁，行为更可预测 | 2026-05-10 |
 | D2 | 保留 regex 确定性提取 | LLM 可能截断 SHA/RunID，确定性提取不可替代 | 2026-05-10 |
-| D3 | VS Code 扩展不动 | 已是薄壳，改动无收益 | 2026-05-10 |
+| D3 | 突破 VS Code 扩展通信屏障 | Phase 8 决议：为支持 vscode_diagnostic 等高级意图，修改 VSCode 扩展建立与 Daemon 的双向通信 | 2026-05-10 |
+| D4 | doctor.ts 不 LLM 化 | 健康检查需要确定性执行，不能靠推测 | 2026-05-10 |
+| D5 | Phase 6 引入 LLMOrchestrator | 统一入口，便于埋点和扩展 | 2026-05-10 |
+| D6 | LLM 不直接生成最终 workflow step | VectaHub 是微型 Agent Orchestrator，最终执行必须经过配置化映射、参数校验和安全层 | 2026-05-10 |
+展不动 | 已是薄壳，改动无收益 | 2026-05-10 |
 | D4 | doctor.ts 不 LLM 化 | 健康检查需要确定性执行，不能靠推测 | 2026-05-10 |
 | D5 | Phase 6 引入 LLMOrchestrator | 统一入口，便于埋点和扩展 | 2026-05-10 |
 | D6 | LLM 不直接生成最终 workflow step | VectaHub 是微型 Agent Orchestrator，最终执行必须经过配置化映射、参数校验和安全层 | 2026-05-10 |

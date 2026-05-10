@@ -23,7 +23,7 @@ export const createExecHandler = (deps: {
     const interpolatedArgs = (step.args || []).map(arg => interpolateString(arg, context));
     const fullCommand = `${interpolatedCli} ${interpolatedArgs.join(' ')}`.trim();
 
-    if (deps.semanticDetector) {
+    if (deps.semanticDetector && typeof deps.semanticDetector.detectDangerousCommand === 'function') {
       const semanticResult = deps.semanticDetector.detectDangerousCommand(fullCommand);
       if (semanticResult.detected && (semanticResult.severity === 'critical' || semanticResult.severity === 'high')) {
         return {
