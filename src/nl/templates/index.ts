@@ -210,6 +210,24 @@ export const INTENT_TEMPLATES: IntentTemplate[] = [
     examples: ['What is the project structure?', 'How does the CI pipeline work?', '查询当前系统状态'],
     priority: 1,
   },
+  {
+    intent: 'vscode_diagnostic',
+    name: 'vscode_diagnostic',
+    description: 'Retrieve VS Code diagnostics including lint errors and code issues',
+    category: 'vscode',
+    patterns: [/vscode.*diagnostic|lint.*error|code.*issue|诊断.*vscode|代码.*错误|检查.*问题/i],
+    examples: ['Show VS Code diagnostics', 'Get lint errors', '查看代码诊断'],
+    priority: 2,
+  },
+  {
+    intent: 'self_healing_run',
+    name: 'self_healing_run',
+    description: 'Auto-retry and fix based on last failed command logs',
+    category: 'system',
+    patterns: [/self.?healing.?run|auto.?retry|auto.?fix.*failed|重试.*失败|自动.*修复.*失败/i],
+    examples: ['Run self-healing on failed command', 'Auto retry and fix', '自动重试并修复失败命令'],
+    priority: 1,
+  },
 ];
 
 export function getAllIntentNames(): string[] {

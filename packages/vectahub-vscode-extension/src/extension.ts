@@ -22,6 +22,7 @@ import { registerPreviewProjectTaskCommand } from './commands/previewProjectTask
 import { registerRunProjectTaskCommand } from './commands/runProjectTask.js';
 import { registerListPackageScriptsCommand } from './commands/listPackageScripts.js';
 import { registerFetchGhErrorsCommand } from './commands/fetchGhErrors.js';
+import { DiagnosticBridge, collectAllDiagnostics, filterDiagnostics } from './project/diagnostic-bridge.js';
 import { registerProcessAllQueueCommand } from './commands/processAllQueue.js';
 import { registerRunCheckPipelineCommand } from './commands/runCheckPipeline.js';
 import { registerRunDevPipelineCommand } from './commands/runDevPipeline.js';
@@ -62,6 +63,20 @@ export async function activate(context: vscode.ExtensionContext) {
   registerRunDevPipelineCommand(context, tasksProvider);
   registerStartDevServerCommand(context, tasksProvider);
   registerStopRunningTaskCommand(context, tasksProvider);
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('vectahub.getDiagnostics', (args?: { file?: string; severity?: string }) => {
+      const all = collectAllDiagnostics();
+      const filtered = filterDiagnostics(all, args?.file, args?.severity);
+      return filtered;
+    }),
+  );
+
+  diagnosticBridge = new DiagnosticBridge();
+  diagnosticBridge.start()
+    .then(port => logToOutput(`Diagnostic bridge started on port ${port}`))
+    .catch(err => logToOutput(`Diagnostic bridge failed: ${err}`, 'error'));
+  context.subscriptions.push({ dispose: () => diagnosticBridge?.dispose() });
 
   context.subscriptions.push(outputChannel);
 
@@ -105,7 +120,10 @@ export async function activate(context: vscode.ExtensionContext) {
 import { ProcessManager } from './cli/process-manager.js';
 import { LongRunningTaskManager } from './cli/longRunningTaskManager.js';
 
+let diagnosticBridge: DiagnosticBridge | undefined;
+
 export function deactivate() {
   LongRunningTaskManager.getInstance().stopAll();
   ProcessManager.getInstance().killAll();
+  diagnosticBridge?.dispose();
 }

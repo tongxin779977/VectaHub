@@ -1,9 +1,11 @@
 import type { Step } from '../../types/index.js';
 import type { StepHandler, ExecutorOptions, ExecutionContext, ExecuteStepFn, ExecutionResult } from './types.js';
 import { interpolateString } from '../interpolation.js';
+import type { SemanticDetector } from '../../sandbox/semantic-detector.js';
 
 export const createExecHandler = (deps: {
   detector: any;
+  semanticDetector?: SemanticDetector;
   audit: any;
   sandboxManager?: any;
   exec: any;
@@ -20,6 +22,18 @@ export const createExecHandler = (deps: {
     const interpolatedCli = interpolateString(step.cli!, context);
     const interpolatedArgs = (step.args || []).map(arg => interpolateString(arg, context));
     const fullCommand = `${interpolatedCli} ${interpolatedArgs.join(' ')}`.trim();
+
+    if (deps.semanticDetector) {
+      const semanticResult = deps.semanticDetector.detectDangerousCommand(fullCommand);
+      if (semanticResult.detected && (semanticResult.severity === 'critical' || semanticResult.severity === 'high')) {
+        return {
+          stepId: step.id,
+          status: 'FAILED',
+          error: `Semantic Guardrails blocked: ${semanticResult.reason}`,
+          duration: Date.now() - startTime,
+        };
+      }
+    }
 
     const detection = deps.detector.detect(fullCommand);
 

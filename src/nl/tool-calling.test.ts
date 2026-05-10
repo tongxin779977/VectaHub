@@ -15,7 +15,7 @@ describe('buildToolsFromTemplates', () => {
     expect(gitCommit!.function.description).toBeTruthy();
   });
 
-  it('should include all 19 intent tools from templates', () => {
+  it('should include all 21 intent tools from templates', () => {
     const tools = buildToolsFromTemplates();
     const names = tools.map(t => t.function.name);
     expect(names).toContain('workflow_generate');
@@ -37,7 +37,9 @@ describe('buildToolsFromTemplates', () => {
     expect(names).toContain('session_list');
     expect(names).toContain('session_inspect');
     expect(names).toContain('QUERY_INFO');
-    expect(tools).toHaveLength(19);
+    expect(names).toContain('vscode_diagnostic');
+    expect(names).toContain('self_healing_run');
+    expect(tools).toHaveLength(21);
   });
 
   it('should have valid JSON schema for each tool', () => {

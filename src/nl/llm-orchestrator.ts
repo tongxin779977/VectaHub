@@ -3,6 +3,9 @@ import type { SessionManager } from './session-manager.js';
 import type { LLMConfig, LLMTool, LLMToolCall, LLMResponse as LLMClientResponse } from './llm.js';
 import { LLMClient } from './llm.js';
 import { DEFAULT_INTENT_PARSER_ID } from './prompt-manager.js';
+import { createConsoleLogger } from '../utils/logger.js';
+
+const logger = createConsoleLogger('llm-orchestrator');
 
 export interface LLMOrchestratorOptions {
   promptManager: PromptManager;
@@ -35,6 +38,14 @@ export interface LLMResponse {
   latencyMs: number;
 }
 
+export interface ContextStructure {
+  l1WorkingMemory: number;
+  l2SessionSummary: number;
+  l3ProjectContext: number;
+  totalTokens: number;
+  formattedContext: string;
+}
+
 export interface LLMTrace {
   traceId: string;
   sessionId?: string;
@@ -50,6 +61,7 @@ export interface LLMTrace {
     completionTokens: number;
     totalTokens: number;
   };
+  contextStructure?: ContextStructure;
   latencyMs: number;
   status: 'success' | 'error';
   errorMessage?: string;
@@ -98,7 +110,17 @@ class LLMOrchestratorImpl {
 
       trace.systemPrompt = systemPrompt;
 
-      const context = this.sessionManager.buildContextAwarePrompt('', sessionId);
+      const tokenBreakdown = this.sessionManager.getTokenBreakdown(sessionId);
+      const formattedContext = this.sessionManager.getFormattedContext(sessionId);
+      trace.contextStructure = {
+        l1WorkingMemory: tokenBreakdown.l1,
+        l2SessionSummary: tokenBreakdown.l2,
+        l3ProjectContext: tokenBreakdown.l3,
+        totalTokens: tokenBreakdown.total,
+        formattedContext,
+      };
+
+      this.sessionManager.buildContextAwarePrompt('', sessionId);
 
       const llmResponse: LLMClientResponse = await this.llmClient.complete(
         promptId,
@@ -134,6 +156,7 @@ class LLMOrchestratorImpl {
       trace.toolCalls = response.toolCalls;
 
       this.recordTrace(trace);
+      this.logTraceCompletion(trace);
 
       return response;
     } catch (error) {
@@ -141,6 +164,7 @@ class LLMOrchestratorImpl {
       trace.latencyMs = Date.now() - startTime;
       trace.errorMessage = error instanceof Error ? error.message : String(error);
       this.recordTrace(trace);
+      this.logTraceCompletion(trace);
 
       throw error;
     }
@@ -163,7 +187,7 @@ class LLMOrchestratorImpl {
   }
 
   private generateTraceId(): string {
-    return `trace-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    return `trace-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
   }
 
   private recordTrace(trace: LLMTrace): void {
@@ -175,6 +199,69 @@ class LLMOrchestratorImpl {
         this.traces.delete(oldestKey);
       }
     }
+  }
+
+  private logTraceCompletion(trace: LLMTrace): void {
+    const logPayload = {
+      traceId: trace.traceId,
+      sessionId: trace.sessionId,
+      status: trace.status,
+      latencyMs: trace.latencyMs,
+      intent: trace.intent,
+      confidence: trace.confidence,
+      tokenUsage: trace.tokenUsage,
+      contextTokens: trace.contextStructure?.totalTokens,
+    };
+
+    if (trace.status === 'error') {
+      logger.error({ ...logPayload, errorMessage: trace.errorMessage }, `LLM trace FAILED: ${trace.traceId}`);
+    } else {
+      logger.info(logPayload, `LLM trace completed: ${trace.traceId}`);
+    }
+  }
+
+  printTrace(traceId: string): string {
+    const trace = this.traces.get(traceId);
+    if (!trace) {
+      return `[LLMTrace] No trace found for: ${traceId}`;
+    }
+
+    const lines = [
+      `┌─ LLM Trace Debug ─────────────────────────────────────`,
+      `│ traceId:    ${trace.traceId}`,
+      `│ sessionId:  ${trace.sessionId ?? 'N/A'}`,
+      `│ timestamp:  ${trace.timestamp.toISOString()}`,
+      `│ status:     ${trace.status}`,
+      `│ latencyMs:  ${trace.latencyMs}`,
+      `│ intent:     ${trace.intent ?? 'N/A'}`,
+      `│ confidence: ${trace.confidence ?? 'N/A'}`,
+    ];
+
+    if (trace.tokenUsage) {
+      lines.push(`│ tokenUsage: prompt=${trace.tokenUsage.promptTokens}, completion=${trace.tokenUsage.completionTokens}, total=${trace.tokenUsage.totalTokens}`);
+    }
+
+    if (trace.contextStructure) {
+      lines.push(`│ contextStructure:`);
+      lines.push(`│   L1 (workingMemory):  ${trace.contextStructure.l1WorkingMemory} tokens`);
+      lines.push(`│   L2 (sessionSummary): ${trace.contextStructure.l2SessionSummary} tokens`);
+      lines.push(`│   L3 (projectContext): ${trace.contextStructure.l3ProjectContext} tokens`);
+      lines.push(`│   total:               ${trace.contextStructure.totalTokens} tokens`);
+    }
+
+    if (trace.toolCalls && trace.toolCalls.length > 0) {
+      lines.push(`│ toolCalls:`);
+      for (const tc of trace.toolCalls) {
+        lines.push(`│   - ${tc.function.name}(${tc.function.arguments})`);
+      }
+    }
+
+    if (trace.errorMessage) {
+      lines.push(`│ error: ${trace.errorMessage}`);
+    }
+
+    lines.push(`└──────────────────────────────────────────────────────`);
+    return lines.join('\n');
   }
 }
 

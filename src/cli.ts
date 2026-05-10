@@ -252,6 +252,13 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
         loadedCommands.add('import');
         break;
       }
+      case 'vscode': {
+        const { vscodeDiagnosticCmd } = await import('./commands/vscode-diagnostic.js');
+        removePlaceholderCommand('vscode');
+        program.addCommand(vscodeDiagnosticCmd);
+        loadedCommands.add('vscode');
+        break;
+      }
       case 'dev': {
         const { status } = await import('./commands/status.js');
         const { moduleCmd } = await import('./commands/module.js');
@@ -526,6 +533,7 @@ const lazyLoadableCommands = [
   { name: 'debug', description: '调试工作流' },
   { name: 'export', description: '导出工作流' },
   { name: 'import', description: '导入工作流' },
+  { name: 'vscode', description: 'VSCode IDE integration commands' },
   { name: 'dev', description: '开发命令' },
 ];
 

@@ -49,7 +49,7 @@ function parseArgs(args: unknown): string[] {
   return result;
 }
 
-const EXTRA_INTENT_MAPPINGS: Record<string, IntentStepMapping> = {
+export const EXTRA_INTENT_MAPPINGS: Record<string, IntentStepMapping> = {
   doctor: {
     type: 'exec',
     cli: 'vectahub',
@@ -122,6 +122,34 @@ const EXTRA_INTENT_MAPPINGS: Record<string, IntentStepMapping> = {
     cli: 'vectahub',
     args: ['info', '{{topic}}'],
     required: ['topic'],
+  },
+  vscode_diagnostic: {
+    type: 'exec',
+    cli: 'vectahub',
+    args: ['vscode', 'diagnostic'],
+  },
+  self_healing_run: {
+    type: 'exec',
+    cli: 'vectahub',
+    args: ['self-heal', 'run'],
+  },
+  git_push: {
+    type: 'exec',
+    cli: 'git',
+    args: ['push', '{{remote}}', '{{branch}}'],
+    required: ['remote', 'branch'],
+  },
+  git_pull: {
+    type: 'exec',
+    cli: 'git',
+    args: ['pull', '{{remote}}', '{{branch}}'],
+    required: ['remote', 'branch'],
+  },
+  tool_run: {
+    type: 'exec',
+    cli: 'vectahub',
+    args: ['tool', 'run', '{{toolName}}'],
+    required: ['toolName'],
   },
 };
 

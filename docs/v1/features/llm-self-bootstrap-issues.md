@@ -170,7 +170,7 @@ related:
 | 原因 | intent tool schema、intent-step mapping、executor 支持的 step 格式可能不同步 |
 | 影响 | LLM 能调用某个 intent，但映射层无法生成可执行 step |
 | 缓解措施 | 为每个 intent 增加映射单元测试；CI 中校验 tool schema 与 mapping key 一致；未知 intent 直接失败 |
-| 状态 | ⏳ 待补测试。ABCD 主链路验收和代码审查已完成，下一步补 Mapping 漂移测试 |
+| 状态 | ✅ 已补齐测试，并在 CI 中运行以阻止漂移 |
 
 ### 4.4 依赖风险
 

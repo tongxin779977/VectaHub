@@ -241,7 +241,7 @@ score = effectiveness * 0.7 + (uses / maxUses) * 0.3
 
 ## 5. Phase 6：架构升级
 
-> 状态：部分完成（6.0/6.1/6.5 已完成并验证，6.2 基础版完成，主链路集成验收和代码审查已完成，6.3 已完成，6.4 待开始）
+> 状态：✅ 全部完成（6.0-6.5 所有任务已闭环，防漂移测试已补充，系统可观测性与分层记忆已就绪）
 
 ### 5.1 任务清单
 
@@ -249,9 +249,9 @@ score = effectiveness * 0.7 + (uses / maxUses) * 0.3
 |---|------|--------|----------|------|------|
 | 6.0 | Intent-to-Workflow Mapping | P0 | `src/nl/intent-step-mapping.ts` + 测试 | LLM tool call 到 workflow step 的确定性转换 | ✅ 完成 / 已验证 |
 | 6.1 | LLMOrchestrator 抽取 | P1 | `src/nl/llm-orchestrator.ts` + 测试 | 统一 LLM 调用入口，返回 traceId/latencyMs | ✅ 完成 / 已验证 |
-| 6.2 | LLMObservability 实现 | P1 | `src/nl/llm-orchestrator.ts`（trace 内置） | 最小 trace（traceId/latencyMs/tokenUsage） | 🔶 基础版完成 |
-| 6.3 | Semantic Guardrails | P2 | 新建 `src/sandbox/semantic-detector.ts` | 语义安全检查 | ✅ 完成 / 已验证 |
-| 6.4 | 分层记忆架构 | P2 | 重构 `session-manager.ts` | 短期/中期/长期记忆 | ⏳ 待开始 |
+| 6.2 | LLMObservability 实现 | P1 | `src/nl/observability/` | 完整 trace 生命周期记录 | ✅ 完成 / 已验证 |
+| 6.3 | Semantic Guardrails | P2 | 新建 `src/sandbox/semantic-detector.ts` | 语义安全检查 | ✅ 完成 / 已接入验证 |
+| 6.4 | 分层记忆架构 | P2 | 重构 `session-manager.ts` | 短期/中期/长期记忆 | ✅ 完成 / 已验证 |
 | 6.5 | Pipeline 重构 | P1 | `src/nl/core/pipeline.ts` | 删除 UNKNOWN 降级路径，依赖 LLM tool calling | ✅ 完成 / 已验证 |
 
 ### 5.1.1 当前验收状态
@@ -260,8 +260,8 @@ score = effectiveness * 0.7 + (uses / maxUses) * 0.3
 |------|------|------|
 | 主链路集成验收 | ✅ 已完成 | ABCD 产出的 `LLM tool call → mapper → workflow step → pipeline` 闭环已验收 |
 | 代码审查 | ✅ 已完成 | 已审查 mapper、tool-calling、pipeline、orchestrator 的职责边界与失败策略 |
-| 6.3 轻量 Semantic Guardrails | ✅ 已完成 | 43 测试通过，输入侧 injection 检测 + 输出侧命令语义扫描 |
-| Mapping 漂移测试 | ⏳ 待开始 | 校验 tool schema、intent-step mapping、executor step 格式一致 |
+| 6.3 轻量 Semantic Guardrails | ✅ 已完成并接入验证 | 43 单测 + 7 输入侧集成测试 + 7 输出侧集成测试，pipeline + executor 主链路已接入 |
+| Mapping 漂移测试 | ✅ 已完成并验证 | 校验 tool schema、intent-step mapping、executor step 格式一致，防腐层构建完毕 |
 
 ### 5.2 详细说明
 

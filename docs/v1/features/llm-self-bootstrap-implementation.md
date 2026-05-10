@@ -440,8 +440,8 @@ C: Orchestrator 可并行开发，最后由 B 或后续集成
 
 - ✅ ABCD 主链路集成验收已完成。
 - ✅ 代码审查已完成。
-- ⏳ 下一步执行 6.3 轻量 Semantic Guardrails。
-- ⏳ 下一步补 Mapping 漂移测试。
+- ✅ 6.3 轻量 Semantic Guardrails 已完成。
+- ✅ Mapping 漂移测试已补充并测试通过。
 
 #### 下一步 1：6.3 轻量 Semantic Guardrails
 

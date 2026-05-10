@@ -40,6 +40,12 @@ export function createNLProcessor(
       throw new Error('Empty input: NL pipeline requires a non-empty string input');
     }
 
+    const semanticDetector = createSemanticDetector();
+    const injectionResult = semanticDetector.detectInjection(input);
+    if (injectionResult.detected) {
+      throw new Error(`Semantic Guardrails: ${injectionResult.reason}`);
+    }
+
     try {
       return await executeLLMToolCalling(input, resolvedLLMConfig);
     } catch (err) {

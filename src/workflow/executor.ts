@@ -1,6 +1,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import type { Step, ExecutionStatus, SandboxMode } from '../types/index.js';
 import { createDetector, type Detector } from '../sandbox/detector.js';
+import { createSemanticDetector, type SemanticDetector } from '../sandbox/semantic-detector.js';
 import { createSandboxManager, type SandboxManager } from '../sandbox/sandbox.js';
 import { interpolateString, interpolateStep } from './interpolation.js';
 import { evaluateExpression } from './expression-engine.js';
@@ -55,6 +56,7 @@ function shouldAllow(
 
 export function createExecutor(sandboxManager?: SandboxManager): Executor {
   const detector: Detector = createDetector();
+  const semanticDetector: SemanticDetector = createSemanticDetector();
   const policyManager = new PolicyManager();
 
   async function exec(cli: string, args: string[], options: ExecutorOptions): Promise<CLIResult> {
@@ -364,7 +366,7 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     parallel: handleParallel,
     for_each: handleForEach,
     opencli: createOpenCliHandler({ detector, audit, sandboxManager, exec, execInSandbox }),
-    exec: createExecHandler({ detector, audit, sandboxManager, exec, execInSandbox, shouldAllow }),
+    exec: createExecHandler({ detector, semanticDetector, audit, sandboxManager, exec, execInSandbox, shouldAllow }),
   };
 
   const extendedStepHandlers: Record<string, StepHandler> = {};

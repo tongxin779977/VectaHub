@@ -681,7 +681,7 @@ describe('LLM Workflow Regression', () => {
         'ci_diagnose', 'ci_rerun',
         'tool_discover', 'tool_run',
         'session_list', 'session_inspect',
-        'QUERY_INFO',
+        'QUERY_INFO', 'vscode_diagnostic', 'self_healing_run'
       ]);
 
       for (const name of names) {
