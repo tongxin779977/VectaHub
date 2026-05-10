@@ -20,6 +20,15 @@ export interface CategoryMetadata {
   description: string;
 }
 
+const CATEGORY_MAP: Record<string, IntentCategory> = {
+  'file': IntentCategory.QUERY,
+  'system': IntentCategory.QUERY,
+  'git': IntentCategory.EXECUTE,
+  'ci': IntentCategory.EXECUTE,
+  'tool': IntentCategory.EXECUTE,
+  'workflow': IntentCategory.GENERATE,
+};
+
 const CATEGORY_METADATA: Record<IntentCategory, CategoryMetadata> = {
   [IntentCategory.QUERY]: {
     requiresLLM: false,
@@ -45,8 +54,9 @@ const CATEGORY_METADATA: Record<IntentCategory, CategoryMetadata> = {
 
 export function createCategoryRouter(): CategoryRouter {
   function getCategory(intent: IntentName): IntentCategory {
-    const template = INTENT_TEMPLATES[intent];
-    return template?.category || IntentCategory.EXECUTE;
+    const template = INTENT_TEMPLATES.find(t => t.intent === intent);
+    if (!template) return IntentCategory.EXECUTE;
+    return CATEGORY_MAP[template.category] || IntentCategory.EXECUTE;
   }
 
   function shouldUseLLM(intent: IntentName): boolean {
@@ -68,13 +78,13 @@ export function createCategoryRouter(): CategoryRouter {
   }
 
   function getIntentsByCategory(category: IntentCategory): IntentName[] {
-    return Object.entries(INTENT_TEMPLATES)
-      .filter(([, template]) => template.category === category)
-      .map(([name]) => name as IntentName);
+    return INTENT_TEMPLATES
+      .filter(template => CATEGORY_MAP[template.category] === category)
+      .map(template => template.intent as IntentName);
   }
 
   function route(intent: IntentName, context: NLContext): NLResult {
-    const template = INTENT_TEMPLATES[intent];
+    const template = INTENT_TEMPLATES.find(t => t.intent === intent);
     const category = getCategory(intent);
     const categoryMeta = CATEGORY_METADATA[category];
 
@@ -89,19 +99,19 @@ export function createCategoryRouter(): CategoryRouter {
 
     switch (category) {
       case IntentCategory.QUERY:
-        return createQueryResult(intent, context.input as string, template.weight);
+        return createQueryResult(intent, context.input as string, template.weight ?? 0.5);
 
       case IntentCategory.EXECUTE:
-        return createExecuteResult(intent, context.input as string, template.weight);
+        return createExecuteResult(intent, context.input as string, template.weight ?? 0.5);
 
       case IntentCategory.DIALOG:
         return createDialogResult(intent, context.input as string);
 
       case IntentCategory.GENERATE:
-        return createGenerateResult(intent, context.input as string, template.weight);
+        return createGenerateResult(intent, context.input as string, template.weight ?? 0.5);
 
       default:
-        return createExecuteResult(intent, context.input as string, template.weight);
+        return createExecuteResult(intent, context.input as string, template.weight ?? 0.5);
     }
   }
 
@@ -130,7 +140,7 @@ export function createCategoryRouter(): CategoryRouter {
       confidence,
       taskList,
       metadata: {
-        path: 'coordinator',
+        path: 'category-router',
         usedSkills: [],
         requiresLLM: false,
       },
@@ -157,7 +167,7 @@ export function createCategoryRouter(): CategoryRouter {
       intent,
       confidence,
       metadata: {
-        path: 'skill-pipeline',
+        path: 'category-router',
         usedSkills: [],
         requiresLLM: true,
       },

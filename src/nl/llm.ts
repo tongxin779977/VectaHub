@@ -50,6 +50,11 @@ export interface LLMResponse {
     }[];
   };
   tool_calls?: LLMToolCall[];
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
 }
 
 const INTENT_LIST = getAllIntentNames();

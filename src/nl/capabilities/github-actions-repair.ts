@@ -22,8 +22,9 @@ export function createGitHubActionsRepairCapability(): Capability {
 
       const isFailure = goal.target === 'failure';
       const hasFailureEvidence = !!(goal.evidence.githubActionRunIds?.length || goal.evidence.githubActionUrls?.length);
+      const hasCiGreenIntent = goal.successCriteria?.includes('ci-green');
 
-      if (!isFailure && !hasFailureEvidence) {
+      if (!isFailure && !hasFailureEvidence && !hasCiGreenIntent) {
         return { capabilityId: CAPABILITY_ID, score: 0.2, reason: 'no failure target or evidence' };
       }
 
@@ -35,6 +36,9 @@ export function createGitHubActionsRepairCapability(): Capability {
         score += 0.05;
       }
       if (hasFailureEvidence) {
+        score += 0.05;
+      }
+      if (hasCiGreenIntent) {
         score += 0.05;
       }
 

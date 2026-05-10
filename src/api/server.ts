@@ -1,8 +1,6 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { createCoordinator, adaptAllTemplates } from '../nl/core/index.js';
-import { INTENT_TEMPLATES } from '../nl/templates/index.js';
 import { createLLMConfig, createLLMEnhancedParser } from '../nl/llm.js';
 import { createWorkflowEngine } from '../workflow/engine.js';
 import { createStorage } from '../workflow/storage.js';
@@ -123,16 +121,10 @@ export function createAPIServer(port = 3000): ReturnType<typeof createServer> {
                 const result = await engine.execute(workflow);
                 executionResult = { status: result.status, steps: result.steps, warnings: result.warnings };
               } else {
-                const coordinator = createCoordinator(adaptAllTemplates(INTENT_TEMPLATES));
-                const result = coordinator.match(input);
-                const status = result.intents[0]?.intent !== 'UNKNOWN' ? 'SUCCESS' : 'NEEDS_CLARIFICATION';
-                executionResult = { status, steps: [], warnings: result.isMultiIntent ? [`Multi-intent: ${result.intents.map(i => i.intent).join(', ')}`] : ['Low confidence, no workflow generated'] };
+                executionResult = { status: 'NEEDS_CLARIFICATION', steps: [], warnings: ['Low confidence, no workflow generated'] };
               }
             } else {
-              const coordinator = createCoordinator(adaptAllTemplates(INTENT_TEMPLATES));
-              const result = coordinator.match(input);
-              const status = result.intents[0]?.intent !== 'UNKNOWN' ? 'SUCCESS' : 'NEEDS_CLARIFICATION';
-              executionResult = { status, steps: [], warnings: result.isMultiIntent ? [`Multi-intent: ${result.intents.map(i => i.intent).join(', ')}`] : ['LLM not configured'] };
+              executionResult = { status: 'NEEDS_CLARIFICATION', steps: [], warnings: ['LLM not configured'] };
             }
           }
         }

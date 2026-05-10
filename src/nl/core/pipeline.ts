@@ -1,12 +1,10 @@
-import type { SkillRegistry } from '../../skills/registry.js';
-import type { SkillExecutor } from '../../skills/executor.js';
 import type { NLProcessor, NLContext, NLResult } from './types.js';
-import type { SkillContext } from '../../skills/types.js';
 import type { IntentName } from '../../types/index.js';
 import YAML from 'yaml';
 import { createConsoleLogger } from '../../utils/logger.js';
-import { LLMClient, createLLMConfig } from '../llm.js';
-import { buildToolsFromTemplates, convertToolCallToSteps } from '../tool-calling.js';
+import { LLMClient, createLLMConfig, type LLMConfig } from '../llm.js';
+import { buildAllTools, convertToolCallToSteps } from '../tool-calling.js';
+import { createSemanticDetector } from '../../sandbox/semantic-detector.js';
 
 const logger = createConsoleLogger('nl-pipeline');
 
@@ -23,77 +21,31 @@ interface SkillResult<T = unknown> {
 }
 
 export function createNLProcessor(
-  skillRegistry: SkillRegistry,
-  keywordFallback: NLProcessor,
   deps: {
-    executor?: SkillExecutor;
-    confidenceThreshold?: number;
-    llmConfig?: ReturnType<typeof createLLMConfig>;
+    llmConfig?: ReturnType<typeof createLLMConfig> | null;
   } = {}
 ): NLProcessor {
-  const executor = deps.executor;
-  const threshold = deps.confidenceThreshold ?? 0.7;
-  const llmConfig = deps.llmConfig;
+  const llmConfig = deps.llmConfig ?? null;
+
+  if (!llmConfig) {
+    throw new Error('LLM configuration is required. Keyword fallback has been removed.');
+  }
+
+  const resolvedLLMConfig = llmConfig;
 
   async function parse(context: NLContext): Promise<NLResult> {
-    const input = typeof context.input === 'string' ? context.input : '';
+    const input = typeof context.input === 'string' ? context.input.trim() : '';
 
-    if (!context.options?.useLLM) {
-      const keywordResult = await keywordFallback.parse(context);
-      return {
-        success: keywordResult.success,
-        intent: keywordResult.intent as NLResult['intent'],
-        confidence: keywordResult.confidence,
-        taskList: keywordResult.taskList,
-        metadata: {
-          path: 'keyword-only',
-          usedSkills: [],
-          fallbackReason: 'LLM disabled',
-        },
-      };
+    if (!input) {
+      throw new Error('Empty input: NL pipeline requires a non-empty string input');
     }
 
-    // 1. Try LLM Tool Calling
-    if (llmConfig) {
-      try {
-        const llmResult = await executeLLMToolCalling(input, llmConfig);
-        if (llmResult) return llmResult;
-      } catch (err) {
-        logger.debug(`LLM Tool Calling failed: ${err}`);
-      }
+    try {
+      return await executeLLMToolCalling(input, resolvedLLMConfig);
+    } catch (err) {
+      logger.error(`LLM Tool Calling failed: ${err}`);
+      throw err;
     }
-
-    const skillContext: SkillContext = {
-      userInput: context.input,
-      sessionId: context.sessionId,
-    };
-
-    if (executor) {
-      const pipelineResult = await executePipelineSkill(
-        skillRegistry, executor, context, skillContext, threshold
-      );
-      if (pipelineResult) return pipelineResult;
-
-      const individualResult = await executeIndividualSkills(
-        skillRegistry, executor, context, skillContext, threshold
-      );
-      if (individualResult) return individualResult;
-    }
-
-    const keywordResult = await keywordFallback.parse(context);
-    return {
-      success: keywordResult.success,
-      intent: keywordResult.intent,
-      confidence: keywordResult.confidence,
-      taskList: keywordResult.taskList,
-      metadata: {
-        path: 'keyword-fallback',
-        usedSkills: [],
-        fallbackReason: executor
-          ? 'LLM failed, keyword confidence below threshold'
-          : 'No executor available',
-      },
-    };
   }
 
   return { parse };
@@ -101,11 +53,10 @@ export function createNLProcessor(
 
 async function executeLLMToolCalling(
   input: string,
-  llmConfig: ReturnType<typeof createLLMConfig>
-): Promise<NLResult | null> {
-  if (!llmConfig) return null;
+  llmConfig: LLMConfig
+): Promise<NLResult> {
   const llmClient = new LLMClient(llmConfig);
-  const tools = buildToolsFromTemplates();
+  const tools = buildAllTools();
   
   const llmResponse = await llmClient.complete('nl-processor-tool-calling', input, {}, { tools, toolChoice: 'auto' });
   
@@ -113,205 +64,49 @@ async function executeLLMToolCalling(
     const toolCall = llmResponse.tool_calls[0];
     const parsed = convertToolCallToSteps(toolCall);
     
-    if (parsed) {
-      const workflowSteps = parsed.steps.map(s => ({
-        ...s,
-        type: s.type || 'exec',
-        cli: s.cli || 'echo',
-        args: s.args || [],
-      }));
+    const workflowSteps = parsed.steps.map(s => ({
+      ...s,
+      type: s.type || 'exec',
+      cli: s.cli || 'echo',
+      args: s.args || [],
+    }));
 
-      const workflowYAML = YAML.stringify({ steps: workflowSteps });
-      return {
-        success: true,
-        intent: parsed.intent as IntentName,
-        confidence: llmResponse.confidence || 1.0,
-        workflowYAML,
-        params: parsed.params,
-        metadata: {
-          path: 'llm-tool-calling',
-          usedSkills: [],
-        },
-        taskList: createTaskListFromWorkflow(workflowYAML, input),
-      };
-    }
-  } else if (llmResponse.intent !== 'UNKNOWN') {
-    // If LLM recognized intent but no tool call, we might want to return it but keep fallback open.
-    // For now, let's treat it as a result if it has a workflow
-    if (llmResponse.workflow?.steps) {
-       const steps = llmResponse.workflow.steps as any[];
-       const workflowYAML = YAML.stringify({ steps });
-       return {
-         success: true,
-         intent: llmResponse.intent as IntentName,
-         confidence: llmResponse.confidence || 0.8,
-         workflowYAML,
-         metadata: {
-           path: 'llm-tool-calling',
-           usedSkills: [],
-         },
-         taskList: createTaskListFromWorkflow(workflowYAML, input),
-       };
-    }
-  }
-
-  return null;
-}
-
-
-async function executePipelineSkill(
-  registry: SkillRegistry,
-  executor: SkillExecutor,
-  context: NLContext,
-  skillContext: SkillContext,
-  threshold: number
-): Promise<NLResult | null> {
-  const pipelineSkill = registry.get('vectahub.pipeline');
-  if (!pipelineSkill) return null;
-
-  try {
-    const result = await executor.execute(
-      pipelineSkill,
-      context.input,
-      skillContext
-    );
-
-    if (result.success && result.data) {
-      if ((result.confidence ?? 0) < threshold) {
-        return null;
-      }
-      return buildSkillResult(result, [pipelineSkill.id], context.input);
-    }
-  } catch {
-    // ignore
-  }
-
-  return null;
-}
-
-async function executeIndividualSkills(
-  registry: SkillRegistry,
-  executor: SkillExecutor,
-  context: NLContext,
-  skillContext: SkillContext,
-  threshold: number
-): Promise<NLResult | null> {
-  const intentSkill = registry.get('vectahub.intent');
-  const workflowSkill = registry.get('vectahub.workflow');
-
-  if (!intentSkill || !workflowSkill) return null;
-
-  const usedSkills: string[] = [];
-  let lastIntent: string | undefined;
-  let lastConfidence = 0;
-  let intentResult: Record<string, unknown> | undefined;
-
-  usedSkills.push(intentSkill.id);
-  const intentInputContext: SkillContext = {
-    userInput: context.input,
-    sessionId: context.sessionId,
-  };
-
-  const intentResultData = await executor.execute(intentSkill, context.input, intentInputContext);
-
-  if (!intentResultData.success) {
-    logger.debug('Intent skill failed, falling back');
-    return null;
-  }
-
-  lastConfidence = intentResultData.confidence;
-  
-  if (intentResultData.data && typeof intentResultData.data === 'object') {
-    intentResult = intentResultData.data as Record<string, unknown>;
-    lastIntent = intentResult.intent as string;
-  }
-
-  if (lastConfidence < threshold) {
-    logger.debug(`Intent confidence ${lastConfidence} below threshold ${threshold}`);
-    return null;
-  }
-
-  usedSkills.push(workflowSkill.id);
-  const workflowInputContext: SkillContext = {
-    userInput: context.input,
-    sessionId: context.sessionId,
-  };
-
-  const workflowInput = {
-    intent: lastIntent || 'WORKFLOW_GENERATE',
-    params: intentResult?.params || {},
-    commands: [],
-    userInput: context.input,
-  };
-
-  const workflowResult = await executor.execute(workflowSkill, workflowInput, workflowInputContext);
-
-  if (!workflowResult.success) {
-    logger.debug('Workflow skill failed');
+    const workflowYAML = YAML.stringify({ steps: workflowSteps });
     return {
       success: true,
-      intent: lastIntent as NLResult['intent'],
-      confidence: lastConfidence,
+      intent: parsed.intent as IntentName,
+      confidence: llmResponse.confidence || 1.0,
+      workflowYAML,
+      params: parsed.params,
       metadata: {
-        path: 'skill-individual',
-        usedSkills,
+        path: 'llm-tool-calling',
+        usedSkills: [],
       },
+      taskList: createTaskListFromWorkflow(workflowYAML, input),
     };
   }
 
-  if (workflowResult.data && typeof workflowResult.data === 'object') {
-    const data = workflowResult.data as Record<string, unknown>;
-    if ('workflowYAML' in data) {
-      return buildSkillResult(
-        { success: true, data: workflowResult.data, confidence: workflowResult.confidence },
-        usedSkills,
-        context.input
-      );
-    }
+  if (llmResponse.intent !== 'UNKNOWN' && llmResponse.workflow?.steps) {
+    const steps = llmResponse.workflow.steps as any[];
+    const workflowYAML = YAML.stringify({ steps });
+    return {
+      success: true,
+      intent: llmResponse.intent as IntentName,
+      confidence: llmResponse.confidence || 0.8,
+      workflowYAML,
+      metadata: {
+        path: 'llm-tool-calling',
+        usedSkills: [],
+      },
+      taskList: createTaskListFromWorkflow(workflowYAML, input),
+    };
   }
 
-  return {
-    success: true,
-    intent: lastIntent as NLResult['intent'],
-    confidence: lastConfidence,
-    metadata: {
-      path: 'skill-individual',
-      usedSkills,
-    },
-  };
+  throw new Error('LLM failed to generate a result: no tool calls or workflow produced');
 }
 
-function buildSkillResult(
-  result: SkillResult<unknown>,
-  usedSkills: string[],
-  userInput: string
-): NLResult {
-  const data = result.data as Record<string, unknown> | undefined;
 
-  let workflowYAML: string | undefined;
-  let taskList: NLResult['taskList'];
-  if (data?.workflowYAML && typeof data.workflowYAML === 'string') {
-    workflowYAML = data.workflowYAML;
-    taskList = createTaskListFromWorkflow(data.workflowYAML, userInput);
-  }
 
-  const intent = data?.intent as NLResult['intent'];
-  const confidence = typeof data?.confidence === 'number' 
-    ? data.confidence 
-    : (result.confidence ?? 0);
-
-  return {
-    success: true,
-    intent,
-    workflowYAML,
-    confidence,
-    taskList,
-    metadata: {
-      path: 'skill-pipeline',
-      usedSkills,
-    },
-  };
-}
 
 function createTaskListFromWorkflow(workflowYAML: string, userInput: string): NLResult['taskList'] {
   try {

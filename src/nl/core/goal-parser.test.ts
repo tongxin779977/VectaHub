@@ -56,7 +56,7 @@ describe('parseGoal', () => {
     it('运行测试', () => {
       const goal = parseGoal('运行测试');
       expect(goal.action).toBe('run');
-      expect(goal.domains.some(d => d === 'npm' || d === 'test')).toBe(true);
+      expect(goal.domains.some(d => d === 'npm' || d === 'test' || d === 'testing')).toBe(true);
     });
   });
 
@@ -78,6 +78,33 @@ describe('parseGoal', () => {
       const goal = parseGoal(normalized);
       expect(goal.action).toBe('repair');
       expect(goal.domains).toContain('github-actions');
+    });
+  });
+
+  describe('否定检测', () => {
+    it('否定动作型意图应触发 needsClarification', () => {
+      const goal = parseGoal('不要修复 CI');
+      expect(goal.action).toBe('repair');
+      expect(goal.negationDetected).toBe(true);
+      expect(goal.needsClarification).toBe(true);
+    });
+
+    it('否定动作型意图（中文）', () => {
+      const goal = parseGoal('不想运行测试');
+      expect(goal.action).toBe('run');
+      expect(goal.negationDetected).toBe(true);
+      expect(goal.needsClarification).toBe(true);
+    });
+
+    it('查询型意图否定不应标记 negationDetected', () => {
+      const goal = parseGoal('不是要查询这个');
+      expect(goal.negationDetected).toBeUndefined();
+    });
+
+    it('无否定词时 negationDetected 为 undefined', () => {
+      const goal = parseGoal('修复 CI');
+      expect(goal.negationDetected).toBeUndefined();
+      expect(goal.needsClarification).toBe(false);
     });
   });
 });

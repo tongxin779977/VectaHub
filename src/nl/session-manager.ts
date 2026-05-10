@@ -15,6 +15,10 @@ const execAsync = promisify(exec);
 
 const DEFAULT_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
+const MAX_HISTORY_MESSAGES = 50;
+const TOKEN_LIMIT = 8000;
+const SUMMARY_THRESHOLD = 30;
+const CHARS_PER_TOKEN = 4;
 
 export interface SessionManagerOptions {
   sessionTimeoutMs?: number;
@@ -85,8 +89,8 @@ export class SessionManager {
   addMessage(sessionId: string, message: Message): void {
     const session = this.getOrCreateSession(sessionId);
     session.history.push(message);
-    if (session.history.length > 50) {
-      session.history = session.history.slice(-50);
+    if (session.history.length > MAX_HISTORY_MESSAGES) {
+      this.compactHistory(sessionId);
     }
     this.updateActivity(sessionId);
   }
@@ -97,6 +101,65 @@ export class SessionManager {
 
   addAssistantMessage(sessionId: string, content: string): void {
     this.addMessage(sessionId, { role: 'assistant', content });
+  }
+
+  estimateTokens(text: string): number {
+    let count = 0;
+    for (const ch of text) {
+      count += ch.charCodeAt(0) > 0x7f ? 1 : 1 / CHARS_PER_TOKEN;
+    }
+    return Math.ceil(count);
+  }
+
+  getSessionTokenCount(sessionId: string): number {
+    const session = this.getSession(sessionId);
+    if (!session) return 0;
+    return session.history.reduce((sum, msg) => sum + this.estimateTokens(msg.content), 0);
+  }
+
+  summarizeHistory(messages: Message[]): string {
+    if (messages.length === 0) return '';
+
+    const topics: string[] = [];
+    const actions: string[] = [];
+
+    for (const msg of messages) {
+      const content = msg.content.slice(0, 200);
+      if (msg.role === 'user') {
+        topics.push(content);
+      } else {
+        actions.push(content.slice(0, 100));
+      }
+    }
+
+    let summary = `[对话摘要: ${messages.length} 条消息]`;
+    if (topics.length > 0) {
+      summary += `\n用户话题: ${topics.slice(0, 3).join('; ')}`;
+    }
+    if (actions.length > 0) {
+      summary += `\n助手响应: ${actions.slice(0, 3).join('; ')}`;
+    }
+
+    return summary;
+  }
+
+  compactHistory(sessionId: string): void {
+    const session = this.getOrCreateSession(sessionId);
+    const totalTokens = this.getSessionTokenCount(sessionId);
+
+    if (session.history.length <= SUMMARY_THRESHOLD && totalTokens <= TOKEN_LIMIT) {
+      return;
+    }
+
+    const keepCount = Math.min(10, Math.floor(session.history.length / 3));
+    const toSummarize = session.history.slice(0, -keepCount);
+    const toKeep = session.history.slice(-keepCount);
+
+    const summary = this.summarizeHistory(toSummarize);
+    session.history = [
+      { role: 'assistant', content: summary },
+      ...toKeep,
+    ];
   }
 
   addRecentAction(sessionId: string, action: Omit<RecentAction, 'timestamp'>): void {

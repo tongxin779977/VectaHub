@@ -3,12 +3,12 @@ import { existsSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { createCoordinator, adaptAllTemplates } from '../nl/core/index.js';
-import { INTENT_TEMPLATES } from '../nl/templates/index.js';
 import { createSandboxManager, type SandboxManager } from '../sandbox/sandbox.js';
 import type { SandboxMode } from '../types/index.js';
 import { audit, getCurrentSessionId, AuditEventType } from '../utils/audit.js';
 import { createSkillExecutor } from '../skills/executor.js';
+import { processInput } from '../nl/orchestrator.js';
+import type { LLMConfig } from '../nl/llm.js';
 
 export interface Task {
   id: string;
@@ -47,34 +47,18 @@ export class SocketServer {
   }
 
   private async executeTask(input: string): Promise<string> {
-    const coordinator = createCoordinator(adaptAllTemplates(INTENT_TEMPLATES));
-    const matchResult = coordinator.match(input);
     const sessionId = getCurrentSessionId();
 
-    const intentLines: string[] = [];
-    for (const intent of matchResult.intents) {
-      audit.intentMatch(intent.intent, intent.confidence, intent.params as Record<string, unknown>, sessionId);
-      intentLines.push(`Intent: ${intent.intent} (confidence: ${intent.confidence.toFixed(2)})`);
-    }
-
-    const multiIntentHeader = matchResult.isMultiIntent
-      ? `Multi-Intent Detected (${matchResult.intents.length} intents)\n${'─'.repeat(40)}\n`
-      : '';
-
-    // Delegate to Skill system via Executor
-    // Note: Here we'd ideally lookup a specific skill based on the intent.
-    // For now, we provide a unified execution bridge.
     try {
-      // In a real implementation, we would map matchResult.intents[0].intent to a specific Skill object
-      // For RP-10, we've removed the hardcoded Git logic.
-      if (matchResult.intents.length > 0) {
-        return `${multiIntentHeader}${intentLines.join('\n')}\nExecution delegated to Skill System.`;
-      }
-    } catch (err) {
-      throw new Error(`Execution failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
+      const result = await processInput(input);
+      audit.intentMatch(result.intent ?? 'UNKNOWN', result.confidence, result.params as Record<string, unknown> ?? {}, sessionId);
 
-    return `${multiIntentHeader}${intentLines.join('\n')}\nNo specific execution path found.`;
+      const intentLine = `Intent: ${result.intent ?? 'UNKNOWN'} (confidence: ${result.confidence.toFixed(2)})`;
+      return `${intentLine}\nExecution delegated to Skill System.`;
+    } catch (err) {
+      audit.intentMatch('UNKNOWN', 0, {}, sessionId);
+      return `No match: ${err instanceof Error ? err.message : String(err)}`;
+    }
   }
 
   private async processTask(task: Task): Promise<void> {

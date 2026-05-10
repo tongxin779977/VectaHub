@@ -87,3 +87,51 @@ test('should add and update prompts', () => {
   const updated = manager.get('custom-prompt-v1');
   expect(updated?.metadata.effectiveness).toBe(0.9);
 });
+
+test('should select prompt by action and domains', () => {
+  const manager = createPromptManager();
+
+  const selected = manager.selectPrompt({
+    action: 'run',
+    domains: ['npm'],
+  });
+
+  expect(selected).toBeDefined();
+  expect(selected?.tags).toContain('npm');
+});
+
+test('should select parsing prompt for parsing category', () => {
+  const manager = createPromptManager();
+
+  const selected = manager.selectPrompt({ category: 'parsing' });
+
+  expect(selected).toBeDefined();
+  expect(selected?.category).toBe('parsing');
+});
+
+test('should select workflow prompt for workflow category', () => {
+  const manager = createPromptManager();
+
+  const selected = manager.selectPrompt({ category: 'workflow' });
+
+  expect(selected).toBeDefined();
+  expect(selected?.category).toBe('workflow');
+});
+
+test('should record outcome and update effectiveness', () => {
+  const manager = createPromptManager();
+  const promptBefore = manager.get(DEFAULT_INTENT_PARSER_ID);
+  const effectivenessBefore = promptBefore?.metadata.effectiveness ?? 0.5;
+
+  manager.recordOutcome(DEFAULT_INTENT_PARSER_ID, true);
+
+  const promptAfter = manager.get(DEFAULT_INTENT_PARSER_ID);
+  expect(promptAfter?.metadata.successRate).toBeDefined();
+  expect(promptAfter?.metadata.successRate).toBeGreaterThan(0);
+  expect(promptAfter?.metadata.effectiveness).not.toBe(effectivenessBefore);
+});
+
+test('should handle recordOutcome for non-existent prompt', () => {
+  const manager = createPromptManager();
+  expect(() => manager.recordOutcome('non-existent', true)).not.toThrow();
+});

@@ -253,14 +253,13 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
         break;
       }
       case 'dev': {
-        const { check } = await import('./commands/check.js');
         const { status } = await import('./commands/status.js');
         const { moduleCmd } = await import('./commands/module.js');
         const { validate } = await import('./commands/validate.js');
         const { test } = await import('./commands/test.js');
         const { build } = await import('./commands/build.js');
         const devCmd = new Command('dev').description('Development commands for multi-agent collaboration');
-        devCmd.addCommand(check).addCommand(status).addCommand(moduleCmd).addCommand(validate).addCommand(test).addCommand(build);
+        devCmd.addCommand(status).addCommand(moduleCmd).addCommand(validate).addCommand(test).addCommand(build);
         program.addCommand(devCmd, { hidden: true });
         loadedCommands.add('dev');
         break;

@@ -9,3 +9,6 @@ export { SecurityProtocolManager, getSecurityManager } from '../security-protoco
 export { getDefaultRules } from '../security-protocol/default-rules.js';
 
 export type { CommandDetection, SandboxMode } from '../types/index.js';
+
+export { createSemanticDetector } from './semantic-detector.js';
+export type { SemanticDetector, SemanticDetectionResult, ThreatType } from './semantic-detector.js';

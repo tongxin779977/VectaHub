@@ -8,7 +8,7 @@ export function createPackageScriptCapability(): Capability {
     id: CAPABILITY_ID,
 
     canHandle(goal: ParsedGoal, _context?: ProjectContext): CapabilityMatch {
-      const hasNpmDomain = goal.domains.includes('npm') || goal.domains.includes('test');
+      const hasNpmDomain = goal.domains.includes('npm') || goal.domains.includes('test') || goal.domains.includes('testing');
 
       if (!hasNpmDomain) {
         return { capabilityId: CAPABILITY_ID, score: 0, reason: 'domain not npm or test' };

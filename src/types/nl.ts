@@ -17,7 +17,25 @@ export type IntentName =
   | 'FILE_DIFF'
   | 'DOCKER_BUILD'
   | 'DIALOG_GREETING'
-  | 'UNKNOWN';
+  | 'UNKNOWN'
+  | 'workflow_generate'
+  | 'workflow_run'
+  | 'doctor'
+  | 'self_healing'
+  | 'file_find'
+  | 'file_read'
+  | 'file_edit'
+  | 'git_push'
+  | 'git_pull'
+  | 'git_commit'
+  | 'git_merge'
+  | 'git_branch'
+  | 'ci_diagnose'
+  | 'ci_rerun'
+  | 'tool_discover'
+  | 'tool_run'
+  | 'session_list'
+  | 'session_inspect';
 
 export interface IntentMatch {
   intent: IntentName;

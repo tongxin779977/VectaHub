@@ -10,7 +10,7 @@ export interface NLResult {
   workflow?: Workflow;
   params?: Record<string, unknown>; // Add params here
   metadata: {
-    path: 'skill-pipeline' | 'keyword-fallback' | 'keyword-match' | 'keyword-only' | 'coordinator' | 'coordinator-multi' | 'category-router' | 'direct-query' | 'dialog' | 'skill-individual' | 'no-match' | 'llm-tool-calling';
+    path: 'category-router' | 'llm-tool-calling' | 'no-match' | 'direct-query' | 'dialog';
     usedSkills?: string[];
     fallbackReason?: string;
     multiIntent?: MultiIntentResult;

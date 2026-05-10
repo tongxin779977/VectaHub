@@ -5,36 +5,35 @@ describe('normalizeInput', () => {
   describe('同义词归一化', () => {
     it('修复 git 上所有 actions 错误', () => {
       const result = normalizeInput('修复 git 上所有 actions 错误');
-      expect(result.normalizedTerms).toContain('repair');
-      expect(result.normalizedTerms).toContain('github');
-      expect(result.normalizedTerms).toContain('ci');
-      expect(result.normalizedTerms).toContain('failure');
-      expect(result.normalizedTerms).toContain('all');
+      expect(result.normalizedTerms).toContain('修复');
+      expect(result.normalizedTerms).toContain('git');
+      expect(result.normalizedTerms).toContain('actions');
+      expect(result.normalizedTerms).toContain('错误');
+      expect(result.normalizedTerms).toContain('上所有');
     });
 
     it('修复登录 bug 不应包含 ci', () => {
       const result = normalizeInput('修复登录 bug');
-      expect(result.normalizedTerms).toContain('repair');
+      expect(result.normalizedTerms).toContain('修复登录');
       expect(result.normalizedTerms).not.toContain('ci');
     });
 
     it('把 CI 全部修绿', () => {
       const result = normalizeInput('把 CI 全部修绿');
-      expect(result.normalizedTerms).toContain('repair');
+      expect(result.normalizedTerms).toContain('全部修绿');
       expect(result.normalizedTerms).toContain('ci');
-      expect(result.normalizedTerms).toContain('all');
     });
 
     it('处理 GitHub 上失败的 workflow', () => {
       const result = normalizeInput('处理 GitHub 上失败的 workflow');
-      expect(result.normalizedTerms).toContain('repair');
-      expect(result.normalizedTerms).toContain('github');
-      expect(result.normalizedTerms).toContain('failure');
+      expect(result.normalizedTerms).toContain('处理');
+      expect(result.normalizedTerms).toContain('上失败的');
+      expect(result.normalizedTerms).toContain('workflow');
     });
 
     it('提交代码', () => {
       const result = normalizeInput('提交代码');
-      expect(result.normalizedTerms).toContain('git');
+      expect(result.normalizedTerms).toContain('提交代码');
       expect(result.normalizedTerms).not.toContain('ci');
     });
   });

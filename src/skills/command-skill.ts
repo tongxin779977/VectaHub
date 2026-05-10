@@ -3,10 +3,6 @@ import { readFileSync, existsSync, readdirSync } from 'fs';
 import { join, extname } from 'path';
 import { execSync } from 'child_process';
 import { getVectaHubHome } from '../utils/paths.js';
-import { createCoordinator, type Coordinator } from '../nl/core/coordinator.js';
-import { adaptAllTemplates } from '../nl/core/adapter.js';
-import { INTENT_TEMPLATES } from '../nl/templates/index.js';
-import type { IntentPattern } from '../nl/types.js';
 
 const CORE_SKILLS = [
   {
@@ -52,13 +48,6 @@ export interface CommandSkill extends Skill {
   listFiles(dirPath: string): string[];
   executeCommand(command: string): string;
 }
-
-function createModuleCoordinator(): Coordinator {
-  const patterns: IntentPattern[] = adaptAllTemplates(INTENT_TEMPLATES);
-  return createCoordinator(patterns);
-}
-
-const moduleCoordinator = createModuleCoordinator();
 
 export function createCommandSkill(): CommandSkill {
   return {
@@ -340,15 +329,19 @@ function generateSuggestions(_input: string): string[] {
 }
 
 function fallbackToKeywordMatching(input: string): { success: boolean; data?: { type: string }; confidence?: number } {
-  const result = moduleCoordinator.match(input);
-
-  if (result.intents.length > 0 && result.intents[0].intent !== 'UNKNOWN' && result.intents[0].confidence >= 0.6) {
-    return {
-      success: true,
-      data: { type: 'keyword-match' },
-      confidence: result.intents[0].confidence,
-    };
+  const lowerInput = input.toLowerCase();
+  for (const skill of CORE_SKILLS) {
+    const matchedKeywords = skill.keywords.filter(kw => lowerInput.includes(kw));
+    if (matchedKeywords.length > 0) {
+      const confidence = matchedKeywords.length / skill.keywords.length;
+      if (confidence >= 0.6) {
+        return {
+          success: true,
+          data: { type: 'keyword-match' },
+          confidence,
+        };
+      }
+    }
   }
-
   return { success: false };
 }

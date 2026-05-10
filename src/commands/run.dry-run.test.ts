@@ -63,26 +63,41 @@ vi.mock('../skills/init.js', () => ({
   createSkillSystem: vi.fn(async () => ({ registry: {}, executor: {} })),
 }));
 
-vi.mock('../nl/core/index.js', () => ({
-  adaptAllTemplates: vi.fn(() => []),
-  createNLProcessor: vi.fn(() => ({
-    parse: vi.fn(async () => ({
-      success: true,
-      intent: 'GIT_WORKFLOW',
-      taskList: {
-        intent: 'GIT_WORKFLOW',
-        tasks: [
-          {
-            commands: [{ cli: 'git', args: ['status'] }],
-          },
-        ],
+vi.mock('../nl/orchestrator.js', () => ({
+  orchestrateIntent: vi.fn(async () => ({
+    steps: [
+      {
+        id: 'step_1',
+        description: 'Git status',
+        status: 'PENDING',
+        cli: 'git',
+        args: ['status'],
+        type: 'exec',
       },
-    })),
+    ],
+    plan: {
+      id: 'plan_dry',
+      label: 'Git status plan',
+      capabilityId: 'git-workflow',
+      goal: { action: 'analyze', scope: 'project' },
+      steps: [
+        {
+          id: 'step_1',
+          label: 'Git status',
+          type: 'command',
+          command: { cli: 'git', args: ['status'] },
+        },
+      ],
+      userReport: {
+        summaryTemplate: 'Dry run: git status',
+        nextActions: ['Check output'],
+        verificationSteps: ['Verify git status output'],
+      },
+    },
+    intentRecognitionMethod: 'capability',
+    matchedCapability: 'git-workflow',
+    score: 0.9,
   })),
-}));
-
-vi.mock('../nl/core/keyword-fallback.js', () => ({
-  createKeywordFallback: vi.fn(() => ({})),
 }));
 
 vi.mock('../nl/templates/index.js', () => ({

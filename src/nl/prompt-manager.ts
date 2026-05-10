@@ -250,7 +250,6 @@ export class PromptManager implements PromptRepository {
   constructor() {
     this.prompts = new Map();
     this.sessionManager = new SessionManager();
-    // 加载内置 Prompts
     for (const prompt of BUILTIN_PROMPTS) {
       this.prompts.set(prompt.id, prompt);
     }
@@ -285,6 +284,77 @@ export class PromptManager implements PromptRepository {
         },
       });
     }
+  }
+
+  selectPrompt(context: {
+    action?: string;
+    domains?: string[];
+    category?: string;
+    tags?: string[];
+  }): Prompt | undefined {
+    const candidates = Array.from(this.prompts.values());
+    if (candidates.length === 0) return undefined;
+
+    let best: Prompt | undefined;
+    let bestScore = -1;
+
+    for (const prompt of candidates) {
+      let score = 0;
+
+      if (context.category && prompt.category === context.category) {
+        score += 3;
+      }
+
+      if (context.action) {
+        const actionLower = context.action.toLowerCase();
+        if (prompt.tags.some(t => t.toLowerCase() === actionLower)) {
+          score += 2;
+        }
+      }
+
+      if (context.domains && context.domains.length > 0) {
+        for (const domain of context.domains) {
+          if (prompt.tags.some(t => t.toLowerCase() === domain.toLowerCase())) {
+            score += 2;
+          }
+        }
+      }
+
+      if (context.tags && context.tags.length > 0) {
+        for (const tag of context.tags) {
+          if (prompt.tags.some(t => t.toLowerCase() === tag.toLowerCase())) {
+            score += 1;
+          }
+        }
+      }
+
+      score += (prompt.metadata.effectiveness ?? 0.5) * 2;
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = prompt;
+      }
+    }
+
+    return best;
+  }
+
+  recordOutcome(promptId: string, success: boolean): void {
+    const prompt = this.prompts.get(promptId);
+    if (!prompt) return;
+
+    const currentRate = prompt.metadata.successRate ?? prompt.metadata.effectiveness ?? 0.5;
+    const alpha = 0.3;
+    const newRate = alpha * (success ? 1 : 0) + (1 - alpha) * currentRate;
+
+    this.update({
+      ...prompt,
+      metadata: {
+        ...prompt.metadata,
+        successRate: newRate,
+        effectiveness: newRate * 0.7 + (prompt.metadata.effectiveness ?? 0.5) * 0.3,
+      },
+    });
   }
 
   buildSystemPrompt(

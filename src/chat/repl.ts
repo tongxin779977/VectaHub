@@ -6,7 +6,7 @@ import type { ChatConfig } from './config.js';
 import type { SessionManager } from '../nl/session-manager.js';
 import type { NLResult } from '../nl/core/types.js';
 import { createLLMConfig, LLMClient } from '../nl/llm.js';
-import { buildToolsFromTemplates } from '../nl/tool-calling.js';
+import { buildAllTools } from '../nl/tool-calling.js';
 import { createUIRenderer } from './ui-renderer.js';
 import { createCommandManager, type CommandManager } from './command-manager.js';
 import type { Workflow, Step } from '../types/index.js';
@@ -165,7 +165,7 @@ export function createREPL(
           'intent-parser-chat',
           input,
           {},
-          { tools: buildToolsFromTemplates() }
+          { tools: buildAllTools() }
         );
       } catch {
         // NL processor remains the source of truth for workflow generation.

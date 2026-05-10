@@ -1,4 +1,3 @@
-export { check } from './check.js';
 export { status } from './status.js';
 export { moduleCmd } from './module.js';
 export { validate } from './validate.js';
