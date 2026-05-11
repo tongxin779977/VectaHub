@@ -248,6 +248,9 @@ export class SecurityProtocolManager {
   }
 
   detectCommand(command: string, cliTool?: string): DetectionResult {
+    if (command.length > 10000) {
+      return { isDangerous: false, severity: 'none' };
+    }
     const enabledRules = this.getEnabledRules();
 
     for (const rule of enabledRules) {

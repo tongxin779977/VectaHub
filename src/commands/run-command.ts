@@ -51,6 +51,24 @@ export const runCommandCmd = new Command('run-command')
       process.exit(1);
     }
 
+    if (options.mode === 'relaxed' && detectionResult.isDangerous) {
+      if (options.json) {
+        console.error(JSON.stringify({
+          ok: true,
+          warning: {
+            message: `Command flagged as ${detectionResult.severity} risk`,
+            rule: detectionResult.rule?.name,
+            matchedPattern: detectionResult.matchedPattern
+          }
+        }, null, 2));
+      } else {
+        console.warn(`⚠️  警告: 该命令被标记为 ${detectionResult.severity} 风险`);
+        console.warn(`   规则: ${detectionResult.rule?.name || 'Unknown'}`);
+        console.warn(`   匹配模式: ${detectionResult.matchedPattern}`);
+        console.warn(`   继续执行中...\n`);
+      }
+    }
+
     // 2. Dry run handling
     if (options.dryRun) {
       if (options.json) {

@@ -4,8 +4,6 @@ import process from 'node:process';
 
 process.setMaxListeners(100);
 
-process.removeAllListeners('warning');
-
 process.on('warning', (warning) => {
   if (warning.name === 'MaxListenersExceededWarning') {
     return;
@@ -90,6 +88,7 @@ import { completeWorkflowNames, completeTemplateNames, completeConfigCommands, c
 import { getBashCompletion, getZshCompletion, getFishCompletion } from './utils/completion-scripts.js';
 
 const loadedCommands = new Set<string>();
+const commandLoadErrors = new Map<string, string>();
 
 function removePlaceholderCommand(commandName: string): void {
   const existingCmd = program.commands.find(c => c.name() === commandName);
@@ -294,7 +293,9 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
       }
     }
   } catch (error) {
-    console.error(`⚠️  加载命令 ${commandName} 失败:`, (error as Error).message);
+    const msg = (error as Error).message || String(error);
+    commandLoadErrors.set(commandName, msg);
+    console.error(`⚠️  加载命令 ${commandName} 失败:`, msg);
   }
 }
 
@@ -587,7 +588,11 @@ for (const cmdInfo of lazyLoadableCommands) {
         const remainingArgs = process.argv.slice(cmdIndex + 1);
         await loadedCmd.parseAsync(remainingArgs, { from: 'user' });
       } else {
+        const loadError = commandLoadErrors.get(cmdName);
         console.error(`❌ Command '${cmdName}' failed to load properly`);
+        if (loadError) {
+          console.error(`   原因: ${loadError}`);
+        }
         process.exit(1);
       }
     });
