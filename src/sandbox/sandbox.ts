@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync, accessSync, constants } f
 import { join } from 'path';
 import { platform } from 'os';
 import { getVectaHubPath } from '../utils/paths.js';
-import { createHash } from 'crypto';
+import { createHash, timingSafeEqual } from 'crypto';
 import { createDetector } from './detector.js';
 import { CommandRuleEngine, createCommandRuleEngine, loadGlobalBlocklist, loadGlobalAllowlist, loadProjectBlocklist, loadProjectAllowlist } from '../command-rules/index.js';
 import { SANDBOX_EXEC_PATH, BWRAP_PATH, UNSHARE_PATH, SUDOERS_PATH, FALLBACK_PATH, DEFAULT_PROTECTED_DIRS } from './constants.js';
@@ -396,29 +396,40 @@ ${username} ALL=(ALL) NOPASSWD: ${UNSHARE_PATH}
     };
   }
 
-  validateCommandSignature(command: string, signature: string, maxAgeMs: number = 300000): SignatureValidation {
+  validateCommandSignature(command: string, signatureOrObj: string | CommandSignature, maxAgeMs: number = 300000): SignatureValidation {
     const currentTime = Date.now();
-    
-    for (let offset = 0; offset <= maxAgeMs; offset += 1000) {
-      const timestamp = currentTime - offset;
+
+    if (typeof signatureOrObj === 'object') {
+      const { signature, timestamp } = signatureOrObj;
+      const age = currentTime - timestamp;
+      if (age > maxAgeMs || age < 0) {
+        return { valid: false, message: '签名已过期或时间戳无效' };
+      }
       const data = `${command}:${timestamp}`;
-      const expectedSignature = createHash('sha256').update(data).digest('hex');
-      
-      if (expectedSignature === signature) {
-        const age = currentTime - timestamp;
-        if (age <= maxAgeMs) {
-          return {
-            valid: true,
-            message: `签名有效，命令生成于 ${age}ms 前`,
-          };
-        }
+      const expected = createHash('sha256').update(data).digest('hex');
+      if (this.timingSafeCompare(expected, signature)) {
+        return { valid: true, message: `签名有效，命令生成于 ${age}ms 前` };
+      }
+      return { valid: false, message: '签名不匹配' };
+    }
+
+    const signature = signatureOrObj;
+    const maxIterations = Math.min(maxAgeMs / 1000, 60);
+    for (let i = 0; i <= maxIterations; i++) {
+      const timestamp = currentTime - i * 1000;
+      const data = `${command}:${timestamp}`;
+      const expected = createHash('sha256').update(data).digest('hex');
+      if (this.timingSafeCompare(expected, signature)) {
+        return { valid: true, message: `签名有效，命令生成于 ${i * 1000}ms 前` };
       }
     }
-    
-    return {
-      valid: false,
-      message: '签名无效或已过期',
-    };
+
+    return { valid: false, message: '签名无效或已过期' };
+  }
+
+  private timingSafeCompare(a: string, b: string): boolean {
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(Buffer.from(a), Buffer.from(b));
   }
 
   async verifyCommandExecutable(cmd: string): Promise<{ verified: boolean; hash?: string; message: string }> {
