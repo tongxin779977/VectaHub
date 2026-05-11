@@ -150,7 +150,7 @@ class DiagnosticBridge {
                 if (typeof addr === 'object' && addr) {
                     this.port = addr.port;
                     try {
-                        await (0, promises_1.writeFile)(BRIDGE_PORT_FILE, String(this.port), 'utf-8');
+                        await (0, promises_1.writeFile)(BRIDGE_PORT_FILE, JSON.stringify({ port: this.port, token: this.token }), 'utf-8');
                     }
                     catch {
                         // directory may not exist

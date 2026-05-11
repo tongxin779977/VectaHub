@@ -45,7 +45,7 @@ async function runPlansSequentially(plans, runner, token) {
         if (token.isCancellationRequested) {
             throw new Error('cancelled');
         }
-        await runner.run(plan);
+        await runner.run(plan, { silent: true });
     }
 }
 function registerRunVerifyAllCommand(context, tasksProvider) {
