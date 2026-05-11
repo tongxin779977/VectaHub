@@ -45,7 +45,7 @@ vi.mock('../utils/logger.js', () => ({
   })),
 }));
 
-import { runTask } from './run-task.js';
+import { runTask, collectGitChanges, formatRunTaskJson } from './run-task.js';
 
 describe('runTask', () => {
   beforeEach(() => {
@@ -109,5 +109,46 @@ describe('runTask', () => {
 
     expect(result.success).toBe(false);
     expect(result.output).toContain('安全策略拦截');
+  });
+});
+
+describe('collectGitChanges', () => {
+  it('should return git change info when there are uncommitted changes', async () => {
+    const result = await collectGitChanges();
+    if (result) {
+      expect(result).toHaveProperty('shortStat');
+      expect(result).toHaveProperty('diffStat');
+      expect(result).toHaveProperty('changedFiles');
+      expect(Array.isArray(result.changedFiles)).toBe(true);
+    }
+  });
+
+  it('should return null when not in a git repo or no changes', async () => {
+    const result = await collectGitChanges();
+    expect(result === null || typeof result === 'object').toBe(true);
+  });
+});
+
+describe('formatRunTaskJson', () => {
+  it('should keep JSON payload concise for noisy agent output', () => {
+    const noisyOutput = [
+      'All tests passed successfully.',
+      'Warning: 256-color support not detected.',
+      'YOLO mode is enabled. All tool calls will be automatically approved.',
+      'Attempt 1 failed. Retrying with backoff... _GaxiosError: request failed',
+      'x'.repeat(5000),
+    ].join('\n');
+
+    const result = formatRunTaskJson({
+      success: true,
+      command: 'gemini -p "test"',
+      output: noisyOutput,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.output).not.toContain('YOLO mode is enabled');
+    expect(result.output).not.toContain('_GaxiosError');
+    expect(String(result.output).length).toBeLessThanOrEqual(1200);
+    expect(result.outputTruncated).toBe(true);
   });
 });

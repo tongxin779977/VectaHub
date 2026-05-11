@@ -191,12 +191,18 @@ class TasksViewProvider {
                     title: '重新解析文档任务'
                 }, 'refresh'));
                 for (const task of this.docTasks) {
+                    const icon = this.getIconForDocTaskStatus(task.status);
+                    const contextValue = task.status === 'running' ? 'docTask-running' : 'docTask';
                     items.push(new treeItems_js_1.TaskTreeItem(`${task.id}. ${task.label}`, {
-                        command: 'vectahubTasks.runDocTask',
+                        command: task.status === 'running' ? '' : 'vectahubTasks.runDocTask',
                         title: `执行任务 ${task.id}`,
                         arguments: [task]
-                    }, 'play'));
+                    }, icon, contextValue));
                 }
+                items.push(new treeItems_js_1.TaskTreeItem('启动全部任务', {
+                    command: 'vectahubTasks.runAllDocTasks',
+                    title: '一键启动全部文档任务'
+                }, 'run-all'));
                 const cliLabel = this.selectedAgentCli
                     ? `执行器: ${this.selectedAgentCli}`
                     : '选择执行器...';
@@ -378,6 +384,14 @@ class TasksViewProvider {
             case 'cancelled': return 'circle-slash';
             case 'needs-confirmation': return 'question';
             default: return 'warning';
+        }
+    }
+    getIconForDocTaskStatus(status) {
+        switch (status) {
+            case 'running': return 'loading~spin';
+            case 'success': return 'pass';
+            case 'failed': return 'error';
+            default: return 'play';
         }
     }
 }

@@ -293,14 +293,22 @@ steps:
     description: '根据 Agent CLI 工具的 help 输出和任务描述生成具体执行命令',
     category: 'generation',
     tags: ['agent-cmd', 'generation', 'agent-cli'],
-    systemTemplate: `你是命令生成器。根据 Agent CLI 工具的 --help 输出和任务描述，生成可直接执行的命令。
+    systemTemplate: `你是 prompt 工程师。根据 Agent CLI 工具的用法和任务信息，生成发送给该工具的详细执行指令。
 
-要求：
-- 输出 JSON 格式：{"command": "完整命令", "args": ["参数数组"], "explanation": "说明"}
-- 命令必须基于工具的实际用法
-- 不要添加 help 中不存在的参数
-- 如果工具需要交互式输入，使用非交互式参数
+核心原则：
+- 生成的 prompt 必须包含完整的任务上下文，不能丢失任何信息
+- prompt 必须明确要求 agent 先阅读参考文档，再按文档要求实现
+- prompt 必须包含任务编号、任务描述、参考文档路径
+- prompt 必须要求完成后运行项目测试验证
+- 如果工具支持非交互式参数（如 -p, --prompt, -y），使用这些参数
 - 只输出 JSON，不要添加额外说明
+
+输出格式：
+{
+  "command": "工具命令名",
+  "args": ["参数1", "参数2", ...],
+  "explanation": "说明"
+}
 
 工具名称：{{toolName}}
 工具 --help 输出：
@@ -310,8 +318,8 @@ steps:
 任务描述：{{taskLabel}}
 参考文档：{{docPath}}
 
-请按照项目要求进行开发。任务完成后运行项目测试验证。`,
-    userTemplate: '任务 {{taskId}}: {{taskLabel}}，请基于工具用法生成执行命令。',
+请生成完整的执行命令，确保 agent 收到的 prompt 包含所有必要信息。`,
+    userTemplate: '任务 {{taskId}}: {{taskLabel}}，请生成发送给 {{toolName}} 的完整执行命令。',
     variables: [
       { name: 'toolName', type: 'string', required: true },
       { name: 'helpOutput', type: 'string', required: true },
@@ -319,10 +327,16 @@ steps:
       { name: 'taskLabel', type: 'string', required: true },
       { name: 'docPath', type: 'string', required: true },
     ],
-    examples: [],
+    examples: [
+      {
+        input: { toolName: 'gemini', helpOutput: 'Usage: gemini [options]\n  -p, --prompt <text>  Prompt text\n  -y, --yes           Auto-approve', taskId: 'P0-1', taskLabel: '结账与反结账功能', docPath: '/path/to/需求清单.md' },
+        output: { command: 'gemini', args: ['-p', '请严格按照以下要求实现任务。\n\n任务编号：P0-1\n任务描述：结账与反结账功能\n\n请先阅读参考文档 /path/to/需求清单.md，找到任务 P0-1 的详细需求，然后按照文档要求完整实现该功能。\n\n实现要求：\n1. 严格遵循文档中的技术方案和接口定义\n2. 保持与现有代码风格一致\n3. 实现完成后，运行项目测试验证功能正确性', '-y'], explanation: '使用 -p 传入完整任务上下文，-y 自动确认' },
+      },
+    ],
     constraints: [
       { type: 'format', rule: '输出必须是合法的 JSON' },
       { type: 'content', rule: '必须包含 command 和 args 字段' },
+      { type: 'content', rule: 'args 中的 prompt 必须包含任务编号、任务描述和参考文档路径' },
     ],
     metadata: {
       author: 'VectaHub Team',

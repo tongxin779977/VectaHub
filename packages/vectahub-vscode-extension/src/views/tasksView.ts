@@ -9,9 +9,12 @@ import { DiagnosticTask, DiagnosticTaskStatus, VALID_DIAGNOSTIC_STATUSES, normal
 import { LongRunningTaskManager } from '../cli/longRunningTaskManager.js';
 import { getFailedTasks } from '../project/taskHistory.js';
 
+export type DocTaskStatus = 'pending' | 'running' | 'success' | 'failed';
+
 export interface DocTask {
   id: string;
   label: string;
+  status?: DocTaskStatus;
 }
 
 function djb2Hash(input: string): string {
@@ -187,12 +190,19 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
         }, 'refresh'));
 
         for (const task of this.docTasks) {
+          const icon = this.getIconForDocTaskStatus(task.status);
+          const contextValue = task.status === 'running' ? 'docTask-running' : 'docTask';
           items.push(new TaskTreeItem(`${task.id}. ${task.label}`, {
-            command: 'vectahubTasks.runDocTask',
+            command: task.status === 'running' ? '' : 'vectahubTasks.runDocTask',
             title: `执行任务 ${task.id}`,
             arguments: [task]
-          }, 'play'));
+          }, icon, contextValue));
         }
+
+        items.push(new TaskTreeItem('启动全部任务', {
+          command: 'vectahubTasks.runAllDocTasks',
+          title: '一键启动全部文档任务'
+        }, 'run-all'));
 
         const cliLabel = this.selectedAgentCli
           ? `执行器: ${this.selectedAgentCli}`
@@ -411,6 +421,15 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
       case 'cancelled': return 'circle-slash';
       case 'needs-confirmation': return 'question';
       default: return 'warning';
+    }
+  }
+
+  private getIconForDocTaskStatus(status?: string): string {
+    switch (status) {
+      case 'running': return 'loading~spin';
+      case 'success': return 'pass';
+      case 'failed': return 'error';
+      default: return 'play';
     }
   }
 }

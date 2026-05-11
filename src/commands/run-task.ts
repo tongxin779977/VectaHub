@@ -13,11 +13,48 @@ const execFileAsync = promisify(execFile);
 const logger = createConsoleLogger('run-task');
 const DEFAULT_AGENT_CLI_TIMEOUT = 600000;
 const agentCliTimeout = parseInt(process.env.AGENT_CLI_TIMEOUT || '', 10) || DEFAULT_AGENT_CLI_TIMEOUT;
+const MAX_JSON_OUTPUT_LENGTH = 1200;
+const NOISY_OUTPUT_PATTERNS = [
+  /YOLO mode is enabled\..*/i,
+  /Warning: 256-color support not detected\..*/i,
+  /Ripgrep is not available\..*/i,
+  /\(node:\d+\).*DeprecationWarning.*/i,
+  /Attempt \d+ failed\..*/i,
+  /\s+at\s.+/i,
+  /.*_GaxiosError:.*/i,
+  /.*FetchError\d*:.*/i,
+  /\s*(config|response|error):\s*\{.*/i,
+];
 
 interface GeneratedCommand {
   command: string;
   args: string[];
   explanation: string;
+}
+
+export interface GitChangeInfo {
+  diffStat: string;
+  shortStat: string;
+  changedFiles: string[];
+}
+
+export interface RunTaskResult {
+  success: boolean;
+  output: string;
+  command: string;
+  gitChanges?: GitChangeInfo;
+}
+
+export interface RunTaskJsonResult {
+  ok: boolean;
+  command: string;
+  output: string;
+  outputTruncated: boolean;
+  gitChanges?: {
+    shortStat: string;
+    changedFiles: string[];
+    diffStat: string;
+  };
 }
 
 function extractOutermostJson(str: string): string | null {
@@ -47,12 +84,79 @@ function buildCommandString(command: string, args: string[]): string {
 
 function buildDefaultPrompt(taskId: string, taskLabel: string, docPath: string): string {
   return [
-    '按照项目要求进行开发。',
+    '请严格按照以下要求实现任务。',
+    '',
     `任务编号：${taskId}`,
     `任务描述：${taskLabel}`,
     `参考文档：${docPath}`,
-    '请严格按文档要求实现，完成后运行项目测试验证。',
+    '',
+    '执行步骤：',
+    `1. 先阅读参考文档 ${docPath}，找到任务 ${taskId} 的详细需求`,
+    '2. 按照文档中的技术方案和接口定义完整实现',
+    '3. 保持与现有代码风格一致',
+    '4. 实现完成后，运行项目测试验证功能正确性',
   ].join('\n');
+}
+
+export async function collectGitChanges(): Promise<GitChangeInfo | null> {
+  try {
+    const { stdout: shortStat } = await execFileAsync('git', ['diff', '--shortstat'], { timeout: 5000 });
+    if (!shortStat.trim()) return null;
+
+    const { stdout: diffStat } = await execFileAsync('git', ['diff', '--stat'], { timeout: 5000 });
+    const changedFiles = diffStat.split('\n')
+      .map(line => {
+        const parts = line.split('|');
+        return parts[0]?.trim() || '';
+      })
+      .filter(f => f && !f.includes('file') && !f.includes('changed'));
+
+    return {
+      diffStat: diffStat.trim().substring(0, 3000),
+      shortStat: shortStat.trim(),
+      changedFiles,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function compactAgentOutput(output: string): { output: string; truncated: boolean } {
+  const cleanedLines = output
+    .split(/\r?\n/)
+    .map(line => line.trimEnd())
+    .filter(line => line.trim())
+    .filter(line => !NOISY_OUTPUT_PATTERNS.some(pattern => pattern.test(line)));
+
+  const compacted = cleanedLines.join('\n').trim();
+  if (compacted.length <= MAX_JSON_OUTPUT_LENGTH) {
+    return { output: compacted, truncated: compacted.length !== output.trim().length };
+  }
+
+  return {
+    output: `${compacted.substring(0, MAX_JSON_OUTPUT_LENGTH - 3).trimEnd()}...`,
+    truncated: true,
+  };
+}
+
+export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
+  const compacted = compactAgentOutput(result.output);
+  const jsonResult: RunTaskJsonResult = {
+    ok: result.success,
+    command: result.command,
+    output: compacted.output,
+    outputTruncated: compacted.truncated,
+  };
+
+  if (result.gitChanges) {
+    jsonResult.gitChanges = {
+      shortStat: result.gitChanges.shortStat,
+      changedFiles: result.gitChanges.changedFiles,
+      diffStat: result.gitChanges.diffStat,
+    };
+  }
+
+  return jsonResult;
 }
 
 export async function runTask(options: {
@@ -61,7 +165,7 @@ export async function runTask(options: {
   taskLabel?: string;
   doc?: string;
   dryRun?: boolean;
-}): Promise<{ success: boolean; output: string; command: string }> {
+}): Promise<RunTaskResult> {
   const { tool, taskId, taskLabel, doc, dryRun } = options;
 
   const llmConfig = createLLMConfig();
@@ -135,19 +239,22 @@ export async function runTask(options: {
     });
 
     const combinedOutput = stdout + (stderr ? '\n' + stderr : '');
+    const gitChanges = await collectGitChanges() ?? undefined;
     audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'COMPLETED', 'run-task');
     logger.info('任务执行成功');
-    console.log(combinedOutput);
-
-    return { success: true, output: combinedOutput, command: fullCommand };
+    if (gitChanges) {
+      logger.info(`变更文件: ${gitChanges.changedFiles.length} 个`);
+    }
+    return { success: true, output: combinedOutput, command: fullCommand, gitChanges };
   } catch (error) {
     const execError = error as any;
     const errStdout = execError.stdout?.toString?.() || '';
     const errStderr = execError.stderr?.toString?.() || '';
     const errOutput = errStdout + (errStderr ? '\n' + errStderr : '') || execError.message || String(error);
+    const gitChanges = await collectGitChanges() ?? undefined;
     audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'FAILED', 'run-task');
     logger.error(`任务执行失败: ${errOutput}`);
-    return { success: false, output: errOutput, command: fullCommand };
+    return { success: false, output: errOutput, command: fullCommand, gitChanges };
   }
 }
 
@@ -171,13 +278,12 @@ export const runTaskCmd = new Command('run-task')
       const result = await runTask(options);
 
       if (options.json) {
-        console.log(JSON.stringify({
-          ok: result.success,
-          command: result.command,
-          output: result.output.substring(0, 2000),
-        }, null, 2));
+        console.log(JSON.stringify(formatRunTaskJson(result), null, 2));
       } else if (!result.success) {
+        console.log(result.output);
         process.exit(1);
+      } else {
+        console.log(result.output);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
