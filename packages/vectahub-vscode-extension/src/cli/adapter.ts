@@ -47,13 +47,8 @@ export function getActiveWorkspaceFolder(): string | undefined {
 export async function runCli<T = unknown>(args: string[], options: CliOptions = {}): Promise<CliResult<T>> {
   const cliPath = getActualCliPath();
   
-  let spawnCmd = cliPath;
-  let spawnArgs = args;
-  
-  if (cliPath.startsWith('node ')) {
-    spawnCmd = 'node';
-    spawnArgs = [cliPath.slice(5), ...args];
-  }
+  const { cmd: spawnCmd, extraArgs: spawnExtra } = parseCliPath(cliPath);
+  const spawnArgs = [...spawnExtra, ...args];
   
   const cwd = options.cwd || getActiveWorkspaceFolder();
 

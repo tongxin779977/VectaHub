@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseTasksFromLLMOutput, findChunkBoundary, splitDocIntoChunks, mergeAndDeduplicateDocTasks, DocTask } from './parse-doc.js';
+import { parseTasksFromLLMOutput, findChunkBoundary, splitDocIntoChunks, mergeAndDeduplicateDocTasks, fallbackParseByRegex, DocTask } from './parse-doc.js';
 
 describe('parseTasksFromLLMOutput', () => {
   it('should parse valid JSON array', () => {
@@ -43,6 +43,10 @@ describe('parseTasksFromLLMOutput', () => {
 
   it('should throw when no JSON array found', () => {
     expect(() => parseTasksFromLLMOutput('no json here')).toThrow('LLM 输出中未找到有效的 JSON 数组');
+  });
+
+  it('should include output preview in error when no JSON array found', () => {
+    expect(() => parseTasksFromLLMOutput('This is plain text output')).toThrow(/输出前 200 字符/);
   });
 
   it('should throw on malformed JSON', () => {
@@ -156,5 +160,41 @@ describe('mergeAndDeduplicateDocTasks', () => {
     const seg2: DocTask[] = [];
     const merged = mergeAndDeduplicateDocTasks([seg1, seg2]);
     expect(merged).toHaveLength(1);
+  });
+});
+
+describe('fallbackParseByRegex', () => {
+  it('should match P0-N style heading IDs', () => {
+    const content = '### 📋 P0-1：结账与反结账功能\n### 📋 P0-2：凭证号断号管理';
+    const tasks = fallbackParseByRegex(content);
+    expect(tasks).toHaveLength(2);
+    expect(tasks[0].id).toBe('P0-1');
+    expect(tasks[0].label).toContain('结账');
+    expect(tasks[1].id).toBe('P0-2');
+    expect(tasks[1].label).toContain('凭证号');
+  });
+
+  it('should match P1-N style heading IDs', () => {
+    const content = '### P1-1：辅助核算标签\n### P1-2：置信度阈值配置';
+    const tasks = fallbackParseByRegex(content);
+    expect(tasks).toHaveLength(2);
+    expect(tasks[0].id).toBe('P1-1');
+    expect(tasks[1].id).toBe('P1-2');
+  });
+
+  it('should still match numeric IDs', () => {
+    const content = '### 1.1 实现登录\n### 1.2 实现注册';
+    const tasks = fallbackParseByRegex(content);
+    expect(tasks).toHaveLength(2);
+    expect(tasks[0].id).toBe('1.1');
+    expect(tasks[1].id).toBe('1.2');
+  });
+
+  it('should match P2-N style heading IDs', () => {
+    const content = '### P2-1：自定义报表配置\n### P2-2：结账检查清单';
+    const tasks = fallbackParseByRegex(content);
+    expect(tasks).toHaveLength(2);
+    expect(tasks[0].id).toBe('P2-1');
+    expect(tasks[1].id).toBe('P2-2');
   });
 });

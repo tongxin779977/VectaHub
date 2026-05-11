@@ -1,5 +1,5 @@
 import { ChildProcess } from 'child_process';
-import { exec } from 'child_process';
+import { execSync } from 'child_process';
 import { logToOutput } from '../ui/output.js';
 import { platform } from 'os';
 
@@ -34,7 +34,11 @@ export class ProcessManager {
       if (!child.killed && typeof child.pid === 'number' && child.pid > 0) {
         try {
           if (platform() === 'win32') {
-            exec(`taskkill /F /T /PID ${child.pid}`, () => {});
+            try {
+              execSync(`taskkill /F /T /PID ${child.pid}`, { stdio: 'ignore' });
+            } catch {
+              // 进程可能已终止，忽略错误
+            }
           } else {
             try {
               process.kill(-child.pid, 'SIGTERM');

@@ -13,12 +13,57 @@ interface WorkflowResult {
   error?: { code?: string; message?: string };
 }
 
+async function readQueueWithRetry(
+  tasksProvider: TasksViewProvider,
+  context: string
+): Promise<{ tasks: { status: string; id: string }[]; error?: string }> {
+  const first = tasksProvider.readDiagnosticQueue();
+  if (!first.error) return first;
+
+  const retry = await vscode.window.showWarningMessage(
+    `队列读取失败 (${context}): ${first.error}`,
+    '重试'
+  );
+  if (retry !== '重试') return first;
+
+  const second = tasksProvider.readDiagnosticQueue();
+  if (!second.error) return second;
+
+  logToOutput(`[processAllQueue] 重试后队列仍读取失败: ${second.error}`, 'warn');
+
+  const cliReady = await waitForCliReady();
+  if (cliReady) {
+    try {
+      const analysisResult = await runCli(
+        ['run', '--json', `诊断为什么诊断队列文件无法读取，错误信息: ${second.error}`]
+      );
+      if (analysisResult.ok && analysisResult.stdout) {
+        vscode.window.showErrorMessage(
+          `队列读取失败 (${context}): ${second.error}`,
+          '查看分析'
+        ).then(choice => {
+          if (choice === '查看分析') {
+            logToOutput(`[LLM 诊断] ${analysisResult.stdout}`);
+            vscode.commands.executeCommand('workbench.action.output.toggleOutput');
+          }
+        });
+        return second;
+      }
+    } catch (err) {
+      logToOutput(`[processAllQueue] LLM 诊断失败: ${err}`, 'warn');
+    }
+  }
+
+  vscode.window.showErrorMessage(`队列读取失败 (${context}): ${second.error}，请检查队列文件或重启 VSCode。`);
+  return second;
+}
+
 export function registerProcessAllQueueCommand(context: vscode.ExtensionContext, tasksProvider: TasksViewProvider) {
   const processAllDisposable = vscode.commands.registerCommand('vectahubTasks.processAllQueue', async () => {
     const ready = await waitForCliReady();
     if (!ready) return;
 
-    const beforeQueue = tasksProvider.readDiagnosticQueue();
+    const beforeQueue = await readQueueWithRetry(tasksProvider, '读取队列');
     const pendingCount = beforeQueue.tasks.filter(t => t.status === 'pending').length;
     const processingCount = beforeQueue.tasks.filter(t => t.status === 'processing').length;
 
@@ -93,7 +138,7 @@ export function registerProcessAllQueueCommand(context: vscode.ExtensionContext,
         return;
       }
 
-      const afterQueue = tasksProvider.readDiagnosticQueue();
+      const afterQueue = await readQueueWithRetry(tasksProvider, '处理后统计');
       if (afterQueue.error) {
         logToOutput(`[processAllQueue] 处理后队列读取失败: ${afterQueue.error}`, 'warn');
       }
@@ -196,7 +241,7 @@ export function registerProcessAllQueueCommand(context: vscode.ExtensionContext,
     const ready = await waitForCliReady();
     if (!ready) return;
 
-    const queue = tasksProvider.readDiagnosticQueue();
+    const queue = await readQueueWithRetry(tasksProvider, '清空队列');
     const taskCount = queue.tasks.length;
 
     if (taskCount === 0) {

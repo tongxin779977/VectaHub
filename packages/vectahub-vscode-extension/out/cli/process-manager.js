@@ -31,7 +31,12 @@ class ProcessManager {
             if (!child.killed && typeof child.pid === 'number' && child.pid > 0) {
                 try {
                     if ((0, os_1.platform)() === 'win32') {
-                        (0, child_process_1.exec)(`taskkill /F /T /PID ${child.pid}`, () => { });
+                        try {
+                            (0, child_process_1.execSync)(`taskkill /F /T /PID ${child.pid}`, { stdio: 'ignore' });
+                        }
+                        catch {
+                            // 进程可能已终止，忽略错误
+                        }
                     }
                     else {
                         try {

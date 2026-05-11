@@ -10,6 +10,8 @@ const logger = createConsoleLogger('parse-doc');
 
 const DEFAULT_MAX_DOC_LENGTH = 50000;
 const MAX_DOC_LENGTH = parseInt(process.env.PARSE_DOC_MAX_LENGTH || '', 10) || DEFAULT_MAX_DOC_LENGTH;
+const DEFAULT_MAX_RETRIES = 2;
+const MAX_RETRIES = parseInt(process.env.PARSE_DOC_MAX_RETRIES || '', 10) || DEFAULT_MAX_RETRIES;
 const CHUNK_BOUNDARY_SEARCH_RATIO = 0.2;
 
 const CONTINUATION_SUFFIX = '\n（接下一段）';
@@ -80,9 +82,9 @@ export function fallbackParseByRegex(content: string): DocTask[] {
   const tasks: DocTask[] = [];
   const lines = content.split('\n');
 
-  const headingPattern = /^#{1,6}\s+(\d+(?:\.\d+)*)\s+(.+)$/;
-  const listPattern = /^[-*]\s+(\d+(?:\.\d+)*)[.、:)]\s*(.+)$/;
-  const numberedPattern = /^(\d+(?:\.\d+)*)[.、:)]\s+(.+)$/;
+  const headingPattern = /^#{1,6}\s+.*?([A-Za-z]?\d+(?:[-.]\d+)*)\s*[:：\-]?\s*(.+)$/;
+  const listPattern = /^[-*]\s+.*?([A-Za-z]?\d+(?:[-.]\d+)*)[.、:)]\s*(.+)$/;
+  const numberedPattern = /^([A-Za-z]?\d+(?:[-.]\d+)*)[.、:)]\s+(.+)$/;
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -137,11 +139,7 @@ export async function parseDocTasks(filePath: string): Promise<DocTask[]> {
   const client = new LLMClient(llmConfig);
 
   if (docContent.length <= MAX_DOC_LENGTH) {
-    const rawOutput = await client.completeRaw(DOC_TASK_PARSER_ID, '请从文档中提取所有开发任务', {
-      docContent,
-    });
-
-    return parseTasksFromLLMOutput(rawOutput);
+    return callLLMWithRetry(client, docContent);
   }
 
   logger.info(`文档长度 ${docContent.length} 超出限制 ${MAX_DOC_LENGTH}，启用分段解析`);
@@ -162,11 +160,7 @@ export async function parseDocTasks(filePath: string): Promise<DocTask[]> {
     logger.info(`正在解析第 ${i + 1}/${chunks.length} 段 (${content.length} 字符)...`);
 
     try {
-      const rawOutput = await client.completeRaw(DOC_TASK_PARSER_ID, '请从文档中提取所有开发任务', {
-        docContent: content,
-      });
-
-      const tasks = parseTasksFromLLMOutput(rawOutput);
+      const tasks = await callLLMWithRetry(client, content);
       allTasks.push(tasks);
       logger.info(`第 ${i + 1}/${chunks.length} 段解析成功，得到 ${tasks.length} 个任务`);
     } catch (error) {
@@ -179,7 +173,13 @@ export async function parseDocTasks(filePath: string): Promise<DocTask[]> {
     logger.warn('所有分段 LLM 解析均失败，尝试正则 fallback');
     const fallbackTasks = fallbackParseByRegex(docContent);
     if (fallbackTasks.length === 0) {
-      throw new Error('所有分段解析均失败且正则 fallback 未提取到任务');
+      throw new Error(
+        `所有分段解析均失败且正则 fallback 未提取到任务。\n` +
+        `  文档路径: ${absolutePath}\n` +
+        `  文档大小: ${docContent.length} 字节\n` +
+        `  分段数: ${chunks.length}\n` +
+        `  LLM 提供商: ${llmConfig.provider}/${llmConfig.model}`
+      );
     }
     logger.info(`正则 fallback 解析到 ${fallbackTasks.length} 个任务`);
     return fallbackTasks;
@@ -189,6 +189,29 @@ export async function parseDocTasks(filePath: string): Promise<DocTask[]> {
   logger.info(`分段解析完成：${allTasks.length} 段共解析 ${merged.length} 个任务（已去重）`);
 
   return merged;
+}
+
+async function callLLMWithRetry(client: LLMClient, docContent: string): Promise<DocTask[]> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      if (attempt > 0) {
+        logger.info(`第 ${attempt + 1} 次尝试 (共 ${MAX_RETRIES + 1} 次)...`);
+      }
+      const rawOutput = await client.completeRaw(DOC_TASK_PARSER_ID, '请从文档中提取所有开发任务', {
+        docContent,
+      });
+      return parseTasksFromLLMOutput(rawOutput);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt < MAX_RETRIES) {
+        logger.warn(`第 ${attempt + 1} 次 LLM 解析失败: ${lastError.message}，将重试`);
+      }
+    }
+  }
+
+  throw lastError;
 }
 
 export function parseTasksFromLLMOutput(output: string): DocTask[] {
@@ -205,7 +228,8 @@ export function parseTasksFromLLMOutput(output: string): DocTask[] {
   }
 
   if (candidates.length === 0) {
-    throw new Error('LLM 输出中未找到有效的 JSON 数组');
+    const preview = cleaned.substring(0, 200).replace(/\n/g, '\\n');
+    throw new Error(`LLM 输出中未找到有效的 JSON 数组 (输出前 200 字符: ${preview})`);
   }
 
   let tasks: DocTask[] | null = null;

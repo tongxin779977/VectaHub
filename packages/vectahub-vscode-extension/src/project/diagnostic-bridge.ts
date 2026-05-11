@@ -141,7 +141,7 @@ export class DiagnosticBridge implements vscode.Disposable {
         if (typeof addr === 'object' && addr) {
           this.port = addr.port;
           try {
-            await writeFile(BRIDGE_PORT_FILE, String(this.port), 'utf-8');
+            await writeFile(BRIDGE_PORT_FILE, JSON.stringify({ port: this.port, token: this.token }), 'utf-8');
           } catch {
             // directory may not exist
           }

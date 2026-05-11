@@ -27,14 +27,35 @@ export interface VSCodeBridgeResponse {
   error?: string;
 }
 
-export async function getBridgePort(): Promise<number> {
+export interface BridgeInfo {
+  port: number;
+  token?: string;
+}
+
+export async function getBridgeInfo(): Promise<BridgeInfo> {
   const portFile = getVectaHubPath('bridge-port');
   const content = await readFile(portFile, 'utf-8');
-  const port = parseInt(content.trim(), 10);
-  if (isNaN(port) || port <= 0) {
-    throw new Error(`Invalid bridge port: ${content.trim()}`);
+  const trimmed = content.trim();
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (typeof parsed.port === 'number' && parsed.port > 0) {
+      return { port: parsed.port, token: parsed.token };
+    }
+  } catch {
+    // fallback: plain number format (backward compatible)
   }
-  return port;
+
+  const port = parseInt(trimmed, 10);
+  if (isNaN(port) || port <= 0) {
+    throw new Error(`Invalid bridge port: ${trimmed}`);
+  }
+  return { port };
+}
+
+export async function getBridgePort(): Promise<number> {
+  const info = await getBridgeInfo();
+  return info.port;
 }
 
 export async function fetchDiagnosticsFromBridge(options: {
@@ -42,7 +63,8 @@ export async function fetchDiagnosticsFromBridge(options: {
   severity?: string;
   port?: number;
 } = {}): Promise<VSCodeBridgeResponse> {
-  const port = options.port ?? await getBridgePort();
+  const info = await getBridgeInfo();
+  const port = options.port ?? info.port;
 
   const url = new URL(`http://127.0.0.1:${port}/api/diagnostics`);
   if (options.file) {
@@ -52,7 +74,12 @@ export async function fetchDiagnosticsFromBridge(options: {
     url.searchParams.set('severity', options.severity);
   }
 
-  const resp = await fetch(url.toString());
+  const headers: Record<string, string> = {};
+  if (info.token) {
+    headers['Authorization'] = `Bearer ${info.token}`;
+  }
+
+  const resp = await fetch(url.toString(), { headers });
   if (!resp.ok) {
     throw new Error(`Bridge returned HTTP ${resp.status}`);
   }
