@@ -314,6 +314,111 @@ export class LLMClient {
     }
   }
 
+  async completeRaw(promptId: string, userInput: string, context?: Record<string, string>): Promise<string> {
+    const systemPrompt = this.promptManager.buildSystemPrompt(promptId, context, this.sessionId);
+
+    let response: Response;
+    if (this.config.provider === 'openai' || this.config.provider === 'ollama' || this.config.provider === 'groq') {
+      response = await this.callOpenAICompatibleRaw(userInput, systemPrompt);
+    } else if (this.config.provider === 'anthropic') {
+      response = await this.callAnthropicRaw(userInput, systemPrompt);
+    } else {
+      throw new Error(`Unsupported provider: ${this.config.provider}`);
+    }
+
+    const data = await response.json();
+
+    if (this.config.provider === 'anthropic') {
+      const anthropicData = data as { content?: { text?: string }[] };
+      return anthropicData.content?.[0]?.text || '';
+    }
+
+    const openAIData = data as { choices?: { message?: { content?: string } }[] };
+    return openAIData.choices?.[0]?.message?.content || '';
+  }
+
+  private async callOpenAICompatibleRaw(userInput: string, systemPrompt: string): Promise<Response> {
+    const apiKey = this.config.apiKey;
+    const baseUrl = this.config.baseUrl;
+
+    if (!baseUrl) {
+      throw new Error('Base URL is not configured');
+    }
+
+    const controller = new AbortController();
+    const timeout = this.config.timeout || 30000;
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    try {
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: this.config.model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userInput },
+          ],
+          temperature: 0.1,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
+      }
+
+      return response;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  private async callAnthropicRaw(userInput: string, systemPrompt: string): Promise<Response> {
+    const apiKey = this.config.apiKey;
+
+    if (!apiKey) {
+      throw new Error('API key is not configured');
+    }
+
+    const controller = new AbortController();
+    const timeout = this.config.timeout || 30000;
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: this.config.model,
+          max_tokens: 4096,
+          system: systemPrompt,
+          messages: [
+            { role: 'user', content: userInput },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Anthropic API error: ${response.status} - ${errorText}`);
+      }
+
+      return response;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
   async generateYAMLWorkflow(userInput: string): Promise<string> {
     const systemPrompt = this.promptManager.buildSystemPrompt(DEFAULT_WORKFLOW_YAML_ID);
     const skill = createLLMDialogControlSkill(this.config, { maxRetries: 3 });

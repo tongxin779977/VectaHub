@@ -259,6 +259,20 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
         loadedCommands.add('vscode');
         break;
       }
+      case 'parse-doc': {
+        const { parseDocCmd } = await import('./commands/parse-doc.js');
+        removePlaceholderCommand('parse-doc');
+        program.addCommand(parseDocCmd);
+        loadedCommands.add('parse-doc');
+        break;
+      }
+      case 'run-task': {
+        const { runTaskCmd } = await import('./commands/run-task.js');
+        removePlaceholderCommand('run-task');
+        program.addCommand(runTaskCmd);
+        loadedCommands.add('run-task');
+        break;
+      }
       case 'dev': {
         const { status } = await import('./commands/status.js');
         const { moduleCmd } = await import('./commands/module.js');
@@ -269,6 +283,13 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
         devCmd.addCommand(status).addCommand(moduleCmd).addCommand(validate).addCommand(test).addCommand(build);
         program.addCommand(devCmd, { hidden: true });
         loadedCommands.add('dev');
+        break;
+      }
+      case 'queue': {
+        const { queueCmd } = await import('./commands/queue.js');
+        removePlaceholderCommand('queue');
+        program.addCommand(queueCmd);
+        loadedCommands.add('queue');
         break;
       }
     }
@@ -420,11 +441,13 @@ const setupCmd = new Command('setup')
     if (!summary.overallSuccess) {
       console.log('\n⚠️  安装未完全成功，部分功能可能不可用。');
       console.log('💡 重新运行 `vectahub setup` 可修复问题。\n');
+      process.exit(1);
     } else {
       const config = loadSetupConfig();
       config.first_run_completed = true;
       saveSetupConfig(config);
       console.log('\n🎉 安装完成！所有组件已就绪。\n');
+      process.exit(0);
     }
   });
 
@@ -534,6 +557,9 @@ const lazyLoadableCommands = [
   { name: 'export', description: '导出工作流' },
   { name: 'import', description: '导入工作流' },
   { name: 'vscode', description: 'VSCode IDE integration commands' },
+  { name: 'parse-doc', description: '解析开发文档，提取结构化任务列表' },
+  { name: 'run-task', description: '执行文档任务：调用 Agent CLI 执行开发任务' },
+  { name: 'queue', description: '管理诊断队列' },
   { name: 'dev', description: '开发命令' },
 ];
 

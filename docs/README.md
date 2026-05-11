@@ -34,6 +34,17 @@
 | [VS Code 插件任务](./v2/vscode-extension-tasks.md) | VS Code 插件深层集成任务 |
 | [跨项目效率任务](./v2/cross-project-productivity.md) | 项目任务识别、跨项目依赖联调设计 |
 
+## 3. 治理规范 (Governance)
+
+面向所有 vibecoding 场景，确保 AI 辅助编码的一致性。
+
+| 文件 | 位置 | 说明 |
+|------|------|------|
+| [Vibecoding 治理原则](../.agent/vibecoding-governance.md) | `.agent/` | 全局原则层（跨工具、跨项目，alwaysApply） |
+| [文档检索 Skill](../.agent/skills/vibecoding-context-loader/SKILL.md) | `.agent/skills/` | Token-Smart 文档按需加载（on-demand） |
+| [代码风格指南](../.trae/rules/code-style-guide.md) | `.trae/rules/` | V1 TypeScript 风格细则 |
+| [依赖管理策略](../.trae/rules/dependency-policy.md) | `.trae/rules/` | V1 依赖白名单与审批流程 |
+
 ## 阅读路径
 
 **新任核心开发者:**

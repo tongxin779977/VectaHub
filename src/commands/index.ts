@@ -18,3 +18,5 @@ export { scheduleCmd } from './schedule.js';
 export { daemonCmd } from './daemon.js';
 export { templatesCmd, templatesUseCmd, templatesSaveCmd } from './templates.js';
 export { chatCmd } from './chat.js';
+export { parseDocCmd } from './parse-doc.js';
+export { runTaskCmd } from './run-task.js';

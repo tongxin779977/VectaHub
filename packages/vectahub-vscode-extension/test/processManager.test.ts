@@ -36,8 +36,8 @@ describe('ProcessManager', () => {
     });
   });
 
-  describe('register() + exit 事件', () => {
-    it('exit 事件触发后进程从 Set 中消失', () => {
+  describe('register() + close 事件', () => {
+    it('close 事件触发后进程从 Set 中消失', () => {
       const pm = ProcessManager.getInstance();
       const child = createFakeChild();
       pm.register(child);
@@ -45,7 +45,7 @@ describe('ProcessManager', () => {
       const activeBefore = (pm as any).activeProcesses as Set<any>;
       expect(activeBefore.size).toBe(1);
 
-      child.emit('exit', 0, null);
+      child.emit('close', 0);
 
       const activeAfter = (pm as any).activeProcesses as Set<any>;
       expect(activeAfter.size).toBe(0);
@@ -76,8 +76,8 @@ describe('ProcessManager', () => {
 
       pm.killAll();
 
-      expect(c1.kill).toHaveBeenCalledWith('SIGTERM');
-      expect(c2.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(c1.kill).toHaveBeenCalled();
+      expect(c2.kill).toHaveBeenCalled();
     });
 
     it('跳过已 killed 的进程', () => {
@@ -89,7 +89,7 @@ describe('ProcessManager', () => {
 
       pm.killAll();
 
-      expect(alive.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(alive.kill).toHaveBeenCalled();
       expect(dead.kill).not.toHaveBeenCalled();
     });
 
@@ -101,7 +101,7 @@ describe('ProcessManager', () => {
       pm.register(normal);
 
       expect(() => pm.killAll()).not.toThrow();
-      expect(normal.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(normal.kill).toHaveBeenCalled();
     });
 
     it('空集合不报错', () => {

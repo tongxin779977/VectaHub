@@ -23,6 +23,7 @@ vi.mock('./first-run-wizard.js', () => ({
     priority: [],
   }),
   saveConfig: vi.fn(),
+  closeRl: vi.fn(),
 }));
 
 // Mock cli-scanner modules used by createDefaultInstaller

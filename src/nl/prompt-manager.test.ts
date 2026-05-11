@@ -3,6 +3,8 @@ import {
   createPromptManager,
   DEFAULT_INTENT_PARSER_ID,
   DEFAULT_WORKFLOW_YAML_ID,
+  DOC_TASK_PARSER_ID,
+  AGENT_CMD_GENERATOR_ID,
 } from './prompt-manager.js';
 
 test('should create prompt manager with built-in prompts', () => {
@@ -134,4 +136,75 @@ test('should record outcome and update effectiveness', () => {
 test('should handle recordOutcome for non-existent prompt', () => {
   const manager = createPromptManager();
   expect(() => manager.recordOutcome('non-existent', true)).not.toThrow();
+});
+
+test('should register doc-task-parser prompt', () => {
+  const manager = createPromptManager();
+  const prompt = manager.get(DOC_TASK_PARSER_ID);
+
+  expect(prompt).toBeDefined();
+  expect(prompt?.id).toBe(DOC_TASK_PARSER_ID);
+  expect(prompt?.category).toBe('parsing');
+  expect(prompt?.tags).toContain('doc-task');
+  expect(prompt?.systemTemplate).toContain('{{docContent}}');
+  expect(prompt?.variables.some(v => v.name === 'docContent')).toBe(true);
+  expect(prompt?.constraints.length).toBeGreaterThan(0);
+});
+
+test('should register agent-cmd-generator prompt', () => {
+  const manager = createPromptManager();
+  const prompt = manager.get(AGENT_CMD_GENERATOR_ID);
+
+  expect(prompt).toBeDefined();
+  expect(prompt?.id).toBe(AGENT_CMD_GENERATOR_ID);
+  expect(prompt?.category).toBe('generation');
+  expect(prompt?.tags).toContain('agent-cmd');
+  expect(prompt?.systemTemplate).toContain('{{toolName}}');
+  expect(prompt?.systemTemplate).toContain('{{helpOutput}}');
+  expect(prompt?.systemTemplate).toContain('{{taskId}}');
+  expect(prompt?.variables.some(v => v.name === 'toolName')).toBe(true);
+  expect(prompt?.variables.some(v => v.name === 'helpOutput')).toBe(true);
+});
+
+test('should build doc-task-parser system prompt with docContent', () => {
+  const manager = createPromptManager();
+  const docContent = '## 1. 实现登录\n### 1.1 前端表单';
+
+  const systemPrompt = manager.buildSystemPrompt(DOC_TASK_PARSER_ID, {
+    docContent,
+  });
+
+  expect(systemPrompt).toContain('## 1. 实现登录');
+  expect(systemPrompt).toContain('### 1.1 前端表单');
+  expect(systemPrompt).toContain('JSON 数组');
+});
+
+test('should build agent-cmd-generator system prompt with tool info', () => {
+  const manager = createPromptManager();
+
+  const systemPrompt = manager.buildSystemPrompt(AGENT_CMD_GENERATOR_ID, {
+    toolName: 'aider',
+    helpOutput: 'Usage: aider [options]',
+    taskId: '1.1',
+    taskLabel: '实现登录',
+    docPath: '/path/to/doc.md',
+  });
+
+  expect(systemPrompt).toContain('aider');
+  expect(systemPrompt).toContain('Usage: aider [options]');
+  expect(systemPrompt).toContain('1.1');
+  expect(systemPrompt).toContain('实现登录');
+  expect(systemPrompt).toContain('/path/to/doc.md');
+});
+
+test('should list doc-task prompts by category', () => {
+  const manager = createPromptManager();
+
+  const parsingPrompts = manager.list('parsing');
+  const docTaskParser = parsingPrompts.find(p => p.id === DOC_TASK_PARSER_ID);
+  expect(docTaskParser).toBeDefined();
+
+  const generationPrompts = manager.list('generation');
+  const agentCmdGenerator = generationPrompts.find(p => p.id === AGENT_CMD_GENERATOR_ID);
+  expect(agentCmdGenerator).toBeDefined();
 });

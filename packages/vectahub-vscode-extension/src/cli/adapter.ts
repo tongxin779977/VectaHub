@@ -5,6 +5,7 @@ import { getGlobalCliPath } from '../extension.js';
 import { CliResult, CliOptions } from './types.js';
 import { logToOutput } from '../ui/output.js';
 import path from 'path';
+import { homedir } from 'os';
 import { ProcessManager } from './process-manager.js';
 
 let globalContext: vscode.ExtensionContext;
@@ -22,7 +23,7 @@ function getActualCliPath(): string {
 }
 
 export function getVectaHubHome(): string {
-  return path.join(globalContext.globalStorageUri.fsPath, 'vectahub-home');
+  return path.join(homedir(), '.vectahub');
 }
 
 export async function runCli<T = unknown>(args: string[], options: CliOptions = {}): Promise<CliResult<T>> {
@@ -37,8 +38,8 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
   }
   
   const cwd = options.cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  
-  const vectahubHome = path.join(globalContext.globalStorageUri.fsPath, 'vectahub-home');
+
+  const vectahubHome = path.join(homedir(), '.vectahub');
   
   const env = {
     ...process.env,
@@ -55,7 +56,9 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
     const child = spawn(spawnCmd, spawnArgs, {
       cwd,
       env,
-      timeout: options.timeout || 30000
+      timeout: options.timeout || 30000,
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe']
     });
 
     ProcessManager.getInstance().register(child);

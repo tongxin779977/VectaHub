@@ -1,5 +1,5 @@
-import { createInterface } from 'readline';
-import { createConfigDir, initConfigFile, configureLLMProvider } from './first-run-wizard.js';
+import { createInterface, type Interface } from 'readline';
+import { createConfigDir, initConfigFile, configureLLMProvider, closeRl as closeSetupRl } from './first-run-wizard.js';
 import { scanCLITools, updateCLIToolConfig } from './cli-scanner.js';
 
 export type InstallationPhase = 'critical' | 'secondary' | 'tertiary';
@@ -48,6 +48,23 @@ export function createPriorityInstaller(
   steps: InstallationStep[],
   options?: InstallerOptions,
 ): Installer {
+  let rl: Interface | null = null;
+
+  const getRl = (): Interface => {
+    if (!rl) {
+      rl = createInterface({ input: process.stdin, output: process.stdout });
+    }
+    return rl;
+  };
+
+  const cleanup = (): void => {
+    if (rl) {
+      rl.close();
+      rl = null;
+    }
+    closeSetupRl();
+  };
+
   return {
     steps,
     run: async (): Promise<InstallationSummary> => {
@@ -70,108 +87,112 @@ export function createPriorityInstaller(
       let blocked = false;
       let secondaryFailed = false;
 
-      // Execute critical phase
-      for (const step of criticalSteps) {
-        const label = PHASE_LABELS.critical;
-        const maxRetries = options?.maxRetries ?? 3;
-        let retryCount = 0;
-        let success = false;
-        let lastResult: StepResult | null = null;
+      try {
+        // Execute critical phase
+        for (const step of criticalSteps) {
+          const label = PHASE_LABELS.critical;
+          const maxRetries = options?.maxRetries ?? 3;
+          let retryCount = 0;
+          let success = false;
+          let lastResult: StepResult | null = null;
 
-        console.log(`🔧 [${label}] 正在: ${step.name}`);
-
-        while (retryCount <= maxRetries) {
-          const result = await step.execute();
-          lastResult = result;
-
-          if (result.success) {
-            success = true;
-            break;
-          }
-
-          const isRetryable = step.retryable !== false;
-          if (!isRetryable || !options?.askRetry || retryCount >= maxRetries) {
-            break;
-          }
-
-          retryCount++;
-          const shouldRetry = await options.askRetry(step.name);
-          if (!shouldRetry) {
-            break;
-          }
-
-          console.log(`🔄 [${label}] 重试 ${retryCount}/${maxRetries}: ${step.name}`);
-        }
-
-        if (success) {
-          console.log(`✅ [${label}] 完成: ${step.name}`);
-          phases.critical.succeeded++;
-        } else {
-          const reason = lastResult?.reason || 'unknown error';
-          console.log(`❌ [${label}] 失败: ${step.name} — ${reason}`);
-          phases.critical.failed++;
-          blocked = true;
-          break;
-        }
-      }
-
-      // Log critical phase summary
-      const criticalLabel = PHASE_LABELS.critical;
-      console.log(
-        `📋 [${criticalLabel}] 结果: ${phases.critical.succeeded}/${phases.critical.total} 成功`,
-      );
-
-      // Execute secondary phase if not blocked
-      if (!blocked) {
-        for (const step of secondarySteps) {
-          const label = PHASE_LABELS.secondary;
           console.log(`🔧 [${label}] 正在: ${step.name}`);
 
-          const result = await step.execute();
+          while (retryCount <= maxRetries) {
+            const result = await step.execute();
+            lastResult = result;
 
-          if (result.success) {
+            if (result.success) {
+              success = true;
+              break;
+            }
+
+            const isRetryable = step.retryable !== false;
+            if (!isRetryable || !options?.askRetry || retryCount >= maxRetries) {
+              break;
+            }
+
+            retryCount++;
+            const shouldRetry = await options.askRetry(step.name);
+            if (!shouldRetry) {
+              break;
+            }
+
+            console.log(`🔄 [${label}] 重试 ${retryCount}/${maxRetries}: ${step.name}`);
+          }
+
+          if (success) {
             console.log(`✅ [${label}] 完成: ${step.name}`);
-            phases.secondary.succeeded++;
+            phases.critical.succeeded++;
           } else {
-            const reason = result.reason || 'unknown error';
+            const reason = lastResult?.reason || 'unknown error';
             console.log(`❌ [${label}] 失败: ${step.name} — ${reason}`);
-            phases.secondary.failed++;
-            secondaryFailed = true;
-            // Continue to next step (tolerate failures)
+            phases.critical.failed++;
+            blocked = true;
+            break;
           }
         }
 
-        // Log secondary phase summary
-        const secondaryLabel = PHASE_LABELS.secondary;
+        // Log critical phase summary
+        const criticalLabel = PHASE_LABELS.critical;
         console.log(
-          `📋 [${secondaryLabel}] 结果: ${phases.secondary.succeeded}/${phases.secondary.total} 成功`,
+          `📋 [${criticalLabel}] 结果: ${phases.critical.succeeded}/${phases.critical.total} 成功`,
         );
-      }
 
-      // Execute tertiary phase if not blocked
-      if (!blocked) {
-        for (const step of tertiarySteps) {
-          const label = PHASE_LABELS.tertiary;
-          console.log(`🔧 [${label}] 正在: ${step.name}`);
+        // Execute secondary phase if not blocked
+        if (!blocked) {
+          for (const step of secondarySteps) {
+            const label = PHASE_LABELS.secondary;
+            console.log(`🔧 [${label}] 正在: ${step.name}`);
 
-          const result = await step.execute();
+            const result = await step.execute();
 
-          if (result.success) {
-            console.log(`✅ [${label}] 完成: ${step.name}`);
-            phases.tertiary.succeeded++;
-          } else {
-            const reason = result.reason || 'unknown error';
-            console.warn(`⚠️ [${label}] 步骤失败: ${step.name} — ${reason}`);
-            phases.tertiary.failed++;
-            // Continue to next step (silent failures)
+            if (result.success) {
+              console.log(`✅ [${label}] 完成: ${step.name}`);
+              phases.secondary.succeeded++;
+            } else {
+              const reason = result.reason || 'unknown error';
+              console.log(`❌ [${label}] 失败: ${step.name} — ${reason}`);
+              phases.secondary.failed++;
+              secondaryFailed = true;
+              // Continue to next step (tolerate failures)
+            }
           }
+
+          // Log secondary phase summary
+          const secondaryLabel = PHASE_LABELS.secondary;
+          console.log(
+            `📋 [${secondaryLabel}] 结果: ${phases.secondary.succeeded}/${phases.secondary.total} 成功`,
+          );
         }
 
-        // Log tertiary phase summary
-        const tertiaryLabel = PHASE_LABELS.tertiary;
-        console.log(
-          `📋 [${tertiaryLabel}] 结果: ${phases.tertiary.succeeded}/${phases.tertiary.total} 成功`,
-        );
+        // Execute tertiary phase if not blocked
+        if (!blocked) {
+          for (const step of tertiarySteps) {
+            const label = PHASE_LABELS.tertiary;
+            console.log(`🔧 [${label}] 正在: ${step.name}`);
+
+            const result = await step.execute();
+
+            if (result.success) {
+              console.log(`✅ [${label}] 完成: ${step.name}`);
+              phases.tertiary.succeeded++;
+            } else {
+              const reason = result.reason || 'unknown error';
+              console.warn(`⚠️ [${label}] 步骤失败: ${step.name} — ${reason}`);
+              phases.tertiary.failed++;
+              // Continue to next step (silent failures)
+            }
+          }
+
+          // Log tertiary phase summary
+          const tertiaryLabel = PHASE_LABELS.tertiary;
+          console.log(
+            `📋 [${tertiaryLabel}] 结果: ${phases.tertiary.succeeded}/${phases.tertiary.total} 成功`,
+          );
+        }
+      } finally {
+        cleanup();
       }
 
       // Determine overall success

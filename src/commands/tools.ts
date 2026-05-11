@@ -1,3 +1,4 @@
+import { execSync } from 'child_process';
 import { Command } from 'commander';
 import {
   getCliToolRegistry,
@@ -9,6 +10,7 @@ import {
   saveConfig,
 } from '../cli-tools/index.js';
 import { npmTool } from '../cli-tools/tools/npm.js';
+import { loadConfig as loadAppConfig } from '../setup/first-run-wizard.js';
 
 export const toolsCmd = new Command('tools')
   .description('CLI tools management commands');
@@ -291,6 +293,60 @@ toolsCmd
       }, null, 2));
     } else {
       console.log(formatToolList(tools));
+    }
+  });
+
+toolsCmd
+  .command('agents')
+  .description('List AI Agent CLIs with installation status')
+  .option('--json', 'Output results in JSON format')
+  .action((options) => {
+    const appConfig = loadAppConfig();
+    const externalCli = appConfig.external_cli || {};
+
+    const agents = Object.entries(externalCli).map(([name, cfg]) => {
+      let installed = false;
+      let version: string | undefined;
+
+      try {
+        execSync(`which ${name}`, { stdio: 'pipe' });
+        installed = true;
+        try {
+          const out = execSync(`${name} --version`, { stdio: 'pipe' }).toString().trim();
+          version = out.split('\n')[0];
+        } catch {
+          version = undefined;
+        }
+      } catch {
+        installed = false;
+      }
+
+      return {
+        name,
+        installed,
+        version,
+        enabled: cfg.enabled,
+        has_permission: cfg.has_permission,
+      };
+    });
+
+    if (options.json) {
+      console.log(JSON.stringify({ ok: true, agents }, null, 2));
+    } else {
+      if (agents.length === 0) {
+        console.log('\n⚠️  No AI Agent CLIs configured.\n');
+        return;
+      }
+
+      const lines = ['\n🤖 AI Agent CLIs:', '─'.repeat(80)];
+      for (const agent of agents) {
+        const statusIcon = agent.installed ? '✅' : '❌';
+        const versionStr = agent.version ? ` (${agent.version})` : '';
+        const permStr = agent.has_permission ? '' : ' [no permission]';
+        lines.push(`${statusIcon} ${agent.name.padEnd(15)}${versionStr}${permStr}`);
+      }
+      lines.push('');
+      console.log(lines.join('\n'));
     }
   });
 

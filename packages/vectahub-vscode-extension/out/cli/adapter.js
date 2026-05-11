@@ -45,6 +45,7 @@ const settings_js_1 = require("../config/settings.js");
 const extension_js_1 = require("../extension.js");
 const output_js_1 = require("../ui/output.js");
 const path_1 = __importDefault(require("path"));
+const os_1 = require("os");
 const process_manager_js_1 = require("./process-manager.js");
 let globalContext;
 function initCliAdapter(context) {
@@ -58,7 +59,7 @@ function getActualCliPath() {
     return (0, settings_js_1.getCliPath)();
 }
 function getVectaHubHome() {
-    return path_1.default.join(globalContext.globalStorageUri.fsPath, 'vectahub-home');
+    return path_1.default.join((0, os_1.homedir)(), '.vectahub');
 }
 async function runCli(args, options = {}) {
     const cliPath = getActualCliPath();
@@ -69,7 +70,7 @@ async function runCli(args, options = {}) {
         spawnArgs = [cliPath.slice(5), ...args];
     }
     const cwd = options.cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const vectahubHome = path_1.default.join(globalContext.globalStorageUri.fsPath, 'vectahub-home');
+    const vectahubHome = path_1.default.join((0, os_1.homedir)(), '.vectahub');
     const env = {
         ...process.env,
         CI: '1',
@@ -83,7 +84,9 @@ async function runCli(args, options = {}) {
         const child = (0, child_process_1.spawn)(spawnCmd, spawnArgs, {
             cwd,
             env,
-            timeout: options.timeout || 30000
+            timeout: options.timeout || 30000,
+            detached: true,
+            stdio: ['ignore', 'pipe', 'pipe']
         });
         process_manager_js_1.ProcessManager.getInstance().register(child);
         let stdout = '';

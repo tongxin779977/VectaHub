@@ -1,5 +1,6 @@
 import { promises as fs, existsSync, mkdirSync } from 'node:fs';
-import { getVectaHubPath, getVectaHubHome } from '../utils/paths.js';
+import { dirname } from 'node:path';
+import { getVectaHubPath, getVectaHubHome, getProjectQueuePath } from '../utils/paths.js';
 import type { DiagnosticTask, DiagnosticTaskStatus } from '../types/diagnostic.js';
 import { validateDiagnosticQueue } from '../types/diagnostic.js';
 import { createConsoleLogger } from '../utils/logger.js';
@@ -10,8 +11,10 @@ const QUEUE_FILE = getVectaHubPath('diagnostic-queue.json');
 export class QueueManager {
   private static instance: QueueManager;
   private lock: Promise<void> = Promise.resolve();
+  private readonly queueFile: string;
 
-  private constructor() {
+  private constructor(queueFilePath?: string) {
+    this.queueFile = queueFilePath || QUEUE_FILE;
     this.ensureDirectory();
   }
 
@@ -22,8 +25,12 @@ export class QueueManager {
     return QueueManager.instance;
   }
 
+  static createForPath(queueFilePath: string): QueueManager {
+    return new QueueManager(queueFilePath);
+  }
+
   private ensureDirectory(): void {
-    const dir = getVectaHubHome();
+    const dir = dirname(this.queueFile);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
@@ -44,10 +51,10 @@ export class QueueManager {
   async loadTasks(): Promise<DiagnosticTask[]> {
     const release = await this.acquireLock();
     try {
-      if (!existsSync(QUEUE_FILE)) {
+      if (!existsSync(this.queueFile)) {
         return [];
       }
-      const content = await fs.readFile(QUEUE_FILE, 'utf-8');
+      const content = await fs.readFile(this.queueFile, 'utf-8');
       const data = JSON.parse(content);
 
       const validTasks = validateDiagnosticQueue(data);
@@ -66,7 +73,7 @@ export class QueueManager {
   async saveTasks(tasks: DiagnosticTask[]): Promise<void> {
     const release = await this.acquireLock();
     try {
-      await fs.writeFile(QUEUE_FILE, JSON.stringify(tasks, null, 2), 'utf-8');
+      await fs.writeFile(this.queueFile, JSON.stringify(tasks, null, 2), 'utf-8');
     } catch (error) {
       logger.error(`Failed to save diagnostic queue: ${error}`);
       throw error;
@@ -116,8 +123,16 @@ export class QueueManager {
     const filtered = tasks.filter(t => t.status !== 'completed');
     await this.saveTasks(filtered);
   }
+
+  async clearAll(): Promise<void> {
+    await this.saveTasks([]);
+  }
 }
 
 export function getQueueManager(): QueueManager {
   return QueueManager.getInstance();
+}
+
+export function getQueueManagerForProject(projectRoot: string): QueueManager {
+  return QueueManager.createForPath(getProjectQueuePath(projectRoot));
 }

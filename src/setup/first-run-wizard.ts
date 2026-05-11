@@ -32,7 +32,7 @@ function getRl(): Interface {
   return sharedRl;
 }
 
-function closeRl(): void {
+export function closeRl(): void {
   if (sharedRl) {
     sharedRl.close();
     sharedRl = null;

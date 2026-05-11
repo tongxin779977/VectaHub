@@ -24,10 +24,12 @@ import { registerListPackageScriptsCommand } from './commands/listPackageScripts
 import { registerFetchGhErrorsCommand } from './commands/fetchGhErrors.js';
 import { DiagnosticBridge, collectAllDiagnostics, filterDiagnostics } from './project/diagnostic-bridge.js';
 import { registerProcessAllQueueCommand } from './commands/processAllQueue.js';
+import { registerConfigLlmCommand } from './commands/configLlm.js';
 import { registerRunCheckPipelineCommand } from './commands/runCheckPipeline.js';
 import { registerRunDevPipelineCommand } from './commands/runDevPipeline.js';
 import { registerStartDevServerCommand } from './commands/startDevServer.js';
 import { registerStopRunningTaskCommand } from './commands/stopRunningTask.js';
+import { registerDocTaskCommands } from './commands/runDocTasks.js';
 
 export function getGlobalCliPath(): string | undefined {
   return getResolvedCliPath();
@@ -45,6 +47,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   registerInstallCliCommand(context);
   registerDoctorCommand(context);
+  registerConfigLlmCommand(context);
   registerPreviewIntentCommand(context);
   registerRunIntentCommand(context);
   registerRunCommonTaskCommand(context);
@@ -63,6 +66,7 @@ export async function activate(context: vscode.ExtensionContext) {
   registerRunDevPipelineCommand(context, tasksProvider);
   registerStartDevServerCommand(context, tasksProvider);
   registerStopRunningTaskCommand(context, tasksProvider);
+  registerDocTaskCommands(context, tasksProvider);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('vectahub.getDiagnostics', (args?: { file?: string; severity?: string }) => {

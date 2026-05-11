@@ -10,6 +10,8 @@ export interface CliTool {
   relatedTools?: string[];
   authCheckCommand?: string;
   authHelpMessage?: string;
+  capabilities?: string[];
+  isAgentCLI?: boolean;
 }
 
 export interface ToolExample {

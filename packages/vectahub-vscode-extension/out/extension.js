@@ -62,10 +62,12 @@ const listPackageScripts_js_1 = require("./commands/listPackageScripts.js");
 const fetchGhErrors_js_1 = require("./commands/fetchGhErrors.js");
 const diagnostic_bridge_js_1 = require("./project/diagnostic-bridge.js");
 const processAllQueue_js_1 = require("./commands/processAllQueue.js");
+const configLlm_js_1 = require("./commands/configLlm.js");
 const runCheckPipeline_js_1 = require("./commands/runCheckPipeline.js");
 const runDevPipeline_js_1 = require("./commands/runDevPipeline.js");
 const startDevServer_js_1 = require("./commands/startDevServer.js");
 const stopRunningTask_js_1 = require("./commands/stopRunningTask.js");
+const runDocTasks_js_1 = require("./commands/runDocTasks.js");
 function getGlobalCliPath() {
     return (0, readiness_js_1.getResolvedCliPath)();
 }
@@ -78,6 +80,7 @@ async function activate(context) {
     (0, advancedView_js_1.registerAdvancedView)(context);
     (0, installCli_js_1.registerInstallCliCommand)(context);
     (0, doctor_js_1.registerDoctorCommand)(context);
+    (0, configLlm_js_1.registerConfigLlmCommand)(context);
     (0, previewIntent_js_1.registerPreviewIntentCommand)(context);
     (0, runIntent_js_1.registerRunIntentCommand)(context);
     (0, runCommonTask_js_1.registerRunCommonTaskCommand)(context);
@@ -96,6 +99,7 @@ async function activate(context) {
     (0, runDevPipeline_js_1.registerRunDevPipelineCommand)(context, tasksProvider);
     (0, startDevServer_js_1.registerStartDevServerCommand)(context, tasksProvider);
     (0, stopRunningTask_js_1.registerStopRunningTaskCommand)(context, tasksProvider);
+    (0, runDocTasks_js_1.registerDocTaskCommands)(context, tasksProvider);
     context.subscriptions.push(vscode.commands.registerCommand('vectahub.getDiagnostics', (args) => {
         const all = (0, diagnostic_bridge_js_1.collectAllDiagnostics)();
         const filtered = (0, diagnostic_bridge_js_1.filterDiagnostics)(all, args?.file, args?.severity);

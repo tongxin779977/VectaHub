@@ -40,7 +40,7 @@ const readiness_js_1 = require("../cli/readiness.js");
 const taskHistory_js_1 = require("../project/taskHistory.js");
 const output_js_1 = require("../ui/output.js");
 function registerProcessAllQueueCommand(context, tasksProvider) {
-    const disposable = vscode.commands.registerCommand('vectahubTasks.processAllQueue', async () => {
+    const processAllDisposable = vscode.commands.registerCommand('vectahubTasks.processAllQueue', async () => {
         const ready = await (0, readiness_js_1.waitForCliReady)();
         if (!ready)
             return;
@@ -165,6 +165,54 @@ function registerProcessAllQueueCommand(context, tasksProvider) {
             }
         });
     });
-    context.subscriptions.push(disposable);
+    context.subscriptions.push(processAllDisposable);
+    const removeTaskDisposable = vscode.commands.registerCommand('vectahubTasks.removeQueueTask', async (taskId) => {
+        const ready = await (0, readiness_js_1.waitForCliReady)();
+        if (!ready)
+            return;
+        const confirm = await vscode.window.showWarningMessage(`确定要删除任务 ${taskId} 吗？此操作不可撤销。`, { modal: true }, '删除');
+        if (confirm !== '删除')
+            return;
+        (0, output_js_1.logToOutput)(`[removeQueueTask] 删除任务: ${taskId}`);
+        const result = await (0, adapter_js_1.runCli)(['queue', 'remove', taskId, '--json']);
+        if (result.ok) {
+            tasksProvider.refresh();
+            (0, output_js_1.logToOutput)(`[removeQueueTask] 任务 ${taskId} 删除成功`);
+            vscode.window.showInformationMessage(`✅ 任务 ${taskId} 已删除`);
+        }
+        else {
+            const errMsg = result.error?.message || '未知错误';
+            (0, output_js_1.logToOutput)(`[removeQueueTask] 删除任务失败: ${errMsg}`, 'error');
+            vscode.window.showErrorMessage(`❌ 删除失败: ${errMsg}`);
+        }
+    });
+    context.subscriptions.push(removeTaskDisposable);
+    const clearQueueDisposable = vscode.commands.registerCommand('vectahubTasks.clearQueue', async () => {
+        const ready = await (0, readiness_js_1.waitForCliReady)();
+        if (!ready)
+            return;
+        const queue = tasksProvider.readDiagnosticQueue();
+        const taskCount = queue.tasks.length;
+        if (taskCount === 0) {
+            vscode.window.showInformationMessage('📋 队列为空，无需清空');
+            return;
+        }
+        const confirm = await vscode.window.showWarningMessage(`确定要清空队列吗？这将删除所有 ${taskCount} 个任务，此操作不可撤销。`, { modal: true }, '清空队列');
+        if (confirm !== '清空队列')
+            return;
+        (0, output_js_1.logToOutput)(`[clearQueue] 清空队列: ${taskCount} 个任务`);
+        const result = await (0, adapter_js_1.runCli)(['queue', 'clear', '--json', '--force']);
+        if (result.ok) {
+            tasksProvider.refresh();
+            (0, output_js_1.logToOutput)('[clearQueue] 队列清空成功');
+            vscode.window.showInformationMessage('✅ 队列已清空');
+        }
+        else {
+            const errMsg = result.error?.message || '未知错误';
+            (0, output_js_1.logToOutput)(`[clearQueue] 清空队列失败: ${errMsg}`, 'error');
+            vscode.window.showErrorMessage(`❌ 清空失败: ${errMsg}`);
+        }
+    });
+    context.subscriptions.push(clearQueueDisposable);
 }
 //# sourceMappingURL=processAllQueue.js.map

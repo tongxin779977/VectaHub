@@ -241,6 +241,129 @@ steps:
       uses: 0,
     },
   },
+  {
+    id: 'doc-task-parser-v1',
+    name: 'Document Task Parser',
+    version: '1.0.0',
+    description: '从开发文档中提取结构化任务列表',
+    category: 'parsing',
+    tags: ['doc-task', 'parsing', 'agent-cli'],
+    systemTemplate: `你是任务提取器。从以下开发文档中提取所有开发任务。
+
+要求：
+- 每个任务输出编号和名称
+- 如果任务没有名称，根据内容浓缩一句话
+- 输出 JSON 数组格式：[{"id": "1.1", "label": "任务描述"}]
+- 不要遗漏任何任务
+- 子任务使用层级编号（如 1.1, 1.2, 2.1）
+- 只输出 JSON 数组，不要添加额外说明
+
+文档内容：
+{{docContent}}`,
+    userTemplate: '{{docContent}}',
+    variables: [
+      { name: 'docContent', type: 'string', required: true },
+    ],
+    examples: [
+      {
+        input: { docContent: '## 1. 用户认证\n### 1.1 实现登录\n### 1.2 实现注册\n## 2. 数据库\n### 2.1 创建用户表' },
+        output: [{ id: '1.1', label: '实现登录功能' }, { id: '1.2', label: '实现注册功能' }, { id: '2.1', label: '创建用户表' }],
+      },
+    ],
+    constraints: [
+      { type: 'format', rule: '输出必须是合法的 JSON 数组' },
+      { type: 'content', rule: '每个元素必须包含 id 和 label 字段' },
+    ],
+    metadata: {
+      author: 'VectaHub Team',
+      createdAt: new Date('2026-05-10'),
+      lastUpdated: new Date('2026-05-10'),
+      effectiveness: 0.8,
+      uses: 0,
+    },
+  },
+  {
+    id: 'agent-cmd-generator-v1',
+    name: 'Agent CLI Command Generator',
+    version: '1.0.0',
+    description: '根据 Agent CLI 工具的 help 输出和任务描述生成具体执行命令',
+    category: 'generation',
+    tags: ['agent-cmd', 'generation', 'agent-cli'],
+    systemTemplate: `你是命令生成器。根据 Agent CLI 工具的 --help 输出和任务描述，生成可直接执行的命令。
+
+要求：
+- 输出 JSON 格式：{"command": "完整命令", "args": ["参数数组"], "explanation": "说明"}
+- 命令必须基于工具的实际用法
+- 不要添加 help 中不存在的参数
+- 如果工具需要交互式输入，使用非交互式参数
+- 只输出 JSON，不要添加额外说明
+
+工具名称：{{toolName}}
+工具 --help 输出：
+{{helpOutput}}
+
+任务编号：{{taskId}}
+任务描述：{{taskLabel}}
+参考文档：{{docPath}}
+
+请按照项目要求进行开发。任务完成后运行项目测试验证。`,
+    userTemplate: '任务 {{taskId}}: {{taskLabel}}，请基于工具用法生成执行命令。',
+    variables: [
+      { name: 'toolName', type: 'string', required: true },
+      { name: 'helpOutput', type: 'string', required: true },
+      { name: 'taskId', type: 'string', required: true },
+      { name: 'taskLabel', type: 'string', required: true },
+      { name: 'docPath', type: 'string', required: true },
+    ],
+    examples: [],
+    constraints: [
+      { type: 'format', rule: '输出必须是合法的 JSON' },
+      { type: 'content', rule: '必须包含 command 和 args 字段' },
+    ],
+    metadata: {
+      author: 'VectaHub Team',
+      createdAt: new Date('2026-05-10'),
+      lastUpdated: new Date('2026-05-10'),
+      effectiveness: 0.8,
+      uses: 0,
+    },
+  },
+  {
+    id: 'tool-capability-parser-v1',
+    name: 'Tool Capability Parser',
+    version: '1.0.0',
+    description: '从 CLI 工具的 --help 输出中推断其能力标签',
+    category: 'parsing',
+    tags: ['capability', 'parsing', 'agent-cli'],
+    systemTemplate: `你是工具能力分析器。根据 CLI 工具的 --help 输出，推断该工具具备的能力。
+
+要求：
+- 从以下能力标签中选择匹配的：codegen, refactor, debug, test, review, search, chat, edit, file-ops, git, shell, browser, api, database
+- 也可以添加 help 中明确体现但不在上述列表中的能力
+- 输出 JSON 数组格式：["capability1", "capability2"]
+- 只输出 JSON 数组，不要添加额外说明
+
+工具名称：{{toolName}}
+工具 --help 输出：
+{{helpOutput}}`,
+    userTemplate: '推断工具 {{toolName}} 的能力',
+    variables: [
+      { name: 'toolName', type: 'string', required: true },
+      { name: 'helpOutput', type: 'string', required: true },
+    ],
+    examples: [],
+    constraints: [
+      { type: 'format', rule: '输出必须是合法的 JSON 数组' },
+      { type: 'content', rule: '每个元素必须是字符串' },
+    ],
+    metadata: {
+      author: 'VectaHub Team',
+      createdAt: new Date('2026-05-11'),
+      lastUpdated: new Date('2026-05-11'),
+      effectiveness: 0.75,
+      uses: 0,
+    },
+  },
 ];
 
 export class PromptManager implements PromptRepository {
@@ -417,3 +540,6 @@ export function createPromptManager(): PromptManager {
 // 导出便捷访问函数
 export const DEFAULT_INTENT_PARSER_ID = 'intent-parser-v1';
 export const DEFAULT_WORKFLOW_YAML_ID = 'workflow-yaml-v1';
+export const DOC_TASK_PARSER_ID = 'doc-task-parser-v1';
+export const AGENT_CMD_GENERATOR_ID = 'agent-cmd-generator-v1';
+export const TOOL_CAPABILITY_PARSER_ID = 'tool-capability-parser-v1';

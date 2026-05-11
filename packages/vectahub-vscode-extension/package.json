@@ -3,7 +3,6 @@
   "displayName": "VectaHub 任务助手",
   "description": "为 VectaHub CLI 提供自然语言工作流 UI 界面",
   "version": "1.0.0",
-
   "publisher": "vectahub",
   "license": "MIT",
   "repository": {
@@ -80,6 +79,48 @@
         "title": "VectaHub: 停止运行中的任务",
         "category": "VectaHub",
         "icon": "$(stop)"
+      },
+      {
+        "command": "vectahubTasks.selectDocFile",
+        "title": "VectaHub: 选择文档文件",
+        "category": "VectaHub",
+        "icon": "$(file-add)"
+      },
+      {
+        "command": "vectahubTasks.parseDocTasks",
+        "title": "VectaHub: 解析文档任务",
+        "category": "VectaHub",
+        "icon": "$(lightbulb)"
+      },
+      {
+        "command": "vectahubTasks.selectAgentCli",
+        "title": "VectaHub: 选择 Agent CLI",
+        "category": "VectaHub",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "vectahubTasks.runDocTask",
+        "title": "VectaHub: 执行文档任务",
+        "category": "VectaHub",
+        "icon": "$(play)"
+      },
+      {
+        "command": "vectahubTasks.removeQueueTask",
+        "title": "VectaHub: 删除队列任务",
+        "category": "VectaHub",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "vectahubTasks.clearQueue",
+        "title": "VectaHub: 清空队列",
+        "category": "VectaHub",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "vectahubTasks.configLlm",
+        "title": "VectaHub: 配置 LLM",
+        "category": "VectaHub",
+        "icon": "$(hubot)"
       }
     ],
     "menus": {
@@ -94,6 +135,16 @@
         {
           "command": "vectahubTasks.stopRunningTask",
           "when": "viewItem == longRunningTask-running",
+          "group": "inline@1"
+        },
+        {
+          "command": "vectahubTasks.removeQueueTask",
+          "when": "viewItem == queueTask",
+          "group": "inline@1"
+        },
+        {
+          "command": "vectahubTasks.clearQueue",
+          "when": "viewItem == queueCategory",
           "group": "inline@1"
         }
       ]
@@ -145,6 +196,7 @@
     "@typescript-eslint/parser": "^8.0.0",
     "eslint": "^9.0.0",
     "typescript": "^5.6.0",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.5",
+    "vsce": "^2.15.0"
   }
 }

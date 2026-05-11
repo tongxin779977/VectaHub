@@ -1,5 +1,7 @@
 import { ChildProcess } from 'child_process';
+import { execSync } from 'child_process';
 import { logToOutput } from '../ui/output.js';
+import { platform } from 'os';
 
 export class ProcessManager {
   private static instance: ProcessManager;
@@ -16,7 +18,7 @@ export class ProcessManager {
 
   register(child: ChildProcess): void {
     this.activeProcesses.add(child);
-    child.on('exit', () => {
+    child.on('close', () => {
       this.activeProcesses.delete(child);
     });
     child.on('error', () => {
@@ -29,12 +31,23 @@ export class ProcessManager {
     
     logToOutput(`Killing ${this.activeProcesses.size} active CLI processes...`, 'warn');
     for (const child of this.activeProcesses) {
-      if (!child.killed) {
+      if (!child.killed && child.pid) {
         try {
-          // On Unix, we might want to kill the process group, but child.kill() is a good start.
-          child.kill('SIGTERM');
+          if (platform() === 'win32') {
+            execSync(`taskkill /F /T /PID ${child.pid}`, { stdio: 'ignore' });
+          } else {
+            try {
+              process.kill(-child.pid, 'SIGTERM');
+            } catch {
+              child.kill('SIGTERM');
+            }
+          }
         } catch {
-          // ignore
+          try {
+            child.kill('SIGKILL');
+          } catch {
+            // ignore
+          }
         }
       }
     }

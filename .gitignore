@@ -45,6 +45,9 @@ lerna-debug.log*
 ehthumbs.db
 Thumbs.db
 
+# 项目skill
+AGENTS.md
+
 # VectaHub User Data (不应该提交)
 .vectahub/
 .vectahub-workflows/
@@ -75,3 +78,4 @@ coverage/
 *.debug
 .trace
 .trae
+

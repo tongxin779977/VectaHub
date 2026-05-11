@@ -136,12 +136,10 @@ export function updateCLIToolConfig(tools: CLIToolStatus[]): void {
   const config = loadConfig();
 
   for (const tool of tools) {
-    if (config.external_cli[tool.name]) {
-      config.external_cli[tool.name] = {
-        enabled: tool.enabled && tool.hasPermission,
-        has_permission: tool.hasPermission,
-      };
-    }
+    config.external_cli[tool.name] = {
+      enabled: tool.enabled && tool.hasPermission,
+      has_permission: tool.hasPermission,
+    };
   }
 
   saveConfig(config);

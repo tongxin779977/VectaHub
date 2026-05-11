@@ -12,9 +12,8 @@ src/nl/                       # Intent matching + param extraction + LLM
 src/workflow/                 # Engine core (scheduler/executor/context/storage)
 src/sandbox/                  # Sandbox isolation + danger detection
 src/cli-tools/                # External tool integration (git/npm/docker/curl)
-src/skills/                   # Skills (iterative-refinement, llm-dialog-control)
+src/skills/                   # Skills (intent-skill, pipeline-skill, workflow-skill, etc.)
 src/setup/                    # First-run wizard + CLI scanner
-src/security-protocol/        # Security rules engine
 src/command-rules/            # Command blacklist/whitelist
 src/infrastructure/           # Audit/config/errors/logger
 src/utils/                    # CLI commands (run/generate/serve/tools/etc)
@@ -32,7 +31,7 @@ Note: `.trae/` is Trae IDE-specific configuration and is not part of Codex instr
 
 ## Rules
 
-- TDD always: write failing test → minimum code to pass → refactor
+- SDD always: spec first, code second, tests verify spec compliance
 - Single file change or user says "直接改" → do it directly
 - 2+ options, 3+ files, delete/change interface/architecture → ask first
 - When uncertain: say "需要确认 X", don't guess
@@ -59,12 +58,6 @@ Note: `.trae/` is Trae IDE-specific configuration and is not part of Codex instr
 - Don't repeat what AI already knows
 - For implementation tasks, follow `docs/design/04_agent_tasks.md` exactly
 
-## Code Style
-
-- 2-space indent, semicolons required, single quotes, 100-char line width
-- Import order: built-in → third-party → internal → types (local imports with `.js`)
-- New components use `createXxx()` factory functions, not classes
-
 ## Testing
 
 | Module | Coverage |
@@ -81,17 +74,18 @@ Run typecheck: `npm run typecheck`
 
 Code-implemented skills:
 
-| Skill | Purpose |
-|-------|---------|
-| iterative-refinement | 5-whys analysis + retry logic |
-| llm-dialog-control | LLM dialog validation |
-
-## Error Handling
-
-- Type errors: run `npm run typecheck` first, then fix
-- Test failures: run `npm test -- --run` to see full output, then fix
-- Failed fix: say "tried X, failed, need confirmation", don't retry infinitely
-- Unknown API: check `src/types/index.ts` and source code, don't guess
+| Skill | Purpose | Module |
+|-------|---------|--------|
+| iterative-refinement | 5-whys analysis + retry logic | `src/skills/iterative-refinement/` |
+| llm-dialog-control | LLM dialog validation | `src/skills/llm-dialog-control/` |
+| intent-skill | Intent parsing + routing | `src/skills/intent-skill.ts` |
+| pipeline-skill | Multi-step task pipeline | `src/skills/pipeline-skill.ts` |
+| workflow-skill | Workflow execution | `src/skills/workflow-skill.ts` |
+| command-skill | CLI command execution | `src/skills/command-skill.ts` |
+| agent-delegate | Agent delegation | `src/skills/ai-modules/agent-delegate/` |
+| cli-plugin | External CLI plugins | `src/skills/ai-modules/cli-plugin/` |
+| intelligent-diagnosis | Auto diagnosis | `src/skills/ai-modules/intelligent-diagnosis/` |
+| semantic-matching | Semantic intent matching | `src/skills/ai-modules/semantic-matching/` |
 
 ## Safety
 
@@ -99,6 +93,7 @@ Code-implemented skills:
 - No direct execution of user input
 - No bypassing sandbox
 - No logging sensitive data
+- Path: use `getVectaHubPath()`, no `os.homedir()` or hardcoded paths
 
 ## Git
 

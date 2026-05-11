@@ -204,6 +204,60 @@ export const DEFAULT_SECURITY_RULES: SecurityRule[] = [
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     source: 'builtin'
+  },
+  {
+    id: 'rule-agent-prompt-override',
+    name: 'Agent CLI Prompt Override Injection',
+    description: 'Detects attempts to override agent CLI prompt/system instructions via command arguments',
+    category: 'custom',
+    severity: 'high',
+    patterns: [
+      '--system-prompt\\s+["\']?(ignore|bypass|override|forget|disregard|忽略|你是一个|你现在是|从现在开始)',
+      '--instructions\\s+["\']?(ignore|bypass|delete|remove|rm\\s)',
+      '--override\\b',
+      '--prompt-override\\b'
+    ],
+    cliTools: ['aider', 'claude', 'codex'],
+    enabled: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    source: 'builtin'
+  },
+  {
+    id: 'rule-agent-delimiter-injection',
+    name: 'Agent CLI Prompt Delimiter Injection',
+    description: 'Detects attempts to inject structured delimiter patterns into agent CLI commands to bypass prompt boundaries',
+    category: 'custom',
+    severity: 'medium',
+    patterns: [
+      '---\\s*\\n?\\s*(SYSTEM|INSTRUCTION|INSTRUCTIONS|PROMPT)\\s*:',
+      '###\\s*(INSTRUCTION|INSTRUCTIONS|SYSTEM|PROMPT)\\s*:',
+      '<system>',
+      '<instruction>',
+      '<\\/system>',
+      '<\\/instruction>'
+    ],
+    cliTools: ['aider', 'claude', 'codex'],
+    enabled: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    source: 'builtin'
+  },
+  {
+    id: 'rule-agent-command-injection',
+    name: 'Agent CLI Command Injection via Args',
+    description: 'Detects shell command injection attempts embedded in agent CLI arguments via backtick or dollar-substitution',
+    category: 'custom',
+    severity: 'high',
+    patterns: [
+      '`\\s*(rm\\s|curl\\s|wget\\s|bash\\s|sh\\s|sudo\\s|chmod\\s|chown\\s|mkfs|dd\\s|nc\\s)',
+      '\\$\\(\\s*(rm\\s|curl\\s|wget\\s|bash\\s|sh\\s|sudo\\s|chmod\\s|chown\\s|mkfs|dd\\s|nc\\s)'
+    ],
+    cliTools: ['aider', 'claude', 'codex'],
+    enabled: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    source: 'builtin'
   }
 ];
 

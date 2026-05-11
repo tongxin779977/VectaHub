@@ -14,7 +14,7 @@ interface WorkflowResult {
 }
 
 export function registerProcessAllQueueCommand(context: vscode.ExtensionContext, tasksProvider: TasksViewProvider) {
-  const disposable = vscode.commands.registerCommand('vectahubTasks.processAllQueue', async () => {
+  const processAllDisposable = vscode.commands.registerCommand('vectahubTasks.processAllQueue', async () => {
     const ready = await waitForCliReady();
     if (!ready) return;
 
@@ -157,5 +157,73 @@ export function registerProcessAllQueueCommand(context: vscode.ExtensionContext,
       }
     });
   });
-  context.subscriptions.push(disposable);
+  context.subscriptions.push(processAllDisposable);
+
+  const removeTaskDisposable = vscode.commands.registerCommand('vectahubTasks.removeQueueTask', async (taskId: string) => {
+    const ready = await waitForCliReady();
+    if (!ready) return;
+
+    const confirm = await vscode.window.showWarningMessage(
+      `确定要删除任务 ${taskId} 吗？此操作不可撤销。`,
+      { modal: true },
+      '删除'
+    );
+
+    if (confirm !== '删除') return;
+
+    logToOutput(`[removeQueueTask] 删除任务: ${taskId}`);
+
+    const result = await runCli(
+      ['queue', 'remove', taskId, '--json']
+    );
+
+    if (result.ok) {
+      tasksProvider.refresh();
+      logToOutput(`[removeQueueTask] 任务 ${taskId} 删除成功`);
+      vscode.window.showInformationMessage(`✅ 任务 ${taskId} 已删除`);
+    } else {
+      const errMsg = result.error?.message || '未知错误';
+      logToOutput(`[removeQueueTask] 删除任务失败: ${errMsg}`, 'error');
+      vscode.window.showErrorMessage(`❌ 删除失败: ${errMsg}`);
+    }
+  });
+  context.subscriptions.push(removeTaskDisposable);
+
+  const clearQueueDisposable = vscode.commands.registerCommand('vectahubTasks.clearQueue', async () => {
+    const ready = await waitForCliReady();
+    if (!ready) return;
+
+    const queue = tasksProvider.readDiagnosticQueue();
+    const taskCount = queue.tasks.length;
+
+    if (taskCount === 0) {
+      vscode.window.showInformationMessage('📋 队列为空，无需清空');
+      return;
+    }
+
+    const confirm = await vscode.window.showWarningMessage(
+      `确定要清空队列吗？这将删除所有 ${taskCount} 个任务，此操作不可撤销。`,
+      { modal: true },
+      '清空队列'
+    );
+
+    if (confirm !== '清空队列') return;
+
+    logToOutput(`[clearQueue] 清空队列: ${taskCount} 个任务`);
+
+    const result = await runCli(
+      ['queue', 'clear', '--json', '--force']
+    );
+
+    if (result.ok) {
+      tasksProvider.refresh();
+      logToOutput('[clearQueue] 队列清空成功');
+      vscode.window.showInformationMessage('✅ 队列已清空');
+    } else {
+      const errMsg = result.error?.message || '未知错误';
+      logToOutput(`[clearQueue] 清空队列失败: ${errMsg}`, 'error');
+      vscode.window.showErrorMessage(`❌ 清空失败: ${errMsg}`);
+    }
+  });
+  context.subscriptions.push(clearQueueDisposable);
 }

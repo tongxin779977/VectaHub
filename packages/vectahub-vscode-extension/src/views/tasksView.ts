@@ -9,6 +9,23 @@ import { DiagnosticTask, DiagnosticTaskStatus, VALID_DIAGNOSTIC_STATUSES, normal
 import { LongRunningTaskManager } from '../cli/longRunningTaskManager.js';
 import { getFailedTasks } from '../project/taskHistory.js';
 
+export interface DocTask {
+  id: string;
+  label: string;
+}
+
+function djb2Hash(input: string): string {
+  let hash = 5381;
+  for (let i = 0; i < input.length; i++) {
+    hash = ((hash << 5) + hash + input.charCodeAt(i)) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+function getProjectQueuePath(projectRoot: string): string {
+  return path.join(getVectaHubHome(), 'projects', djb2Hash(projectRoot), 'diagnostic-queue.json');
+}
+
 const DEV_KINDS = ['dev', 'start', 'serve'];
 const QUALITY_KINDS = ['test', 'build', 'lint', 'typecheck', 'check', 'validate', 'format', 'format:check', 'coverage', 'storybook'];
 
@@ -20,6 +37,11 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
   private diagnosticTasks: DiagnosticTask[] = [];
   private queueError: string | undefined;
   private watcher?: vscode.FileSystemWatcher;
+
+  private selectedDocPath: string | undefined;
+  private docTasks: DocTask[] = [];
+  private selectedAgentCli: string | undefined;
+  private isDocParsing: boolean = false;
 
   constructor() {
     this.setupWatcher();
@@ -45,17 +67,64 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
     this._onDidChangeTreeData.fire();
   }
 
+  getSelectedDocPath(): string | undefined {
+    return this.selectedDocPath;
+  }
+
+  setSelectedDocPath(docPath: string | undefined): void {
+    this.selectedDocPath = docPath;
+  }
+
+  getDocTasks(): DocTask[] {
+    return this.docTasks;
+  }
+
+  setDocTasks(tasks: DocTask[]): void {
+    this.docTasks = tasks;
+  }
+
+  getSelectedAgentCli(): string | undefined {
+    return this.selectedAgentCli;
+  }
+
+  setSelectedAgentCli(cli: string | undefined): void {
+    this.selectedAgentCli = cli;
+  }
+
+  getIsDocParsing(): boolean {
+    return this.isDocParsing;
+  }
+
+  setIsDocParsing(parsing: boolean): void {
+    this.isDocParsing = parsing;
+  }
+
   getTreeItem(element: VectaHubTreeItem): vscode.TreeItem {
     return element;
   }
 
   readDiagnosticQueue(): { tasks: DiagnosticTask[]; error?: string } {
-    const queueFile = path.join(getVectaHubHome(), 'diagnostic-queue.json');
-    if (!fs.existsSync(queueFile)) {
+    const globalQueueFile = path.join(getVectaHubHome(), 'diagnostic-queue.json');
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+
+    if (workspaceFolder) {
+      const projectQueueFile = getProjectQueuePath(workspaceFolder.uri.fsPath);
+      if (fs.existsSync(projectQueueFile)) {
+        try {
+          const content = fs.readFileSync(projectQueueFile, 'utf-8');
+          const data = JSON.parse(content);
+          return normalizeDiagnosticQueue(data);
+        } catch {
+          return { tasks: [], error: '队列数据不可读' };
+        }
+      }
+    }
+
+    if (!fs.existsSync(globalQueueFile)) {
       return { tasks: [] };
     }
     try {
-      const content = fs.readFileSync(queueFile, 'utf-8');
+      const content = fs.readFileSync(globalQueueFile, 'utf-8');
       const data = JSON.parse(content);
       return normalizeDiagnosticQueue(data);
     } catch {
@@ -78,17 +147,64 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
 
       this.addDevSection(categories);
       this.addQualitySection(categories);
-      this.addCISection(categories);
-      this.addQueueSection(categories);
-      this.addRecentFailuresSection(categories);
-      this.addGitSection(categories);
+      this.addGitAndCISection(categories);
+      this.addDocTaskSection(categories);
+      this.addOtherScriptsSection(categories, { collapsed: true });
       this.addCoreSection(categories);
-      this.addOtherScriptsSection(categories);
+      this.addRecentFailuresSection(categories, { collapsed: true });
 
       return categories;
     }
 
     return [];
+  }
+
+  private addDocTaskSection(categories: CategoryTreeItem[]): void {
+    const items: VectaHubTreeItem[] = [];
+
+    const docLabel = this.selectedDocPath ? '更换文档...' : '选择文档文件...';
+    const docDesc = this.selectedDocPath ? path.basename(this.selectedDocPath) : undefined;
+    items.push(new TaskTreeItem(docLabel, {
+      command: 'vectahubTasks.selectDocFile',
+      title: '选择开发文档'
+    }, 'file-add', undefined, docDesc));
+
+    if (this.selectedDocPath) {
+      if (this.isDocParsing) {
+        items.push(new TaskTreeItem('正在解析...', {
+          command: 'workbench.action.output.toggleOutput',
+          title: '文档解析中'
+        }, 'sync~spin'));
+      } else if (this.docTasks.length === 0) {
+        items.push(new TaskTreeItem('解析文档任务', {
+          command: 'vectahubTasks.parseDocTasks',
+          title: '调用 LLM 解析文档'
+        }, 'lightbulb'));
+      } else {
+        items.push(new TaskTreeItem('重新解析文档', {
+          command: 'vectahubTasks.parseDocTasks',
+          title: '重新解析文档任务'
+        }, 'refresh'));
+
+        for (const task of this.docTasks) {
+          items.push(new TaskTreeItem(`${task.id}. ${task.label}`, {
+            command: 'vectahubTasks.runDocTask',
+            title: `执行任务 ${task.id}`,
+            arguments: [task]
+          }, 'play'));
+        }
+
+        const cliLabel = this.selectedAgentCli
+          ? `执行器: ${this.selectedAgentCli}`
+          : '选择执行器...';
+        items.push(new TaskTreeItem(cliLabel, {
+          command: 'vectahubTasks.selectAgentCli',
+          title: '选择 Agent CLI 执行器'
+        }, 'terminal'));
+      }
+    }
+
+    categories.push(new CategoryTreeItem('文档任务', items));
   }
 
   private addDevSection(categories: CategoryTreeItem[]): void {
@@ -139,8 +255,19 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
     categories.push(new CategoryTreeItem('质量检查', qualityItems));
   }
 
-  private addCISection(categories: CategoryTreeItem[]): void {
+  private addGitAndCISection(categories: CategoryTreeItem[]): void {
     const gitAvailable = this.projectTasks.some(t => t.source === 'git');
+
+    const gitItems = gitAvailable
+      ? this.projectTasks
+          .filter(t => t.source === 'git')
+          .map(t => new TaskTreeItem(t.label, {
+            command: 'vectahubTasks.runProjectTask',
+            title: t.label,
+            arguments: [t]
+          }, 'git-compare', t.source))
+      : [];
+
     if (!gitAvailable) return;
 
     const ciItems: VectaHubTreeItem[] = [
@@ -154,59 +281,48 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
       }, 'play-all')
     ];
 
-    categories.push(new CategoryTreeItem('CI 修复', ciItems));
-  }
-
-  private addQueueSection(categories: CategoryTreeItem[]): void {
-    if (this.queueError) {
-      categories.push(new CategoryTreeItem('自动化队列', [
-        new EmptyStateTreeItem(this.queueError, 'warning')
-      ]));
-      return;
-    }
-
-    if (this.diagnosticTasks.length === 0) {
-      categories.push(new CategoryTreeItem('自动化队列', [
-        new EmptyStateTreeItem('队列为空，当前无待处理诊断', 'check')
-      ]));
-      return;
-    }
-
-    const statusGroups = this.groupDiagnosticsByStatus();
-    const statusOrder: DiagnosticTaskStatus[] = ['pending', 'processing', 'failed', 'needs-confirmation', 'completed', 'cancelled'];
-    const statusLabels: Record<string, string> = {
-      'pending': '待处理',
-      'processing': '处理中',
-      'completed': '已完成',
-      'failed': '失败',
-      'cancelled': '已取消',
-      'needs-confirmation': '待确认'
-    };
-
     const queueChildren: VectaHubTreeItem[] = [];
-    for (const status of statusOrder) {
-      const tasks = statusGroups.get(status);
-      if (!tasks || tasks.length === 0) continue;
+    if (this.queueError) {
+      queueChildren.push(new EmptyStateTreeItem(this.queueError, 'warning'));
+    } else if (this.diagnosticTasks.length === 0) {
+      queueChildren.push(new EmptyStateTreeItem('队列为空，当前无待处理诊断', 'check'));
+    } else {
+      const statusGroups = this.groupDiagnosticsByStatus();
+      const statusOrder: DiagnosticTaskStatus[] = ['pending', 'processing', 'failed', 'needs-confirmation', 'completed', 'cancelled'];
+      const statusLabels: Record<string, string> = {
+        'pending': '待处理',
+        'processing': '处理中',
+        'completed': '已完成',
+        'failed': '失败',
+        'cancelled': '已取消',
+        'needs-confirmation': '待确认'
+      };
 
-      const statusItems = tasks.map(t => {
-        const icon = this.getIconForStatus(t.status);
-        const action = getExecutableAction(t);
-        return new TaskTreeItem(t.title, {
-          command: action ? 'vectahubTasks.runIntent' : 'workbench.action.output.toggleOutput',
-          title: t.title,
-          arguments: action ? [action] : undefined
-        }, icon, t.status, t.description);
-      });
+      for (const status of statusOrder) {
+        const tasks = statusGroups.get(status);
+        if (!tasks || tasks.length === 0) continue;
 
-      queueChildren.push(new CategoryTreeItem(`${statusLabels[status] || status} (${tasks.length})`, statusItems));
+        const statusItems = tasks.map(t => {
+          const icon = this.getIconForStatus(t.status);
+          const action = getExecutableAction(t);
+          return new TaskTreeItem(t.title, {
+            command: 'vectahubTasks.removeQueueTask',
+            title: t.title,
+            arguments: [t.id]
+          }, icon, 'queueTask', t.description);
+        });
+
+        queueChildren.push(new CategoryTreeItem(`${statusLabels[status] || status} (${tasks.length})`, statusItems));
+      }
     }
 
-    if (queueChildren.length > 0) {
-      categories.push(new CategoryTreeItem('自动化队列', queueChildren));
+    const allItems = [...gitItems, ...ciItems, ...queueChildren];
+    if (allItems.length > 0) {
+      categories.push(new CategoryTreeItem('Git & CI', allItems, { contextValue: 'queueCategory' }));
     }
   }
 
-  private addRecentFailuresSection(categories: CategoryTreeItem[]): void {
+  private addRecentFailuresSection(categories: CategoryTreeItem[], options?: { collapsed?: boolean }): void {
     const failures = getFailedTasks(5);
     if (failures.length === 0) return;
 
@@ -223,21 +339,7 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
       }, 'error', 'failed', desc);
     });
 
-    categories.push(new CategoryTreeItem('最近失败', items));
-  }
-
-  private addGitSection(categories: CategoryTreeItem[]): void {
-    const gitItems = this.projectTasks
-      .filter(t => t.source === 'git')
-      .map(t => new TaskTreeItem(t.label, {
-        command: 'vectahubTasks.runProjectTask',
-        title: t.label,
-        arguments: [t]
-      }, 'git-compare', t.source));
-
-    if (gitItems.length > 0) {
-      categories.push(new CategoryTreeItem('Git 仓库', gitItems));
-    }
+    categories.push(new CategoryTreeItem('最近失败', items, options));
   }
 
   private addCoreSection(categories: CategoryTreeItem[]): void {
@@ -248,7 +350,7 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
     categories.push(new CategoryTreeItem('VectaHub 核心', vhItems));
   }
 
-  private addOtherScriptsSection(categories: CategoryTreeItem[]): void {
+  private addOtherScriptsSection(categories: CategoryTreeItem[], options?: { collapsed?: boolean }): void {
     const otherPkgItems = this.projectTasks
       .filter(t => t.source === 'package-json' && !DEV_KINDS.includes(t.kind) && !QUALITY_KINDS.includes(t.kind) && t.kind !== 'install')
       .map(t => {
@@ -268,7 +370,7 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
       });
 
     if (otherPkgItems.length > 0) {
-      categories.push(new CategoryTreeItem('其他项目脚本', otherPkgItems));
+      categories.push(new CategoryTreeItem('项目脚本', otherPkgItems, options));
     }
   }
 

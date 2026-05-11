@@ -1,7 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ProcessManager = void 0;
+const child_process_1 = require("child_process");
 const output_js_1 = require("../ui/output.js");
+const os_1 = require("os");
 class ProcessManager {
     static instance;
     activeProcesses = new Set();
@@ -14,7 +16,7 @@ class ProcessManager {
     }
     register(child) {
         this.activeProcesses.add(child);
-        child.on('exit', () => {
+        child.on('close', () => {
             this.activeProcesses.delete(child);
         });
         child.on('error', () => {
@@ -26,13 +28,27 @@ class ProcessManager {
             return;
         (0, output_js_1.logToOutput)(`Killing ${this.activeProcesses.size} active CLI processes...`, 'warn');
         for (const child of this.activeProcesses) {
-            if (!child.killed) {
+            if (!child.killed && child.pid) {
                 try {
-                    // On Unix, we might want to kill the process group, but child.kill() is a good start.
-                    child.kill('SIGTERM');
+                    if ((0, os_1.platform)() === 'win32') {
+                        (0, child_process_1.execSync)(`taskkill /F /T /PID ${child.pid}`, { stdio: 'ignore' });
+                    }
+                    else {
+                        try {
+                            process.kill(-child.pid, 'SIGTERM');
+                        }
+                        catch {
+                            child.kill('SIGTERM');
+                        }
+                    }
                 }
                 catch {
-                    // ignore
+                    try {
+                        child.kill('SIGKILL');
+                    }
+                    catch {
+                        // ignore
+                    }
                 }
             }
         }
