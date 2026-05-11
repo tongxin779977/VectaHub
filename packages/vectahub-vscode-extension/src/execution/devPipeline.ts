@@ -19,14 +19,7 @@ export interface PipelineSelection {
   skipped: string[];
 }
 
-export const CHECK_PIPELINE_STEPS: PipelineStep[] = [
-  { kind: 'typecheck', label: '类型检查' },
-  { kind: 'lint', label: '代码检查' },
-  { kind: 'test', label: '运行测试' },
-  { kind: 'build', label: '构建项目' }
-];
-
-export const DEV_PIPELINE_STEPS: PipelineStep[] = [
+export const VERIFY_PIPELINE_STEPS: PipelineStep[] = [
   { kind: 'check', idPattern: 'format:check', label: '格式检查' },
   { kind: 'typecheck', label: '类型检查' },
   { kind: 'lint', label: '代码检查' },
@@ -79,10 +72,6 @@ export function createPipeline(
   return { plans, included, skipped };
 }
 
-export function createCheckPipeline(availableTasks: ProjectTask[]): PipelineResult {
-  return createPipeline(CHECK_PIPELINE_STEPS, availableTasks);
-}
-
-export function createDevPipeline(availableTasks: ProjectTask[]): PipelineResult {
-  return createPipeline(DEV_PIPELINE_STEPS, availableTasks);
+export function createVerifyPipeline(availableTasks: ProjectTask[]): PipelineResult {
+  return createPipeline(VERIFY_PIPELINE_STEPS, availableTasks);
 }

@@ -6,11 +6,12 @@ import { audit } from '../../infrastructure/audit/index.js';
 import { createConsoleLogger } from '../../utils/logger.js';
 import { createLLMConfig, LLMClient } from '../../nl/llm.js';
 import { TOOL_CAPABILITY_PARSER_ID } from '../../nl/prompt-manager.js';
+import { loadConfig } from '../../infrastructure/config/index.js';
 
 const MAX_HELP_OUTPUT_LENGTH = 8000;
 const CACHE_DIR_NAME = 'cache';
 const TOOL_NAME_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
-const KNOWN_AGENT_CLIS = ['aider', 'claude', 'codex', 'cursor', 'gemini', 'cline', 'copilot', 'devika', 'swe-agent', 'openhands'];
+const DEFAULT_AGENT_CLIS = ['aider', 'claude', 'codex', 'cursor', 'gemini', 'cline', 'copilot', 'devika', 'swe-agent', 'openhands'];
 const cacheLogger = createConsoleLogger('cache-manager');
 
 export interface ToolCacheEntry {
@@ -37,6 +38,16 @@ export class ToolCacheManager {
 
   private getCachePath(toolName: string): string {
     return join(this.cacheDir, `${toolName}.help.json`);
+  }
+
+  private getAllowedTools(): string[] {
+    try {
+      const config = loadConfig();
+      const configTools = Object.keys(config.external_cli);
+      return [...new Set([...DEFAULT_AGENT_CLIS, ...configTools])];
+    } catch {
+      return [...DEFAULT_AGENT_CLIS];
+    }
   }
 
   getCachedHelp(toolName: string): ToolCacheEntry | null {
@@ -72,8 +83,9 @@ export class ToolCacheManager {
       throw new Error(`非法工具名称: ${toolName}，仅允许字母、数字、点、下划线和短横线`);
     }
 
-    if (!KNOWN_AGENT_CLIS.includes(toolName)) {
-      throw new Error(`未知 Agent CLI: ${toolName}，当前仅支持: ${KNOWN_AGENT_CLIS.join(', ')}`);
+    const allowedTools = this.getAllowedTools();
+    if (!allowedTools.includes(toolName)) {
+      throw new Error(`未知 Agent CLI: ${toolName}，当前支持: ${allowedTools.join(', ')}`);
     }
 
     const cached = this.getCachedHelp(toolName);

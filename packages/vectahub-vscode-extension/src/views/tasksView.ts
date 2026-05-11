@@ -232,11 +232,6 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
       }, 'stop-circle'));
     }
 
-    devItems.push(new TaskTreeItem('运行开发任务链', {
-      command: 'vectahubTasks.runDevPipeline',
-      title: '运行 format:check / typecheck / lint / test / build'
-    }, 'play-circle'));
-
     if (devItems.length > 0) {
       categories.push(new CategoryTreeItem('一键开发', devItems));
     }
@@ -247,9 +242,9 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
       .filter(t => QUALITY_KINDS.includes(t.kind))
       .map(t => this.createTaskItem(t));
 
-    qualityItems.push(new TaskTreeItem('一键检查全部', {
-      command: 'vectahubTasks.runCheckPipeline',
-      title: '运行 typecheck / lint / test / build'
+    qualityItems.push(new TaskTreeItem('一键验证全部', {
+      command: 'vectahubTasks.runVerifyAll',
+      title: '运行 format:check / typecheck / lint / test / build'
     }, 'play-circle'));
 
     categories.push(new CategoryTreeItem('质量检查', qualityItems));
@@ -271,14 +266,10 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
     if (!gitAvailable) return;
 
     const ciItems: VectaHubTreeItem[] = [
-      new TaskTreeItem('拉取 GitHub Actions 错误', {
-        command: 'vectahubTasks.fetchGhErrors',
-        title: '拉取最新失败记录'
-      }, 'cloud-download'),
-      new TaskTreeItem('自动处理诊断队列', {
-        command: 'vectahubTasks.processAllQueue',
-        title: '开始批量修复'
-      }, 'play-all')
+      new TaskTreeItem('同步并修复', {
+        command: 'vectahubTasks.syncAndFixCi',
+        title: '拉取 CI 错误并自动修复'
+      }, 'sync')
     ];
 
     const queueChildren: VectaHubTreeItem[] = [];

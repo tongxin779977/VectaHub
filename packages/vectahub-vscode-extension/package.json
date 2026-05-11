@@ -60,13 +60,13 @@
         "icon": "$(refresh)"
       },
       {
-        "command": "vectahubTasks.runCheckPipeline",
-        "title": "VectaHub: 一键检查全部",
+        "command": "vectahubTasks.runVerifyAll",
+        "title": "VectaHub: 一键验证全部",
         "category": "VectaHub"
       },
       {
-        "command": "vectahubTasks.runDevPipeline",
-        "title": "VectaHub: 运行开发任务链",
+        "command": "vectahubTasks.syncAndFixCi",
+        "title": "VectaHub: 同步并修复",
         "category": "VectaHub"
       },
       {

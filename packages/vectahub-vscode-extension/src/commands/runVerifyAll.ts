@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { getOutputChannel } from '../ui/output.js';
 import { PlanRunner } from '../execution/planRunner.js';
 import { detectProjectTasks } from '../project/detector.js';
-import { createCheckPipeline } from '../execution/devPipeline.js';
+import { createVerifyPipeline } from '../execution/devPipeline.js';
 import { addTaskRecord } from '../project/taskHistory.js';
 import { TasksViewProvider } from '../views/tasksView.js';
 import { ExecutionPlan } from '../execution/plan.js';
@@ -20,14 +20,14 @@ async function runPlansSequentially(
   }
 }
 
-export function registerRunCheckPipelineCommand(context: vscode.ExtensionContext, tasksProvider: TasksViewProvider) {
-  const disposable = vscode.commands.registerCommand('vectahubTasks.runCheckPipeline', async () => {
+export function registerRunVerifyAllCommand(context: vscode.ExtensionContext, tasksProvider: TasksViewProvider) {
+  const disposable = vscode.commands.registerCommand('vectahubTasks.runVerifyAll', async () => {
     const tasks = await detectProjectTasks();
-    const result = createCheckPipeline(tasks);
+    const result = createVerifyPipeline(tasks);
 
     if (result.plans.length === 0) {
       const skipped = result.skipped.length > 0 ? `跳过: ${result.skipped.join(', ')}` : '';
-      vscode.window.showWarningMessage(`无可执行的质量检查任务。${skipped}`);
+      vscode.window.showWarningMessage(`无可执行的验证任务。${skipped}`);
       return;
     }
 
@@ -40,7 +40,7 @@ export function registerRunCheckPipelineCommand(context: vscode.ExtensionContext
 
     await vscode.window.withProgress({
       location: vscode.ProgressLocation.Notification,
-      title: 'VectaHub 一键检查全部...',
+      title: 'VectaHub 一键验证全部...',
       cancellable: true
     }, async (_progress, token) => {
       const runner = new PlanRunner(getOutputChannel());
@@ -50,20 +50,20 @@ export function registerRunCheckPipelineCommand(context: vscode.ExtensionContext
         const message = err instanceof Error ? err.message : String(err);
         if (message.includes('cancelled')) {
           status = 'cancelled';
-          vscode.window.showInformationMessage('⏸ 一键检查已取消');
+          vscode.window.showInformationMessage('⏸ 一键验证已取消');
         } else {
           status = 'failed';
-          vscode.window.showErrorMessage(`❌ 检查链在某步失败: ${message}`);
+          vscode.window.showErrorMessage(`❌ 验证链在某步失败: ${message}`);
         }
       }
     });
 
     const endedAt = new Date();
-    const summary = `检查链: ${result.included.map(t => t.label).join(' → ')}`;
+    const summary = `验证链: ${result.included.map(t => t.label).join(' → ')}`;
     addTaskRecord({
-      id: `check-pipeline-${Date.now()}`,
-      label: '一键检查全部',
-      kind: 'check-pipeline',
+      id: `verify-pipeline-${Date.now()}`,
+      label: '一键验证全部',
+      kind: 'verify-pipeline',
       source: 'vectahub',
       status,
       command: summary,
@@ -73,7 +73,7 @@ export function registerRunCheckPipelineCommand(context: vscode.ExtensionContext
     tasksProvider.refresh();
 
     if (status === 'success') {
-      vscode.window.showInformationMessage('✅ 一键检查全部完成');
+      vscode.window.showInformationMessage('✅ 一键验证全部完成');
     }
   });
   context.subscriptions.push(disposable);

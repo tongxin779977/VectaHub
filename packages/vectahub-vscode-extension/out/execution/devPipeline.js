@@ -1,18 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DEV_PIPELINE_STEPS = exports.CHECK_PIPELINE_STEPS = void 0;
+exports.VERIFY_PIPELINE_STEPS = void 0;
 exports.selectPipelineTasks = selectPipelineTasks;
 exports.createPipeline = createPipeline;
-exports.createCheckPipeline = createCheckPipeline;
-exports.createDevPipeline = createDevPipeline;
+exports.createVerifyPipeline = createVerifyPipeline;
 const planBuilder_js_1 = require("./planBuilder.js");
-exports.CHECK_PIPELINE_STEPS = [
-    { kind: 'typecheck', label: '类型检查' },
-    { kind: 'lint', label: '代码检查' },
-    { kind: 'test', label: '运行测试' },
-    { kind: 'build', label: '构建项目' }
-];
-exports.DEV_PIPELINE_STEPS = [
+exports.VERIFY_PIPELINE_STEPS = [
     { kind: 'check', idPattern: 'format:check', label: '格式检查' },
     { kind: 'typecheck', label: '类型检查' },
     { kind: 'lint', label: '代码检查' },
@@ -56,10 +49,7 @@ function createPipeline(steps, availableTasks) {
     }
     return { plans, included, skipped };
 }
-function createCheckPipeline(availableTasks) {
-    return createPipeline(exports.CHECK_PIPELINE_STEPS, availableTasks);
-}
-function createDevPipeline(availableTasks) {
-    return createPipeline(exports.DEV_PIPELINE_STEPS, availableTasks);
+function createVerifyPipeline(availableTasks) {
+    return createPipeline(exports.VERIFY_PIPELINE_STEPS, availableTasks);
 }
 //# sourceMappingURL=devPipeline.js.map

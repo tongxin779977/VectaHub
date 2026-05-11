@@ -223,10 +223,6 @@ class TasksViewProvider {
                 title: '停止运行中的任务'
             }, 'stop-circle'));
         }
-        devItems.push(new treeItems_js_1.TaskTreeItem('运行开发任务链', {
-            command: 'vectahubTasks.runDevPipeline',
-            title: '运行 format:check / typecheck / lint / test / build'
-        }, 'play-circle'));
         if (devItems.length > 0) {
             categories.push(new treeItems_js_1.CategoryTreeItem('一键开发', devItems));
         }
@@ -235,9 +231,9 @@ class TasksViewProvider {
         const qualityItems = this.projectTasks
             .filter(t => QUALITY_KINDS.includes(t.kind))
             .map(t => this.createTaskItem(t));
-        qualityItems.push(new treeItems_js_1.TaskTreeItem('一键检查全部', {
-            command: 'vectahubTasks.runCheckPipeline',
-            title: '运行 typecheck / lint / test / build'
+        qualityItems.push(new treeItems_js_1.TaskTreeItem('一键验证全部', {
+            command: 'vectahubTasks.runVerifyAll',
+            title: '运行 format:check / typecheck / lint / test / build'
         }, 'play-circle'));
         categories.push(new treeItems_js_1.CategoryTreeItem('质量检查', qualityItems));
     }
@@ -255,14 +251,10 @@ class TasksViewProvider {
         if (!gitAvailable)
             return;
         const ciItems = [
-            new treeItems_js_1.TaskTreeItem('拉取 GitHub Actions 错误', {
-                command: 'vectahubTasks.fetchGhErrors',
-                title: '拉取最新失败记录'
-            }, 'cloud-download'),
-            new treeItems_js_1.TaskTreeItem('自动处理诊断队列', {
-                command: 'vectahubTasks.processAllQueue',
-                title: '开始批量修复'
-            }, 'play-all')
+            new treeItems_js_1.TaskTreeItem('同步并修复', {
+                command: 'vectahubTasks.syncAndFixCi',
+                title: '拉取 CI 错误并自动修复'
+            }, 'sync')
         ];
         const queueChildren = [];
         if (this.queueError) {
