@@ -38,6 +38,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.initCliAdapter = initCliAdapter;
 exports.getVectaHubHome = getVectaHubHome;
+exports.parseCliPath = parseCliPath;
+exports.getActiveWorkspaceFolder = getActiveWorkspaceFolder;
 exports.runCli = runCli;
 const child_process_1 = require("child_process");
 const vscode = __importStar(require("vscode"));
@@ -61,6 +63,23 @@ function getActualCliPath() {
 function getVectaHubHome() {
     return path_1.default.join((0, os_1.homedir)(), '.vectahub');
 }
+function parseCliPath(cliPath) {
+    const trimmed = cliPath.trim();
+    if (trimmed.startsWith('node ')) {
+        const rest = trimmed.slice(5).trim();
+        return { cmd: 'node', extraArgs: [rest] };
+    }
+    return { cmd: trimmed, extraArgs: [] };
+}
+function getActiveWorkspaceFolder() {
+    const editor = vscode.window.activeTextEditor;
+    if (editor) {
+        const folder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
+        if (folder)
+            return folder.uri.fsPath;
+    }
+    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+}
 async function runCli(args, options = {}) {
     const cliPath = getActualCliPath();
     let spawnCmd = cliPath;
@@ -69,8 +88,8 @@ async function runCli(args, options = {}) {
         spawnCmd = 'node';
         spawnArgs = [cliPath.slice(5), ...args];
     }
-    const cwd = options.cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const vectahubHome = path_1.default.join((0, os_1.homedir)(), '.vectahub');
+    const cwd = options.cwd || getActiveWorkspaceFolder();
+    const vectahubHome = getVectaHubHome();
     const env = {
         ...process.env,
         CI: '1',
@@ -136,6 +155,16 @@ async function runCli(args, options = {}) {
                     const parseError = e;
                     (0, output_js_1.logToOutput)(`Failed to parse JSON output: ${parseError.message}`, 'error');
                     if (ok) {
+                        const repaired = tryRepairTruncatedJson(stdout.trim());
+                        if (repaired) {
+                            try {
+                                data = JSON.parse(repaired);
+                                (0, output_js_1.logToOutput)('Successfully repaired truncated JSON');
+                            }
+                            catch { /* repair failed too */ }
+                        }
+                    }
+                    if (ok && !data) {
                         ok = false;
                         error = { code: 'INVALID_JSON', message: 'Failed to parse CLI JSON output', details: parseError.message };
                     }
@@ -161,5 +190,11 @@ async function runCli(args, options = {}) {
             });
         });
     });
+}
+function tryRepairTruncatedJson(s) {
+    const lastBrace = Math.max(s.lastIndexOf('}'), s.lastIndexOf(']'));
+    if (lastBrace < 0)
+        return null;
+    return s.slice(0, lastBrace + 1);
 }
 //# sourceMappingURL=adapter.js.map

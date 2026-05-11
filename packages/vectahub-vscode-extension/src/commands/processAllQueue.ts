@@ -94,6 +94,9 @@ export function registerProcessAllQueueCommand(context: vscode.ExtensionContext,
       }
 
       const afterQueue = tasksProvider.readDiagnosticQueue();
+      if (afterQueue.error) {
+        logToOutput(`[processAllQueue] 处理后队列读取失败: ${afterQueue.error}`, 'warn');
+      }
       const workflowData = result.data as WorkflowResult | undefined;
       
       let completedNow: number;

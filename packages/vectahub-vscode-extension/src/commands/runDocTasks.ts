@@ -29,6 +29,14 @@ interface AgentsListResult {
   agents: AgentCliInfo[];
 }
 
+function formatCliError(raw: string, taskLabel: string): string {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed.message) return `${taskLabel}: ${parsed.message}`;
+  } catch { /* not JSON */ }
+  return `${taskLabel}: ${raw}`;
+}
+
 export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksProvider: TasksViewProvider) {
   context.subscriptions.push(
     vscode.commands.registerCommand('vectahubTasks.selectDocFile', async () => {

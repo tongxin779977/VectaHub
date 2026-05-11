@@ -37,6 +37,15 @@ exports.registerDocTaskCommands = registerDocTaskCommands;
 const vscode = __importStar(require("vscode"));
 const adapter_js_1 = require("../cli/adapter.js");
 const output_js_1 = require("../ui/output.js");
+function formatCliError(raw, taskLabel) {
+    try {
+        const parsed = JSON.parse(raw);
+        if (parsed.message)
+            return `${taskLabel}: ${parsed.message}`;
+    }
+    catch { /* not JSON */ }
+    return `${taskLabel}: ${raw}`;
+}
 function registerDocTaskCommands(context, tasksProvider) {
     context.subscriptions.push(vscode.commands.registerCommand('vectahubTasks.selectDocFile', async () => {
         const uris = await vscode.window.showOpenDialog({

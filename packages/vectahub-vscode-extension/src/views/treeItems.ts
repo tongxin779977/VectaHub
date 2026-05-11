@@ -42,7 +42,7 @@ export class CategoryTreeItem extends VectaHubTreeItem {
       label,
       options?.collapsed ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.Expanded,
       undefined,
-      options?.contextValue
+      options?.contextValue ?? 'category'
     );
     this.children = children;
   }

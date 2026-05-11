@@ -261,7 +261,6 @@ class TasksViewProvider {
             queueChildren.push(new treeItems_js_1.EmptyStateTreeItem(this.queueError, 'warning'));
         }
         else if (this.diagnosticTasks.length === 0) {
-            queueChildren.push(new treeItems_js_1.EmptyStateTreeItem('队列为空，当前无待处理诊断', 'check'));
         }
         else {
             const statusGroups = this.groupDiagnosticsByStatus();

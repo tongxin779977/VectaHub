@@ -26,6 +26,24 @@ export function getVectaHubHome(): string {
   return path.join(homedir(), '.vectahub');
 }
 
+export function parseCliPath(cliPath: string): { cmd: string; extraArgs: string[] } {
+  const trimmed = cliPath.trim();
+  if (trimmed.startsWith('node ')) {
+    const rest = trimmed.slice(5).trim();
+    return { cmd: 'node', extraArgs: [rest] };
+  }
+  return { cmd: trimmed, extraArgs: [] };
+}
+
+export function getActiveWorkspaceFolder(): string | undefined {
+  const editor = vscode.window.activeTextEditor;
+  if (editor) {
+    const folder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
+    if (folder) return folder.uri.fsPath;
+  }
+  return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+}
+
 export async function runCli<T = unknown>(args: string[], options: CliOptions = {}): Promise<CliResult<T>> {
   const cliPath = getActualCliPath();
   
@@ -37,9 +55,9 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
     spawnArgs = [cliPath.slice(5), ...args];
   }
   
-  const cwd = options.cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const cwd = options.cwd || getActiveWorkspaceFolder();
 
-  const vectahubHome = path.join(homedir(), '.vectahub');
+  const vectahubHome = getVectaHubHome();
   
   const env = {
     ...process.env,
@@ -113,6 +131,15 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
           const parseError = e as Error;
           logToOutput(`Failed to parse JSON output: ${parseError.message}`, 'error');
           if (ok) {
+            const repaired = tryRepairTruncatedJson(stdout.trim());
+            if (repaired) {
+              try {
+                data = JSON.parse(repaired);
+                logToOutput('Successfully repaired truncated JSON');
+              } catch { /* repair failed too */ }
+            }
+          }
+          if (ok && !data) {
             ok = false;
             error = { code: 'INVALID_JSON', message: 'Failed to parse CLI JSON output', details: parseError.message };
           }
@@ -140,4 +167,10 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
       });
     });
   });
+}
+
+function tryRepairTruncatedJson(s: string): string | null {
+  const lastBrace = Math.max(s.lastIndexOf('}'), s.lastIndexOf(']'));
+  if (lastBrace < 0) return null;
+  return s.slice(0, lastBrace + 1);
 }

@@ -71,7 +71,7 @@ class TaskTreeItem extends VectaHubTreeItem {
 exports.TaskTreeItem = TaskTreeItem;
 class CategoryTreeItem extends VectaHubTreeItem {
     constructor(label, children, options) {
-        super(label, options?.collapsed ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.Expanded, undefined, options?.contextValue);
+        super(label, options?.collapsed ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.Expanded, undefined, options?.contextValue ?? 'category');
         this.children = children;
     }
     children;

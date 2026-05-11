@@ -39,6 +39,7 @@ exports.filterDiagnostics = filterDiagnostics;
 const vscode = __importStar(require("vscode"));
 const node_http_1 = require("node:http");
 const promises_1 = require("node:fs/promises");
+const node_crypto_1 = require("node:crypto");
 const node_os_1 = require("node:os");
 const node_path_1 = require("node:path");
 const VECTAHUB_HOME = process.env.VECTAHUB_HOME || (0, node_path_1.join)((0, node_os_1.homedir)(), '.vectahub');
@@ -107,11 +108,19 @@ function serializeDiagnostics(results) {
 class DiagnosticBridge {
     server = null;
     port = 0;
+    token = '';
     async start() {
+        this.token = (0, node_crypto_1.randomBytes)(16).toString('hex');
         this.server = (0, node_http_1.createServer)((req, res) => {
             if (req.method !== 'GET' || !req.url?.startsWith('/api/diagnostics')) {
                 res.writeHead(404, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'Not found' }));
+                return;
+            }
+            const authHeader = req.headers['authorization'];
+            if (authHeader !== `Bearer ${this.token}`) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Unauthorized' }));
                 return;
             }
             const url = new URL(req.url, `http://localhost:${this.port}`);
@@ -157,6 +166,9 @@ class DiagnosticBridge {
     }
     getPort() {
         return this.port;
+    }
+    getToken() {
+        return this.token;
     }
     async dispose() {
         if (this.server) {

@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerStartDevServerCommand = registerStartDevServerCommand;
 const vscode = __importStar(require("vscode"));
 const longRunningTaskManager_js_1 = require("../cli/longRunningTaskManager.js");
+const adapter_js_1 = require("../cli/adapter.js");
 function registerStartDevServerCommand(context, tasksProvider) {
     const lrt = longRunningTaskManager_js_1.LongRunningTaskManager.getInstance();
     const disposable = vscode.commands.registerCommand('vectahubTasks.startDevServer', async (task) => {
@@ -73,6 +74,6 @@ function registerStartDevServerCommand(context, tasksProvider) {
     context.subscriptions.push(disposable);
 }
 function getCwd() {
-    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    return (0, adapter_js_1.getActiveWorkspaceFolder)();
 }
 //# sourceMappingURL=startDevServer.js.map

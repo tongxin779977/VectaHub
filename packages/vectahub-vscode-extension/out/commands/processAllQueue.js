@@ -106,6 +106,9 @@ function registerProcessAllQueueCommand(context, tasksProvider) {
                 return;
             }
             const afterQueue = tasksProvider.readDiagnosticQueue();
+            if (afterQueue.error) {
+                (0, output_js_1.logToOutput)(`[processAllQueue] 处理后队列读取失败: ${afterQueue.error}`, 'warn');
+            }
             const workflowData = result.data;
             let completedNow;
             let failedCount;

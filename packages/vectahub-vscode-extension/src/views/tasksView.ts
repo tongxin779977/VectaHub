@@ -276,7 +276,6 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
     if (this.queueError) {
       queueChildren.push(new EmptyStateTreeItem(this.queueError, 'warning'));
     } else if (this.diagnosticTasks.length === 0) {
-      queueChildren.push(new EmptyStateTreeItem('队列为空，当前无待处理诊断', 'check'));
     } else {
       const statusGroups = this.groupDiagnosticsByStatus();
       const statusOrder: DiagnosticTaskStatus[] = ['pending', 'processing', 'failed', 'needs-confirmation', 'completed', 'cancelled'];

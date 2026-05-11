@@ -1,5 +1,5 @@
 import { ChildProcess } from 'child_process';
-import { execSync } from 'child_process';
+import { exec } from 'child_process';
 import { logToOutput } from '../ui/output.js';
 import { platform } from 'os';
 
@@ -31,10 +31,10 @@ export class ProcessManager {
     
     logToOutput(`Killing ${this.activeProcesses.size} active CLI processes...`, 'warn');
     for (const child of this.activeProcesses) {
-      if (!child.killed && child.pid) {
+      if (!child.killed && typeof child.pid === 'number' && child.pid > 0) {
         try {
           if (platform() === 'win32') {
-            execSync(`taskkill /F /T /PID ${child.pid}`, { stdio: 'ignore' });
+            exec(`taskkill /F /T /PID ${child.pid}`, () => {});
           } else {
             try {
               process.kill(-child.pid, 'SIGTERM');

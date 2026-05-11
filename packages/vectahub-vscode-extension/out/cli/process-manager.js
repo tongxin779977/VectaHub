@@ -28,10 +28,10 @@ class ProcessManager {
             return;
         (0, output_js_1.logToOutput)(`Killing ${this.activeProcesses.size} active CLI processes...`, 'warn');
         for (const child of this.activeProcesses) {
-            if (!child.killed && child.pid) {
+            if (!child.killed && typeof child.pid === 'number' && child.pid > 0) {
                 try {
                     if ((0, os_1.platform)() === 'win32') {
-                        (0, child_process_1.execSync)(`taskkill /F /T /PID ${child.pid}`, { stdio: 'ignore' });
+                        (0, child_process_1.exec)(`taskkill /F /T /PID ${child.pid}`, () => { });
                     }
                     else {
                         try {

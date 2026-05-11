@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { createServer, Server } from 'node:http';
-import { writeFile, unlink } from 'node:fs/promises';
+import { writeFile, unlink, mkdir } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -92,12 +93,22 @@ function serializeDiagnostics(results: DiagnosticBridgeResult[]) {
 export class DiagnosticBridge implements vscode.Disposable {
   private server: Server | null = null;
   private port: number = 0;
+  private token: string = '';
 
   async start(): Promise<number> {
+    this.token = randomBytes(16).toString('hex');
+
     this.server = createServer((req, res) => {
       if (req.method !== 'GET' || !req.url?.startsWith('/api/diagnostics')) {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Not found' }));
+        return;
+      }
+
+      const authHeader = req.headers['authorization'];
+      if (authHeader !== `Bearer ${this.token}`) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Unauthorized' }));
         return;
       }
 
@@ -145,6 +156,10 @@ export class DiagnosticBridge implements vscode.Disposable {
 
   getPort(): number {
     return this.port;
+  }
+
+  getToken(): string {
+    return this.token;
   }
 
   async dispose(): Promise<void> {

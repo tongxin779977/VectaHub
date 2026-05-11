@@ -44,6 +44,7 @@ function registerRunIntentCommand(context) {
         const input = intent || await vscode.window.showInputBox({
             prompt: '输入自然语言意图',
             placeHolder: '查看 git 状态',
+            ignoreFocusOut: true,
         });
         if (!input) {
             vscode.window.showWarningMessage('已取消输入');

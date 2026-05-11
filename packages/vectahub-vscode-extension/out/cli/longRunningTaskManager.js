@@ -40,6 +40,7 @@ const settings_js_1 = require("../config/settings.js");
 const extension_js_1 = require("../extension.js");
 const process_manager_js_1 = require("./process-manager.js");
 const statusBar_js_1 = require("../ui/statusBar.js");
+const adapter_js_1 = require("./adapter.js");
 class LongRunningTaskManager {
     static instance;
     runningTasks = new Map();
@@ -71,12 +72,7 @@ class LongRunningTaskManager {
             throw new Error(`Task ${task.id} has no executable command`);
         }
         const cliPath = this.getActualCliPath();
-        let spawnCmd = cliPath;
-        let spawnArgs = [];
-        if (cliPath.startsWith('node ')) {
-            spawnCmd = 'node';
-            spawnArgs = [cliPath.slice(5)];
-        }
+        const { cmd: spawnCmd, extraArgs: spawnArgs } = (0, adapter_js_1.parseCliPath)(cliPath);
         const args = [...spawnArgs, ...task.command.args];
         const env = {
             ...process.env,
@@ -153,7 +149,14 @@ class LongRunningTaskManager {
         return true;
     }
     async restart(task, cwd) {
-        this.stop(task.id);
+        const entry = this.runningTasks.get(task.id);
+        if (entry) {
+            try {
+                entry.child.kill('SIGTERM');
+            }
+            catch { /* ignore */ }
+            this.runningTasks.delete(task.id);
+        }
         return this.start(task, cwd);
     }
     stopAll() {
