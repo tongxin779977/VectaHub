@@ -1,5 +1,5 @@
 import { createServer, createConnection, type Server, type Socket } from 'net';
-import { existsSync, unlinkSync } from 'fs';
+import { unlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
@@ -182,9 +182,7 @@ export class SocketServer {
       success: true,
     });
 
-    if (existsSync(this.socketPath)) {
-      unlinkSync(this.socketPath);
-    }
+    try { unlinkSync(this.socketPath); } catch { /* ignore if not exists */ }
 
     this.server = createServer((socket) => {
       socket.on('data', (data) => this.handleSocketData(socket, data));
@@ -204,9 +202,7 @@ export class SocketServer {
       await new Promise<void>((resolve) => this.server!.close(() => resolve()));
       this.server = null;
     }
-    if (existsSync(this.socketPath)) {
-      unlinkSync(this.socketPath);
-    }
+    try { unlinkSync(this.socketPath); } catch { /* ignore if not exists */ }
   }
 
   getSocketPath(): string {

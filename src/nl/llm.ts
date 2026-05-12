@@ -129,6 +129,7 @@ export class LLMClient {
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     try {
+      const useToolCalling = tools && tools.length > 0;
       const requestBody: Record<string, unknown> = {
         model: this.config.model,
         messages: [
@@ -136,11 +137,16 @@ export class LLMClient {
           { role: 'user', content: userInput },
         ],
         temperature: 0.1,
-        response_format: { type: 'json_object' },
       };
 
-      if (tools) {
+      if (useToolCalling) {
         requestBody.tools = tools;
+      } else {
+        const systemContent = systemPrompt.includes('json')
+          ? systemPrompt
+          : systemPrompt + '\n\nPlease respond in JSON format.';
+        (requestBody.messages as Array<Record<string, string>>)[0].content = systemContent;
+        requestBody.response_format = { type: 'json_object' };
       }
       if (toolChoice) {
         requestBody.tool_choice = toolChoice;

@@ -57,8 +57,7 @@ const PII_PATTERNS: PatternDef[] = [
 ];
 
 const FINANCIAL_PATTERNS: PatternDef[] = [
-  { pattern: /\b(?:\d{4}[- ]?){3}\d{4}\b/g, type: 'credit_card' },
-  { pattern: /\b\d{16,19}\b/g, type: 'credit_card' },
+  { pattern: /\b\d{4}[- ]\d{4}[- ]\d{4}[- ]\d{4}\b/g, type: 'credit_card' },
 ];
 
 export interface RedactionOptions {
@@ -119,15 +118,21 @@ export function redactString(str: string, options?: RedactionOptions): string {
   let result = str;
 
   for (const def of API_KEY_PATTERNS) {
-    result = result.replace(def.pattern, opts.mode === 'mask' ? maskMatch(result, def.pattern, opts) : '[REDACTED]');
+    result = result.replace(def.pattern, (match) =>
+      opts.mode === 'mask' ? maskMatch(match, opts) : '[REDACTED]'
+    );
   }
 
   for (const def of PII_PATTERNS) {
-    result = result.replace(def.pattern, opts.mode === 'mask' ? maskMatch(result, def.pattern, opts) : '[REDACTED_PII]');
+    result = result.replace(def.pattern, (match) =>
+      opts.mode === 'mask' ? maskMatch(match, opts) : '[REDACTED_PII]'
+    );
   }
 
   for (const def of FINANCIAL_PATTERNS) {
-    result = result.replace(def.pattern, opts.mode === 'mask' ? maskMatch(result, def.pattern, opts) : '[REDACTED_FIN]');
+    result = result.replace(def.pattern, (match) =>
+      opts.mode === 'mask' ? maskMatch(match, opts) : '[REDACTED_FIN]'
+    );
   }
 
   for (const key of SENSITIVE_KEYS) {
@@ -141,11 +146,7 @@ export function redactString(str: string, options?: RedactionOptions): string {
   return result;
 }
 
-function maskMatch(str: string, pattern: RegExp, options: RedactionOptions): string {
-  const matches = str.match(pattern);
-  if (!matches) return '[MASKED]';
-  
-  const match = matches[0];
+function maskMatch(match: string, options: RedactionOptions): string {
   const visible = Math.min(options.visibleChars || 4, Math.floor(match.length / 2));
   return match.slice(0, visible) + (options.maskChar || '*').repeat(match.length - visible);
 }

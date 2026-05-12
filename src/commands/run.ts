@@ -94,6 +94,7 @@ export const runCmd = new Command('run')
   }, [])
   .action(async (intent: string[], options: RunCommandOptions & { json?: boolean }) => {
     const wasMuted = isLoggerMuted();
+    const previousAuditDisabled = process.env.VECTAHUB_AUDIT_DISABLED;
     try {
       if (options.json) {
         setMuted(true);
@@ -105,7 +106,6 @@ export const runCmd = new Command('run')
         exitWithError(`❌ 无效的运行模式: ${options.mode}。可选值为: strict, relaxed, consensus`, 'INVALID_MODE', options.json);
       }
 
-      const previousAuditDisabled = process.env.VECTAHUB_AUDIT_DISABLED;
       if (options.dryRun) {
         process.env.VECTAHUB_AUDIT_DISABLED = '1';
       }
@@ -357,6 +357,7 @@ export const runCmd = new Command('run')
               continue;
             }
           }
+          restoreEnvValue('VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
           process.exit(1);
         }
         break;
@@ -382,6 +383,7 @@ export const runCmd = new Command('run')
         getLogger().error(`错误: ${message}`);
         getLogger().debug(stackTrace);
       }
+      restoreEnvValue('VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
       process.exit(1);
     } finally {
       setMuted(wasMuted);

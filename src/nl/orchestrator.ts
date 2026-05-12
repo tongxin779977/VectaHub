@@ -3,7 +3,7 @@ import type { TaskList, IntentName, StepType } from '../types/index.js';
 import type { ExecutionPlan } from './capabilities/types.js';
 import { createNLProcessor } from './core/pipeline.js';
 import { createIntentSplitter } from './core/intent-splitter.js';
-import type { LLMConfig } from './llm.js';
+import { createLLMConfig, type LLMConfig } from './llm.js';
 
 export function initializeRouter(_intentEntries: Array<{ intent: string; category: string; patterns: RegExp[]; examples: string[]; priority: number }>): void {}
 
@@ -79,12 +79,10 @@ export async function orchestrateIntent(
   input: string,
   _options?: { cwd?: string },
 ): Promise<OrchestrateResult> {
-  const llmConfig: LLMConfig = {
-    provider: (process.env.LLM_PROVIDER as LLMConfig['provider']) ?? 'openai',
-    model: process.env.LLM_MODEL ?? 'gpt-4o-mini',
-    apiKey: process.env.LLM_API_KEY,
-    baseUrl: process.env.LLM_BASE_URL,
-  };
+  const llmConfig = createLLMConfig();
+  if (!llmConfig) {
+    throw new Error('LLM not configured. Run `vectahub setup` or set VECTAHUB_LLM_* environment variables.');
+  }
 
   const result = await processInput(input, llmConfig);
 

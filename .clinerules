@@ -1,0 +1,85 @@
+# VectaHub Project Rules
+
+## Project Context
+
+- CLI entry: `src/cli.ts`
+- Command wiring: `src/commands/module.ts`
+- All commands: `src/commands/`
+- Shared types: `src/types/index.ts`
+- Workflow core: `src/workflow/`
+- NL/LLM engine: `src/nl/`
+- Skills runtime: `src/skills/`
+- Sandbox/security: `src/sandbox/`, `src/security-protocol/`, `src/command-rules/`, `src/cli-tools/`
+- Audit/logging: `src/infrastructure/audit/`, `src/utils/audit.ts`
+- Setup/config: `src/setup/`, `src/infrastructure/config/`, `src/utils/config.ts`, `src/utils/paths.ts`
+- VS Code extension: `packages/vectahub-vscode-extension/src/`
+- Tests live next to source: `src/foo.ts` → `src/foo.test.ts`
+
+## Module Map (pick files by task type)
+
+| Task Type | Start With |
+|---|---|
+| CLI command bug | `src/commands/`, then `src/cli.ts`, `src/commands/module.ts` |
+| Workflow behavior | `src/workflow/`, `src/types/index.ts` |
+| Natural language / LLM | `src/nl/`, `src/skills/` |
+| Sandbox / dangerous command | `src/sandbox/`, `src/security-protocol/`, `src/command-rules/`, `src/cli-tools/` |
+| Audit / logging | `src/infrastructure/audit/`, `src/utils/audit.ts`, related command file |
+| Setup / config | `src/setup/`, `src/infrastructure/config/`, `src/utils/config.ts`, `src/utils/paths.ts` |
+| VS Code extension | `packages/vectahub-vscode-extension/src/` |
+
+Read tests next to touched source files before changing behavior.
+
+## Hard Stops
+
+- Evidence only: no tool run, no success claim.
+- Do not claim tests pass unless a real check passed.
+- After code changes, run relevant verification.
+- Do not fabricate files, APIs, IDE features, or command output.
+- Do not bypass sandbox, validation, or user confirmation.
+- Do not read, print, log, or commit secrets/tokens/keys/`.env`.
+- Use `getVectaHubPath()` for VectaHub home/config/data paths; use context-specific paths for tests and IDE storage.
+- Commit format: `[module] short description`, <=50 chars, no period.
+
+## Verify Loop
+
+- Run the narrowest relevant check first.
+- Passing checks: summarize command and result.
+- Failing checks: show key raw error and stop before broad retries.
+
+## Verification Commands
+
+- Typecheck: `npm run typecheck`
+- Tests: `npm test`
+- One-shot tests: `npm run test:run`
+- Build: `npm run build`
+- CLI verify: `npm run dev -- verify --type <typecheck|test|coverage|all>`
+
+## CLI Diagnostic Commands
+
+- Doctor: `npm run dev -- doctor`
+- Security rules: `npm run dev -- security list`
+- Test command safety: `npm run dev -- security test -- <command>`
+- Audit list: `npm run dev -- audit list --limit 20`
+- Audit query: `npm run dev -- audit query --event <type>`
+- Audit stats: `npm run dev -- audit stats`
+
+## Task Template
+
+When receiving a task, use this structure:
+
+```
+Goal:
+Observed behavior:
+Expected behavior:
+Scope:
+Do not change:
+Allowed:
+Verification:
+Direct edit or plan first:
+```
+
+Rules:
+- If scope is unclear, ask one blocking question.
+- If user says analysis/plan, do not edit.
+- If user says direct edit, make the smallest safe change.
+- After code changes, run relevant verification.

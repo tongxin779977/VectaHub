@@ -132,6 +132,28 @@ function getConfigPath(): string {
   return getVectaHubPath('config.yaml');
 }
 
+function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
+  const result = { ...target };
+  for (const key of Object.keys(source)) {
+    if (
+      source[key] !== null &&
+      typeof source[key] === 'object' &&
+      !Array.isArray(source[key]) &&
+      target[key] !== null &&
+      typeof target[key] === 'object' &&
+      !Array.isArray(target[key])
+    ) {
+      result[key] = deepMerge(
+        target[key] as Record<string, unknown>,
+        source[key] as Record<string, unknown>
+      );
+    } else {
+      result[key] = source[key];
+    }
+  }
+  return result;
+}
+
 function validateConfig(config: Partial<Config>): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
 
@@ -237,7 +259,7 @@ export function loadConfig(configPath?: string): Config {
       console.warn('Invalid config detected, using defaults with partial overrides:', validation.errors);
     }
     
-    const merged = { ...DEFAULT_CONFIG, ...parsed };
+    const merged = deepMerge(DEFAULT_CONFIG as unknown as Record<string, unknown>, parsed as unknown as Record<string, unknown>) as unknown as Config;
     
     return merged;
   } catch (error) {
@@ -267,7 +289,7 @@ export function saveConfig(config: Config, configPath?: string): void {
 
 export function updateConfig(patch: Partial<Config>, configPath?: string): Config {
   const current = loadConfig(configPath);
-  const updated = { ...current, ...patch };
+  const updated = deepMerge(current as unknown as Record<string, unknown>, patch as unknown as Record<string, unknown>) as unknown as Config;
   
   const validation = validateConfig(updated);
   if (!validation.valid) {

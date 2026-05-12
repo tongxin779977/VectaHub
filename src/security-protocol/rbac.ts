@@ -55,15 +55,6 @@ function ensureRbacDir(): void {
   }
 }
 
-function patternToRegex(pattern: string): RegExp {
-  const escaped = pattern
-    .replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
-    .replace(/\\\*/g, '[^\\s]*')
-    .replace(/\\\?/g, '.');
-  
-  return new RegExp(`^(\\S+\\s+)*${escaped}(\\s+.*)?$`);
-}
-
 function matchBlockedCommand(command: string, blockedPattern: string): boolean {
   const normalizedCommand = command.trim().toLowerCase();
   const normalizedPattern = blockedPattern.trim().toLowerCase();
@@ -72,32 +63,144 @@ function matchBlockedCommand(command: string, blockedPattern: string): boolean {
     return true;
   }
 
-  if (normalizedPattern.includes('*') || normalizedPattern.includes('?')) {
-    const regex = patternToRegex(normalizedPattern);
-    return regex.test(normalizedCommand);
+  if (!normalizedPattern.includes('*') && !normalizedPattern.includes('?')) {
+    const commandParts = normalizedCommand.split(/\s+/);
+    const patternParts = normalizedPattern.split(/\s+/);
+
+    if (patternParts.length > commandParts.length) {
+      return false;
+    }
+
+    for (let i = 0; i < patternParts.length; i++) {
+      const patternPart = patternParts[i];
+      const commandPart = commandParts[i];
+
+      if (patternPart === '*') {
+        continue;
+      }
+
+      if (patternPart !== commandPart) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   const commandParts = normalizedCommand.split(/\s+/);
   const patternParts = normalizedPattern.split(/\s+/);
 
-  if (patternParts.length > commandParts.length) {
+  if (patternParts.length > commandParts.length + 1) {
     return false;
   }
 
-  for (let i = 0; i < patternParts.length; i++) {
-    const patternPart = patternParts[i];
-    const commandPart = commandParts[i];
+  if (patternParts.length === 1) {
+    const onlyPattern = patternParts[0];
+
+    if (onlyPattern === '*') {
+      return true;
+    }
+
+    const isSuffixWildcard = onlyPattern.endsWith('*') && (onlyPattern.match(/\*/g)?.length ?? 0) === 1;
+    const isPrefixWildcard = onlyPattern.startsWith('*') && (onlyPattern.match(/\*/g)?.length ?? 0) === 1;
+
+    if (isSuffixWildcard && !isPrefixWildcard) {
+      return commandParts.some(part => part.startsWith(onlyPattern.slice(0, -1)));
+    }
+
+    if (isPrefixWildcard && !onlyPattern.endsWith('*')) {
+      return commandParts.some(part => part.endsWith(onlyPattern.slice(1)));
+    }
+
+    const escaped = onlyPattern
+      .replace(/[-\/\\^$+().|[\]{}]/g, '\\$&')
+      .replace(/\*/g, '.*')
+      .replace(/\?/g, '.');
+
+    const regex = new RegExp(`^${escaped}$`);
+    return commandParts.some(part => regex.test(part));
+  }
+
+  let patternIndex = 0;
+  let commandIndex = 0;
+
+  while (patternIndex < patternParts.length && commandIndex < commandParts.length) {
+    const patternPart = patternParts[patternIndex];
 
     if (patternPart === '*') {
+      patternIndex++;
+
+      if (patternIndex === patternParts.length) {
+        return true;
+      }
+
+      const remainingPatternParts = patternParts.slice(patternIndex);
+      const remainingCommandParts = commandParts.slice(commandIndex);
+
+      for (let start = 0; start <= remainingCommandParts.length - remainingPatternParts.length; start++) {
+        let matches = true;
+
+        for (let i = 0; i < remainingPatternParts.length; i++) {
+          const nextPattern = remainingPatternParts[i];
+          const nextCommand = remainingCommandParts[start + i];
+
+          if (nextPattern === '*') {
+            continue;
+          }
+
+          if (nextPattern.includes('*') || nextPattern.includes('?')) {
+            const escaped = nextPattern
+              .replace(/[-\/\\^$+().|[\]{}]/g, '\\$&')
+              .replace(/\*/g, '.*')
+              .replace(/\?/g, '.');
+
+            if (!new RegExp(`^${escaped}$`).test(nextCommand)) {
+              matches = false;
+              break;
+            }
+          } else if (nextPattern !== nextCommand) {
+            matches = false;
+            break;
+          }
+        }
+
+        if (matches) {
+          return true;
+        }
+      }
+
+      return false;
+    }
+
+    const commandPart = commandParts[commandIndex];
+
+    if (patternPart === '?' || patternPart === commandPart) {
+      patternIndex++;
+      commandIndex++;
       continue;
     }
 
-    if (patternPart !== commandPart) {
-      return false;
+    if (patternPart.includes('*') || patternPart.includes('?')) {
+      const escaped = patternPart
+        .replace(/[-\/\\^$+().|[\]{}]/g, '\\$&')
+        .replace(/\*/g, '.*')
+        .replace(/\?/g, '.');
+
+      if (new RegExp(`^${escaped}$`).test(commandPart)) {
+        patternIndex++;
+        commandIndex++;
+        continue;
+      }
     }
+
+    return false;
   }
 
-  return true;
+  if (patternIndex < patternParts.length && patternParts.slice(patternIndex).every(part => part === '*')) {
+    return true;
+  }
+
+  return patternIndex === patternParts.length && commandIndex === commandParts.length;
 }
 
 export function createRBACManager(): RBACManager {
