@@ -68,12 +68,13 @@ P2 不重写 LLM 解析器，不引入数据库，不引入 worktree 隔离。
 为了精确检测需求变更，每个合同必须包含 `instructionHash`。
 
 **计算公式**：
-`Hash = SHA-256(taskId + label + docExcerpt + toolName + normalizedAllowedFiles + normalizedForbiddenFiles)`
+`Hash = SHA-256(taskId + label + docExcerpt + toolName + normalizedAllowedFiles + normalizedForbiddenFiles + globalConfigDigest)`
 
 **执行契约 (Mandates)**：
-1.  **因子完整性**：计算 Hash 时必须包含上述所有 6 个维度。
-2.  **比对阶段的因子对称性 (Critical)**：插件在比对历史 Hash 与当前 Hash 时，**必须保证计算因子完全对称**。这意味着在比对前，系统必须先根据当前环境执行轻量级的“边界预推导”，获取当前的 `allowedFiles` 和 `forbiddenFiles`，再与 `toolName` 等共同参与计算。
-3.  **禁止单向校验**：严禁在比对阶段仅使用部分因子。不对称的计算会导致 Hash 永远无法匹配，造成系统逻辑失效。
+1.  **因子完整性**：计算 Hash 时必须包含上述所有维度。
+2.  **全局配置敏感性**：`globalConfigDigest` 必须包含当前 LLM Provider 的核心参数（如 Model, Temperature）。
+3.  **比对阶段的因子对称性 (Critical)**：插件在解析阶段比对历史记录时，**必须先执行边界预推导 (Pre-derivation)**，获取当前的 `allowedFiles` 和 `forbiddenFiles`。
+4.  **历史数据失效**：如果旧记录缺失关键 Hash 因子，必须强制将其标记为失效（回滚至 ready），不得使用残缺因子进行降级比对。
 
 
 ### 5.1 类型定义
@@ -169,21 +170,20 @@ Agent prompt contract section: <= 12000 chars
 Agent 不应默认读取整份文档。系统应尽量根据 `taskId` 提取任务附近片段。
 
 ### 7.2 规则
-
 输入：
-
 ```ts
 deriveDocExcerpt(input: {
-  docContent: string;
+  docPath: string; // 必须使用路径，禁止直接传递大字符串
   taskId: string;
   label: string;
   maxChars?: number;
-}): {
-  excerpt: string;
-  truncated: boolean;
-  strategy: 'task-heading' | 'task-id-window' | 'label-window' | 'head-fallback';
-}
+}): Promise<{ excerpt: string; truncated: boolean; strategy: string }>
 ```
+
+**执行要求**：
+- **禁止全量读取 (No Full Read)**：严禁使用 `fsp.readFile` 将整个大文档读入内存。
+- **流式扫描 (Streaming Scan)**：必须使用流式读取或基于偏移量的随机访问。
+- **内存保护**：即使文档大小为 500MB，该函数的常驻内存增加不应超过 5MB。
 
 优先级：
 

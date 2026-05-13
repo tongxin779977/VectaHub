@@ -19,12 +19,13 @@
 
 VectaHub 2.0 是对当前 TypeScript CLI 项目的 Go 语言重构版本，不是重新定义产品。2.0 必须继承 1.x 已验证的用户能力、命令语义、安全边界和数据模型，同时通过 Go 的单二进制交付、并发模型、接口边界和服务化能力降低运行时复杂度。
 
-### 2.1 迁移原则
+### 2.3 工程准则 (Engineering Mandates)
 
-| 原则 | 要求 |
+| 准则 | 要求 |
 |------|------|
 | 行为优先 | 先保持 1.x 用户可见行为，再替换内部实现 |
 | 安全默认 | `dry-run` 零副作用、preview first、危险命令检测必须保留 |
+| **顶级作用域零副作用** | **CLI 入口文件顶级作用域禁止任何具备副作用的函数调用（如 IO、初始化）。仅允许声明和静态定义。** |
 | 数据兼容 | 2.0 能读取 1.x 的 workflow、execution、audit、config 数据 |
 | 可观测 | 所有 CLI、workflow step、sandbox 判定、API 调用都可审计 |
 | 可嵌入 | CLI、REST、gRPC、VS Code 插件最终共享同一 Go core |

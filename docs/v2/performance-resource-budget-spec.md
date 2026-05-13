@@ -70,7 +70,7 @@ export interface DocHeadingIndex {
 ## 8. 性能与内存预算
 - 严格限制 `DocTaskRunRecord` 序列化后的大小 <= 16KB。
 - 严格限制 `latest.json` 总大小 <= 2MB（超过则对旧任务进行归档）。
-- **Token 消耗审计必须覆盖全生命周期**：无论 Agent 执行成功、失败、超时还是被取消，只要产生了输出（stdout/stderr），系统必须尝试解析并记录已产生的 Token 消耗数据。
+- **Token 消耗审计必须作用于原始流 (Raw Stream)**：Token 解析必须直接作用于全量生成的 `.stdout` 文件流或原始子进程输出。**严禁**仅从 JSON 摘要或 `outputSummary` 中尝试提取 Token 信息，以防止因 2000 字符截断导致的审计遗漏。
 
 ## 9. 安全与隐私边界
 - 索引文件不包含文档内容，仅记录偏移量。

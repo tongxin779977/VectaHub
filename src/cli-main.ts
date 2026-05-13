@@ -2,39 +2,25 @@
 
 import process from 'node:process';
 
-process.setMaxListeners(100);
-
-process.on('warning', (warning) => {
-  if (warning.name === 'MaxListenersExceededWarning') {
-    return;
-  }
-  if ((warning as Error & { code?: string }).code === 'DEP0205') {
-    return;
-  }
-  console.warn(warning);
-});
-
 import { globalEventManager } from './utils/event-manager.js';
+import { AsyncLogWriter } from './infrastructure/trace-audit/async-writer.js';
 
-const setupGlobalSignals = (() => {
-  let initialized = false;
-  return () => {
-    if (initialized) return;
-    initialized = true;
+function setupGlobalSignals() {
+  if ((setupGlobalSignals as any).initialized) return;
+  (setupGlobalSignals as any).initialized = true;
 
-    globalEventManager.on('SIGINT', async () => {
-      console.log('\n\n🛑 Shutting down...');
-      await AsyncLogWriter.flushAll();
-      process.exit(0);
-    });
+  globalEventManager.on('SIGINT', async () => {
+    console.log('\n\n🛑 Shutting down...');
+    await AsyncLogWriter.flushAll();
+    process.exit(0);
+  });
 
-    globalEventManager.on('SIGTERM', async () => {
-      console.log('\n\n🛑 Shutting down...');
-      await AsyncLogWriter.flushAll();
-      process.exit(0);
-    });
-  };
-})();
+  globalEventManager.on('SIGTERM', async () => {
+    console.log('\n\n🛑 Shutting down...');
+    await AsyncLogWriter.flushAll();
+    process.exit(0);
+  });
+}
 
 import { Command } from 'commander';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -47,11 +33,34 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 let _version: string | undefined;
 function getVersion(): string {
   if (!_version) {
-    const pkg = JSON.parse(readFileSync(join(__dirname, '../package.json'), 'utf-8'));
-    _version = pkg.version;
+    try {
+      const pkgPath = join(__dirname, '../package.json');
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+      _version = pkg.version;
+    } catch {
+      _version = '0.0.0';
+    }
   }
   return _version!;
 }
+
+function setupProcessListeners() {
+  if ((setupProcessListeners as any).initialized) return;
+  (setupProcessListeners as any).initialized = true;
+
+  process.setMaxListeners(100);
+
+  process.on('warning', (warning) => {
+    if (warning.name === 'MaxListenersExceededWarning') {
+      return;
+    }
+    if ((warning as Error & { code?: string }).code === 'DEP0205') {
+      return;
+    }
+    console.warn(warning);
+  });
+}
+
 import { initAuditLogger, getCurrentSessionId, audit } from './utils/audit.js';
 import { setGlobalOptions, isVerbose } from './utils/global-options.js';
 import { setLogLevel, setMuted } from './infrastructure/logger/index.js';
@@ -412,10 +421,11 @@ program
   .option('-d, --debug', '调试模式（包含详细输出）')
   .option('--non-interactive', '非交互模式（适用于 CI/CD）')
   .hook('preAction', async (thisCommand) => {
+    setupProcessListeners();
     setupGlobalSignals();
     if (!_versionInitialized) {
       _versionInitialized = true;
-      (program as { _version?: string })._version = getVersion();
+      (program as any)._version = getVersion();
     }
     // Lazy-init audit logger on first command invocation (not at top level)
     if (!_auditLoggerInitialized) {

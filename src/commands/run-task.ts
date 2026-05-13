@@ -65,6 +65,12 @@ const redactor = createRedactor();
 
 class RedactionTransform extends Transform {
   private carry = '';
+  private onTokenUsage?: (usage: TokenUsage) => void;
+
+  constructor(options?: any, onTokenUsage?: (usage: TokenUsage) => void) {
+    super(options);
+    this.onTokenUsage = onTokenUsage;
+  }
 
   _transform(chunk: Buffer | string, _encoding: BufferEncoding, callback: (error?: Error | null, data?: Buffer | string) => void): void {
     try {
@@ -77,7 +83,18 @@ class RedactionTransform extends Transform {
       }
       const complete = text.slice(0, splitAt + 1);
       this.carry = text.slice(splitAt + 1);
-      callback(null, redactor.redact(complete));
+      
+      const redacted = redactor.redact(complete);
+      
+      // Real-time token capture on redacted lines
+      if (this.onTokenUsage) {
+        const usage = parseTokenUsage(redacted);
+        if (usage) {
+          this.onTokenUsage(usage);
+        }
+      }
+
+      callback(null, redacted);
     } catch (error) {
       callback(error as Error);
     }
@@ -85,7 +102,18 @@ class RedactionTransform extends Transform {
 
   _flush(callback: (error?: Error | null, data?: Buffer | string) => void): void {
     try {
-      callback(null, this.carry ? redactor.redact(this.carry) : '');
+      if (this.carry) {
+        const redacted = redactor.redact(this.carry);
+        if (this.onTokenUsage) {
+          const usage = parseTokenUsage(redacted);
+          if (usage) {
+            this.onTokenUsage(usage);
+          }
+        }
+        callback(null, redacted);
+      } else {
+        callback(null, '');
+      }
     } catch (error) {
       callback(error as Error);
     }
@@ -416,8 +444,11 @@ function truncateVerificationSummary(value: string | undefined): string | undefi
   return `${value.slice(0, VERIFICATION_SUMMARY_MAX_LENGTH - suffix.length)}${suffix}`;
 }
 
+import { parse } from 'shell-quote';
+
 export function splitCommandArgs(cmd: string): string[] {
-  return splitPosixArgs(cmd);
+  const parsed = parse(cmd);
+  return parsed.filter((p): p is string => typeof p === 'string');
 }
 
 function getRunTaskOutputDir(): string {
@@ -427,10 +458,11 @@ function getRunTaskOutputDir(): string {
 export async function runVerificationCommands(
   validationCommands: string[],
   cwd: string,
-): Promise<VerificationResult> {
+): Promise<VerificationResult & { isSystemError?: boolean }> {
   const commandsToRun = validationCommands.slice(0, MAX_VERIFICATION_COMMANDS);
   const results: VerificationCommandResult[] = [];
   let overallOk = true;
+  let hasSystemError = false;
 
   for (const cmd of commandsToRun) {
     // Risk assessment: block critical commands, flag high-risk
@@ -471,6 +503,13 @@ export async function runVerificationCommands(
     } catch (error) {
       const durationMs = Date.now() - startMs;
       const execError = error as any;
+      
+      // Identify system errors (ENOENT, EACCES, etc.)
+      const isSystem = ['ENOENT', 'EACCES', 'EPERM'].includes(execError.code);
+      if (isSystem) {
+        hasSystemError = true;
+      }
+
       const exitCode: number | null = execError.killed ? null : (execError.status ?? execError.code ?? null);
       const stdoutStr = execError.stdout?.toString?.() || '';
       const stderrStr = execError.stderr?.toString?.() || '';
@@ -488,7 +527,7 @@ export async function runVerificationCommands(
     }
   }
 
-  return { ok: overallOk, commands: results };
+  return { ok: overallOk, commands: results, isSystemError: hasSystemError };
 }
 
 export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
@@ -768,26 +807,26 @@ export async function runTask(options: {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
-      const stdoutRedactor = new RedactionTransform();
-      const stderrRedactor = new RedactionTransform();
+      let capturedUsage: TokenUsage | undefined;
+      const onToken = (u: TokenUsage) => {
+        if (!capturedUsage) {
+          capturedUsage = u;
+        } else {
+          capturedUsage.promptTokens = Math.max(capturedUsage.promptTokens, u.promptTokens);
+          capturedUsage.completionTokens = Math.max(capturedUsage.completionTokens, u.completionTokens);
+          capturedUsage.totalTokens = Math.max(capturedUsage.totalTokens, u.totalTokens);
+        }
+      };
+
+      const stdoutRedactor = new RedactionTransform(undefined, onToken);
+      const stderrRedactor = new RedactionTransform(undefined, onToken);
       const stdoutRedactedWriter = createWriteStream(redactedStdoutPath, { encoding: 'utf8' });
       const stderrRedactedWriter = createWriteStream(redactedStderrPath, { encoding: 'utf8' });
 
-      let stdoutRaw = '';
-      let stderrRaw = '';
       let redactedStdout = '';
       let redactedStderr = '';
 
-      child.stdout?.on('data', (chunk: Buffer) => {
-        const text = chunk.toString();
-        stdoutRaw += text;
-      });
-      child.stderr?.on('data', (chunk: Buffer) => {
-        const text = chunk.toString();
-        stderrRaw += text;
-      });
-
-      // required pipeline shape
+      // Required pipeline: spawn -> redactor -> writer (file)
       child.stdout?.pipe(stdoutRedactor).pipe(stdoutRedactedWriter);
       child.stderr?.pipe(stderrRedactor).pipe(stderrRedactedWriter);
 
@@ -819,13 +858,13 @@ export async function runTask(options: {
       });
 
       await spawnSpan.end({
-        stdoutLength: stdoutRaw.length,
-        stderrLength: stderrRaw.length,
+        stdoutLength: redactedStdout.length,
+        stderrLength: redactedStderr.length,
         exitCode: 0,
       });
 
       const combinedOutput = `${redactedStdout}${redactedStderr ? `\n${redactedStderr}` : ''}`;
-      const rawAgentOutputForUsage = `${stdoutRaw}${stderrRaw ? `\n${stderrRaw}` : ''}`;
+      
       const collectSpan = startSpan('cli.run-task.collectGitChanges', {
         context: traceContext,
         parentSpanId: rootSpan.spanId,
@@ -834,20 +873,8 @@ export async function runTask(options: {
       });
       const gitChanges = await collectGitChanges() ?? undefined;
       await collectSpan.end({ changedFileCount: gitChanges?.changedFiles.length || 0 });
-      await withSpan('cli.run-task.formatJson', async () => {
-        formatRunTaskJson({ success: true, output: combinedOutput, command: fullCommand, gitChanges });
-      }, {
-        context: traceContext,
-        parentSpanId: rootSpan.spanId,
-        source: 'cli',
-        attributes: {
-          ...baseAttributes,
-          command: limitText(fullCommand),
-          fallbackUsed,
-        },
-      });
-
-      let verification: VerificationResult | undefined;
+      
+      let verification: (VerificationResult & { isSystemError?: boolean }) | undefined;
       const validationCommands = agentTaskContractSummary.validationCommands;
       if (validationCommands.length > 0) {
         const verificationSpan = startSpan('cli.run-task.verification', {
@@ -863,32 +890,35 @@ export async function runTask(options: {
           verification = await runVerificationCommands(validationCommands, process.cwd());
           await verificationSpan.end({
             verificationOk: verification.ok,
+            verificationIsSystemError: !!verification.isSystemError,
             verificationTotalCommands: verification.commands.length,
             verificationPassedCommands: verification.commands.filter(c => c.ok).length,
             verificationFailedCommands: verification.commands.filter(c => !c.ok).length,
             verificationTotalDurationMs: verification.commands.reduce((sum, c) => sum + c.durationMs, 0),
           });
-          logger.info(`验证完成: ${verification.ok ? '通过' : '失败'} (${verification.commands.length} 条命令)`);
+          logger.info(`验证完成: ${verification.ok ? '通过' : '失败'} (${verification.commands.length} 条命令)${verification.isSystemError ? ' [系统错误]' : ''}`);
         } catch (error) {
-          verification = { ok: false, commands: [] };
+          verification = { ok: false, commands: [], isSystemError: true };
           await verificationSpan.fail(error);
           logger.error('验证执行异常');
         }
       }
 
-      const finalSuccess = verification ? verification.ok : true;
-      if (!finalSuccess) {
+      const finalSuccess = verification ? (verification.ok && !verification.isSystemError) : true;
+      if (!finalSuccess && verification?.ok) {
+        logger.warn('任务 Agent 成功但验证发生系统错误');
+      } else if (!finalSuccess) {
         logger.warn('任务 Agent 成功但验证失败');
       }
 
-      // Parse token usage from agent output
-      const usage = parseTokenUsage(rawAgentOutputForUsage);
+      // Usage is now captured in real-time
+      const usage = capturedUsage;
       if (usage) {
-        logger.info(`Token 消耗: prompt=${usage.promptTokens}, completion=${usage.completionTokens}, total=${usage.totalTokens}`);
+        logger.info(`Token 消耗 (实时捕获): prompt=${usage.promptTokens}, completion=${usage.completionTokens}, total=${usage.totalTokens}`);
       }
 
       audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'COMPLETED', 'run-task');
-      logger.info(finalSuccess ? '任务执行成功' : '任务执行完成（验证失败）');
+      logger.info(finalSuccess ? '任务执行成功' : '任务执行完成（验证失败或系统错误）');
       if (gitChanges) {
         logger.info(`变更文件: ${gitChanges.changedFiles.length} 个`);
       }

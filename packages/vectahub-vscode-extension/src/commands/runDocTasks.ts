@@ -261,7 +261,13 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
             try {
               docContent = await fsp.readFile(docPath, 'utf8');
             } catch { /* ignore */ }
-            const tasksWithState = await applyLatestRunState(runStore, result.data.tasks, warnRunStore, docContent);
+            const tasksWithState = await applyLatestRunState(
+              runStore,
+              result.data.tasks,
+              warnRunStore,
+              docContent,
+              workspaceRoot,
+            );
             tasksProvider.setDocTasks(tasksWithState);
             logToOutput(`解析完成，共 ${tasksWithState.length} 个任务`);
             vscode.window.showInformationMessage(`解析完成，共 ${tasksWithState.length} 个任务`);
@@ -489,6 +495,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
                     tool: agentCli || undefined,
                     allowedFiles: hashContract?.allowedFiles,
                     forbiddenFiles: hashContract?.forbiddenFiles,
+                    globalConfigDigest: resultContract?.globalConfigDigest,
                   });
                 } catch { /* ignore */ }
               }

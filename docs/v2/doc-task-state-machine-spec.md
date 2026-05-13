@@ -85,6 +85,7 @@ export type DocTaskRunStatus =
   | 'failed_timeout'
   | 'failed_test'
   | 'failed_conflict'
+  | 'failed_system_internal'
   | 'cancelled'
   | 'needs_confirmation';
 ```
@@ -102,6 +103,7 @@ failed_agent
 failed_json_protocol
 failed_timeout
 failed_conflict
+failed_system_internal (用于捕获验证工具缺失、IO 异常等非业务错误)
 cancelled
 needs_confirmation
 ```
@@ -299,8 +301,10 @@ latest.json:
   只保存每个 taskId 的最新 run 摘要 (快照索引/热缓存)
 ```
 
-**索引一致性保障**：
+**原子化写队列 (Atomic Update Queue)**：
 - `latest.json` 写入必须使用临时文件再 rename。
+- 系统必须维护一个进程内的**状态更新写队列**。所有的状态变更请求必须串行进入该队列执行。
+- 严禁多个并发进程/Promise 同时尝试重写 `latest.json`。
 - **自愈机制**：如果 `latest.json` 损坏、缺失或与 `.jsonl` 状态严重不一致，系统必须具备从 `.jsonl` 尾部回溯解析并重建 `latest.json` 的能力。
 
 JSONL append 失败应返回错误；插件需要展示状态写入失败，但不能让进程崩溃。

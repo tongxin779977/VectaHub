@@ -99,6 +99,7 @@ export interface InstructionHashContract {
   tool?: string;
   allowedFiles?: string[];
   forbiddenFiles?: string[];
+  globalConfigDigest?: string;
 }
 
 const MAX_ERROR_MESSAGE = 1000;
@@ -119,7 +120,7 @@ export function computeInstructionHash(
 ): string {
   const sortedAllowed = [...(contract.allowedFiles ?? [])].sort().join(',');
   const sortedForbidden = [...(contract.forbiddenFiles ?? [])].sort().join(',');
-  const content = `${contract.taskId}\n${contract.label}\n${contract.docExcerpt}\ntool=${contract.tool ?? ''}\nallowed=${sortedAllowed}\nforbidden=${sortedForbidden}`;
+  const content = `${contract.taskId}\n${contract.label}\n${contract.docExcerpt}\ntool=${contract.tool ?? ''}\nallowed=${sortedAllowed}\nforbidden=${sortedForbidden}\nconfig=${contract.globalConfigDigest ?? ''}`;
   return createHash('sha256').update(content, 'utf-8').digest('hex').slice(0, 16);
 }
 
