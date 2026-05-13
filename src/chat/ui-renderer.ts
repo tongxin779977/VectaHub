@@ -1,8 +1,8 @@
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 import type { ChatOutput } from './types.js';
 import type { ChatConfig } from './config.js';
 
-const logger = createConsoleLogger('chat-ui');
+const logger = getLogger('chat-ui');
 
 export interface UIRenderer {
   render(output: ChatOutput): void;

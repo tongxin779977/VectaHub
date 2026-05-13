@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolve } from 'node:path';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 import { createLLMConfig, LLMClient } from '../nl/llm.js';
 import { AGENT_CMD_GENERATOR_ID } from '../nl/prompt-manager.js';
 import { getToolCacheManager } from '../cli-tools/discovery/cache-manager.js';
@@ -10,7 +10,26 @@ import { getSecurityManager } from '../security-protocol/manager.js';
 import { audit } from '../infrastructure/audit/index.js';
 
 const execFileAsync = promisify(execFile);
-const logger = createConsoleLogger('run-task');
+const logger = getLogger('run-task');
+const IDE_ENV_PATTERNS = [
+  /^TERM_PROGRAM$/,
+  /^VSCODE_/,
+  /^ELECTRON_/,
+  /^ICUBE_/,
+  /^__CFBundleIdentifier$/,
+  /^SAFE_RM_/,
+];
+
+function stripIDEEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!IDE_ENV_PATTERNS.some(p => p.test(key))) {
+      env[key] = value;
+    }
+  }
+  return env;
+}
+
 const DEFAULT_AGENT_CLI_TIMEOUT = 600000;
 const agentCliTimeout = parseInt(process.env.AGENT_CLI_TIMEOUT || '', 10) || DEFAULT_AGENT_CLI_TIMEOUT;
 const MAX_JSON_OUTPUT_LENGTH = 1200;
@@ -236,6 +255,7 @@ export async function runTask(options: {
     const { stdout, stderr } = await execFileAsync(generated.command, generated.args, {
       timeout: agentCliTimeout,
       cwd: process.cwd(),
+      env: stripIDEEnv(),
     });
 
     const combinedOutput = stdout + (stderr ? '\n' + stderr : '');

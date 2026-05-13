@@ -1,4 +1,4 @@
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 import { type Workflow } from '../types/workflow.js';
 import { type Breakpoint, type DebugState, type StepFrame, type ErrorInfo, type ExecutionHistory, type StepExecution, type WatchExpression, type DebugEvent, BreakpointType } from './debugger-api.js';
 import vm from 'vm';
@@ -89,7 +89,7 @@ function createSandboxContext(
 }
 
 export class WorkflowDebugger {
-  private logger = createConsoleLogger('debugger');
+  private logger = getLogger('debugger');
   private breakpoints = new Map<string, Breakpoint>();
   private watchExpressions = new Map<string, WatchExpression>();
   private executionHistory: ExecutionHistory[] = [];

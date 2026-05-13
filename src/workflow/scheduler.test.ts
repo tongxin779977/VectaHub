@@ -10,15 +10,18 @@ describe('scheduler', () => {
   const originalVectaHubHome = process.env.VECTAHUB_HOME;
 
   beforeEach(() => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     vectahubHome = mkdtempSync(join(tmpdir(), 'vectahub-scheduler-'));
     process.env.VECTAHUB_HOME = vectahubHome;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.useRealTimers();
+    await new Promise((resolve) => setTimeout(resolve, 50));
     vi.clearAllMocks();
-    rmSync(vectahubHome, { recursive: true, force: true });
+    if (existsSync(vectahubHome)) {
+      rmSync(vectahubHome, { recursive: true, force: true });
+    }
     if (originalVectaHubHome === undefined) {
       delete process.env.VECTAHUB_HOME;
     } else {
@@ -26,9 +29,9 @@ describe('scheduler', () => {
     }
   });
 
-  it('creates a new schedule entry', () => {
+  it('creates a new schedule entry', async () => {
     const manager = createScheduleManager();
-    const entry = manager.add({
+    const entry = await manager.add({
       name: 'test schedule',
       cron: '*/5 * * * *',
       workflowId: 'wf_1',
@@ -39,40 +42,44 @@ describe('scheduler', () => {
     expect(entry.enabled).toBe(true);
     expect(entry.createdAt).toBeDefined();
     expect(existsSync(join(vectahubHome, 'schedules.json'))).toBe(true);
+    manager.stop();
   });
 
-  it('lists all schedules', () => {
+  it('lists all schedules', async () => {
     const manager = createScheduleManager();
-    manager.add({ name: 'schedule 1', cron: '*/5 * * * *', workflowId: 'wf_1' });
-    manager.add({ name: 'schedule 2', cron: '* * * * *', command: 'git status', args: [] });
+    await manager.add({ name: 'schedule 1', cron: '*/5 * * * *', workflowId: 'wf_1' });
+    await manager.add({ name: 'schedule 2', cron: '* * * * *', command: 'git status', args: [] });
 
-    expect(manager.list().length).toBe(2);
+    expect((await manager.list()).length).toBe(2);
+    manager.stop();
   });
 
-  it('removes a schedule', () => {
+  it('removes a schedule', async () => {
     const manager = createScheduleManager();
-    const entry = manager.add({ name: 'to remove', cron: '* * * * *', workflowId: 'wf_1' });
+    const entry = await manager.add({ name: 'to remove', cron: '* * * * *', workflowId: 'wf_1' });
 
-    expect(manager.remove(entry.id)).toBe(true);
-    expect(manager.list().length).toBe(0);
-    expect(manager.remove('nonexistent')).toBe(false);
+    expect(await manager.remove(entry.id)).toBe(true);
+    expect((await manager.list()).length).toBe(0);
+    expect(await manager.remove('nonexistent')).toBe(false);
+    manager.stop();
   });
 
-  it('start schedules existing entries', () => {
+  it('start schedules existing entries', async () => {
     const manager = createScheduleManager();
-    manager.add({ name: 'running', cron: '* * * * *', workflowId: 'wf_1' });
-    manager.start();
+    await manager.add({ name: 'running', cron: '* * * * *', workflowId: 'wf_1' });
+    await manager.start();
 
-    expect(manager.list().length).toBe(1);
+    expect((await manager.list()).length).toBe(1);
+    manager.stop();
   });
 
-  it('stop clears all timers', () => {
+  it('stop clears all timers', async () => {
     const manager = createScheduleManager();
-    manager.add({ name: 'stopping', cron: '* * * * *', workflowId: 'wf_1' });
-    manager.start();
+    await manager.add({ name: 'stopping', cron: '* * * * *', workflowId: 'wf_1' });
+    await manager.start();
     manager.stop();
 
-    expect(manager.list().length).toBe(1);
+    expect((await manager.list()).length).toBe(1);
   });
 
   it('blocks critical dangerous commands from execution', async () => {
@@ -84,19 +91,22 @@ describe('scheduler', () => {
     expect(detection.isDangerous).toBe(true);
     expect(detection.level).toBe('critical');
     
-    const entry = manager.add({
+    const entry = await manager.add({
       name: 'dangerous task',
       cron: '* * * * *',
       command: dangerousCommand,
       args: [],
     });
 
-    manager.start();
-    
+    await manager.start();
     vi.advanceTimersByTime(61000);
-    await Promise.resolve();
-    
-    const schedules = manager.list();
+    manager.stop();
+
+    vi.useRealTimers();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    const schedules = await manager.list();
     const saved = schedules.find(s => s.id === entry.id);
     expect(saved).toBeDefined();
     expect(saved?.lastStatus).toBe('FAILED');
@@ -111,20 +121,24 @@ describe('scheduler', () => {
     const detection = detector.detect(safeCommand, 'git');
     expect(detection.isDangerous).toBe(false);
     
-    const entry = manager.add({
+    const entry = await manager.add({
       name: 'safe task',
       cron: '* * * * *',
       command: safeCommand,
       args: ['--version'],
     });
 
-    manager.start();
-    
+    await manager.start();
     vi.advanceTimersByTime(61000);
-    await Promise.resolve();
-    
-    const schedules = manager.list();
+    manager.stop();
+
+    vi.useRealTimers();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    const schedules = await manager.list();
     const saved = schedules.find(s => s.id === entry.id);
     expect(saved).toBeDefined();
+    expect(saved?.lastStatus).toBeDefined();
   });
 });

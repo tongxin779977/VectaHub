@@ -1,12 +1,12 @@
 import { createInterface } from 'readline';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 import { createIntelligentDiagnosisModule } from '../skills/ai-modules/intelligent-diagnosis/diagnoser.js';
 import { createLLMConfig, LLMClient } from '../nl/llm.js';
 import { contextManager } from '../workflow/context-manager.js';
 import { createWorkflowEngine } from '../workflow/engine.js';
 import type { ExecutionRecord, Workflow, Step, StepRecord } from '../types/index.js';
 
-const logger = createConsoleLogger('self-healing');
+const logger = getLogger('self-healing');
 
 export async function runSelfHealingLoop(
   result: ExecutionRecord,

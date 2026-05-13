@@ -57,7 +57,7 @@ function registerSyncAndFixCiCommand(context, tasksProvider) {
             title: 'VectaHub: 同步并修复...',
             cancellable: true
         }, async (_progress, token) => {
-            const fetchResult = await (0, adapter_js_1.runCli)(['run', '-f', 'sys:fetch-gh-actions-errors', '--json'], { token });
+            const fetchResult = await (0, adapter_js_1.runCli)(['run', '-f', 'sys:fetch-gh-actions-errors', '--json'], { token, timeout: 120000 });
             if (!fetchResult.ok) {
                 if (fetchResult.error?.code === 'CANCELLED') {
                     (0, output_js_1.logToOutput)('[syncAndFixCi] 拉取已由用户取消');
@@ -86,7 +86,7 @@ function registerSyncAndFixCiCommand(context, tasksProvider) {
                 return;
             }
             (0, output_js_1.logToOutput)(`[syncAndFixCi] 开始批量修复: ${pendingCount} 个待处理任务`);
-            const processResult = await (0, adapter_js_1.runCli)(['run', '-f', 'sys:process-diagnostic-queue', '--mode', 'relaxed', '--json'], { token });
+            const processResult = await (0, adapter_js_1.runCli)(['run', '-f', 'sys:process-diagnostic-queue', '--mode', 'relaxed', '--json'], { token, timeout: 300000 });
             tasksProvider.refresh();
             const endedAt = new Date();
             if (!processResult.ok) {

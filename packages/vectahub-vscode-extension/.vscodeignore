@@ -2,6 +2,7 @@
 **/.vscode/**
 **/.vscode-test/**
 **/node_modules/**
+**/.DS_Store
 src/**
 test/**
 tsconfig.json

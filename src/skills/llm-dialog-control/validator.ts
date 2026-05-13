@@ -1,8 +1,8 @@
 import YAML from 'yaml';
 import type { OutputFormat, ValidationResult } from './types.js';
-import { createConsoleLogger } from '../../utils/logger.js';
+import { getLogger } from '../../utils/logger.js';
 
-const logger = createConsoleLogger('yaml-validator');
+const logger = getLogger('yaml-validator');
 
 export function validateOutput(
   output: string,

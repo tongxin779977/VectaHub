@@ -3,7 +3,7 @@
  * Trace Core - Trace and Span Management
  */
 
-import { createConsoleLogger } from '../../utils/logger.js';
+import { getLogger } from '../../utils/logger.js';
 import { redactSensitiveData } from '../../utils/sensitive-data.js';
 import type {
   TraceSpan,
@@ -15,7 +15,7 @@ import type {
 } from './types.js';
 import { AsyncLogWriter } from './async-writer.js';
 
-const logger = createConsoleLogger('trace-core');
+const logger = getLogger('trace-core');
 
 /** 生成唯一 ID */
 function generateId(prefix: string): string {

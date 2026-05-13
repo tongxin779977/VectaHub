@@ -1,12 +1,12 @@
 import { Command } from 'commander';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger, setMuted } from '../utils/logger.js';
 import { createLLMConfig, LLMClient } from '../nl/llm.js';
 import { DOC_TASK_PARSER_ID } from '../nl/prompt-manager.js';
 import type { DocTask } from '../types/index.js';
 
-const logger = createConsoleLogger('parse-doc');
+const logger = getLogger('parse-doc');
 
 const DEFAULT_MAX_DOC_LENGTH = 50000;
 const MAX_DOC_LENGTH = parseInt(process.env.PARSE_DOC_MAX_LENGTH || '', 10) || DEFAULT_MAX_DOC_LENGTH;
@@ -265,6 +265,9 @@ export const parseDocCmd = new Command('parse-doc')
   .argument('<path>', '文档文件路径')
   .option('--json', '以 JSON 格式输出')
   .action(async (filePath: string, options: { json?: boolean }) => {
+    if (options.json) {
+      setMuted(true);
+    }
     try {
       logger.info(`正在解析文档: ${filePath}`);
 
@@ -272,6 +275,7 @@ export const parseDocCmd = new Command('parse-doc')
 
       if (options.json) {
         console.log(JSON.stringify({ ok: true, tasks }, null, 2));
+        process.exit(0);
       } else {
         console.log(`\n📋 解析到 ${tasks.length} 个任务:\n`);
         console.log('─'.repeat(60));

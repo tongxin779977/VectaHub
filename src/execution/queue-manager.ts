@@ -3,10 +3,11 @@ import { dirname } from 'node:path';
 import { getVectaHubPath, getVectaHubHome, getProjectQueuePath } from '../utils/paths.js';
 import type { DiagnosticTask, DiagnosticTaskStatus } from '../types/diagnostic.js';
 import { validateDiagnosticQueue } from '../types/diagnostic.js';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 
-const logger = createConsoleLogger('queue-manager');
+const logger = getLogger('queue-manager');
 const QUEUE_FILE = getVectaHubPath('diagnostic-queue.json');
+const MAX_QUEUE_SIZE = 100;
 
 export class QueueManager {
   private static instance: QueueManager;
@@ -99,6 +100,29 @@ export class QueueManager {
 
     tasks.unshift(newTask); // Newest first
     await this.saveTasks(tasks);
+  }
+
+  async enqueue(task: Omit<DiagnosticTask, 'createdAt' | 'updatedAt'>): Promise<boolean> {
+    const tasks = await this.loadTasks();
+    if (tasks.length >= MAX_QUEUE_SIZE) {
+      logger.warn(`Queue is full (${tasks.length}/${MAX_QUEUE_SIZE}), rejecting task "${task.title}"`);
+      return false;
+    }
+
+    if (task.sourceId && tasks.some(t => t.sourceId === task.sourceId)) {
+      return true;
+    }
+
+    const now = new Date();
+    const newTask: DiagnosticTask = {
+      ...task,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    tasks.unshift(newTask);
+    await this.saveTasks(tasks);
+    return true;
   }
 
   async updateTaskStatus(id: string, status: DiagnosticTaskStatus, error?: string): Promise<void> {

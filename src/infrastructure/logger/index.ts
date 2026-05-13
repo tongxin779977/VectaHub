@@ -88,4 +88,16 @@ export function createConsoleLogger(prefix = ''): pino.Logger {
   });
 }
 
+const loggerCache = new Map<string, pino.Logger>();
+
+export function getLogger(prefix = ''): pino.Logger {
+  const key = prefix || 'vectahub';
+  let cached = loggerCache.get(key);
+  if (!cached) {
+    cached = createConsoleLogger(prefix);
+    loggerCache.set(key, cached);
+  }
+  return cached;
+}
+
 export type Logger = pino.Logger;

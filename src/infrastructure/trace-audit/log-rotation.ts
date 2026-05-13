@@ -7,11 +7,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { promisify } from 'node:util';
-import { createConsoleLogger } from '../../utils/logger.js';
+import { getLogger } from '../../utils/logger.js';
 import type { LogRotationConfig } from './types.js';
 
 const gzip = promisify(zlib.gzip);
-const logger = createConsoleLogger('log-rotation');
+const logger = getLogger('log-rotation');
 
 /** 默认配置 */
 const DEFAULT_CONFIG: LogRotationConfig = {

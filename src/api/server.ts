@@ -51,10 +51,10 @@ function listWorkflows(): { id: string; name: string; steps: unknown[] }[] {
     });
 }
 
-export function createAPIServer(port = 3000): ReturnType<typeof createServer> {
+export async function createAPIServer(port = 3000): Promise<ReturnType<typeof createServer>> {
   const engine = createWorkflowEngine();
   const scheduler = createScheduleManager({ engine });
-  scheduler.start();
+  await scheduler.start();
 
   const server = createServer(async (req, res) => {
     const sessionId = getCurrentSessionId();

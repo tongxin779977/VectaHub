@@ -50,7 +50,7 @@ describe('API Server', () => {
       );
     }
 
-    server = createAPIServer();
+    server = await createAPIServer();
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
       server.listen(0, host, () => {

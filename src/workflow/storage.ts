@@ -2,11 +2,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import type { Workflow, ExecutionRecord, StepRecord } from '../types/index.js';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 import { createOutputStore, type OutputStore } from '../execution/output-store.js';
 import { getVectaHubHome } from '../utils/paths.js';
 
-const logger = createConsoleLogger('storage');
+const logger = getLogger('storage');
 
 export interface StorageOptions {
   storageDir?: string;

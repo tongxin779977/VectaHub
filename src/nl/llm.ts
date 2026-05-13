@@ -351,38 +351,72 @@ export class LLMClient {
       throw new Error('Base URL is not configured');
     }
 
-    const controller = new AbortController();
-    const timeout = this.config.timeout || 30000;
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    const MAX_RETRIES = 2;
+    const RETRY_DELAY_MS = 1000;
 
-    try {
-      const response = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model: this.config.model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userInput },
-          ],
-          temperature: 0.1,
-          response_format: { type: 'json_object' },
-        }),
-      });
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const controller = new AbortController();
+      const timeout = this.config.timeout || 30000;
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-      if (!response.ok) {
+      try {
+        const systemContent = systemPrompt.includes('json')
+          ? systemPrompt
+          : systemPrompt + '\n\nPlease respond in JSON format.';
+        const response = await fetch(`${baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
+          },
+          signal: controller.signal,
+          body: JSON.stringify({
+            model: this.config.model,
+            messages: [
+              { role: 'system', content: systemContent },
+              { role: 'user', content: userInput },
+            ],
+            temperature: 0.1,
+            response_format: { type: 'json_object' },
+          }),
+          keepalive: true,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          return response;
+        }
+
         const errorText = await response.text();
-        throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
+        const status = response.status;
+        const isRetryable = (status === 429 || status >= 500) && attempt < MAX_RETRIES;
+
+        if (!isRetryable) {
+          throw new Error(`OpenAI API error: ${status} - ${errorText}`);
+        }
+      } catch (error) {
+        clearTimeout(timeoutId);
+
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw error;
+        }
+
+        const isApiError = error instanceof Error && error.message.startsWith('OpenAI API error:');
+        if (isApiError) {
+          throw error;
+        }
+
+        if (attempt === MAX_RETRIES) {
+          throw error instanceof Error ? error : new Error(String(error));
+        }
       }
 
-      return response;
-    } finally {
-      clearTimeout(timeoutId);
+      const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
+
+    throw new Error('Max retries exceeded');
   }
 
   private async callAnthropicRaw(userInput: string, systemPrompt: string): Promise<Response> {

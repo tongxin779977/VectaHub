@@ -1,8 +1,8 @@
 import { Command } from 'commander';
 import { createRecordManager } from '../execution/record-manager.js';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 
-const logger = createConsoleLogger('detail');
+const logger = getLogger('detail');
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;

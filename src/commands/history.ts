@@ -1,9 +1,9 @@
 import { Command } from 'commander';
 import { createRecordManager } from '../execution/record-manager.js';
 import { createStorage } from '../workflow/storage.js';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 
-const logger = createConsoleLogger('history');
+const logger = getLogger('history');
 
 function formatStatus(status: string): string {
   switch (status) {

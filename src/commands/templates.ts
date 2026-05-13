@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 import { createStorage } from '../workflow/storage.js';
 import { listTemplates, instantiateTemplate, type WorkflowTemplate } from '../workflow/template.js';
 import { loadConfig } from '../setup/first-run-wizard.js';
@@ -17,7 +17,7 @@ import {
   type TemplateMetadata,
 } from '../workflow/template-market.js';
 
-const logger = createConsoleLogger('templates');
+const logger = getLogger('templates');
 
 function getTemplatesDir(): string {
   if (process.env.VECTAHUB_TEMPLATES_DIR) {

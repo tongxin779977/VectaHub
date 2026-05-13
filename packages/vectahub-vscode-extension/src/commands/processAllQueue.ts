@@ -35,7 +35,8 @@ async function readQueueWithRetry(
   if (cliReady) {
     try {
       const analysisResult = await runCli(
-        ['run', '--json', `诊断为什么诊断队列文件无法读取，错误信息: ${second.error}`]
+        ['run', '--json', `诊断为什么诊断队列文件无法读取，错误信息: ${second.error}`],
+        { timeout: 60000 }
       );
       if (analysisResult.ok && analysisResult.stdout) {
         vscode.window.showErrorMessage(
@@ -98,7 +99,7 @@ export function registerProcessAllQueueCommand(context: vscode.ExtensionContext,
     }, async (progress, token) => {
       const result = await runCli<WorkflowResult>(
         ['run', '-f', 'sys:process-diagnostic-queue', '--mode', 'relaxed', '--json'],
-        { token }
+        { token, timeout: 300000 }
       );
 
       tasksProvider.refresh();

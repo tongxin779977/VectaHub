@@ -5,6 +5,8 @@ import { getLogTruncationLimit } from '../config/settings.js';
 
 export class PlanRunner {
   private outputChannel: vscode.OutputChannel;
+  private defaultTimeout = 120000;
+  private previewTimeout = 60000;
 
   constructor(outputChannel: vscode.OutputChannel) {
     this.outputChannel = outputChannel;
@@ -23,7 +25,7 @@ export class PlanRunner {
             '--mode', plan.mode,
             '--json',
             plan.intent
-          ], { cwd: plan.cwd });
+          ], { cwd: plan.cwd, timeout: this.defaultTimeout });
           break;
         case 'command':
           result = await runCli([
@@ -33,7 +35,7 @@ export class PlanRunner {
             '--',
             plan.command.cli,
             ...plan.command.args
-          ], { cwd: plan.cwd });
+          ], { cwd: plan.cwd, timeout: this.defaultTimeout });
           break;
         case 'workflowFile':
           result = await runCli([
@@ -41,7 +43,7 @@ export class PlanRunner {
             '--mode', plan.mode,
             '--json',
             plan.file
-          ], { cwd: plan.cwd });
+          ], { cwd: plan.cwd, timeout: this.defaultTimeout });
           break;
         case 'capability':
           result = await runCli([
@@ -49,7 +51,7 @@ export class PlanRunner {
             '--mode', plan.mode,
             '--json',
             plan.goal?.originalInput || plan.label
-          ], { cwd: plan.cwd });
+          ], { cwd: plan.cwd, timeout: this.defaultTimeout });
           break;
       }
 
@@ -91,7 +93,7 @@ export class PlanRunner {
           '--dry-run',
           '--json',
           plan.intent
-        ], { cwd: plan.cwd });
+        ], { cwd: plan.cwd, timeout: this.previewTimeout });
       case 'command':
         return runCli([
           'run-command',
@@ -100,21 +102,21 @@ export class PlanRunner {
           '--',
           plan.command.cli,
           ...plan.command.args
-        ], { cwd: plan.cwd });
+        ], { cwd: plan.cwd, timeout: this.previewTimeout });
       case 'workflowFile':
         return runCli([
           'run',
           '--dry-run',
           '--json',
           plan.file
-        ], { cwd: plan.cwd });
+        ], { cwd: plan.cwd, timeout: this.previewTimeout });
       case 'capability':
         return runCli([
           'run',
           '--dry-run',
           '--json',
           plan.goal?.originalInput || plan.label
-        ], { cwd: plan.cwd });
+        ], { cwd: plan.cwd, timeout: this.previewTimeout });
     }
   }
 }

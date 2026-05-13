@@ -1,8 +1,8 @@
 import { Command } from 'commander';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 import { loadConfig, updateConfig } from '../infrastructure/config/index.js';
 
-const logger = createConsoleLogger('mode');
+const logger = getLogger('mode');
 const VALID_MODES = ['strict', 'relaxed', 'consensus'] as const;
 
 function loadCurrentMode(): string {

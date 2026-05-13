@@ -35,7 +35,7 @@ export function registerSyncAndFixCiCommand(context: vscode.ExtensionContext, ta
     }, async (_progress, token) => {
       const fetchResult = await runCli<WorkflowResult>(
         ['run', '-f', 'sys:fetch-gh-actions-errors', '--json'],
-        { token }
+        { token, timeout: 120000 }
       );
 
       if (!fetchResult.ok) {
@@ -78,7 +78,7 @@ export function registerSyncAndFixCiCommand(context: vscode.ExtensionContext, ta
 
       const processResult = await runCli<WorkflowResult>(
         ['run', '-f', 'sys:process-diagnostic-queue', '--mode', 'relaxed', '--json'],
-        { token }
+        { token, timeout: 300000 }
       );
 
       tasksProvider.refresh();

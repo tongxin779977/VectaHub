@@ -76,19 +76,31 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
 
     ProcessManager.getInstance().register(child);
 
+    const MAX_STDOUT_LENGTH = 500000;
+    const MAX_STDERR_LENGTH = 100000;
+
     let stdout = '';
     let stderr = '';
 
     child.stdout.on('data', (data) => {
       const output = data.toString();
-      stdout += output;
       logToOutput(output);
+      if (stdout.length >= MAX_STDOUT_LENGTH) {
+        return;
+      }
+      stdout += output;
+      if (stdout.length > MAX_STDOUT_LENGTH) {
+        stdout += '\n... (stdout truncated)';
+      }
     });
 
     child.stderr.on('data', (data) => {
       const output = data.toString();
-      stderr += output;
       logToOutput(output, 'error');
+      if (stderr.length >= MAX_STDERR_LENGTH) {
+        return;
+      }
+      stderr += output;
     });
 
     options.token?.onCancellationRequested(() => {

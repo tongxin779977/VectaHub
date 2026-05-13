@@ -126,7 +126,7 @@ async function activate(context) {
         if (state === 'ready') {
             (0, statusBar_js_1.updateStatusBar)('Ready');
             (0, output_js_1.logToOutput)('Running initial VectaHub doctor...');
-            const doctorResult = await (0, adapter_js_1.runCli)(['doctor', '--json']);
+            const doctorResult = await (0, adapter_js_1.runCli)(['doctor', '--json'], { timeout: 30000 });
             if (doctorResult.ok) {
                 (0, output_js_1.logToOutput)('VectaHub doctor passed.');
             }
@@ -150,7 +150,7 @@ const longRunningTaskManager_js_1 = require("./cli/longRunningTaskManager.js");
 let diagnosticBridge;
 function deactivate() {
     longRunningTaskManager_js_1.LongRunningTaskManager.getInstance().stopAll();
-    process_manager_js_1.ProcessManager.getInstance().killAll();
+    process_manager_js_1.ProcessManager.getInstance().dispose();
     diagnosticBridge?.dispose();
 }
 //# sourceMappingURL=extension.js.map

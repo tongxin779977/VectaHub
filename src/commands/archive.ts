@@ -1,8 +1,8 @@
 import { Command } from 'commander';
 import { createArchiver } from '../execution/archiver.js';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 
-const logger = createConsoleLogger('archive');
+const logger = getLogger('archive');
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

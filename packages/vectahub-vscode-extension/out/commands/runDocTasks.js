@@ -69,6 +69,10 @@ function registerDocTaskCommands(context, tasksProvider) {
         await vscode.commands.executeCommand('vectahubTasks.parseDocTasks');
     }));
     context.subscriptions.push(vscode.commands.registerCommand('vectahubTasks.parseDocTasks', async () => {
+        if (tasksProvider.getIsDocParsing()) {
+            vscode.window.showWarningMessage('文档正在解析中，请稍候...');
+            return;
+        }
         const docPath = tasksProvider.getSelectedDocPath();
         if (!docPath) {
             vscode.window.showWarningMessage('请先选择文档文件');
@@ -82,7 +86,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                 title: '正在解析文档任务...',
                 cancellable: false
             }, async () => {
-                const result = await (0, adapter_js_1.runCli)(['parse-doc', docPath, '--json']);
+                const result = await (0, adapter_js_1.runCli)(['parse-doc', docPath, '--json'], { timeout: 120000 });
                 if (result.ok && result.data?.tasks) {
                     tasksProvider.setDocTasks(result.data.tasks);
                     (0, output_js_1.logToOutput)(`解析完成，共 ${result.data.tasks.length} 个任务`);
@@ -201,6 +205,10 @@ function registerDocTaskCommands(context, tasksProvider) {
         }
     }));
     context.subscriptions.push(vscode.commands.registerCommand('vectahubTasks.runAllDocTasks', async () => {
+        if (tasksProvider.getIsBatchRunning()) {
+            vscode.window.showWarningMessage('批量任务正在执行中，请稍候...');
+            return;
+        }
         const tasks = tasksProvider.getDocTasks();
         if (!tasks || tasks.length === 0) {
             vscode.window.showWarningMessage('当前没有解析到的任务，请先解析文档');
@@ -226,6 +234,7 @@ function registerDocTaskCommands(context, tasksProvider) {
         const confirm = await vscode.window.showInformationMessage(`即将并行执行 ${tasks.length} 个任务（最大并发: ${maxConcurrent}）`, { modal: true }, '确认启动', '取消');
         if (confirm !== '确认启动')
             return;
+        tasksProvider.setIsBatchRunning(true);
         const queue = [...tasks];
         let completedCount = 0;
         let failedCount = 0;
@@ -236,99 +245,105 @@ function registerDocTaskCommands(context, tasksProvider) {
         }
         tasksProvider.setDocTasks(tasks);
         tasksProvider.refresh();
-        await vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title: `批量执行任务 (0/${totalTasks})`,
-            cancellable: true
-        }, async (progress, token) => {
-            token.onCancellationRequested(() => {
-                cancelled = true;
-                (0, output_js_1.logToOutput)('[batch] 用户取消批量执行');
-            });
-            function updateProgress(taskId, label) {
-                const activeCount = tasks.filter(t => t.status === 'running').length;
-                progress.report({
-                    message: `${completedCount}/${totalTasks} 完成, ${activeCount} 运行中, ${failedCount} 失败`,
-                    increment: (1 / totalTasks) * 100
+        try {
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: `批量执行任务 (0/${totalTasks})`,
+                cancellable: true
+            }, async (progress, token) => {
+                token.onCancellationRequested(() => {
+                    cancelled = true;
+                    (0, output_js_1.logToOutput)('[batch] 用户取消批量执行');
                 });
-                (0, output_js_1.logToOutput)(`[batch] 任务 ${taskId} ${label} (${completedCount}/${totalTasks}, 失败: ${failedCount})`);
-            }
-            async function runSingleTask(task) {
-                if (cancelled)
-                    return;
-                task.status = 'running';
-                tasksProvider.refresh();
-                const args = [
-                    'run-task', '--tool', agentCli,
-                    '--task-id', task.id,
-                    '--task-label', task.label,
-                    '--json'
-                ];
-                if (docPath)
-                    args.push('--doc', docPath);
-                try {
-                    const result = await (0, adapter_js_1.runCli)(args, {
-                        timeout: 600000,
-                        token
+                function updateProgress(taskId, label) {
+                    const activeCount = tasks.filter(t => t.status === 'running').length;
+                    progress.report({
+                        message: `${completedCount}/${totalTasks} 完成, ${activeCount} 运行中, ${failedCount} 失败`,
+                        increment: (1 / totalTasks) * 100
                     });
-                    if (result.ok) {
-                        task.status = 'success';
-                        updateProgress(task.id, '完成');
+                    (0, output_js_1.logToOutput)(`[batch] 任务 ${taskId} ${label} (${completedCount}/${totalTasks}, 失败: ${failedCount})`);
+                }
+                async function runSingleTask(task) {
+                    if (cancelled)
+                        return;
+                    task.status = 'running';
+                    tasksProvider.refresh();
+                    const args = [
+                        'run-task', '--tool', agentCli,
+                        '--task-id', task.id,
+                        '--task-label', task.label,
+                        '--json'
+                    ];
+                    if (docPath)
+                        args.push('--doc', docPath);
+                    try {
+                        const result = await (0, adapter_js_1.runCli)(args, {
+                            timeout: 600000,
+                            token
+                        });
+                        if (result.ok) {
+                            task.status = 'success';
+                            updateProgress(task.id, '完成');
+                        }
+                        else {
+                            task.status = 'failed';
+                            failedCount++;
+                            const errMsg = result.data?.error || result.data?.output || '执行失败';
+                            (0, output_js_1.logToOutput)(`[batch] 任务 ${task.id} 失败: ${errMsg}`, 'error');
+                            updateProgress(task.id, '失败');
+                        }
                     }
-                    else {
+                    catch (err) {
                         task.status = 'failed';
                         failedCount++;
-                        const errMsg = result.data?.error || result.data?.output || '执行失败';
-                        (0, output_js_1.logToOutput)(`[batch] 任务 ${task.id} 失败: ${errMsg}`, 'error');
-                        updateProgress(task.id, '失败');
+                        const errMsg = err instanceof Error ? err.message : String(err);
+                        (0, output_js_1.logToOutput)(`[batch] 任务 ${task.id} 异常: ${errMsg}`, 'error');
+                        updateProgress(task.id, '异常');
+                    }
+                    finally {
+                        completedCount++;
+                        tasksProvider.refresh();
                     }
                 }
-                catch (err) {
-                    task.status = 'failed';
-                    failedCount++;
-                    const errMsg = err instanceof Error ? err.message : String(err);
-                    (0, output_js_1.logToOutput)(`[batch] 任务 ${task.id} 异常: ${errMsg}`, 'error');
-                    updateProgress(task.id, '异常');
-                }
-                finally {
-                    completedCount++;
-                    tasksProvider.refresh();
-                }
-            }
-            async function runWithConcurrency() {
-                const active = [];
-                while (queue.length > 0 && !cancelled) {
-                    while (active.length < maxConcurrent && queue.length > 0 && !cancelled) {
-                        const task = queue.shift();
-                        const p = runSingleTask(task).then(() => {
-                            const idx = active.indexOf(p);
-                            if (idx >= 0)
-                                active.splice(idx, 1);
-                        });
-                        active.push(p);
+                async function runWithConcurrency() {
+                    const active = [];
+                    while (queue.length > 0 && !cancelled) {
+                        while (active.length < maxConcurrent && queue.length > 0 && !cancelled) {
+                            const task = queue.shift();
+                            const p = runSingleTask(task).then(() => {
+                                const idx = active.indexOf(p);
+                                if (idx >= 0)
+                                    active.splice(idx, 1);
+                            });
+                            active.push(p);
+                        }
+                        if (active.length > 0) {
+                            await Promise.race(active);
+                        }
                     }
-                    if (active.length > 0) {
-                        await Promise.race(active);
-                    }
+                    await Promise.allSettled(active);
                 }
-                await Promise.allSettled(active);
-            }
-            await runWithConcurrency();
-            const successCount = totalTasks - failedCount;
-            const msg = failedCount === 0
-                ? `批量执行完成: 全部 ${successCount} 个任务成功`
-                : `批量执行完成: ${successCount} 成功, ${failedCount} 失败`;
-            (0, output_js_1.logToOutput)(`[batch] ${msg}`);
-            if (cancelled) {
-                vscode.window.showWarningMessage(`批量执行已取消 (${successCount} 成功, ${failedCount} 失败)`);
-            }
-            else if (failedCount === 0) {
-                vscode.window.showInformationMessage(msg);
-            }
-            else {
-                vscode.window.showWarningMessage(msg);
-            }
-        });
+                await runWithConcurrency();
+                const successCount = totalTasks - failedCount;
+                const msg = failedCount === 0
+                    ? `批量执行完成: 全部 ${successCount} 个任务成功`
+                    : `批量执行完成: ${successCount} 成功, ${failedCount} 失败`;
+                (0, output_js_1.logToOutput)(`[batch] ${msg}`);
+                if (cancelled) {
+                    vscode.window.showWarningMessage(`批量执行已取消 (${successCount} 成功, ${failedCount} 失败)`);
+                }
+                else if (failedCount === 0) {
+                    vscode.window.showInformationMessage(msg);
+                }
+                else {
+                    vscode.window.showWarningMessage(msg);
+                }
+            });
+        }
+        finally {
+            tasksProvider.setIsBatchRunning(false);
+            tasksProvider.refresh();
+        }
     }));
 }
 //# sourceMappingURL=runDocTasks.js.map

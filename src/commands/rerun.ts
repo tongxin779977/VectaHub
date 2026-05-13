@@ -2,9 +2,9 @@ import { Command } from 'commander';
 import { createRecordManager } from '../execution/record-manager.js';
 import { createWorkflowEngine } from '../workflow/engine.js';
 import type { Workflow } from '../types/index.js';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 
-const logger = createConsoleLogger('rerun');
+const logger = getLogger('rerun');
 
 export const rerunCmd = new Command('rerun')
   .description('Re-run a previous workflow execution')

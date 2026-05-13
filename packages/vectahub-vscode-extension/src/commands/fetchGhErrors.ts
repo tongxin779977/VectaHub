@@ -35,7 +35,7 @@ export function registerFetchGhErrorsCommand(context: vscode.ExtensionContext, t
       const cwd = getActiveWorkspaceFolder();
       const result = await runCli<WorkflowResult>(
         ['run', '-f', 'sys:fetch-gh-actions-errors', '--json'],
-        { token, cwd }
+        { token, cwd, timeout: 120000 }
       );
 
       if (!result.ok) {

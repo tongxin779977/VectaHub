@@ -1,10 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createConsoleLogger } from './logger.js';
+import { getLogger } from './logger.js';
 import { redactSensitiveData } from './sensitive-data.js';
 import { getVectaHubPath } from './paths.js';
 
-const logger = createConsoleLogger('operation-log');
+const logger = getLogger('operation-log');
 
 export interface OperationLogEntry {
   id: string;

@@ -104,7 +104,7 @@ export async function activate(context: vscode.ExtensionContext) {
       interface DoctorResult {
         summary?: { passed: number; failed: number; warnings: number };
       }
-      const doctorResult = await runCli<DoctorResult>(['doctor', '--json']);
+      const doctorResult = await runCli<DoctorResult>(['doctor', '--json'], { timeout: 30000 });
       if (doctorResult.ok) {
         logToOutput('VectaHub doctor passed.');
       } else {
@@ -128,6 +128,6 @@ let diagnosticBridge: DiagnosticBridge | undefined;
 
 export function deactivate() {
   LongRunningTaskManager.getInstance().stopAll();
-  ProcessManager.getInstance().killAll();
+  ProcessManager.getInstance().dispose();
   diagnosticBridge?.dispose();
 }

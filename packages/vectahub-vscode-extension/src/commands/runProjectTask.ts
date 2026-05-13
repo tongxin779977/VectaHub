@@ -21,6 +21,12 @@ const SAFE_TASK_KINDS: ReadonlySet<string> = new Set([
   'check', 'validate', 'storybook', 'install', 'git-status', 'doctor'
 ]);
 
+const runningTaskIds = new Set<string>();
+
+export function isProjectTaskRunning(taskId: string): boolean {
+  return runningTaskIds.has(taskId);
+}
+
 interface DryRunResult {
   ok: boolean;
   error?: { code?: string; message?: string };
@@ -45,7 +51,7 @@ async function performDryRunCheck(task: ProjectTask): Promise<{ safe: boolean; r
   if (!task.command) return { safe: true };
 
   const args = ['run-command', '--dry-run', '--json', '--', task.command.cli, ...task.command.args];
-  const result = await runCli<DryRunResult>(args);
+  const result = await runCli<DryRunResult>(args, { timeout: 30000 });
 
   if (!result.ok) {
     const reason = result.error?.message || result.stderr || 'dry-run 检测失败';
@@ -57,6 +63,12 @@ async function performDryRunCheck(task: ProjectTask): Promise<{ safe: boolean; r
 
 export function registerRunProjectTaskCommand(context: vscode.ExtensionContext, tasksProvider: TasksViewProvider) {
   const disposable = vscode.commands.registerCommand('vectahubTasks.runProjectTask', async (task: ProjectTask) => {
+    if (runningTaskIds.has(task.id)) {
+      vscode.window.showWarningMessage(`任务 "${task.label}" 正在执行中...`);
+      return;
+    }
+    runningTaskIds.add(task.id);
+
     logToOutput(`[DEBUG] runProjectTask 开始执行，task: ${task.label}`);
     const startedAt = new Date();
 
@@ -144,6 +156,7 @@ export function registerRunProjectTaskCommand(context: vscode.ExtensionContext, 
       const message = err instanceof Error ? err.message : String(err);
       status = message.includes('cancelled') ? 'cancelled' : 'failed';
     } finally {
+      runningTaskIds.delete(task.id);
       const endedAt = new Date();
       addTaskRecord({
         id: generateTaskRecordId(),

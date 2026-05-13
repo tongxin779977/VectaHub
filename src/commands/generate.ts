@@ -1,12 +1,12 @@
 import { Command } from 'commander';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 import { createStorage } from '../workflow/storage.js';
 import { writeFileSync } from 'fs';
 import { Workflow } from '../types/index.js';
 import YAML from 'yaml';
 import createLLMDialogControlSkill from '../skills/llm-dialog-control/index.js';
 
-const logger = createConsoleLogger('generate');
+const logger = getLogger('generate');
 
 const YAML_WORKFLOW_SYSTEM_PROMPT = `
 你是一个专业的工作流 YAML 生成专家，专门为 VectaHub 平台生成工作流。

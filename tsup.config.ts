@@ -5,7 +5,11 @@ import * as path from 'path';
 export default defineConfig({
   entry: ['src/cli.ts', 'src/utils/gh-to-queue.ts', 'src/execution/index.ts'],
   format: ['esm'],
+  minify: true,
+  treeshake: true,
   clean: true,
+  sourcemap: false,
+  target: 'node18',
   outExtension({ format }) {
     return {
       js: '.js',

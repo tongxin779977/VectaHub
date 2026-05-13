@@ -35,25 +35,19 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerConfigLlmCommand = registerConfigLlmCommand;
 const vscode = __importStar(require("vscode"));
-const adapter_js_1 = require("../cli/adapter.js");
 const output_js_1 = require("../ui/output.js");
-const statusBar_js_1 = require("../ui/statusBar.js");
 function registerConfigLlmCommand(context) {
     const disposable = vscode.commands.registerCommand('vectahubTasks.configLlm', async () => {
         (0, output_js_1.logToOutput)('正在启动 LLM 配置流程...');
-        (0, statusBar_js_1.updateStatusBar)('Running');
-        const result = await (0, adapter_js_1.runCli)(['setup', '--json']);
-        if (result.ok && result.data) {
-            (0, output_js_1.logToOutput)('LLM 配置完成');
-            vscode.window.showInformationMessage('LLM 配置完成！');
-            (0, statusBar_js_1.updateStatusBar)('Ready');
-        }
-        else {
-            const errorMsg = result.error?.message || result.stderr || '未知错误';
-            (0, output_js_1.logToOutput)(`LLM 配置失败: ${errorMsg}`, 'error');
-            vscode.window.showErrorMessage(`LLM 配置失败: ${errorMsg}`);
-            (0, statusBar_js_1.updateStatusBar)('Failed');
-        }
+        const terminal = vscode.window.createTerminal({
+            name: 'VectaHub LLM 配置',
+            env: {
+                VECTAHUB_NON_INTERACTIVE: undefined
+            }
+        });
+        terminal.show();
+        terminal.sendText('vectahub setup', false);
+        vscode.window.showInformationMessage('请在终端中按照提示完成 LLM 配置');
     });
     context.subscriptions.push(disposable);
 }

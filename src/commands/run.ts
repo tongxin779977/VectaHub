@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { createConsoleLogger, setMuted, isLoggerMuted } from '../utils/logger.js';
+import { getLogger as getSharedLogger, setMuted, isLoggerMuted } from '../utils/logger.js';
 import { createWorkflowEngine, type ProgressInfo } from '../workflow/engine.js';
 import { createStorage } from '../workflow/storage.js';
 import { isFirstRun, loadConfig, saveConfig } from '../setup/first-run-wizard.js';
@@ -18,13 +18,8 @@ import { createRecordManager } from '../execution/record-manager.js';
 import { runSelfHealingLoop } from './self-healing.js';
 import { getVectaHubPath } from '../utils/paths.js';
 
-let cachedLogger: ReturnType<typeof createConsoleLogger> | undefined;
-
-function getLogger(): ReturnType<typeof createConsoleLogger> {
-  if (!cachedLogger) {
-    cachedLogger = createConsoleLogger('run');
-  }
-  return cachedLogger;
+function getLogger() {
+  return getSharedLogger('run');
 }
 
 function exitWithError(message: string, code: string, jsonMode?: boolean): never {
@@ -98,7 +93,6 @@ export const runCmd = new Command('run')
     try {
       if (options.json) {
         setMuted(true);
-        cachedLogger = undefined;
       }
 
       // Validate mode

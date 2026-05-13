@@ -67,6 +67,11 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
 
   context.subscriptions.push(
     vscode.commands.registerCommand('vectahubTasks.parseDocTasks', async () => {
+      if (tasksProvider.getIsDocParsing()) {
+        vscode.window.showWarningMessage('文档正在解析中，请稍候...');
+        return;
+      }
+
       const docPath = tasksProvider.getSelectedDocPath();
       if (!docPath) {
         vscode.window.showWarningMessage('请先选择文档文件');
@@ -77,12 +82,12 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
       tasksProvider.refresh();
 
       try {
-        await vscode.window.withProgress({
+          await vscode.window.withProgress({
           location: vscode.ProgressLocation.Notification,
           title: '正在解析文档任务...',
           cancellable: false
         }, async () => {
-          const result = await runCli<ParseDocResult>(['parse-doc', docPath, '--json']);
+          const result = await runCli<ParseDocResult>(['parse-doc', docPath, '--json'], { timeout: 120000 });
 
           if (result.ok && result.data?.tasks) {
             tasksProvider.setDocTasks(result.data.tasks);
@@ -218,6 +223,11 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
 
   context.subscriptions.push(
     vscode.commands.registerCommand('vectahubTasks.runAllDocTasks', async () => {
+      if (tasksProvider.getIsBatchRunning()) {
+        vscode.window.showWarningMessage('批量任务正在执行中，请稍候...');
+        return;
+      }
+
       const tasks = tasksProvider.getDocTasks();
       if (!tasks || tasks.length === 0) {
         vscode.window.showWarningMessage('当前没有解析到的任务，请先解析文档');
@@ -254,6 +264,8 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
 
       if (confirm !== '确认启动') return;
 
+      tasksProvider.setIsBatchRunning(true);
+
       const queue = [...tasks];
       let completedCount = 0;
       let failedCount = 0;
@@ -266,21 +278,22 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
       tasksProvider.setDocTasks(tasks);
       tasksProvider.refresh();
 
-      await vscode.window.withProgress({
-        location: vscode.ProgressLocation.Notification,
-        title: `批量执行任务 (0/${totalTasks})`,
-        cancellable: true
-      }, async (progress, token) => {
-        token.onCancellationRequested(() => {
-          cancelled = true;
-          logToOutput('[batch] 用户取消批量执行');
-        });
+      try {
+        await vscode.window.withProgress({
+          location: vscode.ProgressLocation.Notification,
+          title: `批量执行任务 (0/${totalTasks})`,
+          cancellable: true
+        }, async (progress, token) => {
+          token.onCancellationRequested(() => {
+            cancelled = true;
+            logToOutput('[batch] 用户取消批量执行');
+          });
 
-        function updateProgress(taskId: string, label: string) {
-          const activeCount = tasks.filter(t => t.status === 'running').length;
-          progress.report({
-            message: `${completedCount}/${totalTasks} 完成, ${activeCount} 运行中, ${failedCount} 失败`,
-            increment: (1 / totalTasks) * 100
+          function updateProgress(taskId: string, label: string) {
+            const activeCount = tasks.filter(t => t.status === 'running').length;
+            progress.report({
+              message: `${completedCount}/${totalTasks} 完成, ${activeCount} 运行中, ${failedCount} 失败`,
+              increment: (1 / totalTasks) * 100
           });
           logToOutput(`[batch] 任务 ${taskId} ${label} (${completedCount}/${totalTasks}, 失败: ${failedCount})`);
         }
@@ -364,6 +377,10 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
           vscode.window.showWarningMessage(msg);
         }
       });
+      } finally {
+        tasksProvider.setIsBatchRunning(false);
+        tasksProvider.refresh();
+      }
     })
   );
 }

@@ -1,18 +1,21 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from 'node:fs';
+import { readFile, writeFile, mkdir, readdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { getVectaHubPath } from '../../utils/paths.js';
 import { audit } from '../../infrastructure/audit/index.js';
-import { createConsoleLogger } from '../../utils/logger.js';
+import { getLogger } from '../../utils/logger.js';
 import { createLLMConfig, LLMClient } from '../../nl/llm.js';
 import { TOOL_CAPABILITY_PARSER_ID } from '../../nl/prompt-manager.js';
 import { loadConfig } from '../../infrastructure/config/index.js';
+
+const execFileAsync = promisify(execFile);
 
 const MAX_HELP_OUTPUT_LENGTH = 8000;
 const CACHE_DIR_NAME = 'cache';
 const TOOL_NAME_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const DEFAULT_AGENT_CLIS = ['aider', 'claude', 'codex', 'cursor', 'gemini', 'cline', 'copilot', 'devika', 'swe-agent', 'openhands'];
-const cacheLogger = createConsoleLogger('cache-manager');
+const cacheLogger = getLogger('cache-manager');
 
 export interface ToolCacheEntry {
   toolName: string;
@@ -27,13 +30,10 @@ export class ToolCacheManager {
 
   constructor(cacheDir?: string) {
     this.cacheDir = cacheDir ?? getVectaHubPath(CACHE_DIR_NAME);
-    this.ensureCacheDir();
   }
 
-  private ensureCacheDir(): void {
-    if (!existsSync(this.cacheDir)) {
-      mkdirSync(this.cacheDir, { recursive: true });
-    }
+  private async ensureCacheDir(): Promise<void> {
+    await mkdir(this.cacheDir, { recursive: true });
   }
 
   private getCachePath(toolName: string): string {
@@ -50,13 +50,10 @@ export class ToolCacheManager {
     }
   }
 
-  getCachedHelp(toolName: string): ToolCacheEntry | null {
+  async getCachedHelp(toolName: string): Promise<ToolCacheEntry | null> {
     const cachePath = this.getCachePath(toolName);
-    if (!existsSync(cachePath)) {
-      return null;
-    }
     try {
-      const raw = readFileSync(cachePath, 'utf-8');
+      const raw = await readFile(cachePath, 'utf-8');
       return JSON.parse(raw) as ToolCacheEntry;
     } catch {
       cacheLogger.warn(`缓存文件损坏: ${toolName}，将重新发现`);
@@ -64,7 +61,7 @@ export class ToolCacheManager {
     }
   }
 
-  cacheHelp(toolName: string, helpOutput: string, capabilities: string[] = [], version = 'unknown'): void {
+  async cacheHelp(toolName: string, helpOutput: string, capabilities: string[] = [], version = 'unknown'): Promise<void> {
     const entry: ToolCacheEntry = {
       toolName,
       version,
@@ -74,8 +71,8 @@ export class ToolCacheManager {
       capabilities,
       discoveredAt: new Date().toISOString(),
     };
-    this.ensureCacheDir();
-    writeFileSync(this.getCachePath(toolName), JSON.stringify(entry, null, 2), 'utf-8');
+    await this.ensureCacheDir();
+    await writeFile(this.getCachePath(toolName), JSON.stringify(entry, null, 2), 'utf-8');
   }
 
   async discoverToolHelp(toolName: string, options?: { skipCapabilityInference?: boolean }): Promise<ToolCacheEntry> {
@@ -88,7 +85,7 @@ export class ToolCacheManager {
       throw new Error(`未知 Agent CLI: ${toolName}，当前支持: ${allowedTools.join(', ')}`);
     }
 
-    const cached = this.getCachedHelp(toolName);
+    const cached = await this.getCachedHelp(toolName);
     if (cached) {
       return cached;
     }
@@ -97,21 +94,21 @@ export class ToolCacheManager {
     let version: string;
 
     try {
-      helpOutput = execFileSync(toolName, ['--help'], {
+      const { stdout } = await execFileAsync(toolName, ['--help'], {
         encoding: 'utf-8',
         timeout: 10000,
-        stdio: ['pipe', 'pipe', 'pipe'],
       });
+      helpOutput = stdout;
     } catch (error) {
       helpOutput = error instanceof Error ? (error as any).stdout?.toString?.() || error.message : String(error);
     }
 
     try {
-      version = execFileSync(toolName, ['--version'], {
+      const { stdout } = await execFileAsync(toolName, ['--version'], {
         encoding: 'utf-8',
         timeout: 5000,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      }).trim();
+      });
+      version = stdout.trim();
     } catch {
       version = 'unknown';
     }
@@ -123,9 +120,9 @@ export class ToolCacheManager {
       capabilities = await this.inferCapabilities(toolName, helpOutput);
     }
 
-    this.cacheHelp(toolName, helpOutput, capabilities, version);
+    await this.cacheHelp(toolName, helpOutput, capabilities, version);
 
-    return this.getCachedHelp(toolName)!;
+    return (await this.getCachedHelp(toolName))!;
   }
 
   private async inferCapabilities(toolName: string, helpOutput: string): Promise<string[]> {
@@ -172,19 +169,23 @@ export class ToolCacheManager {
     return str.substring(start, end + 1);
   }
 
-  listCached(): string[] {
-    if (!existsSync(this.cacheDir)) {
+  async listCached(): Promise<string[]> {
+    try {
+      const files = await readdir(this.cacheDir);
+      return files
+        .filter((f: string) => f.endsWith('.help.json'))
+        .map((f: string) => f.replace('.help.json', ''));
+    } catch {
       return [];
     }
-    return readdirSync(this.cacheDir)
-      .filter((f: string) => f.endsWith('.help.json'))
-      .map((f: string) => f.replace('.help.json', ''));
   }
 
-  invalidate(toolName: string): void {
+  async invalidate(toolName: string): Promise<void> {
     const cachePath = this.getCachePath(toolName);
-    if (existsSync(cachePath)) {
-      unlinkSync(cachePath);
+    try {
+      await unlink(cachePath);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }
   }
 }

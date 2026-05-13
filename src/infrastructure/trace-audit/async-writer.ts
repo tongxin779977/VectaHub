@@ -6,10 +6,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { existsSync, mkdirSync, appendFileSync } from 'node:fs';
-import { createConsoleLogger } from '../../utils/logger.js';
+import { getLogger } from '../../utils/logger.js';
 import type { TraceSpan, AsyncWriteConfig } from './types.js';
 
-const logger = createConsoleLogger('async-log-writer');
+const logger = getLogger('async-log-writer');
 
 /** 默认配置 */
 const DEFAULT_CONFIG: AsyncWriteConfig = {

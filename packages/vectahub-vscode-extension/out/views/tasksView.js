@@ -45,6 +45,7 @@ const adapter_js_1 = require("../cli/adapter.js");
 const diagnosticModel_js_1 = require("../project/diagnosticModel.js");
 const longRunningTaskManager_js_1 = require("../cli/longRunningTaskManager.js");
 const taskHistory_js_1 = require("../project/taskHistory.js");
+const runProjectTask_js_1 = require("../commands/runProjectTask.js");
 function djb2Hash(input) {
     let hash = 5381;
     for (let i = 0; i < input.length; i++) {
@@ -68,6 +69,7 @@ class TasksViewProvider {
     docTasks = [];
     selectedAgentCli;
     isDocParsing = false;
+    isBatchRunning = false;
     constructor() {
         this.setupWatcher();
         this.setupLrtListeners();
@@ -111,6 +113,12 @@ class TasksViewProvider {
     }
     setIsDocParsing(parsing) {
         this.isDocParsing = parsing;
+    }
+    getIsBatchRunning() {
+        return this.isBatchRunning;
+    }
+    setIsBatchRunning(running) {
+        this.isBatchRunning = running;
     }
     getTreeItem(element) {
         return element;
@@ -174,10 +182,7 @@ class TasksViewProvider {
         }, 'file-add', undefined, docDesc));
         if (this.selectedDocPath) {
             if (this.isDocParsing) {
-                items.push(new treeItems_js_1.TaskTreeItem('正在解析...', {
-                    command: 'workbench.action.output.toggleOutput',
-                    title: '文档解析中'
-                }, 'sync~spin'));
+                items.push(new treeItems_js_1.TaskTreeItem('正在解析...', undefined, 'sync~spin', 'docTask-disabled'));
             }
             else if (this.docTasks.length === 0) {
                 items.push(new treeItems_js_1.TaskTreeItem('解析文档任务', {
@@ -199,10 +204,13 @@ class TasksViewProvider {
                         arguments: [task]
                     }, icon, contextValue));
                 }
-                items.push(new treeItems_js_1.TaskTreeItem('启动全部任务', {
-                    command: 'vectahubTasks.runAllDocTasks',
+                const batchIcon = this.isBatchRunning ? 'sync~spin' : 'run-all';
+                const batchContext = this.isBatchRunning ? 'docTask-disabled' : 'docTask';
+                const batchCommand = this.isBatchRunning ? '' : 'vectahubTasks.runAllDocTasks';
+                items.push(new treeItems_js_1.TaskTreeItem(this.isBatchRunning ? '批量执行中...' : '启动全部任务', {
+                    command: batchCommand,
                     title: '一键启动全部文档任务'
-                }, 'run-all'));
+                }, batchIcon, batchContext));
                 const cliLabel = this.selectedAgentCli
                     ? `执行器: ${this.selectedAgentCli}`
                     : '选择执行器...';
@@ -353,11 +361,12 @@ class TasksViewProvider {
         return groups;
     }
     createTaskItem(task) {
+        const running = (0, runProjectTask_js_1.isProjectTaskRunning)(task.id);
         return new treeItems_js_1.TaskTreeItem(task.label, {
-            command: 'vectahubTasks.runProjectTask',
+            command: running ? '' : 'vectahubTasks.runProjectTask',
             title: task.label,
             arguments: [task]
-        }, this.getIconForKind(task.kind), task.source, task.description);
+        }, running ? 'loading~spin' : this.getIconForKind(task.kind), task.source, task.description);
     }
     getIconForKind(kind) {
         switch (kind) {

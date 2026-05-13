@@ -219,13 +219,6 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
         loadedCommands.add('chat');
         break;
       }
-      case 'plugins': {
-        const { pluginsCmd } = await import('./commands/plugins.js');
-        removePlaceholderCommand('plugins');
-        program.addCommand(pluginsCmd);
-        loadedCommands.add('plugins');
-        break;
-      }
       case 'monitor': {
         const { monitorCmd } = await import('./commands/monitor.js');
         removePlaceholderCommand('monitor');
@@ -552,7 +545,6 @@ const lazyLoadableCommands = [
   { name: 'templates', description: '管理模板' },
   { name: 'rollback', description: '回滚操作' },
   { name: 'verify', description: '验证工作流' },
-  { name: 'plugins', description: '插件管理' },
   { name: 'monitor', description: '监控工作流' },
   { name: 'debug', description: '调试工作流' },
   { name: 'export', description: '导出工作流' },

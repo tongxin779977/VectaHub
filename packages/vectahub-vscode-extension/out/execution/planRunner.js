@@ -39,6 +39,8 @@ const adapter_js_1 = require("../cli/adapter.js");
 const settings_js_1 = require("../config/settings.js");
 class PlanRunner {
     outputChannel;
+    defaultTimeout = 120000;
+    previewTimeout = 60000;
     constructor(outputChannel) {
         this.outputChannel = outputChannel;
     }
@@ -54,7 +56,7 @@ class PlanRunner {
                         '--mode', plan.mode,
                         '--json',
                         plan.intent
-                    ], { cwd: plan.cwd });
+                    ], { cwd: plan.cwd, timeout: this.defaultTimeout });
                     break;
                 case 'command':
                     result = await (0, adapter_js_1.runCli)([
@@ -64,7 +66,7 @@ class PlanRunner {
                         '--',
                         plan.command.cli,
                         ...plan.command.args
-                    ], { cwd: plan.cwd });
+                    ], { cwd: plan.cwd, timeout: this.defaultTimeout });
                     break;
                 case 'workflowFile':
                     result = await (0, adapter_js_1.runCli)([
@@ -72,7 +74,7 @@ class PlanRunner {
                         '--mode', plan.mode,
                         '--json',
                         plan.file
-                    ], { cwd: plan.cwd });
+                    ], { cwd: plan.cwd, timeout: this.defaultTimeout });
                     break;
                 case 'capability':
                     result = await (0, adapter_js_1.runCli)([
@@ -80,7 +82,7 @@ class PlanRunner {
                         '--mode', plan.mode,
                         '--json',
                         plan.goal?.originalInput || plan.label
-                    ], { cwd: plan.cwd });
+                    ], { cwd: plan.cwd, timeout: this.defaultTimeout });
                     break;
             }
             const resultStr = JSON.stringify(result, null, 2);
@@ -120,7 +122,7 @@ class PlanRunner {
                     '--dry-run',
                     '--json',
                     plan.intent
-                ], { cwd: plan.cwd });
+                ], { cwd: plan.cwd, timeout: this.previewTimeout });
             case 'command':
                 return (0, adapter_js_1.runCli)([
                     'run-command',
@@ -129,21 +131,21 @@ class PlanRunner {
                     '--',
                     plan.command.cli,
                     ...plan.command.args
-                ], { cwd: plan.cwd });
+                ], { cwd: plan.cwd, timeout: this.previewTimeout });
             case 'workflowFile':
                 return (0, adapter_js_1.runCli)([
                     'run',
                     '--dry-run',
                     '--json',
                     plan.file
-                ], { cwd: plan.cwd });
+                ], { cwd: plan.cwd, timeout: this.previewTimeout });
             case 'capability':
                 return (0, adapter_js_1.runCli)([
                     'run',
                     '--dry-run',
                     '--json',
                     plan.goal?.originalInput || plan.label
-                ], { cwd: plan.cwd });
+                ], { cwd: plan.cwd, timeout: this.previewTimeout });
         }
     }
 }

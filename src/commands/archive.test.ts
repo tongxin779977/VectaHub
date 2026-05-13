@@ -9,6 +9,11 @@ vi.mock('../utils/logger.js', () => ({
     error: mockError,
     debug: vi.fn(),
   })),
+  getLogger: vi.fn(() => ({
+    info: mockInfo,
+    error: mockError,
+    debug: vi.fn(),
+  })),
 }));
 
 vi.mock('../execution/archiver.js', () => ({

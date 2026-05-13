@@ -8,6 +8,13 @@ vi.mock('../utils/logger.js', () => ({
     info: mockInfo,
     error: mockError,
     debug: vi.fn(),
+    warn: vi.fn(),
+  })),
+  getLogger: vi.fn(() => ({
+    info: mockInfo,
+    error: mockError,
+    debug: vi.fn(),
+    warn: vi.fn(),
   })),
 }));
 

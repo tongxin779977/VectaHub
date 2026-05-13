@@ -36,7 +36,7 @@ export type {
 
 import path from 'node:path';
 import { getVectaHubPath } from '../../utils/paths.js';
-import { createConsoleLogger } from '../../utils/logger.js';
+import { getLogger } from '../../utils/logger.js';
 import { AsyncLogWriter } from './async-writer.js';
 import { TraceCore } from './trace-core.js';
 import { QueryEngine } from './query-engine.js';
@@ -44,7 +44,7 @@ import { LogRotationManager } from './log-rotation.js';
 import { AlertSystem } from './alert-system.js';
 import type { TraceAuditConfig, AlertRule } from './types.js';
 
-const logger = createConsoleLogger('trace-audit-system');
+const logger = getLogger('trace-audit-system');
 
 /** 默认配置 */
 const DEFAULT_CONFIG: Partial<TraceAuditConfig> = {

@@ -2,9 +2,9 @@ import type { Skill, SkillContext, SkillResult } from './types.js';
 import type { PromptRegistry } from '../nl/prompt/types.js';
 import type { LLMDialogControlSkill } from './llm-dialog-control/index.js';
 import { getAllIntentNames } from '../nl/templates/index.js';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 
-const logger = createConsoleLogger('intent-skill');
+const logger = getLogger('intent-skill');
 
 export interface IntentSkillOutput {
   intent: string;

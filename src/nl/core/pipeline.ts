@@ -1,12 +1,12 @@
 import type { NLProcessor, NLContext, NLResult } from './types.js';
 import type { IntentName } from '../../types/index.js';
 import YAML from 'yaml';
-import { createConsoleLogger } from '../../utils/logger.js';
+import { getLogger } from '../../utils/logger.js';
 import { LLMClient, createLLMConfig, type LLMConfig } from '../llm.js';
 import { buildAllTools, convertToolCallToSteps } from '../tool-calling.js';
 import { createSemanticDetector } from '../../sandbox/semantic-detector.js';
 
-const logger = createConsoleLogger('nl-pipeline');
+const logger = getLogger('nl-pipeline');
 
 export interface NLProcessorOptions {
   useLLM?: boolean;

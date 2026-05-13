@@ -8,6 +8,7 @@ import { getVectaHubHome } from '../cli/adapter.js';
 import { DiagnosticTask, DiagnosticTaskStatus, VALID_DIAGNOSTIC_STATUSES, normalizeDiagnosticQueue, getExecutableAction } from '../project/diagnosticModel.js';
 import { LongRunningTaskManager } from '../cli/longRunningTaskManager.js';
 import { getFailedTasks } from '../project/taskHistory.js';
+import { isProjectTaskRunning } from '../commands/runProjectTask.js';
 
 export type DocTaskStatus = 'pending' | 'running' | 'success' | 'failed';
 
@@ -45,6 +46,7 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
   private docTasks: DocTask[] = [];
   private selectedAgentCli: string | undefined;
   private isDocParsing: boolean = false;
+  private isBatchRunning: boolean = false;
 
   constructor() {
     this.setupWatcher();
@@ -100,6 +102,14 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
 
   setIsDocParsing(parsing: boolean): void {
     this.isDocParsing = parsing;
+  }
+
+  getIsBatchRunning(): boolean {
+    return this.isBatchRunning;
+  }
+
+  setIsBatchRunning(running: boolean): void {
+    this.isBatchRunning = running;
   }
 
   getTreeItem(element: VectaHubTreeItem): vscode.TreeItem {
@@ -174,10 +184,7 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
 
     if (this.selectedDocPath) {
       if (this.isDocParsing) {
-        items.push(new TaskTreeItem('正在解析...', {
-          command: 'workbench.action.output.toggleOutput',
-          title: '文档解析中'
-        }, 'sync~spin'));
+        items.push(new TaskTreeItem('正在解析...', undefined, 'sync~spin', 'docTask-disabled'));
       } else if (this.docTasks.length === 0) {
         items.push(new TaskTreeItem('解析文档任务', {
           command: 'vectahubTasks.parseDocTasks',
@@ -199,10 +206,14 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
           }, icon, contextValue));
         }
 
-        items.push(new TaskTreeItem('启动全部任务', {
-          command: 'vectahubTasks.runAllDocTasks',
+        const batchIcon = this.isBatchRunning ? 'sync~spin' : 'run-all';
+        const batchContext = this.isBatchRunning ? 'docTask-disabled' : 'docTask';
+        const batchCommand = this.isBatchRunning ? '' : 'vectahubTasks.runAllDocTasks';
+        items.push(new TaskTreeItem(
+          this.isBatchRunning ? '批量执行中...' : '启动全部任务', {
+          command: batchCommand,
           title: '一键启动全部文档任务'
-        }, 'run-all'));
+        }, batchIcon, batchContext));
 
         const cliLabel = this.selectedAgentCli
           ? `执行器: ${this.selectedAgentCli}`
@@ -388,11 +399,12 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
   }
 
   private createTaskItem(task: ProjectTask): TaskTreeItem {
+    const running = isProjectTaskRunning(task.id);
     return new TaskTreeItem(task.label, {
-      command: 'vectahubTasks.runProjectTask',
+      command: running ? '' : 'vectahubTasks.runProjectTask',
       title: task.label,
       arguments: [task]
-    }, this.getIconForKind(task.kind), task.source, task.description);
+    }, running ? 'loading~spin' : this.getIconForKind(task.kind), task.source, task.description);
   }
 
   private getIconForKind(kind: string): string {

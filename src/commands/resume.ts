@@ -1,9 +1,9 @@
 import { Command } from 'commander';
 import { createRecordManager } from '../execution/record-manager.js';
 import { createWorkflowEngine } from '../workflow/engine.js';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 
-const logger = createConsoleLogger('resume');
+const logger = getLogger('resume');
 
 export const resumeCmd = new Command('resume')
   .description('Resume a failed or paused workflow execution')

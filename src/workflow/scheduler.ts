@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'fs';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'path';
 import { spawn } from 'child_process';
 import type { WorkflowEngine } from './engine.js';
@@ -28,10 +28,10 @@ export interface ScheduleManagerOptions {
 }
 
 export interface ScheduleManager {
-  add(entry: Omit<ScheduleEntry, 'id' | 'createdAt' | 'enabled' | 'runCount'>): ScheduleEntry;
-  remove(id: string): boolean;
-  list(): ScheduleEntry[];
-  start(): void;
+  add(entry: Omit<ScheduleEntry, 'id' | 'createdAt' | 'enabled' | 'runCount'>): Promise<ScheduleEntry>;
+  remove(id: string): Promise<boolean>;
+  list(): Promise<ScheduleEntry[]>;
+  start(): Promise<void>;
   stop(): void;
 }
 
@@ -72,7 +72,7 @@ async function executeWorkflow(entry: ScheduleEntry, engine?: WorkflowEngine): P
   if (!entry.workflowFile || !engine) return { success: false, error: 'No workflow or engine' };
 
   try {
-    const content = readFileSync(entry.workflowFile, 'utf-8');
+    const content = await readFile(entry.workflowFile, 'utf-8');
     const workflow = JSON.parse(content) as Workflow;
     const result = await engine.execute(workflow);
     return { success: result.status === 'COMPLETED', error: result.warnings?.join('; ') };
@@ -81,42 +81,36 @@ async function executeWorkflow(entry: ScheduleEntry, engine?: WorkflowEngine): P
   }
 }
 
-function updateEntryStatus(entry: ScheduleEntry, result: { success: boolean; error?: string }): void {
-  const schedules = loadSchedules();
+async function updateEntryStatus(entry: ScheduleEntry, result: { success: boolean; error?: string }): Promise<void> {
+  const schedules = await loadSchedules();
   const idx = schedules.findIndex((e) => e.id === entry.id);
   if (idx >= 0) {
     schedules[idx].lastRun = new Date().toISOString();
     schedules[idx].lastStatus = result.success ? 'SUCCESS' : 'FAILED';
     schedules[idx].lastError = result.error;
     schedules[idx].runCount = (schedules[idx].runCount || 0) + 1;
-    saveSchedules(schedules);
+    await saveSchedules(schedules);
   }
 }
 
-function ensureSchedulesDir(): void {
-  const dir = getVectaHubHome();
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
+async function ensureSchedulesDir(): Promise<void> {
+  await mkdir(getVectaHubHome(), { recursive: true });
 }
 
-function loadSchedules(): ScheduleEntry[] {
-  ensureSchedulesDir();
+async function loadSchedules(): Promise<ScheduleEntry[]> {
+  await ensureSchedulesDir();
   const schedulesFile = getVectaHubPath('schedules.json');
-  if (!existsSync(schedulesFile)) {
-    return [];
-  }
   try {
-    const raw = readFileSync(schedulesFile, 'utf-8');
+    const raw = await readFile(schedulesFile, 'utf-8');
     return JSON.parse(raw) as ScheduleEntry[];
   } catch {
     return [];
   }
 }
 
-function saveSchedules(entries: ScheduleEntry[]): void {
-  ensureSchedulesDir();
-  writeFileSync(getVectaHubPath('schedules.json'), JSON.stringify(entries, null, 2), 'utf-8');
+async function saveSchedules(entries: ScheduleEntry[]): Promise<void> {
+  await ensureSchedulesDir();
+  await writeFile(getVectaHubPath('schedules.json'), JSON.stringify(entries, null, 2), 'utf-8');
 }
 
 function parseCronInterval(cron: string): number {
@@ -150,7 +144,7 @@ export function createScheduleManager(options: ScheduleManagerOptions = {}): Sch
       result = { success: false, error: 'No workflow or command configured' };
     }
 
-    updateEntryStatus(entry, result);
+    await updateEntryStatus(entry, result);
 
     audit.workflowStep(
       `schedule:${entry.id}`,
@@ -177,8 +171,8 @@ export function createScheduleManager(options: ScheduleManagerOptions = {}): Sch
   }
 
   return {
-    add(entry): ScheduleEntry {
-      const schedules = loadSchedules();
+    async add(entry): Promise<ScheduleEntry> {
+      const schedules = await loadSchedules();
       const newEntry: ScheduleEntry = {
         ...entry,
         id: `sched_${Date.now()}`,
@@ -187,17 +181,17 @@ export function createScheduleManager(options: ScheduleManagerOptions = {}): Sch
         runCount: 0,
       };
       schedules.push(newEntry);
-      saveSchedules(schedules);
+      await saveSchedules(schedules);
       scheduleEntry(newEntry);
       return newEntry;
     },
 
-    remove(id: string): boolean {
-      let schedules = loadSchedules();
+    async remove(id: string): Promise<boolean> {
+      let schedules = await loadSchedules();
       const before = schedules.length;
       schedules = schedules.filter((e) => e.id !== id);
       if (schedules.length < before) {
-        saveSchedules(schedules);
+        await saveSchedules(schedules);
         const timer = timers.get(id);
         if (timer) {
           clearInterval(timer);
@@ -208,12 +202,12 @@ export function createScheduleManager(options: ScheduleManagerOptions = {}): Sch
       return false;
     },
 
-    list(): ScheduleEntry[] {
-      return loadSchedules();
+    async list(): Promise<ScheduleEntry[]> {
+      return await loadSchedules();
     },
 
-    start(): void {
-      const schedules = loadSchedules();
+    async start(): Promise<void> {
+      const schedules = await loadSchedules();
       for (const entry of schedules) {
         if (entry.enabled) {
           scheduleEntry(entry);

@@ -19,9 +19,9 @@ async function initLogger(): Promise<void> {
   
   try {
     const mod = await import('../utils/logger.js');
-    const createLogger = (mod as Record<string, unknown>).createConsoleLogger as (prefix?: string) => LoggerType;
-    if (createLogger) {
-      logger = createLogger('skills');
+    const getSharedLogger = (mod as Record<string, unknown>).getLogger as (prefix?: string) => LoggerType;
+    if (getSharedLogger) {
+      logger = getSharedLogger('skills');
     }
   } catch {
     // 测试环境或日志模块不可用时使用 null logger

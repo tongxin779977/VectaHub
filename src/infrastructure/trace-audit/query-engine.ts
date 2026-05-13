@@ -5,7 +5,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { createConsoleLogger } from '../../utils/logger.js';
+import { getLogger } from '../../utils/logger.js';
 import type {
   ExecutionTrace,
   TraceSpan,
@@ -18,7 +18,7 @@ import type {
   ExecutionStatus,
 } from './types.js';
 
-const logger = createConsoleLogger('query-engine');
+const logger = getLogger('query-engine');
 
 /**
  * 多维度查询引擎类

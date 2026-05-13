@@ -1,8 +1,8 @@
 import { Command } from 'commander';
 import { createScheduleManager } from '../workflow/scheduler.js';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 
-const logger = createConsoleLogger('schedule');
+const logger = getLogger('schedule');
 
 export const scheduleCmd = new Command('schedule')
   .description('Manage scheduled tasks')
@@ -21,9 +21,9 @@ scheduleCmd
   .option('-w, --workflow-file <file>', 'Workflow file path')
   .option('-e, --command <command>', 'Command to execute')
   .option('-a, --args <args>', 'Command arguments (comma separated)', (v) => v.split(','))
-  .action((opts) => {
+  .action(async (opts) => {
     const manager = createScheduleManager();
-    const entry = manager.add({
+    const entry = await manager.add({
       name: opts.name,
       cron: opts.cron,
       workflowFile: opts.workflowFile,
@@ -39,9 +39,9 @@ scheduleCmd
   .command('remove')
   .description('Remove a scheduled task')
   .requiredOption('--id <id>', 'Schedule ID')
-  .action((opts) => {
+  .action(async (opts) => {
     const manager = createScheduleManager();
-    const removed = manager.remove(opts.id);
+    const removed = await manager.remove(opts.id);
     if (removed) {
       logger.info(`Schedule removed: ${opts.id}`);
     } else {
@@ -53,9 +53,9 @@ scheduleCmd
 scheduleCmd
   .command('list')
   .description('List all scheduled tasks')
-  .action(() => {
+  .action(async () => {
     const manager = createScheduleManager();
-    const schedules = manager.list();
+    const schedules = await manager.list();
     
     if (schedules.length === 0) {
       logger.info('No scheduled tasks');

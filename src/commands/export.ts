@@ -4,10 +4,10 @@ import { join, relative } from 'path';
 import { platform } from 'os';
 import { execSync } from 'child_process';
 import { getVectaHubPath } from '../utils/paths.js';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 import { createRecordManager } from '../execution/record-manager.js';
 
-const logger = createConsoleLogger('export');
+const logger = getLogger('export');
 
 const VECTAHUB_DIR = getVectaHubPath();
 

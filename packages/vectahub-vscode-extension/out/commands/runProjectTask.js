@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.isProjectTaskRunning = isProjectTaskRunning;
 exports.registerRunProjectTaskCommand = registerRunProjectTaskCommand;
 const vscode = __importStar(require("vscode"));
 const node_crypto_1 = require("node:crypto");
@@ -52,6 +53,10 @@ const SAFE_TASK_KINDS = new Set([
     'preview', 'watch', 'format', 'format:check', 'coverage',
     'check', 'validate', 'storybook', 'install', 'git-status', 'doctor'
 ]);
+const runningTaskIds = new Set();
+function isProjectTaskRunning(taskId) {
+    return runningTaskIds.has(taskId);
+}
 function buildCommandString(task) {
     if (!task.command)
         return '';
@@ -65,7 +70,7 @@ async function performDryRunCheck(task) {
     if (!task.command)
         return { safe: true };
     const args = ['run-command', '--dry-run', '--json', '--', task.command.cli, ...task.command.args];
-    const result = await (0, adapter_js_1.runCli)(args);
+    const result = await (0, adapter_js_1.runCli)(args, { timeout: 30000 });
     if (!result.ok) {
         const reason = result.error?.message || result.stderr || 'dry-run 检测失败';
         return { safe: false, reason };
@@ -74,6 +79,11 @@ async function performDryRunCheck(task) {
 }
 function registerRunProjectTaskCommand(context, tasksProvider) {
     const disposable = vscode.commands.registerCommand('vectahubTasks.runProjectTask', async (task) => {
+        if (runningTaskIds.has(task.id)) {
+            vscode.window.showWarningMessage(`任务 "${task.label}" 正在执行中...`);
+            return;
+        }
+        runningTaskIds.add(task.id);
         (0, output_js_1.logToOutput)(`[DEBUG] runProjectTask 开始执行，task: ${task.label}`);
         const startedAt = new Date();
         const plan = planBuilder_js_1.PlanBuilder.createProjectTaskPlan(task);
@@ -156,6 +166,7 @@ function registerRunProjectTaskCommand(context, tasksProvider) {
             status = message.includes('cancelled') ? 'cancelled' : 'failed';
         }
         finally {
+            runningTaskIds.delete(task.id);
             const endedAt = new Date();
             (0, taskHistory_js_1.addTaskRecord)({
                 id: generateTaskRecordId(),

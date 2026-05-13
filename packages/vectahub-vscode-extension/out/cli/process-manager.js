@@ -4,10 +4,28 @@ exports.ProcessManager = void 0;
 const child_process_1 = require("child_process");
 const output_js_1 = require("../ui/output.js");
 const os_1 = require("os");
+const ZOMBIE_CHECK_INTERVAL_MS = 30_000;
 class ProcessManager {
     static instance;
     activeProcesses = new Set();
-    constructor() { }
+    zombieCheckInterval = null;
+    constructor() {
+        this.startZombieCheck();
+    }
+    startZombieCheck() {
+        this.zombieCheckInterval = setInterval(() => {
+            let zombieCount = 0;
+            for (const child of this.activeProcesses) {
+                if (child.killed || child.exitCode !== null) {
+                    this.activeProcesses.delete(child);
+                    zombieCount++;
+                }
+            }
+            if (zombieCount > 0) {
+                (0, output_js_1.logToOutput)(`Cleaned up ${zombieCount} zombie process(es)`, 'warn');
+            }
+        }, ZOMBIE_CHECK_INTERVAL_MS);
+    }
     static getInstance() {
         if (!ProcessManager.instance) {
             ProcessManager.instance = new ProcessManager();
@@ -58,6 +76,13 @@ class ProcessManager {
             }
         }
         this.activeProcesses.clear();
+    }
+    dispose() {
+        if (this.zombieCheckInterval !== null) {
+            clearInterval(this.zombieCheckInterval);
+            this.zombieCheckInterval = null;
+        }
+        this.killAll();
     }
 }
 exports.ProcessManager = ProcessManager;

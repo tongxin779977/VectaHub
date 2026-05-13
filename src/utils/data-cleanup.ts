@@ -1,9 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createConsoleLogger } from './logger.js';
+import { getLogger } from './logger.js';
 import { getVectaHubPath } from './paths.js';
 
-const logger = createConsoleLogger('data-cleanup');
+const logger = getLogger('data-cleanup');
 
 export interface CleanupConfig {
   logRetentionDays: number;

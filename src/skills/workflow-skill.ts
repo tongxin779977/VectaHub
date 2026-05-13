@@ -3,9 +3,9 @@ import type { PromptRegistry } from '../nl/prompt/types.js';
 import type { LLMDialogControlSkill } from './llm-dialog-control/index.js';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 
-const logger = createConsoleLogger('workflow-skill');
+const logger = getLogger('workflow-skill');
 
 export interface WorkflowSkillInput {
   intent: string;

@@ -1,8 +1,8 @@
 import type { TaskList, Task } from '../types/index.js';
 import { createInterface } from 'readline';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 
-const logger = createConsoleLogger('command-editor');
+const logger = getLogger('command-editor');
 
 export interface CommandEditAction {
   type: 'edit' | 'add' | 'delete' | 'reorder';

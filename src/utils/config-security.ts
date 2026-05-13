@@ -1,9 +1,9 @@
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
-import { createConsoleLogger } from './logger.js';
+import { getLogger } from './logger.js';
 import { getVectaHubPath } from './paths.js';
 
-const logger = createConsoleLogger('config-security');
+const logger = getLogger('config-security');
 
 export interface ConfigSecurityOptions {
   configPath?: string;

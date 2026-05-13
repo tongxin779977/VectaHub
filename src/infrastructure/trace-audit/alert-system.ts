@@ -3,7 +3,7 @@
  * Anomaly Detection and Alert System - Detects abnormal traces and triggers alerts
  */
 
-import { createConsoleLogger } from '../../utils/logger.js';
+import { getLogger } from '../../utils/logger.js';
 import type {
   TraceSpan,
   ExecutionTrace,
@@ -15,7 +15,7 @@ import type {
   SpanId,
 } from './types.js';
 
-const logger = createConsoleLogger('alert-system');
+const logger = getLogger('alert-system');
 
 /** 默认告警规则 */
 const DEFAULT_ALERT_RULES: AlertRule[] = [

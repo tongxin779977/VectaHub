@@ -1,6 +1,6 @@
 import { performance, PerformanceObserver, PerformanceEntry } from 'perf_hooks';
 import os from 'os';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 import { type PerformanceMetric, type MetricType, type MetricRecord, type AlertConfig, type Alert, type MetricThreshold } from './metrics.js';
 
 const DEFAULT_CONFIG: AlertConfig = {
@@ -22,7 +22,7 @@ const BATCH_FLUSH_INTERVAL = 500;
 const BATCH_MAX_SIZE = 100;
 
 export class PerformanceMonitor {
-  private logger = createConsoleLogger('monitor');
+  private logger = getLogger('monitor');
   private config: AlertConfig = DEFAULT_CONFIG;
   private metrics: MetricRecord[] = [];
   private alerts: Alert[] = [];

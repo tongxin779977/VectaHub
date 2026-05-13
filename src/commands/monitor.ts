@@ -1,9 +1,9 @@
 import { Command } from 'commander';
 import { performanceMonitor } from '../monitoring/monitor.js';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 import { type Alert } from '../monitoring/metrics.js';
 
-const logger = createConsoleLogger('monitor');
+const logger = getLogger('monitor');
 
 function formatTimestamp(ts: number): string {
   return new Date(ts).toLocaleString();

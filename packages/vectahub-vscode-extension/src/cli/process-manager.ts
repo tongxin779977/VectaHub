@@ -3,11 +3,31 @@ import { execSync } from 'child_process';
 import { logToOutput } from '../ui/output.js';
 import { platform } from 'os';
 
+const ZOMBIE_CHECK_INTERVAL_MS = 30_000;
+
 export class ProcessManager {
   private static instance: ProcessManager;
   private activeProcesses: Set<ChildProcess> = new Set();
+  private zombieCheckInterval: ReturnType<typeof setInterval> | null = null;
 
-  private constructor() {}
+  private constructor() {
+    this.startZombieCheck();
+  }
+
+  private startZombieCheck(): void {
+    this.zombieCheckInterval = setInterval(() => {
+      let zombieCount = 0;
+      for (const child of this.activeProcesses) {
+        if (child.killed || child.exitCode !== null) {
+          this.activeProcesses.delete(child);
+          zombieCount++;
+        }
+      }
+      if (zombieCount > 0) {
+        logToOutput(`Cleaned up ${zombieCount} zombie process(es)`, 'warn');
+      }
+    }, ZOMBIE_CHECK_INTERVAL_MS);
+  }
 
   static getInstance(): ProcessManager {
     if (!ProcessManager.instance) {
@@ -56,5 +76,13 @@ export class ProcessManager {
       }
     }
     this.activeProcesses.clear();
+  }
+
+  dispose(): void {
+    if (this.zombieCheckInterval !== null) {
+      clearInterval(this.zombieCheckInterval);
+      this.zombieCheckInterval = null;
+    }
+    this.killAll();
   }
 }

@@ -2,11 +2,11 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { parse, stringify } from 'yaml';
 import { createInterface, type Interface } from 'readline';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 import type { StepResult } from './priority-installer.js';
 import { getVectaHubPath } from '../utils/paths.js';
 
-const logger = createConsoleLogger('setup');
+const logger = getLogger('setup');
 
 let sharedRl: Interface | null = null;
 let nonInteractiveMode = false;

@@ -1,9 +1,9 @@
 import { Command } from 'commander';
 import { workflowDebugger } from '../debugger/workflow-debugger.js';
-import { createConsoleLogger } from '../utils/logger.js';
+import { getLogger } from '../utils/logger.js';
 import { type Breakpoint, type ExecutionHistory } from '../debugger/debugger-api.js';
 
-const logger = createConsoleLogger('debug');
+const logger = getLogger('debug');
 
 function formatBreakpointTable(breakpoints: Breakpoint[]): void {
   if (breakpoints.length === 0) {

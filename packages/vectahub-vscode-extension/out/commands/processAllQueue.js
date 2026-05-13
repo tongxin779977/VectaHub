@@ -53,7 +53,7 @@ async function readQueueWithRetry(tasksProvider, context) {
     const cliReady = await (0, readiness_js_1.waitForCliReady)();
     if (cliReady) {
         try {
-            const analysisResult = await (0, adapter_js_1.runCli)(['run', '--json', `诊断为什么诊断队列文件无法读取，错误信息: ${second.error}`]);
+            const analysisResult = await (0, adapter_js_1.runCli)(['run', '--json', `诊断为什么诊断队列文件无法读取，错误信息: ${second.error}`], { timeout: 60000 });
             if (analysisResult.ok && analysisResult.stdout) {
                 vscode.window.showErrorMessage(`队列读取失败 (${context}): ${second.error}`, '查看分析').then(choice => {
                     if (choice === '查看分析') {
@@ -101,7 +101,7 @@ function registerProcessAllQueueCommand(context, tasksProvider) {
             title: `VectaHub 正在进行批量诊断修复 (${pendingCount} 个任务)...`,
             cancellable: true
         }, async (progress, token) => {
-            const result = await (0, adapter_js_1.runCli)(['run', '-f', 'sys:process-diagnostic-queue', '--mode', 'relaxed', '--json'], { token });
+            const result = await (0, adapter_js_1.runCli)(['run', '-f', 'sys:process-diagnostic-queue', '--mode', 'relaxed', '--json'], { token, timeout: 300000 });
             tasksProvider.refresh();
             if (!result.ok) {
                 const endedAt = new Date();

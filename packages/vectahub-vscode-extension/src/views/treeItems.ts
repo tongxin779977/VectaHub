@@ -18,7 +18,7 @@ export class TaskTreeItem extends VectaHubTreeItem {
 
   constructor(
     label: string,
-    command: vscode.Command,
+    command: vscode.Command | undefined,
     icon: string = 'play',
     public readonly source?: string,
     description?: string,
