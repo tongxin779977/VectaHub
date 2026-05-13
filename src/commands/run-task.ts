@@ -1,8 +1,9 @@
 import { Command } from 'commander';
-import { execFile } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { execFile, spawn } from 'node:child_process';
+import { existsSync, createWriteStream } from 'node:fs';
 import { promisify } from 'node:util';
 import { resolve } from 'node:path';
+import { Transform } from 'node:stream';
 import { getLogger } from '../utils/logger.js';
 import { assessCommandRisk } from '../security-protocol/engine.js';
 import { createLLMConfig, LLMClient } from '../nl/llm.js';
@@ -13,6 +14,9 @@ import { audit } from '../infrastructure/audit/index.js';
 import { createChildEnv, getTraceContextFromEnv, startSpan, withSpan } from '../infrastructure/trace/index.js';
 import { deriveAgentTaskBoundary, deriveDocExcerpt, computeInstructionHash } from './agent-task-contract.js';
 import type { AgentTaskContract } from '../types/doc-task.js';
+import { splitPosixArgs } from '../utils/shell.js';
+import { createRedactor } from '../security-protocol/redactor.js';
+import { getVectaHubPath, djb2Hash } from '../utils/paths.js';
 
 const execFileAsync = promisify(execFile);
 const logger = getLogger('run-task');
@@ -57,6 +61,36 @@ const MAX_VERIFICATION_COMMANDS = 10;
 const DEFAULT_VERIFICATION_TIMEOUT = 120000;
 const verificationTimeout = parseInt(process.env.VERIFICATION_TIMEOUT_MS || '', 10) || DEFAULT_VERIFICATION_TIMEOUT;
 const VERIFICATION_SUMMARY_MAX_LENGTH = 600;
+const redactor = createRedactor();
+
+class RedactionTransform extends Transform {
+  private carry = '';
+
+  _transform(chunk: Buffer | string, _encoding: BufferEncoding, callback: (error?: Error | null, data?: Buffer | string) => void): void {
+    try {
+      const text = this.carry + chunk.toString();
+      const splitAt = text.lastIndexOf('\n');
+      if (splitAt < 0) {
+        this.carry = text;
+        callback();
+        return;
+      }
+      const complete = text.slice(0, splitAt + 1);
+      this.carry = text.slice(splitAt + 1);
+      callback(null, redactor.redact(complete));
+    } catch (error) {
+      callback(error as Error);
+    }
+  }
+
+  _flush(callback: (error?: Error | null, data?: Buffer | string) => void): void {
+    try {
+      callback(null, this.carry ? redactor.redact(this.carry) : '');
+    } catch (error) {
+      callback(error as Error);
+    }
+  }
+}
 
 interface GeneratedCommand {
   command: string;
@@ -118,6 +152,13 @@ export interface AgentTaskContractSummary {
   docExcerptTruncated: boolean;
   excerptStrategy: 'task-heading' | 'task-id-window' | 'label-window' | 'head-fallback' | 'none';
   instructionHash: string;
+  globalConfigDigest?: string;
+}
+
+function buildGlobalConfigDigest(input: { model?: string; temperature?: number }): string {
+  const model = (input.model || '').trim() || 'unknown';
+  const temperature = Number.isFinite(input.temperature) ? String(input.temperature) : 'default';
+  return `model=${model};temperature=${temperature}`;
 }
 
 export interface VerificationCommandResult {
@@ -262,21 +303,20 @@ function formatListForPrompt(values: string[], emptyText: string): string {
   return values.map(value => `\n- ${value}`).join('');
 }
 
-function buildAgentTaskContract(input: {
+async function buildAgentTaskContract(input: {
   taskId: string;
   label: string;
   docPath?: string;
   projectRoot: string;
-}): AgentTaskContract & { summary: AgentTaskContractSummary } {
+}): Promise<AgentTaskContract & { summary: AgentTaskContractSummary }> {
   let docExcerpt = '';
   let docExcerptTruncated = false;
   let excerptStrategy: AgentTaskContractSummary['excerptStrategy'] = 'none';
   const notes: string[] = [];
 
   if (input.docPath && existsSync(input.docPath)) {
-    const docContent = readFileSync(input.docPath, 'utf-8');
-    const excerpt = deriveDocExcerpt({
-      docContent,
+    const excerpt = await deriveDocExcerpt({
+      docPath: input.docPath,
       taskId: input.taskId,
       label: input.label,
     });
@@ -377,28 +417,11 @@ function truncateVerificationSummary(value: string | undefined): string | undefi
 }
 
 export function splitCommandArgs(cmd: string): string[] {
-  const parts: string[] = [];
-  let current = '';
-  let inSingle = false;
-  let inDouble = false;
-  for (let i = 0; i < cmd.length; i++) {
-    const ch = cmd[i];
-    if (inSingle) {
-      if (ch === "'") { inSingle = false; } else { current += ch; }
-    } else if (inDouble) {
-      if (ch === '"') { inDouble = false; } else { current += ch; }
-    } else if (ch === "'") {
-      inSingle = true;
-    } else if (ch === '"') {
-      inDouble = true;
-    } else if (ch === ' ' || ch === '\t') {
-      if (current) { parts.push(current); current = ''; }
-    } else {
-      current += ch;
-    }
-  }
-  if (current) parts.push(current);
-  return parts;
+  return splitPosixArgs(cmd);
+}
+
+function getRunTaskOutputDir(): string {
+  return getVectaHubPath('outputs', 'run-task', djb2Hash(process.cwd()));
 }
 
 export async function runVerificationCommands(
@@ -525,7 +548,7 @@ export async function runTask(options: {
     });
     let agentTaskContract: AgentTaskContract & { summary: AgentTaskContractSummary };
     try {
-      agentTaskContract = buildAgentTaskContract({
+      agentTaskContract = await buildAgentTaskContract({
         taskId,
         label,
         docPath: doc ? docPath : undefined,
@@ -566,6 +589,22 @@ export async function runTask(options: {
       }
       return config;
     }, { context: traceContext, parentSpanId: rootSpan.spanId, source: 'cli', attributes: baseAttributes });
+    const llmTemperatureRaw = process.env.VECTAHUB_LLM_TEMPERATURE;
+    const llmTemperature = llmTemperatureRaw !== undefined ? Number.parseFloat(llmTemperatureRaw) : 0.1;
+    const globalConfigDigest = buildGlobalConfigDigest({
+      model: llmConfig.model,
+      temperature: Number.isFinite(llmTemperature) ? llmTemperature : 0.1,
+    });
+    agentTaskContractSummary.globalConfigDigest = globalConfigDigest;
+    agentTaskContractSummary.instructionHash = computeInstructionHash(
+      taskId,
+      label,
+      agentTaskContract.docExcerpt || '',
+      tool,
+      agentTaskContract.allowedFiles,
+      agentTaskContract.forbiddenFiles,
+      globalConfigDigest,
+    );
 
     const cacheManager = getToolCacheManager();
     const discoverSpan = startSpan('cli.run-task.discoverToolHelp', {
@@ -713,21 +752,80 @@ export async function runTask(options: {
           timeoutMs: agentCliTimeout,
         },
       });
-      const { stdout, stderr } = await execFileAsync(generated.command, generated.args, {
-        timeout: agentCliTimeout,
+      const outputDir = getRunTaskOutputDir();
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(outputDir, { recursive: true });
+      const ts = Date.now();
+      const redactedStdoutPath = resolve(outputDir, `${taskId}-${ts}.stdout`);
+      const redactedStderrPath = resolve(outputDir, `${taskId}-${ts}.stderr`);
+
+      const child = spawn(generated.command, generated.args, {
         cwd: process.cwd(),
         env: {
           ...stripIDEEnv(),
           ...spawnEnv,
         },
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
+
+      const stdoutRedactor = new RedactionTransform();
+      const stderrRedactor = new RedactionTransform();
+      const stdoutRedactedWriter = createWriteStream(redactedStdoutPath, { encoding: 'utf8' });
+      const stderrRedactedWriter = createWriteStream(redactedStderrPath, { encoding: 'utf8' });
+
+      let stdoutRaw = '';
+      let stderrRaw = '';
+      let redactedStdout = '';
+      let redactedStderr = '';
+
+      child.stdout?.on('data', (chunk: Buffer) => {
+        const text = chunk.toString();
+        stdoutRaw += text;
+      });
+      child.stderr?.on('data', (chunk: Buffer) => {
+        const text = chunk.toString();
+        stderrRaw += text;
+      });
+
+      // required pipeline shape
+      child.stdout?.pipe(stdoutRedactor).pipe(stdoutRedactedWriter);
+      child.stderr?.pipe(stderrRedactor).pipe(stderrRedactedWriter);
+
+      stdoutRedactor.on('data', (chunk: Buffer | string) => {
+        redactedStdout += chunk.toString();
+      });
+      stderrRedactor.on('data', (chunk: Buffer | string) => {
+        redactedStderr += chunk.toString();
+      });
+
+      await new Promise<void>((resolvePromise, rejectPromise) => {
+        const timer = setTimeout(() => {
+          child.kill('SIGKILL');
+          rejectPromise(new Error(`Agent CLI timeout after ${agentCliTimeout}ms`));
+        }, agentCliTimeout);
+
+        const onErr = (err: unknown) => {
+          clearTimeout(timer);
+          rejectPromise(err as Error);
+        };
+        child.on('error', onErr);
+        stdoutRedactedWriter.on('error', onErr);
+        stderrRedactedWriter.on('error', onErr);
+        child.on('close', (code) => {
+          clearTimeout(timer);
+          if (code === 0) resolvePromise();
+          else rejectPromise(Object.assign(new Error(`Agent process exited with code ${code}`), { code }));
+        });
+      });
+
       await spawnSpan.end({
-        stdoutLength: stdout.length,
-        stderrLength: stderr?.length || 0,
+        stdoutLength: stdoutRaw.length,
+        stderrLength: stderrRaw.length,
         exitCode: 0,
       });
 
-      const combinedOutput = stdout + (stderr ? '\n' + stderr : '');
+      const combinedOutput = `${redactedStdout}${redactedStderr ? `\n${redactedStderr}` : ''}`;
+      const rawAgentOutputForUsage = `${stdoutRaw}${stderrRaw ? `\n${stderrRaw}` : ''}`;
       const collectSpan = startSpan('cli.run-task.collectGitChanges', {
         context: traceContext,
         parentSpanId: rootSpan.spanId,
@@ -784,7 +882,7 @@ export async function runTask(options: {
       }
 
       // Parse token usage from agent output
-      const usage = parseTokenUsage(combinedOutput);
+      const usage = parseTokenUsage(rawAgentOutputForUsage);
       if (usage) {
         logger.info(`Token 消耗: prompt=${usage.promptTokens}, completion=${usage.completionTokens}, total=${usage.totalTokens}`);
       }
@@ -800,6 +898,7 @@ export async function runTask(options: {
       const errStdout = execError.stdout?.toString?.() || '';
       const errStderr = execError.stderr?.toString?.() || '';
       const errOutput = errStdout + (errStderr ? '\n' + errStderr : '') || execError.message || String(error);
+      const rawErrOutputForUsage = errStdout + (errStderr ? '\n' + errStderr : '');
       const spawnFailSpan = startSpan('cli.run-task.spawnAgent', {
         context: traceContext,
         parentSpanId: rootSpan.spanId,
@@ -819,7 +918,7 @@ export async function runTask(options: {
       const gitChanges = await collectGitChanges() ?? undefined;
       audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'FAILED', 'run-task');
       logger.error(`任务执行失败: ${errOutput}`);
-      const errUsage = parseTokenUsage(errOutput);
+      const errUsage = parseTokenUsage(rawErrOutputForUsage || errOutput);
       return { success: false, output: errOutput, command: fullCommand, gitChanges, agentTaskContract: agentTaskContractSummary, usage: errUsage };
     }
   }, {

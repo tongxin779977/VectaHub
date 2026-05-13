@@ -1,3 +1,5 @@
+import { createReadStream } from 'node:fs';
+import readline from 'node:readline';
 import { isAbsolute, normalize, relative, resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { AgentTaskBoundary, AgentTaskConcurrencyDecision, AgentTaskContract } from '../types/doc-task.js';
@@ -29,43 +31,106 @@ export function computeInstructionHash(
   tool?: string,
   allowedFiles?: string[],
   forbiddenFiles?: string[],
+  globalConfigDigest?: string,
 ): string {
   const sortedAllowed = [...(allowedFiles ?? [])].sort().join(',');
   const sortedForbidden = [...(forbiddenFiles ?? [])].sort().join(',');
-  const content = `${taskId}\n${label}\n${docExcerpt}\ntool=${tool ?? ''}\nallowed=${sortedAllowed}\nforbidden=${sortedForbidden}`;
+  const content = `${taskId}\n${label}\n${docExcerpt}\ntool=${tool ?? ''}\nallowed=${sortedAllowed}\nforbidden=${sortedForbidden}\nconfig=${globalConfigDigest ?? ''}`;
   return createHash('sha256').update(content, 'utf-8').digest('hex').slice(0, 16);
 }
 
-export function deriveDocExcerpt(input: {
-  docContent: string;
+export async function deriveDocExcerpt(input: {
+  docPath: string;
   taskId: string;
   label: string;
   maxChars?: number;
-}): {
+}): Promise<{
   excerpt: string;
   truncated: boolean;
   strategy: 'task-heading' | 'task-id-window' | 'label-window' | 'head-fallback';
-} {
+}> {
   const maxChars = input.maxChars ?? DEFAULT_MAX_EXCERPT_CHARS;
-  const content = input.docContent ?? '';
-  const headingSlice = findHeadingSection(content, input.taskId);
-  if (headingSlice) {
-    return toExcerptResult(headingSlice, maxChars, 'task-heading');
+  const captureLimit = maxChars + 1;
+  const stream = createReadStream(input.docPath, { encoding: 'utf8' });
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+  let head = '';
+  let headingLevel = -1;
+  let headingExcerpt = '';
+  let inHeadingSection = false;
+  let hasHeadingSection = false;
+
+  let beforeWindow = '';
+  let taskWindow = '';
+  let labelWindow = '';
+  let taskWindowRemaining = -1;
+  let labelWindowRemaining = -1;
+
+  const appendBounded = (base: string, addition: string, limit: number): string => {
+    if (base.length >= limit) return base;
+    return (base + addition).slice(0, limit);
+  };
+  const pushBeforeWindow = (line: string) => {
+    beforeWindow += line;
+    if (beforeWindow.length > DEFAULT_WINDOW_BEFORE) {
+      beforeWindow = beforeWindow.slice(beforeWindow.length - DEFAULT_WINDOW_BEFORE);
+    }
+  };
+  const normalizedLabelTokens = input.label
+    .split(/[\s,，。:：;；/|()\[\]{}]+/g)
+    .map(token => token.trim())
+    .filter(token => token.length >= 2);
+
+  try {
+    for await (const rawLine of rl) {
+      const line = `${rawLine}\n`;
+      head = appendBounded(head, line, captureLimit);
+
+      const headingMatch = rawLine.match(/^(#{1,6})\s+(.+)$/);
+      if (!hasHeadingSection && headingMatch && rawLine.includes(input.taskId)) {
+        inHeadingSection = true;
+        hasHeadingSection = true;
+        headingLevel = headingMatch[1].length;
+      } else if (inHeadingSection && headingMatch && headingMatch[1].length <= headingLevel) {
+        inHeadingSection = false;
+      }
+      if (inHeadingSection) {
+        headingExcerpt = appendBounded(headingExcerpt, line, captureLimit);
+      }
+
+      if (taskWindowRemaining < 0 && rawLine.includes(input.taskId)) {
+        taskWindow = beforeWindow + line;
+        taskWindowRemaining = DEFAULT_WINDOW_AFTER;
+      } else if (taskWindowRemaining >= 0 && taskWindow.length < captureLimit) {
+        taskWindow = appendBounded(taskWindow, line, captureLimit);
+        taskWindowRemaining -= line.length;
+      }
+
+      const labelHit = rawLine.includes(input.label) || normalizedLabelTokens.some(token => rawLine.includes(token));
+      if (labelWindowRemaining < 0 && labelHit) {
+        labelWindow = beforeWindow + line;
+        labelWindowRemaining = DEFAULT_WINDOW_AFTER;
+      } else if (labelWindowRemaining >= 0 && labelWindow.length < captureLimit) {
+        labelWindow = appendBounded(labelWindow, line, captureLimit);
+        labelWindowRemaining -= line.length;
+      }
+
+      pushBeforeWindow(line);
+
+      const taskDone = hasHeadingSection || taskWindowRemaining === 0;
+      const labelDone = labelWindowRemaining === 0;
+      if (taskDone && labelDone && head.length >= captureLimit) {
+        break;
+      }
+    }
+  } finally {
+    rl.close();
+    stream.destroy();
   }
 
-  const taskIdIndex = content.indexOf(input.taskId);
-  if (taskIdIndex >= 0) {
-    const slice = sliceByWindow(content, taskIdIndex, maxChars);
-    return toExcerptResult(slice, maxChars, 'task-id-window');
-  }
-
-  const labelIndex = findLabelIndex(content, input.label);
-  if (labelIndex >= 0) {
-    const slice = sliceByWindow(content, labelIndex, maxChars);
-    return toExcerptResult(slice, maxChars, 'label-window');
-  }
-
-  return toExcerptResult(content, maxChars, 'head-fallback');
+  if (headingExcerpt) return toExcerptResult(headingExcerpt, maxChars, 'task-heading');
+  if (taskWindow) return toExcerptResult(taskWindow, maxChars, 'task-id-window');
+  if (labelWindow) return toExcerptResult(labelWindow, maxChars, 'label-window');
+  return toExcerptResult(head, maxChars, 'head-fallback');
 }
 
 export function normalizeAgentTaskFiles(input: {
@@ -227,73 +292,6 @@ export function decideAgentTaskConcurrency(contracts: AgentTaskContract[]): Agen
     reason: 'non-overlap-medium-high',
     groups: [contracts.map(contract => contract.taskId)],
   };
-}
-
-function findHeadingSection(content: string, taskId: string): string | undefined {
-  const lines = content.split('\n');
-  let offset = 0;
-  let startOffset = -1;
-  let targetHeadingLevel = 0;
-
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-    const match = line.match(/^(#{1,6})\s+(.+)$/);
-    if (match && line.includes(taskId)) {
-      startOffset = offset;
-      targetHeadingLevel = match[1].length;
-      break;
-    }
-    offset += line.length + 1;
-  }
-  if (startOffset < 0) {
-    return undefined;
-  }
-
-  let endOffset = content.length;
-  offset = 0;
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-    const lineStart = offset;
-    const match = line.match(/^(#{1,6})\s+(.+)$/);
-    if (lineStart > startOffset && match && match[1].length <= targetHeadingLevel) {
-      endOffset = lineStart;
-      break;
-    }
-    offset += line.length + 1;
-  }
-
-  return content.slice(startOffset, endOffset);
-}
-
-function findLabelIndex(content: string, label: string): number {
-  const direct = content.indexOf(label);
-  if (direct >= 0) {
-    return direct;
-  }
-
-  const keywords = label
-    .split(/[\s,，。:：;；/|()\[\]{}]+/g)
-    .map(token => token.trim())
-    .filter(token => token.length >= 2);
-
-  for (const token of keywords) {
-    const index = content.indexOf(token);
-    if (index >= 0) {
-      return index;
-    }
-  }
-
-  return -1;
-}
-
-function sliceByWindow(content: string, index: number, maxChars: number): string {
-  const start = Math.max(0, index - DEFAULT_WINDOW_BEFORE);
-  const end = Math.min(content.length, index + DEFAULT_WINDOW_AFTER);
-  const windowSlice = content.slice(start, end);
-  if (windowSlice.length <= maxChars) {
-    return windowSlice;
-  }
-  return windowSlice.slice(0, maxChars);
 }
 
 function toExcerptResult(

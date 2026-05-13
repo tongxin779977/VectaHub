@@ -12,6 +12,7 @@ export type DocTaskRunStatus =
   | 'failed_timeout'
   | 'failed_test'
   | 'failed_conflict'
+  | 'failed_system_internal'
   | 'cancelled'
   | 'needs_confirmation';
 
@@ -33,6 +34,7 @@ export type DocTaskFailureKind =
   | 'timeout'
   | 'test'
   | 'conflict'
+  | 'system_internal'
   | 'cancelled'
   | 'unknown';
 
@@ -53,6 +55,7 @@ const FAILED_STATUS_BY_KIND: Record<Exclude<DocTaskFailureKind, 'test' | 'unknow
   json_protocol: 'failed_json_protocol',
   timeout: 'failed_timeout',
   conflict: 'failed_conflict',
+  system_internal: 'failed_system_internal',
   cancelled: 'cancelled'
 };
 
@@ -94,6 +97,22 @@ export function classifyDocTaskFailure(input: ClassifyDocTaskFailureInput): {
     ])
   ) {
     return { kind: 'conflict', status: FAILED_STATUS_BY_KIND.conflict };
+  }
+
+  if (
+    includesAny(text, [
+      'eio',
+      'io error',
+      'input/output error',
+      'emfile',
+      'enfile',
+      'stream destroyed',
+      'verification tool missing',
+      'spawn ',
+      'unknown system error',
+    ])
+  ) {
+    return { kind: 'system_internal', status: FAILED_STATUS_BY_KIND.system_internal };
   }
 
   if (

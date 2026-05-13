@@ -489,4 +489,16 @@ describe('splitCommandArgs', () => {
   it('should handle mixed quotes', () => {
     expect(splitCommandArgs(`cmd "arg with 'nested'" 'other "quoted"'`)).toEqual(['cmd', "arg with 'nested'", 'other "quoted"']);
   });
+
+  it('should handle escaped quotes in double quotes', () => {
+    expect(splitCommandArgs(`grep "a \\"b\\" c" file.txt`)).toEqual(['grep', 'a "b" c', 'file.txt']);
+  });
+
+  it('should handle escaped whitespace outside quotes', () => {
+    expect(splitCommandArgs(String.raw`echo a\ b c`)).toEqual(['echo', 'a b', 'c']);
+  });
+
+  it('should throw on unclosed quote', () => {
+    expect(() => splitCommandArgs(`echo "abc`)).toThrow();
+  });
 });

@@ -55,17 +55,29 @@ describe('CLI Module', () => {
     });
   }
 
+  function normalizeStderr(stderr: string): string {
+    return stderr
+      .split('\n')
+      .filter(line =>
+        !line.includes('[DEP0205]')
+        && !line.includes('module.register() is deprecated')
+        && !line.includes('node --trace-deprecation')
+      )
+      .join('\n')
+      .trim();
+  }
+
   it('should display help command', async () => {
     const result = await runCli(['--help']);
 
-    expect(result.stderr).toBe('');
+    expect(normalizeStderr(result.stderr)).toBe('');
     expect(result.code).toBe(0);
   });
 
   it('should display version', async () => {
     const result = await runCli(['--version']);
 
-    expect(result.stderr).toBe('');
+    expect(normalizeStderr(result.stderr)).toBe('');
     expect(result.code).toBe(0);
     expect(result.stdout.trim()).toBe(EXPECTED_VERSION);
   });
@@ -73,7 +85,7 @@ describe('CLI Module', () => {
   it('should run doctor and exit cleanly', async () => {
     const result = await runCli(['doctor']);
 
-    expect(result.stderr).toBe('');
+    expect(normalizeStderr(result.stderr)).toBe('');
     expect(result.code).toBe(0);
     expect(result.stdout).toContain('VectaHub Doctor');
     expect(result.stdout).toContain('0 failed');
@@ -82,7 +94,7 @@ describe('CLI Module', () => {
   it('should display dev commands', async () => {
     const result = await runCli(['dev', '--help']);
 
-    expect(result.stderr).toBe('');
+    expect(normalizeStderr(result.stderr)).toBe('');
     expect(result.code).toBe(0);
   });
 
@@ -96,7 +108,7 @@ describe('CLI Module', () => {
 
     const result = await runCli(['--help']);
 
-    expect(result.stderr).toBe('');
+    expect(normalizeStderr(result.stderr)).toBe('');
     expect(result.code).toBe(0);
     for (const cmd of coreCommands) {
       expect(result.stdout).toContain(cmd);
@@ -106,28 +118,28 @@ describe('CLI Module', () => {
   it('should lazily load serve command', async () => {
     const result = await runCli(['serve', '--help']);
 
-    expect(result.stderr).toBe('');
+    expect(normalizeStderr(result.stderr)).toBe('');
     expect(result.code).toBe(0);
   });
 
   it('should lazily load security command', async () => {
     const result = await runCli(['security', '--help']);
 
-    expect(result.stderr).toBe('');
+    expect(normalizeStderr(result.stderr)).toBe('');
     expect(result.code).toBe(0);
   });
 
   it('should lazily load audit command', async () => {
     const result = await runCli(['audit', '--help']);
 
-    expect(result.stderr).toBe('');
+    expect(normalizeStderr(result.stderr)).toBe('');
     expect(result.code).toBe(0);
   });
 
   it('should lazily load export and import commands', async () => {
     const result = await runCli(['export', '--help']);
 
-    expect(result.stderr).toBe('');
+    expect(normalizeStderr(result.stderr)).toBe('');
     expect(result.code).toBe(0);
   });
 });

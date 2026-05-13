@@ -1,4 +1,8 @@
 import type { DocTask } from '../views/tasksView.js';
+import { promises as fsp } from 'fs';
+import path from 'path';
+import { getVectaHubHome } from '../cli/adapter.js';
+import { buildAgentTaskContractSummaries } from '../project/docTaskContract.js';
 import { mapRunStatusToDisplayStatus, type DocTaskRunStatus } from '../project/docTaskState.js';
 import { computeInstructionHash, type DocTaskBatchRunRecord, type DocTaskRunRecord, type DocTaskRunStore } from '../project/docTaskRunStore.js';
 
@@ -51,17 +55,45 @@ export function setTaskDisplayState(task: DocTask, status: DocTaskRunStatus): vo
   task.status = mapRunStatusToDisplayStatus(status);
 }
 
+async function readCurrentGlobalConfigDigest(): Promise<string | undefined> {
+  const envModel = process.env.VECTAHUB_LLM_MODEL?.trim();
+  const envTemp = process.env.VECTAHUB_LLM_TEMPERATURE?.trim();
+  if (envModel || envTemp) {
+    return `model=${envModel || 'unknown'};temperature=${envTemp || 'default'}`;
+  }
+
+  const configPath = path.join(getVectaHubHome(), 'config.yaml');
+  try {
+    const raw = await fsp.readFile(configPath, 'utf8');
+    const model = raw.match(/^\s*model:\s*["']?([^"'\n]+)["']?\s*$/m)?.[1]?.trim() || 'unknown';
+    const temperature = raw.match(/^\s*temperature:\s*([0-9.]+)\s*$/m)?.[1]?.trim() || 'default';
+    return `model=${model};temperature=${temperature}`;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function applyLatestRunState(
   store: DocTaskRunStore | undefined,
   tasks: DocTask[],
   warn: WarnFn,
   docContent?: string,
+  projectRoot?: string,
 ): Promise<DocTask[]> {
   if (!store || tasks.length === 0) return tasks;
 
   try {
     const latest = await store.getLatestMap();
     const tasksToReset: Array<{ task: DocTask; run: DocTaskRunRecord }> = [];
+    const currentGlobalConfigDigest = await readCurrentGlobalConfigDigest();
+
+    const currentContracts = (docContent && projectRoot)
+      ? buildAgentTaskContractSummaries({
+          tasks: tasks.map(task => ({ id: task.id, label: task.label })),
+          docContent,
+          projectRoot,
+        })
+      : new Map();
 
     const result = tasks.map(task => {
       const run = latest.get(task.id);
@@ -72,11 +104,17 @@ export async function applyLatestRunState(
       if (run.status === 'success' || run.status === 'changed') {
         const oldHash = run.instructionHash;
         if (oldHash && docContent) {
+          const currentContract = currentContracts.get(task.id);
+          const allowedFiles = currentContract?.allowedFiles ?? [];
+          const forbiddenFiles = currentContract?.forbiddenFiles ?? [];
           const newHash = computeInstructionHash({
             taskId: task.id,
             label: task.label,
             docExcerpt: docContent.slice(0, 8000),
             tool: run.agentCli,
+            allowedFiles,
+            forbiddenFiles,
+            globalConfigDigest: currentGlobalConfigDigest,
           });
           if (newHash !== oldHash) {
             tasksToReset.push({ task, run });

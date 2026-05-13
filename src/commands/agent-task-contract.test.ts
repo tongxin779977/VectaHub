@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   deriveAgentTaskBoundary,
   decideAgentTaskConcurrency,
@@ -9,7 +12,17 @@ import {
 import type { AgentTaskContract } from '../types/doc-task.js';
 
 describe('deriveDocExcerpt', () => {
-  it('优先按 task heading 提取片段', () => {
+  function withTempDoc(content: string): { path: string; cleanup: () => void } {
+    const dir = mkdtempSync(join(tmpdir(), 'vectahub-doc-excerpt-'));
+    const path = join(dir, 'doc.md');
+    writeFileSync(path, content, 'utf8');
+    return {
+      path,
+      cleanup: () => rmSync(dir, { recursive: true, force: true }),
+    };
+  }
+
+  it('优先按 task heading 提取片段', async () => {
     const doc = [
       '# Intro',
       '开头',
@@ -20,38 +33,63 @@ describe('deriveDocExcerpt', () => {
       '其他内容',
     ].join('\n');
 
-    const result = deriveDocExcerpt({ docContent: doc, taskId: 'P2-1', label: 'AgentTaskContract 类型' });
-    expect(result.strategy).toBe('task-heading');
-    expect(result.excerpt).toContain('## P2-1 AgentTaskContract 类型');
-    expect(result.excerpt).not.toContain('## P2-2 其他任务');
+    const temp = withTempDoc(doc);
+    try {
+      const result = await deriveDocExcerpt({ docPath: temp.path, taskId: 'P2-1', label: 'AgentTaskContract 类型' });
+      expect(result.strategy).toBe('task-heading');
+      expect(result.excerpt).toContain('## P2-1 AgentTaskContract 类型');
+      expect(result.excerpt).not.toContain('## P2-2 其他任务');
+    } finally {
+      temp.cleanup();
+    }
   });
 
-  it('heading 缺失时按 taskId window 回退', () => {
+  it('heading 缺失时按 taskId window 回退', async () => {
     const doc = `前文\n任务标识在这里 P2-9\n后文`;
-    const result = deriveDocExcerpt({ docContent: doc, taskId: 'P2-9', label: '不存在的标题' });
-    expect(result.strategy).toBe('task-id-window');
-    expect(result.excerpt).toContain('P2-9');
+    const temp = withTempDoc(doc);
+    try {
+      const result = await deriveDocExcerpt({ docPath: temp.path, taskId: 'P2-9', label: '不存在的标题' });
+      expect(result.strategy).toBe('task-id-window');
+      expect(result.excerpt).toContain('P2-9');
+    } finally {
+      temp.cleanup();
+    }
   });
 
-  it('taskId 缺失时按 label window 回退', () => {
+  it('taskId 缺失时按 label window 回退', async () => {
     const doc = `前文\n这里描述 agent 合同边界\n后文`;
-    const result = deriveDocExcerpt({ docContent: doc, taskId: 'P2-100', label: 'agent 合同边界' });
-    expect(result.strategy).toBe('label-window');
-    expect(result.excerpt).toContain('agent 合同边界');
+    const temp = withTempDoc(doc);
+    try {
+      const result = await deriveDocExcerpt({ docPath: temp.path, taskId: 'P2-100', label: 'agent 合同边界' });
+      expect(result.strategy).toBe('label-window');
+      expect(result.excerpt).toContain('agent 合同边界');
+    } finally {
+      temp.cleanup();
+    }
   });
 
-  it('taskId 和 label 都缺失时使用 head fallback', () => {
+  it('taskId 和 label 都缺失时使用 head fallback', async () => {
     const doc = 'abcdefg';
-    const result = deriveDocExcerpt({ docContent: doc, taskId: 'X-1', label: 'YYY' });
-    expect(result.strategy).toBe('head-fallback');
-    expect(result.excerpt).toBe(doc);
+    const temp = withTempDoc(doc);
+    try {
+      const result = await deriveDocExcerpt({ docPath: temp.path, taskId: 'X-1', label: 'YYY' });
+      expect(result.strategy).toBe('head-fallback');
+      expect(result.excerpt).toBe(`${doc}\n`);
+    } finally {
+      temp.cleanup();
+    }
   });
 
-  it('docExcerpt 超长时会截断', () => {
+  it('docExcerpt 超长时会截断', async () => {
     const doc = '# P2-1\n' + 'a'.repeat(100);
-    const result = deriveDocExcerpt({ docContent: doc, taskId: 'P2-1', label: 'P2-1', maxChars: 20 });
-    expect(result.truncated).toBe(true);
-    expect(result.excerpt.length).toBe(20);
+    const temp = withTempDoc(doc);
+    try {
+      const result = await deriveDocExcerpt({ docPath: temp.path, taskId: 'P2-1', label: 'P2-1', maxChars: 20 });
+      expect(result.truncated).toBe(true);
+      expect(result.excerpt.length).toBe(20);
+    } finally {
+      temp.cleanup();
+    }
   });
 });
 
