@@ -9,10 +9,8 @@ import { homedir } from 'os';
 import { ProcessManager } from './process-manager.js';
 import { createCliTraceEnv, createRootTraceContext, startSpan } from '../trace/index.js';
 
-let globalContext: vscode.ExtensionContext;
-
-export function initCliAdapter(context: vscode.ExtensionContext) {
-  globalContext = context;
+export function initCliAdapter(_context: vscode.ExtensionContext) {
+  // Kept for extension activation compatibility.
 }
 
 function getActualCliPath(): string {

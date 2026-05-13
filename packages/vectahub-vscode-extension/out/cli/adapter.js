@@ -51,9 +51,8 @@ const path_1 = __importDefault(require("path"));
 const os_1 = require("os");
 const process_manager_js_1 = require("./process-manager.js");
 const index_js_1 = require("../trace/index.js");
-let globalContext;
-function initCliAdapter(context) {
-    globalContext = context;
+function initCliAdapter(_context) {
+    // Kept for extension activation compatibility.
 }
 function getActualCliPath() {
     const cachedPath = (0, extension_js_1.getGlobalCliPath)();

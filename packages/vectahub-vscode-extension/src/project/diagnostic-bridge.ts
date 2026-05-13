@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { createServer, Server } from 'node:http';
-import { writeFile, unlink, mkdir } from 'node:fs/promises';
+import { writeFile, unlink } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';

@@ -57,7 +57,7 @@ e7c4e51 [doc-tasks] add task run state machine
 
 ### 进行中：P2 Agent Worker 化
 
-状态：Stage 1/2/3 已完成，Stage 4 文档和 hardening 进行中。
+状态：Stage 1/2/3/4 已完成第一版。
 
 已具备能力：
 
@@ -69,6 +69,14 @@ e7c4e51 [doc-tasks] add task run state machine
 - 插件批量执行前会读取文档一次，生成任务边界摘要。
 - 边界未知或文件范围重叠时，插件会把批量执行降级为串行。
 - 任务运行记录只保存合同计数摘要，不保存完整 `docExcerpt`。
+- `run-task --contract-preview --json` 可只生成合同摘要，不加载 LLM、不执行 Agent。
+- 插件 lint 已清理为 0 warning / 0 error。
+
+性能结论：
+
+- 合同预览路径只读目标文档一次，不走 LLM 配置、工具发现和 Agent spawn。
+- 插件批量预检只共享一次 `docContent`，不为每个任务重复读文档。
+- 任务记录只保存计数摘要，避免把文档片段和大输出写入持久化记录。
 
 ## 3. 总体阶段
 

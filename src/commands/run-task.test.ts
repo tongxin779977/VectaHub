@@ -55,6 +55,7 @@ vi.mock('../utils/logger.js', () => ({
 }));
 
 import { runTask, collectGitChanges, formatRunTaskJson } from './run-task.js';
+import { createLLMConfig } from '../nl/llm.js';
 
 describe('runTask', () => {
   beforeEach(() => {
@@ -114,6 +115,33 @@ describe('runTask', () => {
       ]);
       expect(JSON.stringify(json)).not.toContain('文档片段');
       expect(JSON.stringify(json)).not.toContain('修改 `src/commands/run-task.ts`');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should preview contract without loading LLM or requiring tool', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'vectahub-run-task-preview-'));
+    const docPath = join(tempDir, 'tasks.md');
+    writeFileSync(docPath, [
+      '# Tasks',
+      '## P2-4 合同预览',
+      '修改 `src/commands/run-task.ts`。',
+    ].join('\n'));
+
+    try {
+      const result = await runTask({
+        taskId: 'P2-4',
+        taskLabel: '合同预览',
+        doc: docPath,
+        contractPreview: true,
+      });
+      const json = formatRunTaskJson(result);
+
+      expect(result.success).toBe(true);
+      expect(result.command).toBe('');
+      expect(json.agentTaskContract?.allowedFiles).toEqual(['src/commands/run-task.ts']);
+      expect(createLLMConfig).not.toHaveBeenCalled();
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

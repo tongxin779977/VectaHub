@@ -308,38 +308,20 @@ export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
 }
 
 export async function runTask(options: {
-  tool: string;
+  tool?: string;
   taskId: string;
   taskLabel?: string;
   doc?: string;
   dryRun?: boolean;
+  contractPreview?: boolean;
 }): Promise<RunTaskResult> {
-  const { tool, taskId, taskLabel, doc, dryRun } = options;
-  const baseAttributes = { taskId, tool, dryRun: Boolean(dryRun) };
+  const { taskId, taskLabel, doc, dryRun, contractPreview } = options;
+  const tool = options.tool || '';
+  const baseAttributes = { taskId, tool, dryRun: Boolean(dryRun), contractPreview: Boolean(contractPreview) };
   const incomingContext = getTraceContextFromEnv();
 
   return withSpan('cli.run-task', async (rootSpan) => {
     const traceContext = { traceId: rootSpan.traceId, source: 'cli' as const };
-
-    const llmConfig = await withSpan('cli.run-task.loadLlmConfig', async () => {
-      const config = createLLMConfig();
-      if (!config) {
-        throw new Error('LLM 未配置，请先运行 vectahub setup 配置 AI 提供商');
-      }
-      return config;
-    }, { context: traceContext, parentSpanId: rootSpan.spanId, source: 'cli', attributes: baseAttributes });
-
-    const cacheManager = getToolCacheManager();
-    const discoverSpan = startSpan('cli.run-task.discoverToolHelp', {
-      context: traceContext,
-      parentSpanId: rootSpan.spanId,
-      source: 'cli',
-      attributes: baseAttributes,
-    });
-    const cacheEntry = await cacheManager.discoverToolHelp(tool);
-    await discoverSpan.end({ helpLength: cacheEntry.helpOutput.length });
-
-    const client = new LLMClient(llmConfig);
     const docPath = doc ? resolve(doc) : '(未指定文档)';
     const label = taskLabel || `任务 ${taskId}`;
     const contractSpan = startSpan('cli.run-task.buildAgentTaskContract', {
@@ -370,6 +352,39 @@ export async function runTask(options: {
       contractExcerptStrategy: agentTaskContractSummary.excerptStrategy,
       contractExcerptTruncated: agentTaskContractSummary.docExcerptTruncated,
     });
+
+    if (contractPreview) {
+      return {
+        success: true,
+        output: '',
+        command: '',
+        agentTaskContract: agentTaskContractSummary,
+      };
+    }
+
+    if (!tool) {
+      throw new Error('缺少 Agent CLI 工具名称，请传入 --tool <name>');
+    }
+
+    const llmConfig = await withSpan('cli.run-task.loadLlmConfig', async () => {
+      const config = createLLMConfig();
+      if (!config) {
+        throw new Error('LLM 未配置，请先运行 vectahub setup 配置 AI 提供商');
+      }
+      return config;
+    }, { context: traceContext, parentSpanId: rootSpan.spanId, source: 'cli', attributes: baseAttributes });
+
+    const cacheManager = getToolCacheManager();
+    const discoverSpan = startSpan('cli.run-task.discoverToolHelp', {
+      context: traceContext,
+      parentSpanId: rootSpan.spanId,
+      source: 'cli',
+      attributes: baseAttributes,
+    });
+    const cacheEntry = await cacheManager.discoverToolHelp(tool);
+    await discoverSpan.end({ helpLength: cacheEntry.helpOutput.length });
+
+    const client = new LLMClient(llmConfig);
 
     let fallbackUsed = false;
     const generateSpan = startSpan('cli.run-task.generateCommand', {
@@ -546,18 +561,20 @@ export async function runTask(options: {
 
 export const runTaskCmd = new Command('run-task')
   .description('执行文档任务：根据任务描述和 Agent CLI 工具生成并执行命令')
-  .requiredOption('--tool <name>', 'Agent CLI 工具名称（如 aider、claude）')
+  .option('--tool <name>', 'Agent CLI 工具名称（如 aider、claude）')
   .requiredOption('--task-id <id>', '任务编号')
   .option('--task-label <label>', '任务描述')
   .option('--doc <path>', '参考文档路径')
   .option('--dry-run', '仅生成命令，不实际执行')
+  .option('--contract-preview', '只生成任务边界合同摘要，不加载 LLM、不执行 Agent')
   .option('--json', '以 JSON 格式输出')
   .action(async (options: {
-    tool: string;
+    tool?: string;
     taskId: string;
     taskLabel?: string;
     doc?: string;
     dryRun?: boolean;
+    contractPreview?: boolean;
     json?: boolean;
   }) => {
     try {

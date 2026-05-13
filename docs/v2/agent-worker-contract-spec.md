@@ -33,12 +33,13 @@ P2 不重写 LLM 解析器，不引入数据库，不引入 worktree 隔离。
 - 阶段 1：合同类型和纯函数。
 - 阶段 2：CLI `run-task` 接入。
 - 阶段 3：插件批量边界检查。
+- 阶段 4：合同预览和 lint hardening。
 
 仍需后续 hardening：
 
 - 合并 CLI 与插件端的合同推导实现，减少规则重复。
 - 增加真实批量执行的端到端测试。
-- 增加合同预览命令，避免插件端长期复制 CLI 规则。
+- 插件端后续可改为调用合同预览命令，避免长期复制 CLI 规则。
 
 ## 3. In Scope
 
@@ -563,7 +564,21 @@ P2 完成必须满足：
 P2 后续可做：
 
 - 让 `parse-doc` 提取任务时同步输出建议文件范围。
-- 增加 `vectahub run-task --contract-preview --json`。
+- 已增加 `vectahub run-task --contract-preview --json`。
 - 接入 worktree 隔离并发。
 - 用真实 git diff 校验 Agent 是否越界修改。
 - 越界修改自动进入 `needs_confirmation`。
+
+## 20. Lint Warning 分析
+
+已处理的插件 warning：
+
+- `src/cli/adapter.ts` 中未使用的 `globalContext`：会让 `ExtensionContext` 被模块级变量长期引用。它不在热路径上，几乎不影响速度，但属于不必要的常驻引用，清理后更利于内存边界。
+- `src/project/diagnostic-bridge.ts` 中未使用的 `mkdir` import：运行影响可以忽略，只是无意义模块绑定。清理后 lint 保持干净，减少后续 CI 噪音。
+
+处理后：
+
+```text
+npm run lint -w packages/vectahub-vscode-extension
+0 warning / 0 error
+```
