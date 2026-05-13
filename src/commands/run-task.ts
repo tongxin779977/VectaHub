@@ -32,7 +32,9 @@ function stripIDEEnv(): NodeJS.ProcessEnv {
 
 const DEFAULT_AGENT_CLI_TIMEOUT = 600000;
 const agentCliTimeout = parseInt(process.env.AGENT_CLI_TIMEOUT || '', 10) || DEFAULT_AGENT_CLI_TIMEOUT;
-const MAX_JSON_OUTPUT_LENGTH = 1200;
+const DEFAULT_MAX_JSON_OUTPUT_LENGTH = 50000;
+const MAX_JSON_OUTPUT_LENGTH = parseInt(process.env.RUN_TASK_MAX_JSON_OUTPUT_LENGTH || '', 10) || DEFAULT_MAX_JSON_OUTPUT_LENGTH;
+const TRUNCATED_OUTPUT_MARKER = '\n... (output truncated)';
 const NOISY_OUTPUT_PATTERNS = [
   /YOLO mode is enabled\..*/i,
   /Warning: 256-color support not detected\..*/i,
@@ -153,9 +155,24 @@ function compactAgentOutput(output: string): { output: string; truncated: boolea
   }
 
   return {
-    output: `${compacted.substring(0, MAX_JSON_OUTPUT_LENGTH - 3).trimEnd()}...`,
+    output: truncateAtLineBoundary(compacted, MAX_JSON_OUTPUT_LENGTH),
     truncated: true,
   };
+}
+
+function truncateAtLineBoundary(output: string, maxLength: number): string {
+  if (output.length <= maxLength) return output;
+
+  const targetLength = maxLength - TRUNCATED_OUTPUT_MARKER.length;
+  if (targetLength <= 0) {
+    return TRUNCATED_OUTPUT_MARKER.trim().slice(0, maxLength);
+  }
+
+  const minBoundary = Math.floor(targetLength * 0.8);
+  const newlineIndex = output.lastIndexOf('\n', targetLength);
+  const cutIndex = newlineIndex >= minBoundary ? newlineIndex : targetLength;
+
+  return `${output.slice(0, cutIndex).trimEnd()}${TRUNCATED_OUTPUT_MARKER}`;
 }
 
 export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {

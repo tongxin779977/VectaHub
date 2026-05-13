@@ -117,10 +117,10 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
       const items: vscode.QuickPickItem[] = [];
 
       if (result.ok && result.data?.agents) {
-        const installedAgents = result.data.agents.filter(a => a.installed);
+        const installedAgents = result.data.agents.filter(a => a.installed && a.enabled && a.has_permission);
 
         if (installedAgents.length === 0) {
-          vscode.window.showWarningMessage('未检测到已安装的 AI Agent CLI，请先安装 gemini/claude/codex/aider 等工具');
+          vscode.window.showWarningMessage('未检测到已安装且已启用的 AI Agent CLI，请先安装并授权 gemini/claude/codex/aider 等工具');
         }
 
         for (const agent of installedAgents) {
@@ -346,7 +346,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
           while (queue.length > 0 && !cancelled) {
             while (active.length < maxConcurrent && queue.length > 0 && !cancelled) {
               const task = queue.shift()!;
-              const p = runSingleTask(task).then(() => {
+              const p = runSingleTask(task).finally(() => {
                 const idx = active.indexOf(p);
                 if (idx >= 0) active.splice(idx, 1);
               });

@@ -121,32 +121,26 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
       let error: CliResult['error'];
 
       if (isJson && stdout.trim()) {
-        try {
-          data = JSON.parse(stdout.trim());
+        const parsed = parseCliJsonOutput<T>(stdout.trim());
+        if (parsed.ok) {
+          data = parsed.data;
           if (data && typeof data === 'object' && 'ok' in data) {
-            const jsonResult = data as { ok?: boolean; status?: string; error?: { code?: string; message?: string } };
+            const jsonResult = data as { ok?: boolean; status?: string; error?: string | { code?: string; message?: string } };
             if (jsonResult.ok === true || jsonResult.status === 'COMPLETED') {
               ok = true;
             } else if (jsonResult.ok === false) {
               ok = false;
-              if (jsonResult.error) {
+              if (typeof jsonResult.error === 'string') {
+                error = { code: 'CLI_ERROR', message: jsonResult.error };
+              } else if (jsonResult.error) {
                 error = { code: jsonResult.error.code || 'CLI_ERROR', message: jsonResult.error.message || 'Unknown error' };
               }
             }
           }
-        } catch (e: unknown) {
-          const parseError = e as Error;
+        } else {
+          const parseError = parsed.error;
           logToOutput(`Failed to parse JSON output: ${parseError.message}`, 'error');
           if (ok) {
-            const repaired = tryRepairTruncatedJson(stdout.trim());
-            if (repaired) {
-              try {
-                data = JSON.parse(repaired);
-                logToOutput('Successfully repaired truncated JSON');
-              } catch { /* repair failed too */ }
-            }
-          }
-          if (ok && !data) {
             ok = false;
             error = { code: 'INVALID_JSON', message: 'Failed to parse CLI JSON output', details: parseError.message };
           }
@@ -176,8 +170,75 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
   });
 }
 
-function tryRepairTruncatedJson(s: string): string | null {
-  const lastBrace = Math.max(s.lastIndexOf('}'), s.lastIndexOf(']'));
-  if (lastBrace < 0) return null;
-  return s.slice(0, lastBrace + 1);
+type JsonParseResult<T> = { ok: true; data: T } | { ok: false; error: Error };
+
+export function parseCliJsonOutput<T = unknown>(text: string): JsonParseResult<T> {
+  const direct = tryParseJson<T>(text);
+  if (direct.ok) return direct;
+
+  const codeBlock = text.match(/```json\s*([\s\S]*?)\s*```/i);
+  if (codeBlock?.[1]) {
+    const parsed = tryParseJson<T>(codeBlock[1].trim());
+    if (parsed.ok) return parsed;
+  }
+
+  for (const candidate of extractJsonValueCandidates(text)) {
+    if (candidate === text) continue;
+    const parsed = tryParseJson<T>(candidate);
+    if (parsed.ok) return parsed;
+  }
+
+  return direct;
+}
+
+function tryParseJson<T>(text: string): JsonParseResult<T> {
+  try {
+    return { ok: true, data: JSON.parse(text) as T };
+  } catch (error) {
+    return { ok: false, error: error as Error };
+  }
+}
+
+function extractJsonValueCandidates(text: string): string[] {
+  const candidates: string[] = [];
+
+  for (let start = 0; start < text.length; start++) {
+    const first = text[start];
+    if (first !== '{' && first !== '[') continue;
+
+    const expectedClosers: string[] = [];
+    let inString = false;
+    let escaped = false;
+
+    for (let i = start; i < text.length; i++) {
+      const char = text[i];
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (char === '\\') {
+          escaped = true;
+        } else if (char === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (char === '"') {
+        inString = true;
+      } else if (char === '{') {
+        expectedClosers.push('}');
+      } else if (char === '[') {
+        expectedClosers.push(']');
+      } else if (char === '}' || char === ']') {
+        if (expectedClosers.pop() !== char) break;
+        if (expectedClosers.length === 0) {
+          candidates.push(text.slice(start, i + 1));
+          break;
+        }
+      }
+    }
+  }
+
+  return candidates;
 }

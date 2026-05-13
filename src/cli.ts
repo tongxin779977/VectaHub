@@ -353,6 +353,10 @@ function getSecurityWarningTemplate(policy: string): string {
 }
 
 function displayPolicyWarning(): void {
+  if (process.argv.includes('--json')) {
+    return;
+  }
+
   try {
     const config = loadUtilsConfig();
     const policy = config.sandbox.defaultPolicy;

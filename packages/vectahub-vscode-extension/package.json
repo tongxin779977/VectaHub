@@ -185,10 +185,10 @@
         },
         "vectahubTasks.maxConcurrentTasks": {
           "type": "number",
-          "default": 3,
+          "default": 1,
           "minimum": 1,
           "maximum": 10,
-          "description": "批量执行文档任务时的最大并发数（1-10）"
+          "description": "批量执行文档任务时的最大并发数（1-10，默认串行以减少代码修改冲突）"
         }
       }
     }

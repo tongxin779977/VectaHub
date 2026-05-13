@@ -154,7 +154,22 @@ describe('formatRunTaskJson', () => {
     expect(result.ok).toBe(true);
     expect(result.output).not.toContain('YOLO mode is enabled');
     expect(result.output).not.toContain('_GaxiosError');
-    expect(String(result.output).length).toBeLessThanOrEqual(1200);
+    expect(String(result.output).length).toBeLessThanOrEqual(50000);
     expect(result.outputTruncated).toBe(true);
+  });
+
+  it('should truncate long JSON output on a line boundary when possible', () => {
+    const longOutput = Array.from({ length: 700 }, (_, i) => `line-${i} ${'x'.repeat(90)}`).join('\n');
+
+    const result = formatRunTaskJson({
+      success: true,
+      command: 'gemini -p "test"',
+      output: longOutput,
+    });
+
+    expect(result.outputTruncated).toBe(true);
+    expect(result.output.length).toBeLessThanOrEqual(50000);
+    expect(result.output).toContain('\n... (output truncated)');
+    expect(result.output).not.toMatch(/x+\.\.\. \(output truncated\)$/);
   });
 });
