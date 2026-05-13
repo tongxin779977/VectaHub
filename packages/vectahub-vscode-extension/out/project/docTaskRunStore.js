@@ -128,6 +128,7 @@ function createDocTaskRunStore(projectRoot) {
     const latestPath = path.join(dir, 'latest.json');
     const batchesPath = path.join(dir, 'batches.jsonl');
     let latestCache;
+    let writeQueue = Promise.resolve();
     async function ensureDir() {
         await fs_1.promises.mkdir(dir, { recursive: true });
     }
@@ -157,11 +158,16 @@ function createDocTaskRunStore(projectRoot) {
     async function saveLatestMap(map) {
         const sanitized = sanitizeLatestMap(map);
         await ensureDir();
-        const tmpPath = `${latestPath}.tmp`;
+        const tmpPath = `${latestPath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
         const asObject = Object.fromEntries(sanitized.entries());
         await fs_1.promises.writeFile(tmpPath, JSON.stringify(asObject, null, 2), 'utf8');
         await fs_1.promises.rename(tmpPath, latestPath);
         latestCache = new Map(sanitized);
+    }
+    async function enqueueWrite(operation) {
+        const run = writeQueue.then(operation, operation);
+        writeQueue = run.then(() => undefined, () => undefined);
+        return run;
     }
     function clampLimit(limit) {
         if (typeof limit !== 'number' || Number.isNaN(limit)) {
@@ -209,11 +215,11 @@ function createDocTaskRunStore(projectRoot) {
                 startedAt: now,
                 updatedAt: now
             };
-            await appendJsonl(batchesPath, record);
+            await enqueueWrite(() => appendJsonl(batchesPath, record));
             return record;
         },
         async updateBatch(record) {
-            await appendJsonl(batchesPath, { ...record, updatedAt: record.updatedAt || nowIso() });
+            await enqueueWrite(() => appendJsonl(batchesPath, { ...record, updatedAt: record.updatedAt || nowIso() }));
         },
         async startRun(input) {
             const now = nowIso();
@@ -237,10 +243,12 @@ function createDocTaskRunStore(projectRoot) {
         },
         async updateRun(record) {
             const sanitized = sanitizeRunRecord(record);
-            await appendJsonl(getRunFilePathByDate(new Date()), sanitized);
-            const latest = await loadLatestMap();
-            latest.set(sanitized.taskId, sanitized);
-            await saveLatestMap(latest);
+            await enqueueWrite(async () => {
+                await appendJsonl(getRunFilePathByDate(new Date()), sanitized);
+                const latest = await loadLatestMap();
+                latest.set(sanitized.taskId, sanitized);
+                await saveLatestMap(latest);
+            });
         },
         async getLatestByTaskId(taskId) {
             const latest = await loadLatestMap();

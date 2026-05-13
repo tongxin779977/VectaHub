@@ -37,6 +37,7 @@ exports.buildAgentTaskContractSummaries = buildAgentTaskContractSummaries;
 exports.decideDocTaskBatchConcurrency = decideDocTaskBatchConcurrency;
 exports.toRunContractSummary = toRunContractSummary;
 const path = __importStar(require("path"));
+const docTaskDocIndex_js_1 = require("./docTaskDocIndex.js");
 const MAX_EXCERPT_CHARS = 8000;
 const WINDOW_BEFORE = 2000;
 const WINDOW_AFTER = 6000;
@@ -45,9 +46,10 @@ const MAX_VALIDATION_COMMANDS = 10;
 const DEFAULT_FORBIDDEN_FILES = ['.env', '.env.*', '**/*.pem', '**/*.key', '**/node_modules/**', '**/.git/**'];
 function buildAgentTaskContractSummaries(input) {
     const result = new Map();
+    const docIndex = input.docContent ? (0, docTaskDocIndex_js_1.buildDocIndex)(input.docContent) : undefined;
     for (const task of input.tasks) {
-        const excerpt = input.docContent
-            ? deriveDocExcerpt(input.docContent, task.id, task.label)
+        const excerpt = docIndex
+            ? deriveDocExcerpt(docIndex, task.id, task.label)
             : { excerpt: '', truncated: false, strategy: 'none' };
         const allowedFiles = normalizeFiles(extractCandidateFiles(`${excerpt.excerpt}\n${task.label}`), input.projectRoot);
         const forbiddenFiles = normalizeFiles(DEFAULT_FORBIDDEN_FILES, input.projectRoot);
@@ -100,10 +102,11 @@ function toRunContractSummary(summary) {
         executionMode: summary.executionMode,
     };
 }
-function deriveDocExcerpt(docContent, taskId, label) {
-    const heading = findHeadingSection(docContent, taskId);
+function deriveDocExcerpt(docIndex, taskId, label) {
+    const heading = (0, docTaskDocIndex_js_1.findHeadingSection)(docIndex, taskId);
     if (heading)
         return toExcerptResult(heading, 'task-heading');
+    const docContent = docIndex.content;
     const taskIndex = docContent.indexOf(taskId);
     if (taskIndex >= 0)
         return toExcerptResult(sliceByWindow(docContent, taskIndex), 'task-id-window');
@@ -111,34 +114,6 @@ function deriveDocExcerpt(docContent, taskId, label) {
     if (labelIndex >= 0)
         return toExcerptResult(sliceByWindow(docContent, labelIndex), 'label-window');
     return toExcerptResult(docContent, 'head-fallback');
-}
-function findHeadingSection(content, taskId) {
-    const lines = content.split('\n');
-    let offset = 0;
-    let start = -1;
-    let level = 0;
-    for (const line of lines) {
-        const match = line.match(/^(#{1,6})\s+(.+)$/);
-        if (match && line.includes(taskId)) {
-            start = offset;
-            level = match[1].length;
-            break;
-        }
-        offset += line.length + 1;
-    }
-    if (start < 0)
-        return undefined;
-    let end = content.length;
-    offset = 0;
-    for (const line of lines) {
-        const match = line.match(/^(#{1,6})\s+(.+)$/);
-        if (offset > start && match && match[1].length <= level) {
-            end = offset;
-            break;
-        }
-        offset += line.length + 1;
-    }
-    return content.slice(start, end);
 }
 function sliceByWindow(content, index) {
     return content.slice(Math.max(0, index - WINDOW_BEFORE), Math.min(content.length, index + WINDOW_AFTER));

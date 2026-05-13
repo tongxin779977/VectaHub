@@ -145,6 +145,31 @@ describe('docTaskRunStore', () => {
     expect(content.includes('"status":"success"')).toBe(true);
   });
 
+  it('并发 updateRun 会串行写入 latest', async () => {
+    const store = createDocTaskRunStore('/repo/concurrent-latest');
+    const baseRuns = await Promise.all(
+      Array.from({ length: 20 }, (_, index) => store.startRun({
+        runId: `run-concurrent-${index}`,
+        taskId: `task-${index}`,
+        taskLabel: `task ${index}`,
+        agentCli: 'codex'
+      }))
+    );
+
+    await Promise.all(baseRuns.map((run, index) => store.updateRun({
+      ...run,
+      status: 'success',
+      updatedAt: new Date().toISOString(),
+      outputSummary: `done-${index}`,
+    })));
+
+    const latest = await store.getLatestMap();
+    expect(latest.size).toBe(20);
+    for (let i = 0; i < 20; i += 1) {
+      expect(latest.get(`task-${i}`)?.outputSummary).toBe(`done-${i}`);
+    }
+  });
+
   it('projectRoot 隔离路径稳定', async () => {
     const a = createDocTaskRunStore('/repo/x');
     const b = createDocTaskRunStore('/repo/y');

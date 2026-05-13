@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { buildDocIndex, findHeadingSection, type DocIndex } from './docTaskDocIndex.js';
 import type { AgentTaskContractSummary, AgentTaskRunContractSummary, DocTaskConcurrencyDecision, DocTaskContractInput } from './docTaskContractTypes.js';
 export type { AgentTaskContractSummary, AgentTaskRunContractSummary, DocTaskConcurrencyDecision, DocTaskContractInput } from './docTaskContractTypes.js';
 
@@ -15,9 +16,10 @@ export function buildAgentTaskContractSummaries(input: {
   projectRoot: string;
 }): Map<string, AgentTaskContractSummary> {
   const result = new Map<string, AgentTaskContractSummary>();
+  const docIndex = input.docContent ? buildDocIndex(input.docContent) : undefined;
   for (const task of input.tasks) {
-    const excerpt = input.docContent
-      ? deriveDocExcerpt(input.docContent, task.id, task.label)
+    const excerpt = docIndex
+      ? deriveDocExcerpt(docIndex, task.id, task.label)
       : { excerpt: '', truncated: false, strategy: 'none' as const };
     const allowedFiles = normalizeFiles(extractCandidateFiles(`${excerpt.excerpt}\n${task.label}`), input.projectRoot);
     const forbiddenFiles = normalizeFiles(DEFAULT_FORBIDDEN_FILES, input.projectRoot);
@@ -77,46 +79,19 @@ export function toRunContractSummary(summary: AgentTaskContractSummary | undefin
   };
 }
 
-function deriveDocExcerpt(docContent: string, taskId: string, label: string): {
+function deriveDocExcerpt(docIndex: DocIndex, taskId: string, label: string): {
   excerpt: string;
   truncated: boolean;
   strategy: AgentTaskContractSummary['excerptStrategy'];
 } {
-  const heading = findHeadingSection(docContent, taskId);
+  const heading = findHeadingSection(docIndex, taskId);
   if (heading) return toExcerptResult(heading, 'task-heading');
+  const docContent = docIndex.content;
   const taskIndex = docContent.indexOf(taskId);
   if (taskIndex >= 0) return toExcerptResult(sliceByWindow(docContent, taskIndex), 'task-id-window');
   const labelIndex = findLabelIndex(docContent, label);
   if (labelIndex >= 0) return toExcerptResult(sliceByWindow(docContent, labelIndex), 'label-window');
   return toExcerptResult(docContent, 'head-fallback');
-}
-
-function findHeadingSection(content: string, taskId: string): string | undefined {
-  const lines = content.split('\n');
-  let offset = 0;
-  let start = -1;
-  let level = 0;
-  for (const line of lines) {
-    const match = line.match(/^(#{1,6})\s+(.+)$/);
-    if (match && line.includes(taskId)) {
-      start = offset;
-      level = match[1].length;
-      break;
-    }
-    offset += line.length + 1;
-  }
-  if (start < 0) return undefined;
-  let end = content.length;
-  offset = 0;
-  for (const line of lines) {
-    const match = line.match(/^(#{1,6})\s+(.+)$/);
-    if (offset > start && match && match[1].length <= level) {
-      end = offset;
-      break;
-    }
-    offset += line.length + 1;
-  }
-  return content.slice(start, end);
 }
 
 function sliceByWindow(content: string, index: number): string {
