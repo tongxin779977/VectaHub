@@ -35,20 +35,30 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerDocTaskCommands = registerDocTaskCommands;
 const vscode = __importStar(require("vscode"));
+const fs_1 = require("fs");
 const adapter_js_1 = require("../cli/adapter.js");
 const output_js_1 = require("../ui/output.js");
 const index_js_1 = require("../trace/index.js");
 const docTaskState_js_1 = require("../project/docTaskState.js");
 const docTaskRunStore_js_1 = require("../project/docTaskRunStore.js");
+const docTaskContract_js_1 = require("../project/docTaskContract.js");
 const docTaskRunHelpers_js_1 = require("./docTaskRunHelpers.js");
-function formatCliError(raw, taskLabel) {
+async function readDocContentOnce(docPath) {
+    if (!docPath)
+        return undefined;
     try {
-        const parsed = JSON.parse(raw);
-        if (parsed.message)
-            return `${taskLabel}: ${parsed.message}`;
+        return await fs_1.promises.readFile(docPath, 'utf8');
     }
-    catch { /* not JSON */ }
-    return `${taskLabel}: ${raw}`;
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        (0, output_js_1.logToOutput)(`[batch] 合同预检读取文档失败，降级串行: ${msg}`, 'warn');
+        return undefined;
+    }
+}
+function applyContractSummary(runRecord, resultSummary, fallbackSummary) {
+    if (!runRecord)
+        return;
+    runRecord.agentTaskContract = (0, docTaskContract_js_1.toRunContractSummary)(resultSummary ?? fallbackSummary);
 }
 function registerDocTaskCommands(context, tasksProvider) {
     const workspaceRoot = (0, adapter_js_1.getActiveWorkspaceFolder)();
@@ -264,6 +274,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                         };
                         runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(output);
                         runRecord.outputTruncated = result.data?.outputTruncated === true;
+                        applyContractSummary(runRecord, result.data?.agentTaskContract);
                         await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'success update', warnRunStore);
                     }
                     (0, output_js_1.logToOutput)(`任务 ${task.id} 执行成功`);
@@ -307,6 +318,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                             changedFiles,
                             shortStat: result.data?.gitChanges?.shortStat
                         };
+                        applyContractSummary(runRecord, result.data?.agentTaskContract);
                         await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'failed update', warnRunStore);
                     }
                     (0, output_js_1.logToOutput)(`任务 ${task.id} 执行失败: ${errMsg}`, 'error');
@@ -360,8 +372,23 @@ function registerDocTaskCommands(context, tasksProvider) {
             }
         }
         const config = vscode.workspace.getConfiguration('vectahubTasks');
-        const maxConcurrent = config.get('maxConcurrentTasks', 3);
-        const confirm = await vscode.window.showInformationMessage(`即将并行执行 ${tasks.length} 个任务（最大并发: ${maxConcurrent}）`, { modal: true }, '确认启动', '取消');
+        const requestedMaxConcurrent = config.get('maxConcurrentTasks', 3);
+        const docContent = await readDocContentOnce(docPath);
+        const contractSummaries = (0, docTaskContract_js_1.buildAgentTaskContractSummaries)({
+            tasks,
+            docContent,
+            projectRoot: workspaceRoot || '',
+        });
+        const concurrencyDecision = (0, docTaskContract_js_1.decideDocTaskBatchConcurrency)({
+            contracts: contractSummaries,
+            requestedMaxConcurrent,
+        });
+        const maxConcurrent = concurrencyDecision.effectiveMaxConcurrent;
+        const concurrencyLabel = concurrencyDecision.mode === 'parallel'
+            ? `并行执行（最大并发: ${maxConcurrent}）`
+            : `串行执行（原因: ${concurrencyDecision.reason}）`;
+        (0, output_js_1.logToOutput)(`[batch] 边界预检完成: ${concurrencyDecision.mode}, ${concurrencyDecision.reason}, effectiveMaxConcurrent=${maxConcurrent}`);
+        const confirm = await vscode.window.showInformationMessage(`即将${concurrencyLabel} ${tasks.length} 个任务`, { modal: true }, '确认启动', '取消');
         if (confirm !== '确认启动')
             return;
         const batchTraceContext = (0, index_js_1.createRootTraceContext)();
@@ -374,6 +401,9 @@ function registerDocTaskCommands(context, tasksProvider) {
                 taskLabel: `count:${tasks.length}`,
                 status: 'started',
                 agentCli: agentCli || '',
+                concurrencyMode: concurrencyDecision.mode,
+                concurrencyReason: concurrencyDecision.reason,
+                maxConcurrent,
             },
         });
         tasksProvider.setIsBatchRunning(true);
@@ -437,6 +467,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                 async function runSingleTask(task) {
                     if (cancelled)
                         return;
+                    const taskContractSummary = contractSummaries.get(task.id);
                     const runId = (0, docTaskRunHelpers_js_1.createRunId)(task.id);
                     const startedAtMs = Date.now();
                     task.lastRunId = runId;
@@ -464,7 +495,8 @@ function registerDocTaskCommands(context, tasksProvider) {
                                 agentCli: agentCli,
                                 status: 'ready',
                                 command: args.join(' '),
-                                traceId: batchTraceContext.traceId
+                                traceId: batchTraceContext.traceId,
+                                agentTaskContract: (0, docTaskContract_js_1.toRunContractSummary)(taskContractSummary)
                             })
                             : undefined;
                     }
@@ -487,6 +519,8 @@ function registerDocTaskCommands(context, tasksProvider) {
                             taskLabel: task.label,
                             status: 'running',
                             agentCli: agentCli || '',
+                            boundaryConfidence: taskContractSummary?.boundaryConfidence || 'none',
+                            allowedFileCount: taskContractSummary?.allowedFiles.length || 0,
                         },
                     });
                     (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, 'running');
@@ -521,6 +555,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                                 };
                                 runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
                                 runRecord.outputTruncated = result.data?.outputTruncated === true;
+                                applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
                                 await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch success update', warnRunStore);
                             }
                             await taskSpan.end({
@@ -558,6 +593,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                                 };
                                 runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
                                 runRecord.outputTruncated = result.data?.outputTruncated === true;
+                                applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
                                 await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch failed update', warnRunStore);
                             }
                             (0, output_js_1.logToOutput)(`[batch] 任务 ${task.id} 失败: ${errMsg}`, 'error');
@@ -587,6 +623,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                             runRecord.updatedAt = new Date().toISOString();
                             runRecord.endedAt = runRecord.updatedAt;
                             runRecord.durationMs = Date.now() - startedAtMs;
+                            applyContractSummary(runRecord, undefined, taskContractSummary);
                             await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch exception update', warnRunStore);
                         }
                         (0, output_js_1.logToOutput)(`[batch] 任务 ${task.id} 异常: ${errMsg}`, 'error');
@@ -639,6 +676,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                     for (const task of tasks) {
                         if (!notStartedTaskIds.has(task.id))
                             continue;
+                        const taskContractSummary = contractSummaries.get(task.id);
                         task.lastFailureKind = finalStatus === 'cancelled'
                             ? 'cancelled'
                             : (globalFailureAfterBatch?.kind === 'config' ? 'config' : 'unknown');
@@ -660,7 +698,8 @@ function registerDocTaskCommands(context, tasksProvider) {
                                         docPath,
                                         agentCli: agentCli || '',
                                         status: 'ready',
-                                        traceId: batchTraceContext.traceId
+                                        traceId: batchTraceContext.traceId,
+                                        agentTaskContract: (0, docTaskContract_js_1.toRunContractSummary)(taskContractSummary)
                                     })
                                     : undefined;
                             }
@@ -676,6 +715,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                             runRecord.updatedAt = now;
                             runRecord.endedAt = now;
                             runRecord.durationMs = 0;
+                            applyContractSummary(runRecord, undefined, taskContractSummary);
                             await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch finalize pending update', warnRunStore);
                         }
                     }

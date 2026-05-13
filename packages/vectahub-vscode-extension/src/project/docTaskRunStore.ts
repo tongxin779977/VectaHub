@@ -3,6 +3,7 @@ import { promises as fsp } from 'fs';
 import * as path from 'path';
 import { getVectaHubHome } from '../cli/adapter.js';
 import type { DocTaskFailureKind, DocTaskRunStatus } from './docTaskState.js';
+import type { AgentTaskRunContractSummary } from './docTaskContract.js';
 
 export interface DocTaskRunRecord {
   runId: string;
@@ -27,6 +28,7 @@ export interface DocTaskRunRecord {
   };
   outputSummary?: string;
   outputTruncated?: boolean;
+  agentTaskContract?: AgentTaskRunContractSummary;
   retryOfRunId?: string;
 }
 
@@ -55,6 +57,7 @@ export interface StartRunInput {
   status?: DocTaskRunStatus;
   command?: string;
   traceId?: string;
+  agentTaskContract?: AgentTaskRunContractSummary;
   retryOfRunId?: string;
 }
 
@@ -291,6 +294,7 @@ export function createDocTaskRunStore(projectRoot: string): DocTaskRunStore {
         status: input.status ?? 'ready',
         command: input.command,
         traceId: input.traceId,
+        agentTaskContract: input.agentTaskContract,
         retryOfRunId: input.retryOfRunId,
         startedAt: now,
         updatedAt: now

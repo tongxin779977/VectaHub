@@ -5,7 +5,7 @@ import { CategoryTreeItem, TaskTreeItem, VectaHubTreeItem, EmptyStateTreeItem } 
 import { detectProjectTasks } from '../project/detector.js';
 import { ProjectTask, isLongRunning } from '../project/taskModel.js';
 import { getVectaHubHome } from '../cli/adapter.js';
-import { DiagnosticTask, DiagnosticTaskStatus, VALID_DIAGNOSTIC_STATUSES, normalizeDiagnosticQueue, getExecutableAction } from '../project/diagnosticModel.js';
+import { DiagnosticTask, DiagnosticTaskStatus, VALID_DIAGNOSTIC_STATUSES, normalizeDiagnosticQueue } from '../project/diagnosticModel.js';
 import { LongRunningTaskManager } from '../cli/longRunningTaskManager.js';
 import { getFailedTasks } from '../project/taskHistory.js';
 import { isProjectTaskRunning } from '../commands/runProjectTask.js';
@@ -298,8 +298,7 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
     const queueChildren: VectaHubTreeItem[] = [];
     if (this.queueError) {
       queueChildren.push(new EmptyStateTreeItem(this.queueError, 'warning'));
-    } else if (this.diagnosticTasks.length === 0) {
-    } else {
+    } else if (this.diagnosticTasks.length > 0) {
       const statusGroups = this.groupDiagnosticsByStatus();
       const statusOrder: DiagnosticTaskStatus[] = ['pending', 'processing', 'failed', 'needs-confirmation', 'completed', 'cancelled'];
       const statusLabels: Record<string, string> = {
@@ -317,7 +316,6 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
 
         const statusItems = tasks.map(t => {
           const icon = this.getIconForStatus(t.status);
-          const action = getExecutableAction(t);
           return new TaskTreeItem(t.title, {
             command: 'vectahubTasks.removeQueueTask',
             title: t.title,

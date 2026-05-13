@@ -274,9 +274,7 @@ class TasksViewProvider {
         if (this.queueError) {
             queueChildren.push(new treeItems_js_1.EmptyStateTreeItem(this.queueError, 'warning'));
         }
-        else if (this.diagnosticTasks.length === 0) {
-        }
-        else {
+        else if (this.diagnosticTasks.length > 0) {
             const statusGroups = this.groupDiagnosticsByStatus();
             const statusOrder = ['pending', 'processing', 'failed', 'needs-confirmation', 'completed', 'cancelled'];
             const statusLabels = {
@@ -293,7 +291,6 @@ class TasksViewProvider {
                     continue;
                 const statusItems = tasks.map(t => {
                     const icon = this.getIconForStatus(t.status);
-                    const action = (0, diagnosticModel_js_1.getExecutableAction)(t);
                     return new treeItems_js_1.TaskTreeItem(t.title, {
                         command: 'vectahubTasks.removeQueueTask',
                         title: t.title,

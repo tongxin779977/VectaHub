@@ -227,6 +227,7 @@ function createDocTaskRunStore(projectRoot) {
                 status: input.status ?? 'ready',
                 command: input.command,
                 traceId: input.traceId,
+                agentTaskContract: input.agentTaskContract,
                 retryOfRunId: input.retryOfRunId,
                 startedAt: now,
                 updatedAt: now

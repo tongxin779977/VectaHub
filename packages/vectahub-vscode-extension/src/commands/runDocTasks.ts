@@ -1,10 +1,17 @@
 import * as vscode from 'vscode';
+import { promises as fsp } from 'fs';
 import { getActiveWorkspaceFolder, runCli } from '../cli/adapter.js';
 import { logToOutput } from '../ui/output.js';
 import { DocTask, TasksViewProvider } from '../views/tasksView.js';
 import { createRootTraceContext, startSpan } from '../trace/index.js';
 import { classifyDocTaskFailure, type DocTaskRunStatus } from '../project/docTaskState.js';
-import { createDocTaskRunStore, type DocTaskBatchRunRecord, type DocTaskRunRecord, type DocTaskRunStore } from '../project/docTaskRunStore.js';
+import { createDocTaskRunStore, type DocTaskBatchRunRecord, type DocTaskRunRecord } from '../project/docTaskRunStore.js';
+import {
+  buildAgentTaskContractSummaries,
+  decideDocTaskBatchConcurrency,
+  toRunContractSummary,
+  type AgentTaskContractSummary,
+} from '../project/docTaskContract.js';
 import {
   applyLatestRunState,
   createBatchRunId,
@@ -26,6 +33,7 @@ interface RunTaskResult {
   command?: string;
   output?: string;
   outputTruncated?: boolean;
+  agentTaskContract?: AgentTaskContractSummary;
   gitChanges?: {
     shortStat?: string;
     changedFiles?: string[];
@@ -46,12 +54,24 @@ interface AgentsListResult {
   agents: AgentCliInfo[];
 }
 
-function formatCliError(raw: string, taskLabel: string): string {
+async function readDocContentOnce(docPath: string | undefined): Promise<string | undefined> {
+  if (!docPath) return undefined;
   try {
-    const parsed = JSON.parse(raw);
-    if (parsed.message) return `${taskLabel}: ${parsed.message}`;
-  } catch { /* not JSON */ }
-  return `${taskLabel}: ${raw}`;
+    return await fsp.readFile(docPath, 'utf8');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logToOutput(`[batch] 合同预检读取文档失败，降级串行: ${msg}`, 'warn');
+    return undefined;
+  }
+}
+
+function applyContractSummary(
+  runRecord: DocTaskRunRecord | undefined,
+  resultSummary?: AgentTaskContractSummary,
+  fallbackSummary?: AgentTaskContractSummary,
+): void {
+  if (!runRecord) return;
+  runRecord.agentTaskContract = toRunContractSummary(resultSummary ?? fallbackSummary);
 }
 
 export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksProvider: TasksViewProvider) {
@@ -299,6 +319,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
               };
               runRecord.outputSummary = summarizeOutput(output);
               runRecord.outputTruncated = result.data?.outputTruncated === true;
+              applyContractSummary(runRecord, result.data?.agentTaskContract);
               await safeUpdateRun(runStore, runRecord, 'success update', warnRunStore);
             }
 
@@ -344,6 +365,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
                 changedFiles,
                 shortStat: result.data?.gitChanges?.shortStat
               };
+              applyContractSummary(runRecord, result.data?.agentTaskContract);
               await safeUpdateRun(runStore, runRecord, 'failed update', warnRunStore);
             }
 
@@ -405,10 +427,25 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
       }
 
       const config = vscode.workspace.getConfiguration('vectahubTasks');
-      const maxConcurrent = config.get<number>('maxConcurrentTasks', 3);
+      const requestedMaxConcurrent = config.get<number>('maxConcurrentTasks', 3);
+      const docContent = await readDocContentOnce(docPath);
+      const contractSummaries = buildAgentTaskContractSummaries({
+        tasks,
+        docContent,
+        projectRoot: workspaceRoot || '',
+      });
+      const concurrencyDecision = decideDocTaskBatchConcurrency({
+        contracts: contractSummaries,
+        requestedMaxConcurrent,
+      });
+      const maxConcurrent = concurrencyDecision.effectiveMaxConcurrent;
+      const concurrencyLabel = concurrencyDecision.mode === 'parallel'
+        ? `并行执行（最大并发: ${maxConcurrent}）`
+        : `串行执行（原因: ${concurrencyDecision.reason}）`;
+      logToOutput(`[batch] 边界预检完成: ${concurrencyDecision.mode}, ${concurrencyDecision.reason}, effectiveMaxConcurrent=${maxConcurrent}`);
 
       const confirm = await vscode.window.showInformationMessage(
-        `即将并行执行 ${tasks.length} 个任务（最大并发: ${maxConcurrent}）`,
+        `即将${concurrencyLabel} ${tasks.length} 个任务`,
         { modal: true },
         '确认启动',
         '取消'
@@ -426,6 +463,9 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
           taskLabel: `count:${tasks.length}`,
           status: 'started',
           agentCli: agentCli || '',
+          concurrencyMode: concurrencyDecision.mode,
+          concurrencyReason: concurrencyDecision.reason,
+          maxConcurrent,
         },
       });
 
@@ -494,6 +534,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
 
         async function runSingleTask(task: DocTask): Promise<void> {
           if (cancelled) return;
+          const taskContractSummary = contractSummaries.get(task.id);
           const runId = createRunId(task.id);
           const startedAtMs = Date.now();
           task.lastRunId = runId;
@@ -522,7 +563,8 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
                   agentCli: agentCli!,
                   status: 'ready',
                   command: args.join(' '),
-                  traceId: batchTraceContext.traceId
+                  traceId: batchTraceContext.traceId,
+                  agentTaskContract: toRunContractSummary(taskContractSummary)
                 })
               : undefined;
           } catch (err) {
@@ -545,6 +587,8 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
               taskLabel: task.label,
               status: 'running',
               agentCli: agentCli || '',
+              boundaryConfidence: taskContractSummary?.boundaryConfidence || 'none',
+              allowedFileCount: taskContractSummary?.allowedFiles.length || 0,
             },
           });
 
@@ -582,6 +626,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
                 };
                 runRecord.outputSummary = summarizeOutput(result.data?.output);
                 runRecord.outputTruncated = result.data?.outputTruncated === true;
+                applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
                 await safeUpdateRun(runStore, runRecord, 'batch success update', warnRunStore);
               }
               await taskSpan.end({
@@ -618,6 +663,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
                 };
                 runRecord.outputSummary = summarizeOutput(result.data?.output);
                 runRecord.outputTruncated = result.data?.outputTruncated === true;
+                applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
                 await safeUpdateRun(runStore, runRecord, 'batch failed update', warnRunStore);
               }
               logToOutput(`[batch] 任务 ${task.id} 失败: ${errMsg}`, 'error');
@@ -646,6 +692,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
               runRecord.updatedAt = new Date().toISOString();
               runRecord.endedAt = runRecord.updatedAt;
               runRecord.durationMs = Date.now() - startedAtMs;
+              applyContractSummary(runRecord, undefined, taskContractSummary);
               await safeUpdateRun(runStore, runRecord, 'batch exception update', warnRunStore);
             }
             logToOutput(`[batch] 任务 ${task.id} 异常: ${errMsg}`, 'error');
@@ -699,6 +746,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
           const now = new Date().toISOString();
           for (const task of tasks) {
             if (!notStartedTaskIds.has(task.id)) continue;
+            const taskContractSummary = contractSummaries.get(task.id);
             task.lastFailureKind = finalStatus === 'cancelled'
               ? 'cancelled'
               : (globalFailureAfterBatch?.kind === 'config' ? 'config' : 'unknown');
@@ -720,7 +768,8 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
                       docPath,
                       agentCli: agentCli || '',
                       status: 'ready',
-                      traceId: batchTraceContext.traceId
+                      traceId: batchTraceContext.traceId,
+                      agentTaskContract: toRunContractSummary(taskContractSummary)
                     })
                   : undefined;
               } catch (err) {
@@ -735,6 +784,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
               runRecord.updatedAt = now;
               runRecord.endedAt = now;
               runRecord.durationMs = 0;
+              applyContractSummary(runRecord, undefined, taskContractSummary);
               await safeUpdateRun(runStore, runRecord, 'batch finalize pending update', warnRunStore);
             }
           }

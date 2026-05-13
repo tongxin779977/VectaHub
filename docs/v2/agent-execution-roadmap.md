@@ -57,7 +57,7 @@ e7c4e51 [doc-tasks] add task run state machine
 
 ### 进行中：P2 Agent Worker 化
 
-状态：Stage 1/2 已完成，Stage 3 插件批量边界检查待执行。
+状态：Stage 1/2/3 已完成，Stage 4 文档和 hardening 进行中。
 
 已具备能力：
 
@@ -66,6 +66,9 @@ e7c4e51 [doc-tasks] add task run state machine
 - 能确定性提取允许修改文件、默认禁止修改范围和建议验证命令。
 - `run-task` 能构造 Agent 任务合同，并在 JSON 中只输出合同摘要。
 - trace 只记录合同摘要计数和提取策略，不记录完整文档片段。
+- 插件批量执行前会读取文档一次，生成任务边界摘要。
+- 边界未知或文件范围重叠时，插件会把批量执行降级为串行。
+- 任务运行记录只保存合同计数摘要，不保存完整 `docExcerpt`。
 
 ## 3. 总体阶段
 
