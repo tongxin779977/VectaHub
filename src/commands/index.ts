@@ -21,3 +21,4 @@ export { chatCmd } from './chat.js';
 export { parseDocCmd } from './parse-doc.js';
 export { runTaskCmd } from './run-task.js';
 export { traceCmd } from './trace.js';
+export { docTaskRunsCmd } from './doc-task-runs.js';

@@ -38,6 +38,9 @@ const vscode = __importStar(require("vscode"));
 const adapter_js_1 = require("../cli/adapter.js");
 const output_js_1 = require("../ui/output.js");
 const index_js_1 = require("../trace/index.js");
+const docTaskState_js_1 = require("../project/docTaskState.js");
+const docTaskRunStore_js_1 = require("../project/docTaskRunStore.js");
+const docTaskRunHelpers_js_1 = require("./docTaskRunHelpers.js");
 function formatCliError(raw, taskLabel) {
     try {
         const parsed = JSON.parse(raw);
@@ -48,6 +51,9 @@ function formatCliError(raw, taskLabel) {
     return `${taskLabel}: ${raw}`;
 }
 function registerDocTaskCommands(context, tasksProvider) {
+    const workspaceRoot = (0, adapter_js_1.getActiveWorkspaceFolder)();
+    const runStore = workspaceRoot ? (0, docTaskRunStore_js_1.createDocTaskRunStore)(workspaceRoot) : undefined;
+    const warnRunStore = (message) => (0, output_js_1.logToOutput)(message, 'warn');
     context.subscriptions.push(vscode.commands.registerCommand('vectahubTasks.selectDocFile', async () => {
         const uris = await vscode.window.showOpenDialog({
             canSelectFiles: true,
@@ -89,9 +95,10 @@ function registerDocTaskCommands(context, tasksProvider) {
             }, async () => {
                 const result = await (0, adapter_js_1.runCli)(['parse-doc', docPath, '--json'], { timeout: 120000 });
                 if (result.ok && result.data?.tasks) {
-                    tasksProvider.setDocTasks(result.data.tasks);
-                    (0, output_js_1.logToOutput)(`解析完成，共 ${result.data.tasks.length} 个任务`);
-                    vscode.window.showInformationMessage(`解析完成，共 ${result.data.tasks.length} 个任务`);
+                    const tasksWithState = await (0, docTaskRunHelpers_js_1.applyLatestRunState)(runStore, result.data.tasks, warnRunStore);
+                    tasksProvider.setDocTasks(tasksWithState);
+                    (0, output_js_1.logToOutput)(`解析完成，共 ${tasksWithState.length} 个任务`);
+                    vscode.window.showInformationMessage(`解析完成，共 ${tasksWithState.length} 个任务`);
                 }
                 else {
                     const errMsg = result.data?.error || result.error?.message || '解析失败';
@@ -175,6 +182,37 @@ function registerDocTaskCommands(context, tasksProvider) {
         }
         try {
             const traceContext = (0, index_js_1.createRootTraceContext)();
+            let runRecord;
+            const runId = (0, docTaskRunHelpers_js_1.createRunId)(task.id);
+            const startedAtMs = Date.now();
+            try {
+                runRecord = runStore
+                    ? await runStore.startRun({
+                        runId,
+                        taskId: task.id,
+                        taskLabel: task.label,
+                        docPath,
+                        agentCli,
+                        status: 'ready',
+                        command: args.join(' '),
+                        traceId: traceContext.traceId
+                    })
+                    : undefined;
+            }
+            catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                (0, output_js_1.logToOutput)(`[doc-task-run-store] startRun 失败: ${msg}`, 'warn');
+            }
+            task.lastRunId = runId;
+            task.lastTraceId = traceContext.traceId;
+            task.lastFailureKind = undefined;
+            (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, 'preflight');
+            tasksProvider.refresh();
+            if (runRecord) {
+                runRecord.status = 'preflight';
+                runRecord.updatedAt = new Date().toISOString();
+                await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'preflight update', warnRunStore);
+            }
             const singleSpan = (0, index_js_1.startSpan)('vscode.docTask.runSingle', {
                 context: traceContext,
                 source: 'vscode',
@@ -190,6 +228,13 @@ function registerDocTaskCommands(context, tasksProvider) {
                 title: `正在执行任务 ${task.id}: ${task.label}`,
                 cancellable: true
             }, async (_progress, token) => {
+                (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, 'running');
+                tasksProvider.refresh();
+                if (runRecord) {
+                    runRecord.status = 'running';
+                    runRecord.updatedAt = new Date().toISOString();
+                    await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'running update', warnRunStore);
+                }
                 (0, output_js_1.logToOutput)(`开始执行任务: ${task.id} - ${task.label} (工具: ${agentCli})`);
                 const result = await (0, adapter_js_1.runCli)(args, {
                     timeout: 600000,
@@ -198,6 +243,29 @@ function registerDocTaskCommands(context, tasksProvider) {
                 });
                 if (result.ok) {
                     const output = result.data?.output || '';
+                    const gitChanges = result.data?.gitChanges;
+                    const changedFiles = gitChanges?.changedFiles ?? [];
+                    const finalStatus = changedFiles.length > 0 ? 'changed' : 'success';
+                    task.lastRunId = runId;
+                    task.lastTraceId = traceContext.traceId;
+                    task.lastFailureKind = undefined;
+                    (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, finalStatus);
+                    tasksProvider.refresh();
+                    if (runRecord) {
+                        runRecord.status = finalStatus;
+                        runRecord.updatedAt = new Date().toISOString();
+                        runRecord.endedAt = runRecord.updatedAt;
+                        runRecord.durationMs = Date.now() - startedAtMs;
+                        runRecord.command = result.data?.command || runRecord.command;
+                        runRecord.gitChanges = {
+                            changedFileCount: changedFiles.length,
+                            changedFiles,
+                            shortStat: gitChanges?.shortStat
+                        };
+                        runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(output);
+                        runRecord.outputTruncated = result.data?.outputTruncated === true;
+                        await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'success update', warnRunStore);
+                    }
                     (0, output_js_1.logToOutput)(`任务 ${task.id} 执行成功`);
                     if (output) {
                         (0, output_js_1.logToOutput)(output);
@@ -212,6 +280,35 @@ function registerDocTaskCommands(context, tasksProvider) {
                 }
                 else {
                     const errMsg = result.data?.error || result.data?.output || result.error?.message || '执行失败';
+                    const classified = (0, docTaskState_js_1.classifyDocTaskFailure)({
+                        ok: result.ok,
+                        errorCode: result.error?.code,
+                        errorMessage: result.error?.message || result.data?.error,
+                        output: result.data?.output
+                    });
+                    task.lastRunId = runId;
+                    task.lastTraceId = traceContext.traceId;
+                    task.lastFailureKind = classified.kind;
+                    (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, classified.status);
+                    tasksProvider.refresh();
+                    if (runRecord) {
+                        runRecord.status = classified.status;
+                        runRecord.failureKind = classified.kind;
+                        runRecord.errorMessage = errMsg;
+                        runRecord.updatedAt = new Date().toISOString();
+                        runRecord.endedAt = runRecord.updatedAt;
+                        runRecord.durationMs = Date.now() - startedAtMs;
+                        runRecord.command = result.data?.command || runRecord.command;
+                        runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
+                        runRecord.outputTruncated = result.data?.outputTruncated === true;
+                        const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
+                        runRecord.gitChanges = {
+                            changedFileCount: changedFiles.length,
+                            changedFiles,
+                            shortStat: result.data?.gitChanges?.shortStat
+                        };
+                        await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'failed update', warnRunStore);
+                    }
                     (0, output_js_1.logToOutput)(`任务 ${task.id} 执行失败: ${errMsg}`, 'error');
                     await singleSpan.fail(new Error(errMsg), {
                         taskId: task.id,
@@ -225,6 +322,14 @@ function registerDocTaskCommands(context, tasksProvider) {
         }
         catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
+            const classified = (0, docTaskState_js_1.classifyDocTaskFailure)({
+                ok: false,
+                cancelled: msg.includes('cancel'),
+                errorMessage: msg
+            });
+            task.lastFailureKind = classified.kind;
+            (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, classified.status);
+            tasksProvider.refresh();
             (0, output_js_1.logToOutput)(`任务 ${task.id} 执行异常: ${msg}`, 'error');
             vscode.window.showErrorMessage(`任务执行异常: ${msg}`);
         }
@@ -260,6 +365,7 @@ function registerDocTaskCommands(context, tasksProvider) {
         if (confirm !== '确认启动')
             return;
         const batchTraceContext = (0, index_js_1.createRootTraceContext)();
+        const batchRunId = (0, docTaskRunHelpers_js_1.createBatchRunId)();
         const batchSpan = (0, index_js_1.startSpan)('vscode.docTask.runBatch', {
             context: batchTraceContext,
             source: 'vscode',
@@ -274,14 +380,34 @@ function registerDocTaskCommands(context, tasksProvider) {
         const queue = [...tasks];
         let completedCount = 0;
         let failedCount = 0;
+        let skippedCount = 0;
         const totalTasks = tasks.length;
         let cancelled = false;
+        let globalFailureAfterBatch;
+        let batchRecord;
+        const runRecordMap = new Map();
+        const notStartedTaskIds = new Set(tasks.map(task => task.id));
         for (const task of tasks) {
             task.status = 'pending';
         }
         tasksProvider.setDocTasks(tasks);
         tasksProvider.refresh();
         try {
+            try {
+                batchRecord = runStore
+                    ? await runStore.startBatch({
+                        batchRunId,
+                        docPath,
+                        agentCli: agentCli,
+                        traceId: batchTraceContext.traceId,
+                        totalCount: totalTasks
+                    })
+                    : undefined;
+            }
+            catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                (0, output_js_1.logToOutput)(`[doc-task-run-store] startBatch 失败: ${msg}`, 'warn');
+            }
             await vscode.window.withProgress({
                 location: vscode.ProgressLocation.Notification,
                 title: `批量执行任务 (0/${totalTasks})`,
@@ -294,14 +420,64 @@ function registerDocTaskCommands(context, tasksProvider) {
                 function updateProgress(taskId, label) {
                     const activeCount = tasks.filter(t => t.status === 'running').length;
                     progress.report({
-                        message: `${completedCount}/${totalTasks} 完成, ${activeCount} 运行中, ${failedCount} 失败`,
+                        message: `${completedCount}/${totalTasks} 完成, ${activeCount} 运行中, ${failedCount} 失败, ${skippedCount} 跳过`,
                         increment: (1 / totalTasks) * 100
                     });
-                    (0, output_js_1.logToOutput)(`[batch] 任务 ${taskId} ${label} (${completedCount}/${totalTasks}, 失败: ${failedCount})`);
+                    (0, output_js_1.logToOutput)(`[batch] 任务 ${taskId} ${label} (${completedCount}/${totalTasks}, 失败: ${failedCount}, 跳过: ${skippedCount})`);
+                }
+                async function finalizeBatchSnapshot() {
+                    if (!batchRecord)
+                        return;
+                    batchRecord.completedCount = completedCount;
+                    batchRecord.failedCount = failedCount;
+                    batchRecord.skippedCount = skippedCount;
+                    batchRecord.updatedAt = new Date().toISOString();
+                    await (0, docTaskRunHelpers_js_1.safeUpdateBatch)(runStore, batchRecord, 'batch update', warnRunStore);
                 }
                 async function runSingleTask(task) {
                     if (cancelled)
                         return;
+                    const runId = (0, docTaskRunHelpers_js_1.createRunId)(task.id);
+                    const startedAtMs = Date.now();
+                    task.lastRunId = runId;
+                    task.lastTraceId = batchTraceContext.traceId;
+                    task.lastFailureKind = undefined;
+                    (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, 'preflight');
+                    tasksProvider.refresh();
+                    const args = [
+                        'run-task', '--tool', agentCli,
+                        '--task-id', task.id,
+                        '--task-label', task.label,
+                        '--json'
+                    ];
+                    if (docPath)
+                        args.push('--doc', docPath);
+                    let runRecord;
+                    try {
+                        runRecord = runStore
+                            ? await runStore.startRun({
+                                runId,
+                                batchRunId,
+                                taskId: task.id,
+                                taskLabel: task.label,
+                                docPath,
+                                agentCli: agentCli,
+                                status: 'ready',
+                                command: args.join(' '),
+                                traceId: batchTraceContext.traceId
+                            })
+                            : undefined;
+                    }
+                    catch (err) {
+                        const msg = err instanceof Error ? err.message : String(err);
+                        (0, output_js_1.logToOutput)(`[doc-task-run-store] batch startRun 失败: ${msg}`, 'warn');
+                    }
+                    if (runRecord) {
+                        runRecordMap.set(task.id, runRecord);
+                        runRecord.status = 'preflight';
+                        runRecord.updatedAt = new Date().toISOString();
+                        await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch preflight update', warnRunStore);
+                    }
                     const taskSpan = (0, index_js_1.startSpan)('vscode.docTask.runSingle', {
                         context: batchTraceContext,
                         parentSpanId: batchSpan.spanId,
@@ -313,16 +489,14 @@ function registerDocTaskCommands(context, tasksProvider) {
                             agentCli: agentCli || '',
                         },
                     });
-                    task.status = 'running';
+                    (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, 'running');
+                    notStartedTaskIds.delete(task.id);
                     tasksProvider.refresh();
-                    const args = [
-                        'run-task', '--tool', agentCli,
-                        '--task-id', task.id,
-                        '--task-label', task.label,
-                        '--json'
-                    ];
-                    if (docPath)
-                        args.push('--doc', docPath);
+                    if (runRecord) {
+                        runRecord.status = 'running';
+                        runRecord.updatedAt = new Date().toISOString();
+                        await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch running update', warnRunStore);
+                    }
                     try {
                         const result = await (0, adapter_js_1.runCli)(args, {
                             timeout: 600000,
@@ -330,38 +504,96 @@ function registerDocTaskCommands(context, tasksProvider) {
                             traceContext: { traceId: batchTraceContext.traceId, parentSpanId: taskSpan.spanId, source: 'vscode' },
                         });
                         if (result.ok) {
-                            task.status = 'success';
+                            const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
+                            const finalStatus = changedFiles.length > 0 ? 'changed' : 'success';
+                            task.lastFailureKind = undefined;
+                            (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, finalStatus);
+                            if (runRecord) {
+                                runRecord.status = finalStatus;
+                                runRecord.updatedAt = new Date().toISOString();
+                                runRecord.endedAt = runRecord.updatedAt;
+                                runRecord.durationMs = Date.now() - startedAtMs;
+                                runRecord.command = result.data?.command || runRecord.command;
+                                runRecord.gitChanges = {
+                                    changedFileCount: changedFiles.length,
+                                    changedFiles,
+                                    shortStat: result.data?.gitChanges?.shortStat
+                                };
+                                runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
+                                runRecord.outputTruncated = result.data?.outputTruncated === true;
+                                await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch success update', warnRunStore);
+                            }
                             await taskSpan.end({
                                 taskId: task.id,
                                 taskLabel: task.label,
-                                status: 'success',
+                                status: finalStatus,
                                 agentCli: agentCli || '',
                             });
                             updateProgress(task.id, '完成');
                         }
                         else {
-                            task.status = 'failed';
-                            failedCount++;
                             const errMsg = result.data?.error || result.data?.output || '执行失败';
+                            const classified = (0, docTaskState_js_1.classifyDocTaskFailure)({
+                                ok: result.ok,
+                                errorCode: result.error?.code,
+                                errorMessage: result.error?.message || result.data?.error,
+                                output: result.data?.output
+                            });
+                            task.lastFailureKind = classified.kind;
+                            (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, classified.status);
+                            failedCount++;
+                            if (runRecord) {
+                                runRecord.status = classified.status;
+                                runRecord.failureKind = classified.kind;
+                                runRecord.errorMessage = errMsg;
+                                runRecord.updatedAt = new Date().toISOString();
+                                runRecord.endedAt = runRecord.updatedAt;
+                                runRecord.durationMs = Date.now() - startedAtMs;
+                                runRecord.command = result.data?.command || runRecord.command;
+                                const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
+                                runRecord.gitChanges = {
+                                    changedFileCount: changedFiles.length,
+                                    changedFiles,
+                                    shortStat: result.data?.gitChanges?.shortStat
+                                };
+                                runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
+                                runRecord.outputTruncated = result.data?.outputTruncated === true;
+                                await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch failed update', warnRunStore);
+                            }
                             (0, output_js_1.logToOutput)(`[batch] 任务 ${task.id} 失败: ${errMsg}`, 'error');
                             await taskSpan.fail(new Error(errMsg), {
                                 taskId: task.id,
                                 taskLabel: task.label,
-                                status: 'failed',
+                                status: classified.status,
                                 agentCli: agentCli || '',
                             });
                             updateProgress(task.id, '失败');
                         }
                     }
                     catch (err) {
-                        task.status = 'failed';
-                        failedCount++;
                         const errMsg = err instanceof Error ? err.message : String(err);
+                        const classified = (0, docTaskState_js_1.classifyDocTaskFailure)({
+                            ok: false,
+                            cancelled: cancelled || errMsg.includes('cancel'),
+                            errorMessage: errMsg
+                        });
+                        task.lastFailureKind = classified.kind;
+                        (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, classified.status);
+                        failedCount++;
+                        if (runRecord) {
+                            runRecord.status = classified.status;
+                            runRecord.failureKind = classified.kind;
+                            runRecord.errorMessage = errMsg;
+                            runRecord.updatedAt = new Date().toISOString();
+                            runRecord.endedAt = runRecord.updatedAt;
+                            runRecord.durationMs = Date.now() - startedAtMs;
+                            await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch exception update', warnRunStore);
+                        }
                         (0, output_js_1.logToOutput)(`[batch] 任务 ${task.id} 异常: ${errMsg}`, 'error');
                         await taskSpan.fail(err, {
                             taskId: task.id,
                             taskLabel: task.label,
-                            status: 'failed',
+                            status: classified.status,
                             agentCli: agentCli || '',
                         });
                         updateProgress(task.id, '异常');
@@ -369,6 +601,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                     finally {
                         completedCount++;
                         tasksProvider.refresh();
+                        await finalizeBatchSnapshot();
                     }
                 }
                 async function runWithConcurrency() {
@@ -389,22 +622,96 @@ function registerDocTaskCommands(context, tasksProvider) {
                     }
                     await Promise.allSettled(active);
                 }
-                await runWithConcurrency();
-                const successCount = totalTasks - failedCount;
+                if (!agentCli) {
+                    globalFailureAfterBatch = {
+                        message: '未选择 Agent CLI 执行器',
+                        status: 'failed_config',
+                        kind: 'config'
+                    };
+                    cancelled = true;
+                }
+                else {
+                    await runWithConcurrency();
+                }
+                if (notStartedTaskIds.size > 0) {
+                    const finalStatus = cancelled && !globalFailureAfterBatch ? 'cancelled' : (globalFailureAfterBatch?.status ?? 'failed_config');
+                    const now = new Date().toISOString();
+                    for (const task of tasks) {
+                        if (!notStartedTaskIds.has(task.id))
+                            continue;
+                        task.lastFailureKind = finalStatus === 'cancelled'
+                            ? 'cancelled'
+                            : (globalFailureAfterBatch?.kind === 'config' ? 'config' : 'unknown');
+                        (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, finalStatus);
+                        skippedCount++;
+                        completedCount++;
+                        let runRecord = runRecordMap.get(task.id);
+                        if (!runRecord) {
+                            const runId = task.lastRunId || (0, docTaskRunHelpers_js_1.createRunId)(task.id);
+                            task.lastRunId = runId;
+                            task.lastTraceId = batchTraceContext.traceId;
+                            try {
+                                runRecord = runStore
+                                    ? await runStore.startRun({
+                                        runId,
+                                        batchRunId,
+                                        taskId: task.id,
+                                        taskLabel: task.label,
+                                        docPath,
+                                        agentCli: agentCli || '',
+                                        status: 'ready',
+                                        traceId: batchTraceContext.traceId
+                                    })
+                                    : undefined;
+                            }
+                            catch (err) {
+                                const msg = err instanceof Error ? err.message : String(err);
+                                (0, output_js_1.logToOutput)(`[doc-task-run-store] batch补录 startRun 失败: ${msg}`, 'warn');
+                            }
+                        }
+                        if (runRecord) {
+                            runRecord.status = finalStatus;
+                            runRecord.failureKind = task.lastFailureKind;
+                            runRecord.errorMessage = globalFailureAfterBatch?.message;
+                            runRecord.updatedAt = now;
+                            runRecord.endedAt = now;
+                            runRecord.durationMs = 0;
+                            await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch finalize pending update', warnRunStore);
+                        }
+                    }
+                    await finalizeBatchSnapshot();
+                    tasksProvider.refresh();
+                }
+                const successCount = tasks.filter(t => t.status === 'success' || t.status === 'changed').length;
                 const msg = failedCount === 0
-                    ? `批量执行完成: 全部 ${successCount} 个任务成功`
-                    : `批量执行完成: ${successCount} 成功, ${failedCount} 失败`;
+                    ? `批量执行完成: ${successCount} 成功, ${skippedCount} 跳过`
+                    : `批量执行完成: ${successCount} 成功, ${failedCount} 失败, ${skippedCount} 跳过`;
                 (0, output_js_1.logToOutput)(`[batch] ${msg}`);
                 if (cancelled) {
+                    if (batchRecord) {
+                        batchRecord.status = globalFailureAfterBatch ? 'failed' : 'cancelled';
+                        batchRecord.endedAt = new Date().toISOString();
+                        await finalizeBatchSnapshot();
+                    }
                     await batchSpan.fail(new Error('Command was cancelled by user'), {
                         taskId: 'batch',
                         taskLabel: `count:${tasks.length}`,
-                        status: 'cancelled',
+                        status: globalFailureAfterBatch ? 'failed' : 'cancelled',
                         agentCli: agentCli || '',
                     });
-                    vscode.window.showWarningMessage(`批量执行已取消 (${successCount} 成功, ${failedCount} 失败)`);
+                    if (globalFailureAfterBatch) {
+                        vscode.window.showWarningMessage(`批量执行失败: ${globalFailureAfterBatch.message}`);
+                    }
+                    else {
+                        vscode.window.showWarningMessage(`批量执行已取消 (${successCount} 成功, ${failedCount} 失败)`);
+                    }
                 }
                 else if (failedCount === 0) {
+                    if (batchRecord) {
+                        batchRecord.status = 'success';
+                        batchRecord.endedAt = new Date().toISOString();
+                        await finalizeBatchSnapshot();
+                    }
                     await batchSpan.end({
                         taskId: 'batch',
                         taskLabel: `count:${tasks.length}`,
@@ -414,6 +721,11 @@ function registerDocTaskCommands(context, tasksProvider) {
                     vscode.window.showInformationMessage(msg);
                 }
                 else {
+                    if (batchRecord) {
+                        batchRecord.status = 'failed';
+                        batchRecord.endedAt = new Date().toISOString();
+                        await finalizeBatchSnapshot();
+                    }
                     await batchSpan.fail(new Error(msg), {
                         taskId: 'batch',
                         taskLabel: `count:${tasks.length}`,

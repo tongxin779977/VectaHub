@@ -9,13 +9,15 @@ import { DiagnosticTask, DiagnosticTaskStatus, VALID_DIAGNOSTIC_STATUSES, normal
 import { LongRunningTaskManager } from '../cli/longRunningTaskManager.js';
 import { getFailedTasks } from '../project/taskHistory.js';
 import { isProjectTaskRunning } from '../commands/runProjectTask.js';
-
-export type DocTaskStatus = 'pending' | 'running' | 'success' | 'failed';
+import type { DocTaskDisplayStatus, DocTaskFailureKind } from '../project/docTaskState.js';
 
 export interface DocTask {
   id: string;
   label: string;
-  status?: DocTaskStatus;
+  status?: DocTaskDisplayStatus;
+  lastRunId?: string;
+  lastTraceId?: string;
+  lastFailureKind?: DocTaskFailureKind;
 }
 
 function djb2Hash(input: string): string {
@@ -438,8 +440,13 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
 
   private getIconForDocTaskStatus(status?: string): string {
     switch (status) {
+      case 'ready': return 'clock';
+      case 'preflight': return 'search';
       case 'running': return 'loading~spin';
+      case 'changed': return 'diff';
       case 'success': return 'pass';
+      case 'cancelled': return 'circle-slash';
+      case 'needs-confirmation': return 'question';
       case 'failed': return 'error';
       default: return 'play';
     }

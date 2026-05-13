@@ -397,8 +397,13 @@ class TasksViewProvider {
     }
     getIconForDocTaskStatus(status) {
         switch (status) {
+            case 'ready': return 'clock';
+            case 'preflight': return 'search';
             case 'running': return 'loading~spin';
+            case 'changed': return 'diff';
             case 'success': return 'pass';
+            case 'cancelled': return 'circle-slash';
+            case 'needs-confirmation': return 'question';
             case 'failed': return 'error';
             default: return 'play';
         }
