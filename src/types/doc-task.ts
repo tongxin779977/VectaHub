@@ -12,6 +12,7 @@ export type DocTaskRunStatus =
   | 'failed_timeout'
   | 'failed_test'
   | 'failed_conflict'
+  | 'failed_system_internal'
   | 'cancelled'
   | 'needs_confirmation';
 

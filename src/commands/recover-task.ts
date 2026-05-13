@@ -11,7 +11,7 @@
 
 import { Command } from 'commander';
 import { getLogger } from '../utils/logger.js';
-import { startSpan } from '../infrastructure/trace/index.js';
+import { startSpan, createChildEnv, getTraceContextFromEnv } from '../infrastructure/trace/index.js';
 import { runTask, formatRunTaskJson, type RunTaskResult } from './run-task.js';
 import {
   decideRecovery,
@@ -170,12 +170,40 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
     logger.info(`正在重新执行任务 ${options.taskId}...`);
 
     try {
-      const runResult = await runTask({
-        tool: options.tool,
-        taskId: options.taskId,
-        taskLabel: options.taskLabel,
-        doc: options.doc,
-      });
+      // Inject recovery trace context into env so runTask() can pick it up
+      // via getTraceContextFromEnv() and create child spans under the recovery span.
+      const recoveryTraceContext = {
+        traceId: recoverySpan.traceId,
+        parentSpanId: recoverySpan.spanId,
+        source: 'cli' as const,
+      };
+      const childEnv = createChildEnv(recoveryTraceContext, recoverySpan.spanId);
+      const originalEnv: Record<string, string | undefined> = {};
+      for (const [key, value] of Object.entries(childEnv)) {
+        originalEnv[key] = process.env[key];
+        if (value !== undefined) {
+          process.env[key] = value;
+        }
+      }
+
+      let runResult: RunTaskResult;
+      try {
+        runResult = await runTask({
+          tool: options.tool,
+          taskId: options.taskId,
+          taskLabel: options.taskLabel,
+          doc: options.doc,
+        });
+      } finally {
+        // Restore original env
+        for (const [key, value] of Object.entries(originalEnv)) {
+          if (value === undefined) {
+            delete process.env[key];
+          } else {
+            process.env[key] = value;
+          }
+        }
+      }
 
       const success = runResult.success;
       recoveryRecord.status = success ? 'success' : 'failed';
@@ -246,7 +274,7 @@ const VALID_FAILURE_KINDS: DocTaskFailureKind[] = [
 ];
 
 const VALID_DECISION_KINDS: RecoveryDecisionKind[] = [
-  'retry_direct', 'rerun_task', 'resume_after_manual_fix', 'suggest_fix', 'blocked',
+  'retry_direct', 'suggest_fix', 'blocked',
 ];
 
 function isValidFailureKind(value: string | undefined): value is DocTaskFailureKind {
@@ -265,7 +293,7 @@ function failureKindToStatus(kind: DocTaskFailureKind): DocTaskRunStatus {
     timeout: 'failed_timeout',
     test: 'failed_test',
     conflict: 'failed_conflict',
-    system_internal: 'failed_agent', // closest status mapping
+    system_internal: 'failed_system_internal',
     cancelled: 'cancelled',
     unknown: 'failed_agent',
   };
@@ -299,24 +327,6 @@ function buildDecisionFromKind(kind: RecoveryDecisionKind, failureKind: DocTaskF
       summary: '需要人工处理。',
       suggestedActions: ['检查任务状态', '手动确认恢复策略'],
       needsNewTrace: false,
-      canReusePreviousCommand: false,
-    },
-    rerun_task: {
-      kind: 'rerun_task',
-      mode: 'confirm_required',
-      reason: 'plugin-precomputed',
-      summary: '建议重新运行任务。',
-      suggestedActions: ['确认后重新运行'],
-      needsNewTrace: true,
-      canReusePreviousCommand: true,
-    },
-    resume_after_manual_fix: {
-      kind: 'resume_after_manual_fix',
-      mode: 'confirm_required',
-      reason: 'plugin-precomputed',
-      summary: '手动修复后继续执行。',
-      suggestedActions: ['确认手动修复完成后继续'],
-      needsNewTrace: true,
       canReusePreviousCommand: false,
     },
   };

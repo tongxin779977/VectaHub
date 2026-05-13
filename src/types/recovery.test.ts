@@ -142,6 +142,35 @@ describe('decideRecovery', () => {
     expect(decision.reason).toBe('unknown-failure');
   });
 
+  // ── §7.5 instructionHash 变化 → blocked ──
+  it('should return blocked when instructionHash has changed', () => {
+    const decision = decideRecovery(makeInput({
+      failureKind: 'timeout',
+      previousInstructionHash: 'abc123',
+      currentInstructionHash: 'def456',
+    }));
+    expect(decision.kind).toBe('blocked');
+    expect(decision.mode).toBe('manual_only');
+    expect(decision.reason).toBe('instruction-changed');
+  });
+
+  it('should not block when instructionHash has not changed', () => {
+    const decision = decideRecovery(makeInput({
+      failureKind: 'timeout',
+      previousInstructionHash: 'abc123',
+      currentInstructionHash: 'abc123',
+    }));
+    expect(decision.kind).toBe('retry_direct');
+  });
+
+  it('should not block when instructionHash is missing', () => {
+    const decision = decideRecovery(makeInput({
+      failureKind: 'timeout',
+      // no hashes provided
+    }));
+    expect(decision.kind).toBe('retry_direct');
+  });
+
   // ── §14 degradation: decision function error → blocked ──
   it('should degrade to blocked when input causes unexpected error', () => {
     // Force an internal error by passing a badly typed failureKind

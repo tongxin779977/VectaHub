@@ -82,11 +82,35 @@ export interface ListRunsOptions {
   limit?: number;
 }
 
+export interface SaveRecoveryRecordInput {
+  recoveryRunId: string;
+  sourceRunId: string;
+  taskId: string;
+  decision: {
+    kind: string;
+    mode: string;
+    reason: string;
+    summary: string;
+    suggestedActions: string[];
+    needsNewTrace: boolean;
+    canReusePreviousCommand: boolean;
+  };
+  sourceTraceId?: string;
+  recoveryTraceId?: string;
+  status: 'planned' | 'running' | 'success' | 'failed' | 'cancelled' | 'blocked';
+  startedAt: string;
+  updatedAt: string;
+  endedAt?: string;
+  retryOfRunId?: string;
+}
+
 export interface DocTaskRunStore {
   startBatch(input: StartBatchInput): Promise<DocTaskBatchRunRecord>;
   updateBatch(record: DocTaskBatchRunRecord): Promise<void>;
   startRun(input: StartRunInput): Promise<DocTaskRunRecord>;
   updateRun(record: DocTaskRunRecord): Promise<void>;
+  saveRecoveryRecord(record: SaveRecoveryRecordInput): Promise<void>;
+  listRecoveryRecords(limit?: number): Promise<SaveRecoveryRecordInput[]>;
   getLatestByTaskId(taskId: string): Promise<DocTaskRunRecord | undefined>;
   getLatestMap(): Promise<Map<string, DocTaskRunRecord>>;
   listRuns(options?: ListRunsOptions): Promise<DocTaskRunRecord[]>;
@@ -408,6 +432,33 @@ export function createDocTaskRunStore(projectRoot: string): DocTaskRunStore {
         all.push(...rows.slice(0, remains));
       }
       return all.slice(0, limit);
+    },
+
+    async saveRecoveryRecord(record: SaveRecoveryRecordInput): Promise<void> {
+      const recoveryPath = path.join(dir, `recovery-${toDatePart(new Date())}.jsonl`);
+      await enqueueWrite(() => appendJsonl(recoveryPath, record));
+    },
+
+    async listRecoveryRecords(limit?: number): Promise<SaveRecoveryRecordInput[]> {
+      const effectiveLimit = clampLimit(limit);
+      const all: SaveRecoveryRecordInput[] = [];
+      for (let i = 0; i < RECENT_DAYS && all.length < effectiveLimit; i++) {
+        const day = new Date();
+        day.setUTCDate(day.getUTCDate() - i);
+        const recoveryPath = path.join(dir, `recovery-${toDatePart(day)}.jsonl`);
+        if (!fs.existsSync(recoveryPath)) continue;
+        try {
+          const content = await fsp.readFile(recoveryPath, 'utf8');
+          const lines = content.split('\n').filter(Boolean);
+          for (const line of lines) {
+            if (all.length >= effectiveLimit) break;
+            try {
+              all.push(JSON.parse(line) as SaveRecoveryRecordInput);
+            } catch { /* skip malformed line */ }
+          }
+        } catch { /* skip unreadable file */ }
+      }
+      return all.slice(0, effectiveLimit);
     }
   };
 }

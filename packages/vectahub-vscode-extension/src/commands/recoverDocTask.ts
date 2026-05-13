@@ -12,7 +12,7 @@ import * as vscode from 'vscode';
 import { runCli, getActiveWorkspaceFolder } from '../cli/adapter.js';
 import { logToOutput } from '../ui/output.js';
 import { DocTask, TasksViewProvider } from '../views/tasksView.js';
-import { createDocTaskRunStore, type DocTaskRunRecord } from '../project/docTaskRunStore.js';
+import { createDocTaskRunStore, computeInstructionHash, type DocTaskRunRecord } from '../project/docTaskRunStore.js';
 import {
   buildRecoveryInput,
   decideRecovery,
@@ -23,6 +23,7 @@ import {
 } from '../project/docTaskRecovery.js';
 import { createRootTraceContext, startSpan } from '../trace/index.js';
 import { setTaskDisplayState, createRunId, safeUpdateRun } from './docTaskRunHelpers.js';
+import { promises as fsp } from 'fs';
 
 interface RecoverCliResult {
   ok: boolean;
@@ -73,7 +74,20 @@ export function registerRecoverDocTaskCommand(
       }
 
       // 3. Build recovery input from run record (strips sensitive data)
-      const recoveryInput = buildRecoveryInput(latestRecord);
+      // Compute current instructionHash for drift detection (§7.5)
+      let currentHash: string | undefined;
+      const currentDocPath = tasksProvider.getSelectedDocPath() || latestRecord.docPath;
+      if (currentDocPath && task.label) {
+        try {
+          const docContent = await fsp.readFile(currentDocPath, 'utf8');
+          currentHash = computeInstructionHash({
+            taskId: task.id,
+            label: task.label,
+            docExcerpt: docContent.slice(0, 8000),
+          });
+        } catch { /* ignore */ }
+      }
+      const recoveryInput = buildRecoveryInput(latestRecord, currentHash);
 
       // 4. Deterministic recovery decision
       const decision = decideRecovery(recoveryInput);
@@ -81,8 +95,25 @@ export function registerRecoverDocTaskCommand(
       logToOutput(`[recovery] 任务 ${task.id} 恢复决策: kind=${decision.kind}, mode=${decision.mode}, reason=${decision.reason}`);
       logToOutput(`[recovery] 摘要: ${decision.summary}`);
 
+      // Persist the recovery record (decision is now known)
+      const recoveryRunId = createRecoveryRunId();
+      const recoveryRecordForPersistence = createRecoveryRecord({
+        recoveryRunId,
+        sourceRunId: latestRecord.runId,
+        taskId: task.id,
+        decision,
+        sourceTraceId: latestRecord.traceId,
+        retryOfRunId: latestRecord.runId,
+      });
+
       // 5. Handle blocked
       if (decision.kind === 'blocked') {
+        recoveryRecordForPersistence.status = 'blocked';
+        recoveryRecordForPersistence.updatedAt = new Date().toISOString();
+        recoveryRecordForPersistence.endedAt = recoveryRecordForPersistence.updatedAt;
+        try {
+          await runStore.saveRecoveryRecord(recoveryRecordForPersistence);
+        } catch { /* best-effort */ }
         vscode.window.showWarningMessage(
           `任务 ${task.id} 无法自动恢复: ${decision.summary}`,
           { modal: true, detail: decision.suggestedActions.join('\n') },
@@ -92,6 +123,11 @@ export function registerRecoverDocTaskCommand(
 
       // 6. Handle suggest_fix (V1: guidance only)
       if (decision.kind === 'suggest_fix') {
+        recoveryRecordForPersistence.status = 'planned';
+        recoveryRecordForPersistence.updatedAt = new Date().toISOString();
+        try {
+          await runStore.saveRecoveryRecord(recoveryRecordForPersistence);
+        } catch { /* best-effort */ }
         const actions = decision.suggestedActions.map((a, i) => `${i + 1}. ${a}`).join('\n');
         const choice = await vscode.window.showInformationMessage(
           `任务 ${task.id} 恢复建议: ${decision.summary}`,
@@ -117,6 +153,7 @@ export function registerRecoverDocTaskCommand(
           }
         }
 
+        // Update recovery record with trace info once we have it
         const agentCli = tasksProvider.getSelectedAgentCli();
         if (!agentCli) {
           vscode.window.showWarningMessage('请先选择 Agent CLI 执行器。');
@@ -124,7 +161,6 @@ export function registerRecoverDocTaskCommand(
         }
 
         const docPath = tasksProvider.getSelectedDocPath();
-        const recoveryRunId = createRecoveryRunId();
 
         // Start recovery trace
         const traceContext = createRootTraceContext();
@@ -141,6 +177,14 @@ export function registerRecoverDocTaskCommand(
             taskLabel: task.label,
           },
         });
+
+        // Update recovery record with trace info
+        recoveryRecordForPersistence.recoveryTraceId = traceContext.traceId;
+        recoveryRecordForPersistence.status = 'running';
+        recoveryRecordForPersistence.updatedAt = new Date().toISOString();
+        try {
+          await runStore.saveRecoveryRecord(recoveryRecordForPersistence);
+        } catch { /* best-effort */ }
 
         // Update task display
         task.lastFailureKind = undefined;
@@ -219,6 +263,15 @@ export function registerRecoverDocTaskCommand(
                   warnRunStore(`[recovery] 写入新 run record 失败: ${msg}`);
                 }
 
+                // Update persisted recovery record
+                recoveryRecordForPersistence.status = runResult?.ok ? 'success' : 'failed';
+                recoveryRecordForPersistence.recoveryTraceId = result.data.recoveryTraceId ?? recoveryRecordForPersistence.recoveryTraceId;
+                recoveryRecordForPersistence.updatedAt = new Date().toISOString();
+                recoveryRecordForPersistence.endedAt = recoveryRecordForPersistence.updatedAt;
+                try {
+                  await runStore.saveRecoveryRecord(recoveryRecordForPersistence);
+                } catch { /* best-effort */ }
+
                 await recoverySpan.end({
                   recoveryStatus: newStatus,
                   recoveryRunId: result.data.recoveryRunId,
@@ -232,6 +285,12 @@ export function registerRecoverDocTaskCommand(
               } else {
                 // Recovery CLI returned failure
                 const errMsg = result.data?.error || result.error?.message || '恢复失败';
+                recoveryRecordForPersistence.status = 'failed';
+                recoveryRecordForPersistence.updatedAt = new Date().toISOString();
+                recoveryRecordForPersistence.endedAt = recoveryRecordForPersistence.updatedAt;
+                try {
+                  await runStore.saveRecoveryRecord(recoveryRecordForPersistence);
+                } catch { /* best-effort */ }
                 task.lastFailureKind = latestRecord.failureKind;
                 setTaskDisplayState(task, 'failed_agent');
                 tasksProvider.refresh();

@@ -146,6 +146,24 @@ describe('docTaskRecovery', () => {
       });
       expect(d.kind).toBe('blocked');
     });
+
+    it('should return blocked when instructionHash has changed (§7.5)', () => {
+      const d = decideRecovery(makeInput('timeout', {
+        previousInstructionHash: 'abc123',
+        currentInstructionHash: 'def456',
+      }));
+      expect(d.kind).toBe('blocked');
+      expect(d.mode).toBe('manual_only');
+      expect(d.reason).toBe('instruction-changed');
+    });
+
+    it('should not block when instructionHash is the same', () => {
+      const d = decideRecovery(makeInput('timeout', {
+        previousInstructionHash: 'abc123',
+        currentInstructionHash: 'abc123',
+      }));
+      expect(d.kind).toBe('retry_direct');
+    });
   });
 
   describe('isRecoveryEligible', () => {

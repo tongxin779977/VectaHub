@@ -14,6 +14,8 @@ vi.mock('../infrastructure/trace/index.js', () => ({
     end: vi.fn(),
     fail: vi.fn(),
   })),
+  createChildEnv: vi.fn(() => ({})),
+  getTraceContextFromEnv: vi.fn(() => undefined),
 }));
 
 import { recoverTask } from './recover-task.js';
@@ -202,5 +204,40 @@ describe('recover-task', () => {
 
     // defaults to 'unknown' failureKind → suggest_fix
     expect(result.decision.kind).toBe('suggest_fix');
+  });
+
+  it('should map system_internal to failed_system_internal status', async () => {
+    const result = await recoverTask({
+      runId: 'run-failed-010',
+      taskId: 'task-010',
+      taskLabel: 'System error',
+      tool: 'aider',
+      sourceFailureKind: 'system_internal',
+    });
+
+    expect(result.decision.kind).toBe('blocked');
+    expect(result.decision.reason).toBe('system-internal-error');
+  });
+
+  it('should include recoveryTraceId in result for trace association', async () => {
+    runTaskMock.mockResolvedValueOnce({
+      success: true,
+      output: 'ok',
+      command: 'test',
+    });
+
+    const result = await recoverTask({
+      runId: 'run-011',
+      taskId: 'task-011',
+      taskLabel: 'Trace check',
+      tool: 'aider',
+      traceId: 'tr-source-011',
+      sourceFailureKind: 'timeout',
+    });
+
+    expect(result.sourceTraceId).toBe('tr-source-011');
+    expect(result.recoveryTraceId).toBe('tr-recovery-001');
+    expect(result.recoveryRecord?.sourceTraceId).toBe('tr-source-011');
+    expect(result.recoveryRecord?.recoveryTraceId).toBe('tr-recovery-001');
   });
 });

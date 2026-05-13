@@ -42,14 +42,16 @@ export interface DocTaskRecoveryInput {
     validationCommandCount: number;
     executionMode: 'serial' | 'parallel-eligible' | 'isolated-required';
   };
+  /** Hash of the task instruction at the time of the failed run. */
+  previousInstructionHash?: string;
+  /** Hash of the current task instruction (computed at recovery time). */
+  currentInstructionHash?: string;
 }
 
 // ─── Recovery Decision ───────────────────────────────────────────────────────
 
 export type RecoveryDecisionKind =
   | 'retry_direct'
-  | 'rerun_task'
-  | 'resume_after_manual_fix'
   | 'suggest_fix'
   | 'blocked';
 
@@ -90,7 +92,7 @@ export interface DocTaskRecoveryRecord {
  * Build a DocTaskRecoveryInput from a DocTaskRunRecord.
  * Strips sensitive data — only summary fields are included.
  */
-export function buildRecoveryInput(record: DocTaskRunRecord): DocTaskRecoveryInput {
+export function buildRecoveryInput(record: DocTaskRunRecord, currentInstructionHash?: string): DocTaskRecoveryInput {
   return {
     runId: record.runId,
     taskId: record.taskId,
@@ -104,6 +106,8 @@ export function buildRecoveryInput(record: DocTaskRunRecord): DocTaskRecoveryInp
     outputSummary: record.outputSummary,
     gitChanges: record.gitChanges,
     verification: record.verification,
+    previousInstructionHash: record.instructionHash,
+    currentInstructionHash,
     agentTaskContract: record.agentTaskContract
       ? {
           boundaryConfidence: record.agentTaskContract.boundaryConfidence,
@@ -140,6 +144,23 @@ export function decideRecovery(input: DocTaskRecoveryInput): RecoveryDecision {
 }
 
 function decideRecoveryInner(input: DocTaskRecoveryInput): RecoveryDecision {
+  // ── §7.5 instructionHash 变化检测 ──
+  if (
+    input.currentInstructionHash !== undefined &&
+    input.previousInstructionHash !== undefined &&
+    input.currentInstructionHash !== input.previousInstructionHash
+  ) {
+    return {
+      kind: 'blocked',
+      mode: 'manual_only',
+      reason: 'instruction-changed',
+      summary: '任务定义已变化，旧失败记录不再对应当前任务，禁止基于过期上下文恢复。',
+      suggestedActions: ['重新解析文档', '重新执行任务'],
+      needsNewTrace: false,
+      canReusePreviousCommand: false,
+    };
+  }
+
   const { failureKind, gitChanges, verification } = input;
   const hasGitChanges = (gitChanges?.changedFileCount ?? 0) > 0;
   const hasVerification = verification !== undefined && verification !== null;
