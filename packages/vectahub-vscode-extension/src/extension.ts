@@ -30,6 +30,7 @@ import { registerSyncAndFixCiCommand } from './commands/syncAndFixCi.js';
 import { registerStartDevServerCommand } from './commands/startDevServer.js';
 import { registerStopRunningTaskCommand } from './commands/stopRunningTask.js';
 import { registerDocTaskCommands } from './commands/runDocTasks.js';
+import { registerRecoverDocTaskCommand } from './commands/recoverDocTask.js';
 
 export function getGlobalCliPath(): string | undefined {
   return getResolvedCliPath();
@@ -67,6 +68,7 @@ export async function activate(context: vscode.ExtensionContext) {
   registerStartDevServerCommand(context, tasksProvider);
   registerStopRunningTaskCommand(context, tasksProvider);
   registerDocTaskCommands(context, tasksProvider);
+  registerRecoverDocTaskCommand(context, tasksProvider);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('vectahub.getDiagnostics', (args?: { file?: string; severity?: string }) => {

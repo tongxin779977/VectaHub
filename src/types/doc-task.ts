@@ -33,6 +33,7 @@ export type DocTaskFailureKind =
   | 'timeout'
   | 'test'
   | 'conflict'
+  | 'system_internal'
   | 'cancelled'
   | 'unknown';
 

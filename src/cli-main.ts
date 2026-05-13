@@ -310,6 +310,13 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
         loadedCommands.add('doc-task-runs');
         break;
       }
+      case 'recover-task': {
+        const { recoverTaskCmd } = await import('./commands/recover-task.js');
+        removePlaceholderCommand('recover-task');
+        program.addCommand(recoverTaskCmd);
+        loadedCommands.add('recover-task');
+        break;
+      }
       case 'dev': {
         const { status } = await import('./commands/status.js');
         const { moduleCmd } = await import('./commands/module.js');
@@ -623,6 +630,7 @@ const lazyLoadableCommands = [
   { name: 'parse-doc', description: '解析开发文档，提取结构化任务列表' },
   { name: 'run-task', description: '执行文档任务：调用 Agent CLI 执行开发任务' },
   { name: 'doc-task-runs', description: '查询文档任务运行记录' },
+  { name: 'recover-task', description: '恢复失败的文档任务' },
   { name: 'trace', description: '查看链路追踪数据' },
   { name: 'queue', description: '管理诊断队列' },
   { name: 'dev', description: '开发命令' },

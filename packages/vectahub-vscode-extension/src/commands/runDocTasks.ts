@@ -491,7 +491,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
                 try {
                   const docContentForHash = await fsp.readFile(docPath, 'utf8');
                   const resultContract = result.data?.agentTaskContract;
-                  const hashContract = resultContract ?? taskContractSummary;
+                  const hashContract = resultContract;
                   runRecord.instructionHash = computeInstructionHash({
                     taskId: task.id,
                     label: task.label,

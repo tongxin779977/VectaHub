@@ -1,0 +1,401 @@
+/**
+ * P6 Self-Healing & Recovery — CLI recover-task Command
+ *
+ * Executes recovery for a failed doc-task.
+ * First version: supports `retry_direct` only.
+ * `suggest_fix` returns structured guidance without auto-execution.
+ * `blocked` returns explanation and stops.
+ *
+ * See docs/v2/self-healing-recovery-spec.md §8, §9.2.
+ */
+
+import { Command } from 'commander';
+import { getLogger } from '../utils/logger.js';
+import { startSpan } from '../infrastructure/trace/index.js';
+import { runTask, formatRunTaskJson, type RunTaskResult } from './run-task.js';
+import {
+  decideRecovery,
+  buildRecoveryInputFromRecord,
+  createRecoveryRecord,
+  type DocTaskRecoveryInput,
+  type RecoveryDecision,
+  type RecoveryDecisionKind,
+  type DocTaskRecoveryRecord,
+} from '../types/recovery.js';
+import type { DocTaskFailureKind, DocTaskRunStatus } from '../types/doc-task.js';
+
+const logger = getLogger('recover-task');
+
+export interface RecoverTaskOptions {
+  runId: string;
+  taskId: string;
+  taskLabel: string;
+  tool: string;
+  doc?: string;
+  traceId?: string;
+  sourceFailureKind?: string;
+  decisionKind?: string;
+  command?: string;
+  json?: boolean;
+}
+
+export interface RecoverTaskResult {
+  ok: boolean;
+  recoveryRunId: string;
+  sourceRunId: string;
+  taskId: string;
+  decision: RecoveryDecision;
+  sourceTraceId?: string;
+  recoveryTraceId?: string;
+  runResult?: RunTaskResult;
+  recoveryRecord?: DocTaskRecoveryRecord;
+  error?: string;
+}
+
+export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverTaskResult> {
+  const recoveryRunId = `rec-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const sourceRunId = options.runId;
+
+  // Build a minimal recovery input from the provided CLI arguments.
+  // In the full flow, the plugin builds this from the DocTaskRunRecord.
+  const failureKind: DocTaskFailureKind = isValidFailureKind(options.sourceFailureKind)
+    ? options.sourceFailureKind!
+    : 'unknown';
+  const status: DocTaskRunStatus = failureKindToStatus(failureKind);
+
+  const input: DocTaskRecoveryInput = {
+    runId: sourceRunId,
+    taskId: options.taskId,
+    taskLabel: options.taskLabel,
+    docPath: options.doc,
+    traceId: options.traceId,
+    failureKind,
+    status,
+    command: options.command,
+  };
+
+  // If a specific decision was provided by the plugin (already computed), use it;
+  // otherwise recompute deterministically.
+  let decision: RecoveryDecision;
+  if (options.decisionKind && isValidDecisionKind(options.decisionKind)) {
+    // Plugin pre-computed the decision; reconstruct a minimal RecoveryDecision
+    decision = buildDecisionFromKind(options.decisionKind as RecoveryDecisionKind, failureKind);
+  } else {
+    decision = decideRecovery(input);
+  }
+
+  logger.info(`恢复决策: kind=${decision.kind}, mode=${decision.mode}, reason=${decision.reason}`);
+  logger.info(`恢复摘要: ${decision.summary}`);
+
+  // Start a new recovery trace with source association
+  const recoverySpan = startSpan('cli.recover-task', {
+    source: 'cli',
+    attributes: {
+      recovery: true,
+      recoveryKind: decision.kind,
+      sourceRunId,
+      sourceTraceId: options.traceId,
+      sourceFailureKind: failureKind,
+      taskId: options.taskId,
+      taskLabel: options.taskLabel,
+    },
+  });
+
+  const recoveryTraceId = recoverySpan.traceId;
+
+  const recoveryRecord = createRecoveryRecord({
+    recoveryRunId,
+    sourceRunId,
+    taskId: options.taskId,
+    decision,
+    sourceTraceId: options.traceId,
+    recoveryTraceId,
+    retryOfRunId: sourceRunId,
+  });
+
+  // ── Handle blocked ──
+  if (decision.kind === 'blocked') {
+    recoveryRecord.status = 'blocked';
+    recoveryRecord.updatedAt = new Date().toISOString();
+    recoveryRecord.endedAt = recoveryRecord.updatedAt;
+    await recoverySpan.end({ recoveryStatus: 'blocked' });
+
+    logger.info('恢复被阻断，请人工处理。');
+    for (const action of decision.suggestedActions) {
+      logger.info(`  → ${action}`);
+    }
+
+    return {
+      ok: false,
+      recoveryRunId,
+      sourceRunId,
+      taskId: options.taskId,
+      decision,
+      sourceTraceId: options.traceId,
+      recoveryTraceId,
+      recoveryRecord,
+      error: decision.summary,
+    };
+  }
+
+  // ── Handle suggest_fix (P6 V1: guidance only, no auto-fix execution) ──
+  if (decision.kind === 'suggest_fix') {
+    recoveryRecord.status = 'planned';
+    recoveryRecord.updatedAt = new Date().toISOString();
+    await recoverySpan.end({ recoveryStatus: 'planned' });
+
+    logger.info('建议修复模式：当前版本不自动执行修复任务，请参考以下建议。');
+    for (const action of decision.suggestedActions) {
+      logger.info(`  → ${action}`);
+    }
+
+    return {
+      ok: false,
+      recoveryRunId,
+      sourceRunId,
+      taskId: options.taskId,
+      decision,
+      sourceTraceId: options.traceId,
+      recoveryTraceId,
+      recoveryRecord,
+      error: decision.summary,
+    };
+  }
+
+  // ── Handle retry_direct ──
+  if (decision.kind === 'retry_direct') {
+    recoveryRecord.status = 'running';
+    recoveryRecord.updatedAt = new Date().toISOString();
+
+    logger.info(`正在重新执行任务 ${options.taskId}...`);
+
+    try {
+      const runResult = await runTask({
+        tool: options.tool,
+        taskId: options.taskId,
+        taskLabel: options.taskLabel,
+        doc: options.doc,
+      });
+
+      const success = runResult.success;
+      recoveryRecord.status = success ? 'success' : 'failed';
+      recoveryRecord.updatedAt = new Date().toISOString();
+      recoveryRecord.endedAt = recoveryRecord.updatedAt;
+
+      await recoverySpan.end({
+        recoveryStatus: recoveryRecord.status,
+        retrySuccess: success,
+      });
+
+      return {
+        ok: success,
+        recoveryRunId,
+        sourceRunId,
+        taskId: options.taskId,
+        decision,
+        sourceTraceId: options.traceId,
+        recoveryTraceId,
+        runResult,
+        recoveryRecord,
+      };
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      recoveryRecord.status = 'failed';
+      recoveryRecord.updatedAt = new Date().toISOString();
+      recoveryRecord.endedAt = recoveryRecord.updatedAt;
+
+      await recoverySpan.fail(error, { recoveryStatus: 'failed' });
+
+      return {
+        ok: false,
+        recoveryRunId,
+        sourceRunId,
+        taskId: options.taskId,
+        decision,
+        sourceTraceId: options.traceId,
+        recoveryTraceId,
+        recoveryRecord,
+        error: errMsg,
+      };
+    }
+  }
+
+  // ── Fallback: unsupported decision kind ──
+  recoveryRecord.status = 'blocked';
+  recoveryRecord.updatedAt = new Date().toISOString();
+  recoveryRecord.endedAt = recoveryRecord.updatedAt;
+  await recoverySpan.end({ recoveryStatus: 'blocked-unsupported' });
+
+  return {
+    ok: false,
+    recoveryRunId,
+    sourceRunId,
+    taskId: options.taskId,
+    decision,
+    sourceTraceId: options.traceId,
+    recoveryTraceId,
+    recoveryRecord,
+    error: `不支持的恢复类型: ${decision.kind}`,
+  };
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const VALID_FAILURE_KINDS: DocTaskFailureKind[] = [
+  'config', 'agent', 'json_protocol', 'timeout', 'test', 'conflict', 'system_internal', 'cancelled', 'unknown',
+];
+
+const VALID_DECISION_KINDS: RecoveryDecisionKind[] = [
+  'retry_direct', 'rerun_task', 'resume_after_manual_fix', 'suggest_fix', 'blocked',
+];
+
+function isValidFailureKind(value: string | undefined): value is DocTaskFailureKind {
+  return !!value && VALID_FAILURE_KINDS.includes(value as DocTaskFailureKind);
+}
+
+function isValidDecisionKind(value: string | undefined): value is RecoveryDecisionKind {
+  return !!value && VALID_DECISION_KINDS.includes(value as RecoveryDecisionKind);
+}
+
+function failureKindToStatus(kind: DocTaskFailureKind): DocTaskRunStatus {
+  const map: Record<DocTaskFailureKind, DocTaskRunStatus> = {
+    config: 'failed_config',
+    agent: 'failed_agent',
+    json_protocol: 'failed_json_protocol',
+    timeout: 'failed_timeout',
+    test: 'failed_test',
+    conflict: 'failed_conflict',
+    system_internal: 'failed_agent', // closest status mapping
+    cancelled: 'cancelled',
+    unknown: 'failed_agent',
+  };
+  return map[kind] ?? 'failed_agent';
+}
+
+function buildDecisionFromKind(kind: RecoveryDecisionKind, failureKind: DocTaskFailureKind): RecoveryDecision {
+  const templates: Record<RecoveryDecisionKind, RecoveryDecision> = {
+    retry_direct: {
+      kind: 'retry_direct',
+      mode: 'confirm_required',
+      reason: 'plugin-precomputed',
+      summary: '建议直接重试任务。',
+      suggestedActions: ['确认后重新执行任务'],
+      needsNewTrace: true,
+      canReusePreviousCommand: true,
+    },
+    suggest_fix: {
+      kind: 'suggest_fix',
+      mode: 'confirm_required',
+      reason: 'plugin-precomputed',
+      summary: '建议基于失败上下文生成修复任务。',
+      suggestedActions: ['检查失败摘要', '确认后生成修复任务'],
+      needsNewTrace: true,
+      canReusePreviousCommand: false,
+    },
+    blocked: {
+      kind: 'blocked',
+      mode: 'manual_only',
+      reason: 'plugin-precomputed',
+      summary: '需要人工处理。',
+      suggestedActions: ['检查任务状态', '手动确认恢复策略'],
+      needsNewTrace: false,
+      canReusePreviousCommand: false,
+    },
+    rerun_task: {
+      kind: 'rerun_task',
+      mode: 'confirm_required',
+      reason: 'plugin-precomputed',
+      summary: '建议重新运行任务。',
+      suggestedActions: ['确认后重新运行'],
+      needsNewTrace: true,
+      canReusePreviousCommand: true,
+    },
+    resume_after_manual_fix: {
+      kind: 'resume_after_manual_fix',
+      mode: 'confirm_required',
+      reason: 'plugin-precomputed',
+      summary: '手动修复后继续执行。',
+      suggestedActions: ['确认手动修复完成后继续'],
+      needsNewTrace: true,
+      canReusePreviousCommand: false,
+    },
+  };
+  return templates[kind];
+}
+
+// ─── CLI Command Registration ────────────────────────────────────────────────
+
+export const recoverTaskCmd = new Command('recover-task')
+  .description('恢复失败的文档任务')
+  .requiredOption('--run-id <id>', '原始失败运行 ID')
+  .requiredOption('--task-id <id>', '任务编号')
+  .requiredOption('--task-label <label>', '任务描述')
+  .requiredOption('--tool <name>', 'Agent CLI 工具名称')
+  .option('--doc <path>', '参考文档路径')
+  .option('--trace-id <id>', '原始失败 trace ID')
+  .option('--source-failure-kind <kind>', '原始失败分类')
+  .option('--decision-kind <kind>', '预计算的恢复决策（插件侧已决定）')
+  .option('--command <cmd>', '原始执行命令摘要')
+  .option('--json', '以 JSON 格式输出')
+  .action(async (options: {
+    runId: string;
+    taskId: string;
+    taskLabel: string;
+    tool: string;
+    doc?: string;
+    traceId?: string;
+    sourceFailureKind?: string;
+    decisionKind?: string;
+    command?: string;
+    json?: boolean;
+  }) => {
+    try {
+      const result = await recoverTask(options);
+
+      if (options.json) {
+        const jsonOutput: Record<string, unknown> = {
+          ok: result.ok,
+          recoveryRunId: result.recoveryRunId,
+          sourceRunId: result.sourceRunId,
+          taskId: result.taskId,
+          decision: result.decision,
+          sourceTraceId: result.sourceTraceId,
+          recoveryTraceId: result.recoveryTraceId,
+        };
+        if (result.runResult) {
+          jsonOutput.runResult = formatRunTaskJson(result.runResult);
+        }
+        if (result.recoveryRecord) {
+          jsonOutput.recoveryRecord = result.recoveryRecord;
+        }
+        if (result.error) {
+          jsonOutput.error = result.error;
+        }
+        console.log(JSON.stringify(jsonOutput, null, 2));
+      } else if (!result.ok) {
+        if (result.error) {
+          logger.error(`恢复失败: ${result.error}`);
+        }
+        if (result.decision.suggestedActions.length > 0) {
+          logger.info('建议操作:');
+          for (const action of result.decision.suggestedActions) {
+            logger.info(`  → ${action}`);
+          }
+        }
+        process.exit(1);
+      } else {
+        logger.info(`恢复成功: 任务 ${result.taskId}`);
+        if (result.runResult) {
+          logger.info(`输出: ${result.runResult.output.substring(0, 200)}`);
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (options.json) {
+        console.log(JSON.stringify({ ok: false, error: message }, null, 2));
+      } else {
+        logger.error(`恢复执行失败: ${message}`);
+      }
+      process.exit(1);
+    }
+  });

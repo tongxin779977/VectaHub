@@ -12,3 +12,6 @@ export type { CommandDetection, SandboxMode } from '../types/index.js';
 
 export { createSemanticDetector } from './semantic-detector.js';
 export type { SemanticDetector, SemanticDetectionResult, ThreatType } from './semantic-detector.js';
+
+export type { SandboxOptions as WorktreeSandboxOptions, SandboxContext as WorktreeSandboxContext } from './worktree-manager.js';
+export { createSandbox as createWorktreeSandbox, teardownSandbox as teardownWorktreeSandbox } from './worktree-manager.js';
