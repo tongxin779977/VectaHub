@@ -117,6 +117,7 @@ interface RunTaskResult {
   };
   verification?: {
     ok: boolean;
+    isSystemError?: boolean;
     commands: Array<{
       command: string;
       ok: boolean;
@@ -194,6 +195,9 @@ function resolveVerificationStatus(
   changedFiles: string[],
   verification?: RunTaskResult['verification'],
 ): { status: DocTaskRunStatus; failureKind?: DocTaskFailureKind } {
+  if (verification?.isSystemError) {
+    return { status: 'failed_system_internal', failureKind: 'system_internal' };
+  }
   if (verification && !verification.ok) {
     return { status: 'failed_test', failureKind: 'test' };
   }

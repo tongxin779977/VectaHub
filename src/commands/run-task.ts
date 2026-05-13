@@ -444,11 +444,8 @@ function truncateVerificationSummary(value: string | undefined): string | undefi
   return `${value.slice(0, VERIFICATION_SUMMARY_MAX_LENGTH - suffix.length)}${suffix}`;
 }
 
-import { parse } from 'shell-quote';
-
 export function splitCommandArgs(cmd: string): string[] {
-  const parsed = parse(cmd);
-  return parsed.filter((p): p is string => typeof p === 'string');
+  return splitPosixArgs(cmd);
 }
 
 function getRunTaskOutputDir(): string {

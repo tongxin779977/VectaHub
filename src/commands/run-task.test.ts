@@ -466,6 +466,14 @@ describe('integration: agent success -> verification failure -> final failure', 
 });
 
 describe('splitCommandArgs', () => {
+  it('should parse basic quoted command', () => {
+    expect(splitCommandArgs("echo 'hello world'")).toEqual(['echo', 'hello world']);
+  });
+
+  it('should preserve compound operators', () => {
+    expect(splitCommandArgs('npm run build && npm test')).toEqual(['npm', 'run', 'build', '&&', 'npm', 'test']);
+  });
+
   it('should split simple command by whitespace', () => {
     expect(splitCommandArgs('npm run typecheck')).toEqual(['npm', 'run', 'typecheck']);
   });

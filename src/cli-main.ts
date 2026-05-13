@@ -67,7 +67,6 @@ import { setLogLevel, setMuted } from './infrastructure/logger/index.js';
 // runCmd and doctorCmd are lazy-loaded via the placeholder system below
 import { formatErrorMessage, toJSONError } from './utils/errors.js';
 import { loadConfig as loadUtilsConfig } from './utils/config.js';
-import { AsyncLogWriter } from './infrastructure/trace-audit/async-writer.js';
 
 // Error handling helper
 async function handleError(error: unknown): Promise<never> {
