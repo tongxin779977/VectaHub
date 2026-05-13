@@ -80,14 +80,17 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
     currentInstructionHash: options.currentInstructionHash,
   };
 
-  // If a specific decision was provided by the plugin (already computed), use it;
-  // otherwise recompute deterministically.
+  const localDecision = decideRecovery(input);
+  // Stale task context must block recovery even when the plugin passes a
+  // precomputed decision. This keeps the standalone CLI contract enforceable.
   let decision: RecoveryDecision;
-  if (options.decisionKind && isValidDecisionKind(options.decisionKind)) {
+  if (localDecision.kind === 'blocked' && localDecision.reason === 'instruction-changed') {
+    decision = localDecision;
+  } else if (options.decisionKind && isValidDecisionKind(options.decisionKind)) {
     // Plugin pre-computed the decision; reconstruct a minimal RecoveryDecision
     decision = buildDecisionFromKind(options.decisionKind as RecoveryDecisionKind, failureKind);
   } else {
-    decision = decideRecovery(input);
+    decision = localDecision;
   }
 
   logger.info(`恢复决策: kind=${decision.kind}, mode=${decision.mode}, reason=${decision.reason}`);
@@ -357,6 +360,13 @@ interface ClassifiedFailure {
 }
 
 function classifyFailureFromRunTaskResult(runResult: RunTaskResult): ClassifiedFailure {
+  const verification = runResult.verification as (RunTaskResult['verification'] & { isSystemError?: boolean }) | undefined;
+  if (verification && !verification.ok) {
+    if (verification.isSystemError) {
+      return { kind: 'system_internal', status: 'failed_system_internal' };
+    }
+    return { kind: 'test', status: 'failed_test' };
+  }
   return classifyFailureFromErrorMessage(runResult.output);
 }
 

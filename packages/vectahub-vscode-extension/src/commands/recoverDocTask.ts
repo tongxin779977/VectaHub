@@ -12,19 +12,18 @@ import * as vscode from 'vscode';
 import { runCli, getActiveWorkspaceFolder } from '../cli/adapter.js';
 import { logToOutput } from '../ui/output.js';
 import { DocTask, TasksViewProvider } from '../views/tasksView.js';
-import { createDocTaskRunStore, computeInstructionHash } from '../project/docTaskRunStore.js';
+import { createDocTaskRunStore } from '../project/docTaskRunStore.js';
 import {
   buildRecoveryInput,
   classifyRecoveryOutcome,
-  decideRecovery,
+  decideRecoveryWithHashGuard,
   createRecoveryRecord,
   createRecoveryRunId,
   isRecoveryEligible,
   type RecoveryDecision,
 } from '../project/docTaskRecovery.js';
 import { createRootTraceContext, startSpan } from '../trace/index.js';
-import { setTaskDisplayState, createRunId, safeUpdateRun } from './docTaskRunHelpers.js';
-import { promises as fsp } from 'fs';
+import { setTaskDisplayState, createRunId, safeUpdateRun, computeCurrentInstructionHashForRecovery } from './docTaskRunHelpers.js';
 
 interface RecoverCliResult {
   ok: boolean;
@@ -39,6 +38,10 @@ interface RecoverCliResult {
     command?: string;
     output?: string;
     outputTruncated?: boolean;
+    verification?: {
+      ok: boolean;
+      isSystemError?: boolean;
+    };
   };
   status?: string;
   failureKind?: string;
@@ -77,23 +80,22 @@ export function registerRecoverDocTaskCommand(
       }
 
       // 3. Build recovery input from run record (strips sensitive data)
-      // Compute current instructionHash for drift detection (§7.5)
+      // Compute current instructionHash with full contract factors for drift detection (§7.5)
       let currentHash: string | undefined;
       const currentDocPath = tasksProvider.getSelectedDocPath() || latestRecord.docPath;
-      if (currentDocPath && task.label) {
-        try {
-          const docContent = await fsp.readFile(currentDocPath, 'utf8');
-          currentHash = computeInstructionHash({
-            taskId: task.id,
-            label: task.label,
-            docExcerpt: docContent.slice(0, 8000),
-          });
-        } catch { /* ignore */ }
-      }
+      try {
+        currentHash = await computeCurrentInstructionHashForRecovery({
+          taskId: task.id,
+          label: task.label,
+          docPath: currentDocPath,
+          projectRoot: workspaceRoot,
+          tool: latestRecord.agentCli,
+        });
+      } catch { /* ignore and let hash guard block when needed */ }
       const recoveryInput = buildRecoveryInput(latestRecord, currentHash);
 
       // 4. Deterministic recovery decision
-      const decision = decideRecovery(recoveryInput);
+      const decision = decideRecoveryWithHashGuard(recoveryInput);
 
       logToOutput(`[recovery] 任务 ${task.id} 恢复决策: kind=${decision.kind}, mode=${decision.mode}, reason=${decision.reason}`);
       logToOutput(`[recovery] 摘要: ${decision.summary}`);

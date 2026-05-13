@@ -3,6 +3,7 @@ import {
   buildRecoveryInput,
   classifyRecoveryOutcome,
   decideRecovery,
+  decideRecoveryWithHashGuard,
   createRecoveryRecord,
   createRecoveryRunId,
   isRecoveryEligible,
@@ -165,6 +166,32 @@ describe('docTaskRecovery', () => {
       }));
       expect(d.kind).toBe('retry_direct');
     });
+
+    it('should block when previous instructionHash exists but currentHash is unavailable', () => {
+      const d = decideRecoveryWithHashGuard(makeInput('timeout', {
+        previousInstructionHash: 'abc123',
+        currentInstructionHash: undefined,
+      }));
+      expect(d.kind).toBe('blocked');
+      expect(d.mode).toBe('manual_only');
+      expect(d.reason).toBe('instruction-hash-unavailable');
+    });
+
+    it('hash guard should not change normal decision when previous hash is absent', () => {
+      const d = decideRecoveryWithHashGuard(makeInput('timeout', {
+        previousInstructionHash: undefined,
+        currentInstructionHash: undefined,
+      }));
+      expect(d.kind).toBe('retry_direct');
+    });
+
+    it('should not block when full-factor hash is already available and equal', () => {
+      const d = decideRecoveryWithHashGuard(makeInput('timeout', {
+        previousInstructionHash: 'same-full-factor-hash',
+        currentInstructionHash: 'same-full-factor-hash',
+      }));
+      expect(d.kind).toBe('retry_direct');
+    });
   });
 
   describe('isRecoveryEligible', () => {
@@ -246,6 +273,37 @@ describe('docTaskRecovery', () => {
       });
       expect(result.status).toBe('failed_agent');
       expect(result.failureKind).toBe('unknown');
+    });
+
+    it('should classify verification failure as failed_test/test when failureKind is missing', () => {
+      const result = classifyRecoveryOutcome({
+        ok: false,
+        runResult: {
+          ok: false,
+          output: 'verification failed',
+          verification: {
+            ok: false,
+          },
+        },
+      });
+      expect(result.status).toBe('failed_test');
+      expect(result.failureKind).toBe('test');
+    });
+
+    it('should classify verification system error as failed_system_internal/system_internal', () => {
+      const result = classifyRecoveryOutcome({
+        ok: false,
+        runResult: {
+          ok: false,
+          output: 'verification crashed',
+          verification: {
+            ok: false,
+            isSystemError: true,
+          },
+        },
+      });
+      expect(result.status).toBe('failed_system_internal');
+      expect(result.failureKind).toBe('system_internal');
     });
   });
 });

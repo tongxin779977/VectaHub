@@ -93,6 +93,10 @@ export interface RecoveryExecutionSummary {
   runResult?: {
     ok?: boolean;
     output?: string;
+    verification?: {
+      ok: boolean;
+      isSystemError?: boolean;
+    };
   };
   error?: string;
 }
@@ -157,6 +161,21 @@ export function decideRecovery(input: DocTaskRecoveryInput): RecoveryDecision {
       canReusePreviousCommand: false,
     };
   }
+}
+
+export function decideRecoveryWithHashGuard(input: DocTaskRecoveryInput): RecoveryDecision {
+  if (input.previousInstructionHash !== undefined && input.currentInstructionHash === undefined) {
+    return {
+      kind: 'blocked',
+      mode: 'manual_only',
+      reason: 'instruction-hash-unavailable',
+      summary: '无法确认当前任务定义是否变化，已保守阻断恢复以避免使用过期上下文。',
+      suggestedActions: ['确认文档可读且边界可预推导', '重新解析文档后再重试恢复'],
+      needsNewTrace: false,
+      canReusePreviousCommand: false,
+    };
+  }
+  return decideRecovery(input);
 }
 
 function decideRecoveryInner(input: DocTaskRecoveryInput): RecoveryDecision {
@@ -391,6 +410,13 @@ export function classifyRecoveryOutcome(summary: RecoveryExecutionSummary): Reco
       status: failureKindToStatus(normalizedKind),
       failureKind: normalizedKind,
     };
+  }
+
+  if (summary.runResult?.verification && !summary.runResult.verification.ok) {
+    if (summary.runResult.verification.isSystemError) {
+      return { status: 'failed_system_internal', failureKind: 'system_internal' };
+    }
+    return { status: 'failed_test', failureKind: 'test' };
   }
 
   const mergedText = `${summary.runResult?.output ?? ''}\n${summary.error ?? ''}`.toLowerCase();

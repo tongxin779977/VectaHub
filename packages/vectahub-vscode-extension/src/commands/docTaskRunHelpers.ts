@@ -55,7 +55,7 @@ export function setTaskDisplayState(task: DocTask, status: DocTaskRunStatus): vo
   task.status = mapRunStatusToDisplayStatus(status);
 }
 
-async function readCurrentGlobalConfigDigest(): Promise<string | undefined> {
+export async function readCurrentGlobalConfigDigest(): Promise<string | undefined> {
   const envModel = process.env.VECTAHUB_LLM_MODEL?.trim();
   const envTemp = process.env.VECTAHUB_LLM_TEMPERATURE?.trim();
   if (envModel || envTemp) {
@@ -71,6 +71,39 @@ async function readCurrentGlobalConfigDigest(): Promise<string | undefined> {
   } catch {
     return undefined;
   }
+}
+
+export async function computeCurrentInstructionHashForRecovery(input: {
+  taskId: string;
+  label: string;
+  docPath?: string;
+  projectRoot?: string;
+  tool?: string;
+}): Promise<string | undefined> {
+  const { taskId, label, docPath, projectRoot, tool } = input;
+  if (!docPath || !projectRoot || !label) return undefined;
+
+  const docContent = await fsp.readFile(docPath, 'utf8');
+  const globalConfigDigest = await readCurrentGlobalConfigDigest();
+  if (!globalConfigDigest) return undefined;
+
+  const contracts = buildAgentTaskContractSummaries({
+    tasks: [{ id: taskId, label }],
+    docContent,
+    projectRoot,
+  });
+  const contract = contracts.get(taskId);
+  if (!contract) return undefined;
+
+  return computeInstructionHash({
+    taskId,
+    label,
+    docExcerpt: docContent.slice(0, 8000),
+    tool,
+    allowedFiles: contract.allowedFiles,
+    forbiddenFiles: contract.forbiddenFiles,
+    globalConfigDigest,
+  });
 }
 
 export async function applyLatestRunState(

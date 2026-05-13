@@ -94,6 +94,61 @@ describe('recover-task', () => {
     expect(result.status).toBe('failed');
   });
 
+  it('should classify failed recovery with verification failure as test failure', async () => {
+    runTaskMock.mockResolvedValueOnce({
+      success: false,
+      output: 'agent completed but tests failed',
+      command: 'aider --message "test"',
+      verification: {
+        ok: false,
+        commands: [],
+      },
+    });
+
+    const result = await recoverTask({
+      runId: 'run-failed-test',
+      taskId: 'task-test',
+      taskLabel: 'Fix verification',
+      tool: 'aider',
+      sourceFailureKind: 'timeout',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.failureKind).toBe('test');
+    expect(result.status).toBe('failed');
+  });
+
+  it('should classify failed recovery with verification system error as system_internal', async () => {
+    type VerificationWithSystemFlag = {
+      ok: boolean;
+      commands: Array<{ command: string; passed: boolean; output?: string }>;
+      isSystemError?: boolean;
+    };
+
+    runTaskMock.mockResolvedValueOnce({
+      success: false,
+      output: 'verification could not run',
+      command: 'aider --message "test"',
+      verification: {
+        ok: false,
+        commands: [],
+        isSystemError: true,
+      } as VerificationWithSystemFlag,
+    });
+
+    const result = await recoverTask({
+      runId: 'run-failed-system',
+      taskId: 'task-system',
+      taskLabel: 'Fix verification system error',
+      tool: 'aider',
+      sourceFailureKind: 'timeout',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.failureKind).toBe('system_internal');
+    expect(result.status).toBe('failed');
+  });
+
   it('should block recovery for config failure', async () => {
     const result = await recoverTask({
       runId: 'run-failed-003',
@@ -200,6 +255,24 @@ describe('recover-task', () => {
       taskLabel: 'Hash drift task',
       tool: 'aider',
       sourceFailureKind: 'timeout',
+      previousInstructionHash: 'old-hash',
+      currentInstructionHash: 'new-hash',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.decision.kind).toBe('blocked');
+    expect(result.decision.reason).toBe('instruction-changed');
+    expect(runTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('should block hash drift before using plugin-precomputed decision', async () => {
+    const result = await recoverTask({
+      runId: 'run-failed-013',
+      taskId: 'task-013',
+      taskLabel: 'Hash drift with precomputed retry',
+      tool: 'aider',
+      sourceFailureKind: 'timeout',
+      decisionKind: 'retry_direct',
       previousInstructionHash: 'old-hash',
       currentInstructionHash: 'new-hash',
     });
