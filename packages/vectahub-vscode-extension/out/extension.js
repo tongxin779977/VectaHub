@@ -68,6 +68,7 @@ const syncAndFixCi_js_1 = require("./commands/syncAndFixCi.js");
 const startDevServer_js_1 = require("./commands/startDevServer.js");
 const stopRunningTask_js_1 = require("./commands/stopRunningTask.js");
 const runDocTasks_js_1 = require("./commands/runDocTasks.js");
+const recoverDocTask_js_1 = require("./commands/recoverDocTask.js");
 function getGlobalCliPath() {
     return (0, readiness_js_1.getResolvedCliPath)();
 }
@@ -100,6 +101,7 @@ async function activate(context) {
     (0, startDevServer_js_1.registerStartDevServerCommand)(context, tasksProvider);
     (0, stopRunningTask_js_1.registerStopRunningTaskCommand)(context, tasksProvider);
     (0, runDocTasks_js_1.registerDocTaskCommands)(context, tasksProvider);
+    (0, recoverDocTask_js_1.registerRecoverDocTaskCommand)(context, tasksProvider);
     context.subscriptions.push(vscode.commands.registerCommand('vectahub.getDiagnostics', (args) => {
         const all = (0, diagnostic_bridge_js_1.collectAllDiagnostics)();
         const filtered = (0, diagnostic_bridge_js_1.filterDiagnostics)(all, args?.file, args?.severity);

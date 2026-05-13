@@ -135,6 +135,9 @@ function applyVerificationToRunRecord(runRecord, verification) {
     };
 }
 function resolveVerificationStatus(changedFiles, verification) {
+    if (verification?.isSystemError) {
+        return { status: 'failed_system_internal', failureKind: 'system_internal' };
+    }
     if (verification && !verification.ok) {
         return { status: 'failed_test', failureKind: 'test' };
     }
@@ -191,7 +194,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                         docContent = await fs_1.promises.readFile(docPath, 'utf8');
                     }
                     catch { /* ignore */ }
-                    const tasksWithState = await (0, docTaskRunHelpers_js_1.applyLatestRunState)(runStore, result.data.tasks, warnRunStore, docContent);
+                    const tasksWithState = await (0, docTaskRunHelpers_js_1.applyLatestRunState)(runStore, result.data.tasks, warnRunStore, docContent, workspaceRoot);
                     tasksProvider.setDocTasks(tasksWithState);
                     (0, output_js_1.logToOutput)(`解析完成，共 ${tasksWithState.length} 个任务`);
                     vscode.window.showInformationMessage(`解析完成，共 ${tasksWithState.length} 个任务`);
@@ -386,7 +389,17 @@ function registerDocTaskCommands(context, tasksProvider) {
                         if (docPath) {
                             try {
                                 const docContentForHash = await fs_1.promises.readFile(docPath, 'utf8');
-                                runRecord.instructionHash = (0, docTaskRunStore_js_2.computeInstructionHash)(task.id, task.label, docContentForHash.slice(0, 8000));
+                                const resultContract = result.data?.agentTaskContract;
+                                const hashContract = resultContract;
+                                runRecord.instructionHash = (0, docTaskRunStore_js_2.computeInstructionHash)({
+                                    taskId: task.id,
+                                    label: task.label,
+                                    docExcerpt: docContentForHash.slice(0, 8000),
+                                    tool: agentCli || undefined,
+                                    allowedFiles: hashContract?.allowedFiles,
+                                    forbiddenFiles: hashContract?.forbiddenFiles,
+                                    globalConfigDigest: resultContract?.globalConfigDigest,
+                                });
                             }
                             catch { /* ignore */ }
                         }

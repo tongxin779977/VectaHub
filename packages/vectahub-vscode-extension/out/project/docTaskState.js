@@ -8,6 +8,7 @@ const FAILED_STATUS_BY_KIND = {
     json_protocol: 'failed_json_protocol',
     timeout: 'failed_timeout',
     conflict: 'failed_conflict',
+    system_internal: 'failed_system_internal',
     cancelled: 'cancelled'
 };
 function includesAny(text, keywords) {
@@ -37,6 +38,19 @@ function classifyDocTaskFailure(input) {
         '冲突标记'
     ])) {
         return { kind: 'conflict', status: FAILED_STATUS_BY_KIND.conflict };
+    }
+    if (includesAny(text, [
+        'eio',
+        'io error',
+        'input/output error',
+        'emfile',
+        'enfile',
+        'stream destroyed',
+        'verification tool missing',
+        'spawn ',
+        'unknown system error',
+    ])) {
+        return { kind: 'system_internal', status: FAILED_STATUS_BY_KIND.system_internal };
     }
     if (includesAny(text, [
         'llm not configured',

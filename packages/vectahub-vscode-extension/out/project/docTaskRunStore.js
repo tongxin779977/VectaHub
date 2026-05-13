@@ -52,10 +52,10 @@ const RECENT_DAYS = 7;
  * Compute a stable SHA-256 hash of the task instruction.
  * Mirrors src/commands/agent-task-contract.ts computeInstructionHash exactly.
  */
-function computeInstructionHash(taskId, label, docExcerpt, tool, allowedFiles, forbiddenFiles) {
-    const sortedAllowed = [...(allowedFiles ?? [])].sort().join(',');
-    const sortedForbidden = [...(forbiddenFiles ?? [])].sort().join(',');
-    const content = `${taskId}\n${label}\n${docExcerpt}\ntool=${tool ?? ''}\nallowed=${sortedAllowed}\nforbidden=${sortedForbidden}`;
+function computeInstructionHash(contract) {
+    const sortedAllowed = [...(contract.allowedFiles ?? [])].sort().join(',');
+    const sortedForbidden = [...(contract.forbiddenFiles ?? [])].sort().join(',');
+    const content = `${contract.taskId}\n${contract.label}\n${contract.docExcerpt}\ntool=${contract.tool ?? ''}\nallowed=${sortedAllowed}\nforbidden=${sortedForbidden}\nconfig=${contract.globalConfigDigest ?? ''}`;
     return (0, crypto_1.createHash)('sha256').update(content, 'utf-8').digest('hex').slice(0, 16);
 }
 function djb2Hash(input) {
