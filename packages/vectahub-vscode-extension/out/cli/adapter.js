@@ -50,6 +50,7 @@ const output_js_1 = require("../ui/output.js");
 const path_1 = __importDefault(require("path"));
 const os_1 = require("os");
 const process_manager_js_1 = require("./process-manager.js");
+const index_js_1 = require("../trace/index.js");
 let globalContext;
 function initCliAdapter(context) {
     globalContext = context;
@@ -82,6 +83,15 @@ function getActiveWorkspaceFolder() {
     return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 }
 async function runCli(args, options = {}) {
+    const baseTraceContext = options.traceContext || (0, index_js_1.createRootTraceContext)();
+    const rootSpan = (0, index_js_1.startSpan)('vscode.cli.spawn', {
+        context: baseTraceContext,
+        source: 'vscode',
+        attributes: {
+            command: args[0] || '',
+            argsCount: args.length,
+        }
+    });
     const cliPath = getActualCliPath();
     const { cmd: spawnCmd, extraArgs: spawnExtra } = parseCliPath(cliPath);
     const spawnArgs = [...spawnExtra, ...args];
@@ -93,7 +103,8 @@ async function runCli(args, options = {}) {
         VECTAHUB_NON_INTERACTIVE: '1',
         VECTAHUB_HOME: vectahubHome,
         VECTAHUB_CLI_PATH: cliPath,
-        ...options.env
+        ...options.env,
+        ...(0, index_js_1.createCliTraceEnv)(baseTraceContext, rootSpan.spanId)
     };
     (0, output_js_1.logToOutput)(`Running CLI: ${cliPath} ${args.join(' ')}`);
     return new Promise((resolve) => {
@@ -130,6 +141,17 @@ async function runCli(args, options = {}) {
         });
         options.token?.onCancellationRequested(() => {
             child.kill();
+            const cancelled = new Error('Command was cancelled by user');
+            void (0, index_js_1.startSpan)('vscode.cli.cancel', {
+                context: baseTraceContext,
+                parentSpanId: rootSpan.spanId,
+                source: 'vscode',
+            }).fail(cancelled, { command: args[0] || '' });
+            void rootSpan.fail(cancelled, {
+                exitCode: null,
+                stdoutLength: stdout.length,
+                stderrLength: stderr.length,
+            });
             resolve({
                 ok: false,
                 stdout,
@@ -144,8 +166,14 @@ async function runCli(args, options = {}) {
             let ok = code === 0;
             let error;
             if (isJson && stdout.trim()) {
+                const parseSpan = (0, index_js_1.startSpan)('vscode.cli.parseJson', {
+                    context: baseTraceContext,
+                    parentSpanId: rootSpan.spanId,
+                    source: 'vscode',
+                });
                 const parsed = parseCliJsonOutput(stdout.trim());
                 if (parsed.ok) {
+                    void parseSpan.end({ stdoutLength: stdout.length });
                     data = parsed.data;
                     if (data && typeof data === 'object' && 'ok' in data) {
                         const jsonResult = data;
@@ -164,6 +192,7 @@ async function runCli(args, options = {}) {
                     }
                 }
                 else {
+                    void parseSpan.fail(parsed.error, { stdoutLength: stdout.length });
                     const parseError = parsed.error;
                     (0, output_js_1.logToOutput)(`Failed to parse JSON output: ${parseError.message}`, 'error');
                     if (ok) {
@@ -171,6 +200,18 @@ async function runCli(args, options = {}) {
                         error = { code: 'INVALID_JSON', message: 'Failed to parse CLI JSON output', details: parseError.message };
                     }
                 }
+            }
+            const rootAttrs = {
+                exitCode: code,
+                stdoutLength: stdout.length,
+                stderrLength: stderr.length,
+                durationMs: undefined,
+            };
+            if (ok) {
+                void rootSpan.end(rootAttrs);
+            }
+            else {
+                void rootSpan.fail(error?.message || 'CLI command failed', rootAttrs);
             }
             resolve({
                 ok,
@@ -183,6 +224,16 @@ async function runCli(args, options = {}) {
         });
         child.on('error', (err) => {
             (0, output_js_1.logToOutput)(`CLI Spawn Error: ${err.message}`, 'error');
+            void (0, index_js_1.startSpan)('vscode.cli.spawnError', {
+                context: baseTraceContext,
+                parentSpanId: rootSpan.spanId,
+                source: 'vscode',
+            }).fail(err, { command: args[0] || '' });
+            void rootSpan.fail(err, {
+                exitCode: null,
+                stdoutLength: 0,
+                stderrLength: err.message.length,
+            });
             resolve({
                 ok: false,
                 stdout: '',

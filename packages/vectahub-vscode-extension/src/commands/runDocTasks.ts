@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { runCli } from '../cli/adapter.js';
 import { logToOutput } from '../ui/output.js';
 import { DocTask, TasksViewProvider } from '../views/tasksView.js';
+import { createRootTraceContext, startSpan } from '../trace/index.js';
 
 interface ParseDocResult {
   ok: boolean;
@@ -188,6 +189,17 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
       }
 
       try {
+        const traceContext = createRootTraceContext();
+        const singleSpan = startSpan('vscode.docTask.runSingle', {
+          context: traceContext,
+          source: 'vscode',
+          attributes: {
+            taskId: task.id,
+            taskLabel: task.label,
+            status: 'started',
+            agentCli: agentCli || '',
+          },
+        });
         await vscode.window.withProgress({
           location: vscode.ProgressLocation.Notification,
           title: `正在执行任务 ${task.id}: ${task.label}`,
@@ -197,7 +209,8 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
 
           const result = await runCli<RunTaskResult>(args, {
             timeout: 600000,
-            token
+            token,
+            traceContext: { traceId: traceContext.traceId, parentSpanId: singleSpan.spanId, source: 'vscode' },
           });
 
           if (result.ok) {
@@ -206,10 +219,22 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
             if (output) {
               logToOutput(output);
             }
+            await singleSpan.end({
+              taskId: task.id,
+              taskLabel: task.label,
+              status: 'success',
+              agentCli: agentCli || '',
+            });
             vscode.window.showInformationMessage(`任务 ${task.id} 执行成功`);
           } else {
             const errMsg = result.data?.error || result.data?.output || result.error?.message || '执行失败';
             logToOutput(`任务 ${task.id} 执行失败: ${errMsg}`, 'error');
+            await singleSpan.fail(new Error(errMsg), {
+              taskId: task.id,
+              taskLabel: task.label,
+              status: 'failed',
+              agentCli: agentCli || '',
+            });
             vscode.window.showErrorMessage(`任务 ${task.id} 执行失败: ${errMsg}`);
           }
         });
@@ -264,6 +289,18 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
 
       if (confirm !== '确认启动') return;
 
+      const batchTraceContext = createRootTraceContext();
+      const batchSpan = startSpan('vscode.docTask.runBatch', {
+        context: batchTraceContext,
+        source: 'vscode',
+        attributes: {
+          taskId: 'batch',
+          taskLabel: `count:${tasks.length}`,
+          status: 'started',
+          agentCli: agentCli || '',
+        },
+      });
+
       tasksProvider.setIsBatchRunning(true);
 
       const queue = [...tasks];
@@ -300,6 +337,17 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
 
         async function runSingleTask(task: DocTask): Promise<void> {
           if (cancelled) return;
+          const taskSpan = startSpan('vscode.docTask.runSingle', {
+            context: batchTraceContext,
+            parentSpanId: batchSpan.spanId,
+            source: 'vscode',
+            attributes: {
+              taskId: task.id,
+              taskLabel: task.label,
+              status: 'running',
+              agentCli: agentCli || '',
+            },
+          });
 
           task.status = 'running';
           tasksProvider.refresh();
@@ -315,17 +363,30 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
           try {
             const result = await runCli<RunTaskResult>(args, {
               timeout: 600000,
-              token
+              token,
+              traceContext: { traceId: batchTraceContext.traceId, parentSpanId: taskSpan.spanId, source: 'vscode' },
             });
 
             if (result.ok) {
               task.status = 'success';
+              await taskSpan.end({
+                taskId: task.id,
+                taskLabel: task.label,
+                status: 'success',
+                agentCli: agentCli || '',
+              });
               updateProgress(task.id, '完成');
             } else {
               task.status = 'failed';
               failedCount++;
               const errMsg = result.data?.error || result.data?.output || '执行失败';
               logToOutput(`[batch] 任务 ${task.id} 失败: ${errMsg}`, 'error');
+              await taskSpan.fail(new Error(errMsg), {
+                taskId: task.id,
+                taskLabel: task.label,
+                status: 'failed',
+                agentCli: agentCli || '',
+              });
               updateProgress(task.id, '失败');
             }
           } catch (err) {
@@ -333,6 +394,12 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
             failedCount++;
             const errMsg = err instanceof Error ? err.message : String(err);
             logToOutput(`[batch] 任务 ${task.id} 异常: ${errMsg}`, 'error');
+            await taskSpan.fail(err, {
+              taskId: task.id,
+              taskLabel: task.label,
+              status: 'failed',
+              agentCli: agentCli || '',
+            });
             updateProgress(task.id, '异常');
           } finally {
             completedCount++;
@@ -370,10 +437,28 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
         logToOutput(`[batch] ${msg}`);
 
         if (cancelled) {
+          await batchSpan.fail(new Error('Command was cancelled by user'), {
+            taskId: 'batch',
+            taskLabel: `count:${tasks.length}`,
+            status: 'cancelled',
+            agentCli: agentCli || '',
+          });
           vscode.window.showWarningMessage(`批量执行已取消 (${successCount} 成功, ${failedCount} 失败)`);
         } else if (failedCount === 0) {
+          await batchSpan.end({
+            taskId: 'batch',
+            taskLabel: `count:${tasks.length}`,
+            status: 'success',
+            agentCli: agentCli || '',
+          });
           vscode.window.showInformationMessage(msg);
         } else {
+          await batchSpan.fail(new Error(msg), {
+            taskId: 'batch',
+            taskLabel: `count:${tasks.length}`,
+            status: 'failed',
+            agentCli: agentCli || '',
+          });
           vscode.window.showWarningMessage(msg);
         }
       });

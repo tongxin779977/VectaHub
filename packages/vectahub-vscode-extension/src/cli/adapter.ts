@@ -7,6 +7,7 @@ import { logToOutput } from '../ui/output.js';
 import path from 'path';
 import { homedir } from 'os';
 import { ProcessManager } from './process-manager.js';
+import { createCliTraceEnv, createRootTraceContext, startSpan } from '../trace/index.js';
 
 let globalContext: vscode.ExtensionContext;
 
@@ -45,6 +46,15 @@ export function getActiveWorkspaceFolder(): string | undefined {
 }
 
 export async function runCli<T = unknown>(args: string[], options: CliOptions = {}): Promise<CliResult<T>> {
+  const baseTraceContext = options.traceContext || createRootTraceContext();
+  const rootSpan = startSpan('vscode.cli.spawn', {
+    context: baseTraceContext,
+    source: 'vscode',
+    attributes: {
+      command: args[0] || '',
+      argsCount: args.length,
+    }
+  });
   const cliPath = getActualCliPath();
   
   const { cmd: spawnCmd, extraArgs: spawnExtra } = parseCliPath(cliPath);
@@ -60,7 +70,8 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
     VECTAHUB_NON_INTERACTIVE: '1',
     VECTAHUB_HOME: vectahubHome,
     VECTAHUB_CLI_PATH: cliPath,
-    ...options.env
+    ...options.env,
+    ...createCliTraceEnv(baseTraceContext, rootSpan.spanId)
   };
 
   logToOutput(`Running CLI: ${cliPath} ${args.join(' ')}`);
@@ -105,6 +116,17 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
 
     options.token?.onCancellationRequested(() => {
       child.kill();
+      const cancelled = new Error('Command was cancelled by user');
+      void startSpan('vscode.cli.cancel', {
+        context: baseTraceContext,
+        parentSpanId: rootSpan.spanId,
+        source: 'vscode',
+      }).fail(cancelled, { command: args[0] || '' });
+      void rootSpan.fail(cancelled, {
+        exitCode: null,
+        stdoutLength: stdout.length,
+        stderrLength: stderr.length,
+      });
       resolve({
         ok: false,
         stdout,
@@ -121,8 +143,14 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
       let error: CliResult['error'];
 
       if (isJson && stdout.trim()) {
+        const parseSpan = startSpan('vscode.cli.parseJson', {
+          context: baseTraceContext,
+          parentSpanId: rootSpan.spanId,
+          source: 'vscode',
+        });
         const parsed = parseCliJsonOutput<T>(stdout.trim());
         if (parsed.ok) {
+          void parseSpan.end({ stdoutLength: stdout.length });
           data = parsed.data;
           if (data && typeof data === 'object' && 'ok' in data) {
             const jsonResult = data as { ok?: boolean; status?: string; error?: string | { code?: string; message?: string } };
@@ -138,6 +166,7 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
             }
           }
         } else {
+          void parseSpan.fail(parsed.error, { stdoutLength: stdout.length });
           const parseError = parsed.error;
           logToOutput(`Failed to parse JSON output: ${parseError.message}`, 'error');
           if (ok) {
@@ -145,6 +174,18 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
             error = { code: 'INVALID_JSON', message: 'Failed to parse CLI JSON output', details: parseError.message };
           }
         }
+      }
+
+      const rootAttrs = {
+        exitCode: code,
+        stdoutLength: stdout.length,
+        stderrLength: stderr.length,
+        durationMs: undefined as unknown,
+      };
+      if (ok) {
+        void rootSpan.end(rootAttrs);
+      } else {
+        void rootSpan.fail(error?.message || 'CLI command failed', rootAttrs);
       }
 
       resolve({
@@ -159,6 +200,16 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
 
     child.on('error', (err) => {
       logToOutput(`CLI Spawn Error: ${err.message}`, 'error');
+      void startSpan('vscode.cli.spawnError', {
+        context: baseTraceContext,
+        parentSpanId: rootSpan.spanId,
+        source: 'vscode',
+      }).fail(err, { command: args[0] || '' });
+      void rootSpan.fail(err, {
+        exitCode: null,
+        stdoutLength: 0,
+        stderrLength: err.message.length,
+      });
       resolve({
         ok: false,
         stdout: '',

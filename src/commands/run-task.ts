@@ -8,6 +8,7 @@ import { AGENT_CMD_GENERATOR_ID } from '../nl/prompt-manager.js';
 import { getToolCacheManager } from '../cli-tools/discovery/cache-manager.js';
 import { getSecurityManager } from '../security-protocol/manager.js';
 import { audit } from '../infrastructure/audit/index.js';
+import { createChildEnv, getTraceContextFromEnv, startSpan, withSpan } from '../infrastructure/trace/index.js';
 
 const execFileAsync = promisify(execFile);
 const logger = getLogger('run-task');
@@ -46,6 +47,7 @@ const NOISY_OUTPUT_PATTERNS = [
   /.*FetchError\d*:.*/i,
   /\s*(config|response|error):\s*\{.*/i,
 ];
+const TRACE_TEXT_MAX_LENGTH = 500;
 
 interface GeneratedCommand {
   command: string;
@@ -175,6 +177,11 @@ function truncateAtLineBoundary(output: string, maxLength: number): string {
   return `${output.slice(0, cutIndex).trimEnd()}${TRUNCATED_OUTPUT_MARKER}`;
 }
 
+function limitText(value: string): string {
+  if (value.length <= TRACE_TEXT_MAX_LENGTH) return value;
+  return `${value.slice(0, TRACE_TEXT_MAX_LENGTH)}...`;
+}
+
 export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
   const compacted = compactAgentOutput(result.output);
   const jsonResult: RunTaskJsonResult = {
@@ -203,96 +210,203 @@ export async function runTask(options: {
   dryRun?: boolean;
 }): Promise<RunTaskResult> {
   const { tool, taskId, taskLabel, doc, dryRun } = options;
+  const baseAttributes = { taskId, tool, dryRun: Boolean(dryRun) };
+  const incomingContext = getTraceContextFromEnv();
 
-  const llmConfig = createLLMConfig();
-  if (!llmConfig) {
-    throw new Error('LLM 未配置，请先运行 vectahub setup 配置 AI 提供商');
-  }
+  return withSpan('cli.run-task', async (rootSpan) => {
+    const traceContext = { traceId: rootSpan.traceId, source: 'cli' as const };
 
-  const cacheManager = getToolCacheManager();
-  const cacheEntry = await cacheManager.discoverToolHelp(tool);
+    const llmConfig = await withSpan('cli.run-task.loadLlmConfig', async () => {
+      const config = createLLMConfig();
+      if (!config) {
+        throw new Error('LLM 未配置，请先运行 vectahub setup 配置 AI 提供商');
+      }
+      return config;
+    }, { context: traceContext, parentSpanId: rootSpan.spanId, source: 'cli', attributes: baseAttributes });
 
-  const client = new LLMClient(llmConfig);
-  const docPath = doc ? resolve(doc) : '(未指定文档)';
-  const label = taskLabel || `任务 ${taskId}`;
+    const cacheManager = getToolCacheManager();
+    const discoverSpan = startSpan('cli.run-task.discoverToolHelp', {
+      context: traceContext,
+      parentSpanId: rootSpan.spanId,
+      source: 'cli',
+      attributes: baseAttributes,
+    });
+    const cacheEntry = await cacheManager.discoverToolHelp(tool);
+    await discoverSpan.end({ helpLength: cacheEntry.helpOutput.length });
 
-  const rawOutput = await client.completeRaw(AGENT_CMD_GENERATOR_ID, `任务 ${taskId}: ${label}，请基于工具用法生成执行命令。`, {
-    toolName: tool,
-    helpOutput: cacheEntry.helpOutput,
-    taskId,
-    taskLabel: label,
-    docPath,
-  });
+    const client = new LLMClient(llmConfig);
+    const docPath = doc ? resolve(doc) : '(未指定文档)';
+    const label = taskLabel || `任务 ${taskId}`;
 
-  let generated: GeneratedCommand;
-  try {
-    const cleaned = rawOutput.trim();
-    const jsonStr = extractOutermostJson(cleaned);
-    if (!jsonStr) {
-      throw new Error('LLM 输出中未找到有效的 JSON');
+    let fallbackUsed = false;
+    const generateSpan = startSpan('cli.run-task.generateCommand', {
+      context: traceContext,
+      parentSpanId: rootSpan.spanId,
+      source: 'cli',
+      attributes: baseAttributes,
+    });
+    let rawOutput = '';
+    try {
+      rawOutput = await client.completeRaw(AGENT_CMD_GENERATOR_ID, `任务 ${taskId}: ${label}，请基于工具用法生成执行命令。`, {
+        toolName: tool,
+        helpOutput: cacheEntry.helpOutput,
+        taskId,
+        taskLabel: label,
+        docPath,
+      });
+    } catch (error) {
+      await generateSpan.fail(error, { fallbackUsed: false, command: '' });
+      throw error;
     }
-    generated = JSON.parse(jsonStr) as GeneratedCommand;
-  } catch (parseError) {
-    logger.warn(`LLM 命令生成失败，使用默认提示词模式。原始输出: ${rawOutput.substring(0, 200)}`);
-    generated = {
-      command: tool,
-      args: ['--message', buildDefaultPrompt(taskId, label, docPath)],
-      explanation: '使用默认提示词模板',
-    };
-  }
 
-  const fullCommand = buildCommandString(generated.command, generated.args);
+    let generated: GeneratedCommand;
+    try {
+      const cleaned = rawOutput.trim();
+      const jsonStr = extractOutermostJson(cleaned);
+      if (!jsonStr) {
+        throw new Error('LLM 输出中未找到有效的 JSON');
+      }
+      generated = JSON.parse(jsonStr) as GeneratedCommand;
+    } catch {
+      fallbackUsed = true;
+      logger.warn(`LLM 命令生成失败，使用默认提示词模式。原始输出: ${rawOutput.substring(0, 200)}`);
+      generated = {
+        command: tool,
+        args: ['--message', buildDefaultPrompt(taskId, label, docPath)],
+        explanation: '使用默认提示词模板',
+      };
+    }
 
-  const securityManager = getSecurityManager();
-  const detectionResult = securityManager.detectCommand(fullCommand, generated.command);
-  if (detectionResult.isDangerous) {
-    const ruleName = detectionResult.rule?.name || 'Unknown Rule';
-    logger.error(`安全策略拦截: 命令匹配规则 "${ruleName}" (severity: ${detectionResult.severity})`);
-    logger.error(`匹配模式: ${detectionResult.matchedPattern}`);
-    audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'BLOCKED', 'run-task');
-    return { success: false, output: `安全策略拦截: ${ruleName}`, command: fullCommand };
-  }
+    const fullCommand = buildCommandString(generated.command, generated.args);
+    await generateSpan.end({
+      fallbackUsed,
+      command: limitText(fullCommand),
+    });
 
-  audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'EXECUTING', 'run-task');
+    const securityManager = getSecurityManager();
+    const securitySpan = startSpan('cli.run-task.securityCheck', {
+      context: traceContext,
+      parentSpanId: rootSpan.spanId,
+      source: 'cli',
+      attributes: baseAttributes,
+    });
+    const detectionResult = securityManager.detectCommand(fullCommand, generated.command);
+    await securitySpan.end({
+      dangerous: Boolean(detectionResult.isDangerous),
+      severity: detectionResult.severity || 'none',
+      ruleName: detectionResult.rule?.name || '',
+      command: limitText(fullCommand),
+      fallbackUsed,
+    });
+    if (detectionResult.isDangerous) {
+      const ruleName = detectionResult.rule?.name || 'Unknown Rule';
+      logger.error(`安全策略拦截: 命令匹配规则 "${ruleName}" (severity: ${detectionResult.severity})`);
+      logger.error(`匹配模式: ${detectionResult.matchedPattern}`);
+      audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'BLOCKED', 'run-task');
+      return { success: false, output: `安全策略拦截: ${ruleName}`, command: fullCommand };
+    }
 
-  if (dryRun) {
-    logger.info(`[dry-run] 将执行: ${fullCommand}`);
+    audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'EXECUTING', 'run-task');
+
+    if (dryRun) {
+      logger.info(`[dry-run] 将执行: ${fullCommand}`);
+      if (generated.explanation) {
+        logger.info(`说明: ${generated.explanation}`);
+      }
+      return { success: true, output: '', command: fullCommand };
+    }
+
+    logger.info(`执行: ${fullCommand}`);
     if (generated.explanation) {
       logger.info(`说明: ${generated.explanation}`);
     }
-    return { success: true, output: '', command: fullCommand };
-  }
 
-  logger.info(`执行: ${fullCommand}`);
-  if (generated.explanation) {
-    logger.info(`说明: ${generated.explanation}`);
-  }
+    try {
+      const spawnEnv = createChildEnv(traceContext, rootSpan.spanId);
+      const spawnSpan = startSpan('cli.run-task.spawnAgent', {
+        context: traceContext,
+        parentSpanId: rootSpan.spanId,
+        source: 'cli',
+        attributes: {
+          ...baseAttributes,
+          fallbackUsed,
+          command: limitText(fullCommand),
+          timeoutMs: agentCliTimeout,
+        },
+      });
+      const { stdout, stderr } = await execFileAsync(generated.command, generated.args, {
+        timeout: agentCliTimeout,
+        cwd: process.cwd(),
+        env: {
+          ...stripIDEEnv(),
+          ...spawnEnv,
+        },
+      });
+      await spawnSpan.end({
+        stdoutLength: stdout.length,
+        stderrLength: stderr?.length || 0,
+        exitCode: 0,
+      });
 
-  try {
-    const { stdout, stderr } = await execFileAsync(generated.command, generated.args, {
-      timeout: agentCliTimeout,
-      cwd: process.cwd(),
-      env: stripIDEEnv(),
-    });
+      const combinedOutput = stdout + (stderr ? '\n' + stderr : '');
+      const collectSpan = startSpan('cli.run-task.collectGitChanges', {
+        context: traceContext,
+        parentSpanId: rootSpan.spanId,
+        source: 'cli',
+        attributes: baseAttributes,
+      });
+      const gitChanges = await collectGitChanges() ?? undefined;
+      await collectSpan.end({ changedFileCount: gitChanges?.changedFiles.length || 0 });
+      await withSpan('cli.run-task.formatJson', async () => {
+        formatRunTaskJson({ success: true, output: combinedOutput, command: fullCommand, gitChanges });
+      }, {
+        context: traceContext,
+        parentSpanId: rootSpan.spanId,
+        source: 'cli',
+        attributes: {
+          ...baseAttributes,
+          command: limitText(fullCommand),
+          fallbackUsed,
+        },
+      });
 
-    const combinedOutput = stdout + (stderr ? '\n' + stderr : '');
-    const gitChanges = await collectGitChanges() ?? undefined;
-    audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'COMPLETED', 'run-task');
-    logger.info('任务执行成功');
-    if (gitChanges) {
-      logger.info(`变更文件: ${gitChanges.changedFiles.length} 个`);
+      audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'COMPLETED', 'run-task');
+      logger.info('任务执行成功');
+      if (gitChanges) {
+        logger.info(`变更文件: ${gitChanges.changedFiles.length} 个`);
+      }
+      return { success: true, output: combinedOutput, command: fullCommand, gitChanges };
+    } catch (error) {
+      const execError = error as any;
+      const errStdout = execError.stdout?.toString?.() || '';
+      const errStderr = execError.stderr?.toString?.() || '';
+      const errOutput = errStdout + (errStderr ? '\n' + errStderr : '') || execError.message || String(error);
+      const spawnFailSpan = startSpan('cli.run-task.spawnAgent', {
+        context: traceContext,
+        parentSpanId: rootSpan.spanId,
+        source: 'cli',
+        attributes: {
+          ...baseAttributes,
+          fallbackUsed,
+          command: limitText(fullCommand),
+          timeoutMs: agentCliTimeout,
+        },
+      });
+      await spawnFailSpan.fail(error, {
+        stdoutLength: errStdout.length,
+        stderrLength: errStderr.length,
+        exitCode: execError.code ?? null,
+      });
+      const gitChanges = await collectGitChanges() ?? undefined;
+      audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'FAILED', 'run-task');
+      logger.error(`任务执行失败: ${errOutput}`);
+      return { success: false, output: errOutput, command: fullCommand, gitChanges };
     }
-    return { success: true, output: combinedOutput, command: fullCommand, gitChanges };
-  } catch (error) {
-    const execError = error as any;
-    const errStdout = execError.stdout?.toString?.() || '';
-    const errStderr = execError.stderr?.toString?.() || '';
-    const errOutput = errStdout + (errStderr ? '\n' + errStderr : '') || execError.message || String(error);
-    const gitChanges = await collectGitChanges() ?? undefined;
-    audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'FAILED', 'run-task');
-    logger.error(`任务执行失败: ${errOutput}`);
-    return { success: false, output: errOutput, command: fullCommand, gitChanges };
-  }
+  }, {
+    context: incomingContext || undefined,
+    source: 'cli',
+    attributes: baseAttributes,
+  });
 }
 
 export const runTaskCmd = new Command('run-task')
