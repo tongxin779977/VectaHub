@@ -44,3 +44,32 @@ export interface DocTask {
   lastTraceId?: string;
   lastFailureKind?: DocTaskFailureKind;
 }
+
+export interface AgentTaskContract {
+  taskId: string;
+  label: string;
+  docPath?: string;
+  docExcerpt?: string;
+  allowedFiles: string[];
+  forbiddenFiles: string[];
+  validationCommands: string[];
+  timeoutMs: number;
+  executionMode: 'serial' | 'parallel-eligible' | 'isolated-required';
+  boundaryConfidence: 'none' | 'low' | 'medium' | 'high';
+  notes?: string[];
+}
+
+export interface AgentTaskBoundary {
+  allowedFiles: string[];
+  forbiddenFiles: string[];
+  validationCommands: string[];
+  boundaryConfidence: 'none' | 'low' | 'medium' | 'high';
+  parallelEligible: boolean;
+  reason?: string;
+}
+
+export interface AgentTaskConcurrencyDecision {
+  mode: 'serial' | 'parallel';
+  reason: string;
+  groups: string[][];
+}

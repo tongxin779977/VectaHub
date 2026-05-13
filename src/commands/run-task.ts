@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { execFile } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { resolve } from 'node:path';
 import { getLogger } from '../utils/logger.js';
@@ -9,6 +10,8 @@ import { getToolCacheManager } from '../cli-tools/discovery/cache-manager.js';
 import { getSecurityManager } from '../security-protocol/manager.js';
 import { audit } from '../infrastructure/audit/index.js';
 import { createChildEnv, getTraceContextFromEnv, startSpan, withSpan } from '../infrastructure/trace/index.js';
+import { deriveAgentTaskBoundary, deriveDocExcerpt } from './agent-task-contract.js';
+import type { AgentTaskContract } from '../types/doc-task.js';
 
 const execFileAsync = promisify(execFile);
 const logger = getLogger('run-task');
@@ -48,6 +51,7 @@ const NOISY_OUTPUT_PATTERNS = [
   /\s*(config|response|error):\s*\{.*/i,
 ];
 const TRACE_TEXT_MAX_LENGTH = 500;
+const PROMPT_CONTRACT_MAX_LENGTH = 12000;
 
 interface GeneratedCommand {
   command: string;
@@ -66,6 +70,7 @@ export interface RunTaskResult {
   output: string;
   command: string;
   gitChanges?: GitChangeInfo;
+  agentTaskContract?: AgentTaskContractSummary;
 }
 
 export interface RunTaskJsonResult {
@@ -73,11 +78,22 @@ export interface RunTaskJsonResult {
   command: string;
   output: string;
   outputTruncated: boolean;
+  agentTaskContract?: AgentTaskContractSummary;
   gitChanges?: {
     shortStat: string;
     changedFiles: string[];
     diffStat: string;
   };
+}
+
+export interface AgentTaskContractSummary {
+  boundaryConfidence: AgentTaskContract['boundaryConfidence'];
+  allowedFiles: string[];
+  forbiddenFiles: string[];
+  validationCommands: string[];
+  executionMode: AgentTaskContract['executionMode'];
+  docExcerptTruncated: boolean;
+  excerptStrategy: 'task-heading' | 'task-id-window' | 'label-window' | 'head-fallback' | 'none';
 }
 
 function extractOutermostJson(str: string): string | null {
@@ -105,13 +121,28 @@ function buildCommandString(command: string, args: string[]): string {
   return [command, ...escaped].join(' ');
 }
 
-function buildDefaultPrompt(taskId: string, taskLabel: string, docPath: string): string {
-  return [
+function buildDefaultPrompt(taskId: string, taskLabel: string, docPath: string, contract: AgentTaskContract): string {
+  const prompt = [
     '请严格按照以下要求实现任务。',
     '',
     `任务编号：${taskId}`,
     `任务描述：${taskLabel}`,
     `参考文档：${docPath}`,
+    '',
+    '任务边界合同：',
+    `文档片段：\n${contract.docExcerpt || '(未提供文档片段，请只根据任务描述执行最小改动)'}`,
+    '',
+    `允许修改范围：${formatListForPrompt(contract.allowedFiles, '未推导出明确文件，请保持最小改动并在输出中说明实际修改文件')}`,
+    `禁止修改范围：${formatListForPrompt(contract.forbiddenFiles, '未配置')}`,
+    `建议验证命令：${formatListForPrompt(contract.validationCommands, 'npm run typecheck')}`,
+    `边界可信度：${contract.boundaryConfidence}`,
+    '',
+    '执行要求：',
+    '- 只围绕当前任务改动。',
+    '- 优先修改允许修改范围内的文件。',
+    '- 不要修改禁止修改范围内的文件。',
+    '- 如果必须越界修改，先在输出中说明原因。',
+    '- 完成后运行或说明建议验证命令。',
     '',
     '执行步骤：',
     `1. 先阅读参考文档 ${docPath}，找到任务 ${taskId} 的详细需求`,
@@ -119,6 +150,11 @@ function buildDefaultPrompt(taskId: string, taskLabel: string, docPath: string):
     '3. 保持与现有代码风格一致',
     '4. 实现完成后，运行项目测试验证功能正确性',
   ].join('\n');
+
+  if (prompt.length <= PROMPT_CONTRACT_MAX_LENGTH) {
+    return prompt;
+  }
+  return `${prompt.slice(0, PROMPT_CONTRACT_MAX_LENGTH).trimEnd()}\n... (prompt contract truncated)`;
 }
 
 export async function collectGitChanges(): Promise<GitChangeInfo | null> {
@@ -182,6 +218,72 @@ function limitText(value: string): string {
   return `${value.slice(0, TRACE_TEXT_MAX_LENGTH)}...`;
 }
 
+function formatListForPrompt(values: string[], emptyText: string): string {
+  if (!values.length) return emptyText;
+  return values.map(value => `\n- ${value}`).join('');
+}
+
+function buildAgentTaskContract(input: {
+  taskId: string;
+  label: string;
+  docPath?: string;
+  projectRoot: string;
+}): AgentTaskContract & { summary: AgentTaskContractSummary } {
+  let docExcerpt = '';
+  let docExcerptTruncated = false;
+  let excerptStrategy: AgentTaskContractSummary['excerptStrategy'] = 'none';
+  const notes: string[] = [];
+
+  if (input.docPath && existsSync(input.docPath)) {
+    const docContent = readFileSync(input.docPath, 'utf-8');
+    const excerpt = deriveDocExcerpt({
+      docContent,
+      taskId: input.taskId,
+      label: input.label,
+    });
+    docExcerpt = excerpt.excerpt;
+    docExcerptTruncated = excerpt.truncated;
+    excerptStrategy = excerpt.strategy;
+  } else if (input.docPath) {
+    notes.push('doc-not-found');
+  } else {
+    notes.push('doc-not-provided');
+  }
+
+  const boundary = deriveAgentTaskBoundary({
+    docExcerpt,
+    label: input.label,
+    projectRoot: input.projectRoot,
+  });
+  const executionMode: AgentTaskContract['executionMode'] = boundary.parallelEligible
+    ? 'parallel-eligible'
+    : 'serial';
+  const contract: AgentTaskContract = {
+    taskId: input.taskId,
+    label: input.label,
+    docPath: input.docPath,
+    docExcerpt,
+    allowedFiles: boundary.allowedFiles,
+    forbiddenFiles: boundary.forbiddenFiles,
+    validationCommands: boundary.validationCommands,
+    timeoutMs: agentCliTimeout,
+    executionMode,
+    boundaryConfidence: boundary.boundaryConfidence,
+    notes: boundary.reason ? [...notes, boundary.reason] : notes,
+  };
+  const summary: AgentTaskContractSummary = {
+    boundaryConfidence: contract.boundaryConfidence,
+    allowedFiles: contract.allowedFiles,
+    forbiddenFiles: contract.forbiddenFiles,
+    validationCommands: contract.validationCommands,
+    executionMode: contract.executionMode,
+    docExcerptTruncated,
+    excerptStrategy,
+  };
+
+  return { ...contract, summary };
+}
+
 export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
   const compacted = compactAgentOutput(result.output);
   const jsonResult: RunTaskJsonResult = {
@@ -197,6 +299,9 @@ export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
       changedFiles: result.gitChanges.changedFiles,
       diffStat: result.gitChanges.diffStat,
     };
+  }
+  if (result.agentTaskContract) {
+    jsonResult.agentTaskContract = result.agentTaskContract;
   }
 
   return jsonResult;
@@ -237,6 +342,34 @@ export async function runTask(options: {
     const client = new LLMClient(llmConfig);
     const docPath = doc ? resolve(doc) : '(未指定文档)';
     const label = taskLabel || `任务 ${taskId}`;
+    const contractSpan = startSpan('cli.run-task.buildAgentTaskContract', {
+      context: traceContext,
+      parentSpanId: rootSpan.spanId,
+      source: 'cli',
+      attributes: baseAttributes,
+    });
+    let agentTaskContract: AgentTaskContract & { summary: AgentTaskContractSummary };
+    try {
+      agentTaskContract = buildAgentTaskContract({
+        taskId,
+        label,
+        docPath: doc ? docPath : undefined,
+        projectRoot: process.cwd(),
+      });
+    } catch (error) {
+      await contractSpan.fail(error);
+      throw error;
+    }
+    const agentTaskContractSummary = agentTaskContract.summary;
+    const { summary: _summary, ...agentTaskContractForPrompt } = agentTaskContract;
+    await contractSpan.end({
+      contractBoundaryConfidence: agentTaskContractSummary.boundaryConfidence,
+      contractAllowedFileCount: agentTaskContractSummary.allowedFiles.length,
+      contractForbiddenFileCount: agentTaskContractSummary.forbiddenFiles.length,
+      contractValidationCommandCount: agentTaskContractSummary.validationCommands.length,
+      contractExcerptStrategy: agentTaskContractSummary.excerptStrategy,
+      contractExcerptTruncated: agentTaskContractSummary.docExcerptTruncated,
+    });
 
     let fallbackUsed = false;
     const generateSpan = startSpan('cli.run-task.generateCommand', {
@@ -247,12 +380,14 @@ export async function runTask(options: {
     });
     let rawOutput = '';
     try {
-      rawOutput = await client.completeRaw(AGENT_CMD_GENERATOR_ID, `任务 ${taskId}: ${label}，请基于工具用法生成执行命令。`, {
+      rawOutput = await client.completeRaw(AGENT_CMD_GENERATOR_ID, `任务 ${taskId}: ${label}，请基于工具用法和任务边界合同生成执行命令。`, {
         toolName: tool,
         helpOutput: cacheEntry.helpOutput,
         taskId,
         taskLabel: label,
         docPath,
+        agentTaskContract: JSON.stringify(agentTaskContractForPrompt),
+        agentTaskContractSummary: JSON.stringify(agentTaskContractSummary),
       });
     } catch (error) {
       await generateSpan.fail(error, { fallbackUsed: false, command: '' });
@@ -272,7 +407,7 @@ export async function runTask(options: {
       logger.warn(`LLM 命令生成失败，使用默认提示词模式。原始输出: ${rawOutput.substring(0, 200)}`);
       generated = {
         command: tool,
-        args: ['--message', buildDefaultPrompt(taskId, label, docPath)],
+        args: ['--message', buildDefaultPrompt(taskId, label, docPath, agentTaskContract)],
         explanation: '使用默认提示词模板',
       };
     }
@@ -303,7 +438,7 @@ export async function runTask(options: {
       logger.error(`安全策略拦截: 命令匹配规则 "${ruleName}" (severity: ${detectionResult.severity})`);
       logger.error(`匹配模式: ${detectionResult.matchedPattern}`);
       audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'BLOCKED', 'run-task');
-      return { success: false, output: `安全策略拦截: ${ruleName}`, command: fullCommand };
+      return { success: false, output: `安全策略拦截: ${ruleName}`, command: fullCommand, agentTaskContract: agentTaskContractSummary };
     }
 
     audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'EXECUTING', 'run-task');
@@ -313,7 +448,7 @@ export async function runTask(options: {
       if (generated.explanation) {
         logger.info(`说明: ${generated.explanation}`);
       }
-      return { success: true, output: '', command: fullCommand };
+      return { success: true, output: '', command: fullCommand, agentTaskContract: agentTaskContractSummary };
     }
 
     logger.info(`执行: ${fullCommand}`);
@@ -375,7 +510,7 @@ export async function runTask(options: {
       if (gitChanges) {
         logger.info(`变更文件: ${gitChanges.changedFiles.length} 个`);
       }
-      return { success: true, output: combinedOutput, command: fullCommand, gitChanges };
+      return { success: true, output: combinedOutput, command: fullCommand, gitChanges, agentTaskContract: agentTaskContractSummary };
     } catch (error) {
       const execError = error as any;
       const errStdout = execError.stdout?.toString?.() || '';
@@ -400,7 +535,7 @@ export async function runTask(options: {
       const gitChanges = await collectGitChanges() ?? undefined;
       audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'FAILED', 'run-task');
       logger.error(`任务执行失败: ${errOutput}`);
-      return { success: false, output: errOutput, command: fullCommand, gitChanges };
+      return { success: false, output: errOutput, command: fullCommand, gitChanges, agentTaskContract: agentTaskContractSummary };
     }
   }, {
     context: incomingContext || undefined,

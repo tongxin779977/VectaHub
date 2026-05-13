@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 vi.mock('../nl/llm.js', () => ({
   createLLMConfig: vi.fn(() => ({ provider: 'openai', model: 'test', apiKey: 'test', baseUrl: 'http://localhost' })),
@@ -82,6 +85,38 @@ describe('runTask', () => {
     expect(result.command).toBeDefined();
     expect(typeof result.command).toBe('string');
     expect(result.command.length).toBeGreaterThan(0);
+  });
+
+  it('should attach agent task contract summary without exposing doc excerpt in JSON', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'vectahub-run-task-'));
+    const docPath = join(tempDir, 'tasks.md');
+    writeFileSync(docPath, [
+      '# Tasks',
+      '## P2-2 接入 run-task contract',
+      '修改 `src/commands/run-task.ts`。',
+      '补充 src/commands/run-task.test.ts 测试。',
+    ].join('\n'));
+
+    try {
+      const result = await runTask({
+        tool: 'aider',
+        taskId: 'P2-2',
+        taskLabel: '接入 run-task contract',
+        doc: docPath,
+        dryRun: true,
+      });
+      const json = formatRunTaskJson(result);
+
+      expect(json.agentTaskContract?.boundaryConfidence).toBe('medium');
+      expect(json.agentTaskContract?.allowedFiles).toEqual([
+        'src/commands/run-task.ts',
+        'src/commands/run-task.test.ts',
+      ]);
+      expect(JSON.stringify(json)).not.toContain('文档片段');
+      expect(JSON.stringify(json)).not.toContain('修改 `src/commands/run-task.ts`');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it('should use default task label when not provided', async () => {
