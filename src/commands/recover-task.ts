@@ -36,6 +36,8 @@ export interface RecoverTaskOptions {
   sourceFailureKind?: string;
   decisionKind?: string;
   command?: string;
+  previousInstructionHash?: string;
+  currentInstructionHash?: string;
   json?: boolean;
 }
 
@@ -49,6 +51,8 @@ export interface RecoverTaskResult {
   recoveryTraceId?: string;
   runResult?: RunTaskResult;
   recoveryRecord?: DocTaskRecoveryRecord;
+  status?: 'planned' | 'running' | 'success' | 'failed' | 'cancelled' | 'blocked';
+  failureKind?: DocTaskFailureKind;
   error?: string;
 }
 
@@ -72,6 +76,8 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
     failureKind,
     status,
     command: options.command,
+    previousInstructionHash: options.previousInstructionHash,
+    currentInstructionHash: options.currentInstructionHash,
   };
 
   // If a specific decision was provided by the plugin (already computed), use it;
@@ -134,6 +140,8 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
       sourceTraceId: options.traceId,
       recoveryTraceId,
       recoveryRecord,
+      status: recoveryRecord.status,
+      failureKind,
       error: decision.summary,
     };
   }
@@ -158,6 +166,8 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
       sourceTraceId: options.traceId,
       recoveryTraceId,
       recoveryRecord,
+      status: recoveryRecord.status,
+      failureKind,
       error: decision.summary,
     };
   }
@@ -206,6 +216,7 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
       }
 
       const success = runResult.success;
+      const failure = success ? undefined : classifyFailureFromRunTaskResult(runResult);
       recoveryRecord.status = success ? 'success' : 'failed';
       recoveryRecord.updatedAt = new Date().toISOString();
       recoveryRecord.endedAt = recoveryRecord.updatedAt;
@@ -225,9 +236,12 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
         recoveryTraceId,
         runResult,
         recoveryRecord,
+        status: recoveryRecord.status,
+        failureKind: failure?.kind,
       };
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
+      const failure = classifyFailureFromErrorMessage(errMsg);
       recoveryRecord.status = 'failed';
       recoveryRecord.updatedAt = new Date().toISOString();
       recoveryRecord.endedAt = recoveryRecord.updatedAt;
@@ -243,6 +257,8 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
         sourceTraceId: options.traceId,
         recoveryTraceId,
         recoveryRecord,
+        status: recoveryRecord.status,
+        failureKind: failure.kind,
         error: errMsg,
       };
     }
@@ -263,6 +279,8 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
     sourceTraceId: options.traceId,
     recoveryTraceId,
     recoveryRecord,
+    status: recoveryRecord.status,
+    failureKind,
     error: `不支持的恢复类型: ${decision.kind}`,
   };
 }
@@ -333,6 +351,50 @@ function buildDecisionFromKind(kind: RecoveryDecisionKind, failureKind: DocTaskF
   return templates[kind];
 }
 
+interface ClassifiedFailure {
+  kind: DocTaskFailureKind;
+  status: DocTaskRunStatus;
+}
+
+function classifyFailureFromRunTaskResult(runResult: RunTaskResult): ClassifiedFailure {
+  return classifyFailureFromErrorMessage(runResult.output);
+}
+
+function classifyFailureFromErrorMessage(errorMessage: string): ClassifiedFailure {
+  const text = errorMessage.toLowerCase();
+  if (text.includes('timeout') || text.includes('timed out') || text.includes('超时')) {
+    return { kind: 'timeout', status: 'failed_timeout' };
+  }
+  if (text.includes('json') && text.includes('parse')) {
+    return { kind: 'json_protocol', status: 'failed_json_protocol' };
+  }
+  if (
+    text.includes('merge conflict')
+    || text.includes('<<<<<<<')
+    || text.includes('>>>>>>>')
+    || text.includes('冲突')
+  ) {
+    return { kind: 'conflict', status: 'failed_conflict' };
+  }
+  if (
+    text.includes('not configured')
+    || text.includes('未配置')
+    || text.includes('permission denied')
+    || text.includes('no such file')
+    || text.includes('eacces')
+    || text.includes('enoent')
+  ) {
+    return { kind: 'config', status: 'failed_config' };
+  }
+  if (text.includes('system') || text.includes('io error') || text.includes('emfile') || text.includes('enfile')) {
+    return { kind: 'system_internal', status: 'failed_system_internal' };
+  }
+  if (text.includes('cancel') || text.includes('取消')) {
+    return { kind: 'cancelled', status: 'cancelled' };
+  }
+  return { kind: 'agent', status: 'failed_agent' };
+}
+
 // ─── CLI Command Registration ────────────────────────────────────────────────
 
 export const recoverTaskCmd = new Command('recover-task')
@@ -346,6 +408,8 @@ export const recoverTaskCmd = new Command('recover-task')
   .option('--source-failure-kind <kind>', '原始失败分类')
   .option('--decision-kind <kind>', '预计算的恢复决策（插件侧已决定）')
   .option('--command <cmd>', '原始执行命令摘要')
+  .option('--previous-instruction-hash <hash>', '原始失败运行的 instructionHash')
+  .option('--current-instruction-hash <hash>', '当前恢复时计算的 instructionHash')
   .option('--json', '以 JSON 格式输出')
   .action(async (options: {
     runId: string;
@@ -357,6 +421,8 @@ export const recoverTaskCmd = new Command('recover-task')
     sourceFailureKind?: string;
     decisionKind?: string;
     command?: string;
+    previousInstructionHash?: string;
+    currentInstructionHash?: string;
     json?: boolean;
   }) => {
     try {
@@ -371,6 +437,8 @@ export const recoverTaskCmd = new Command('recover-task')
           decision: result.decision,
           sourceTraceId: result.sourceTraceId,
           recoveryTraceId: result.recoveryTraceId,
+          status: result.status,
+          failureKind: result.failureKind,
         };
         if (result.runResult) {
           jsonOutput.runResult = formatRunTaskJson(result.runResult);

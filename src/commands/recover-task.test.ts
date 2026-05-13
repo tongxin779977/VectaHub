@@ -29,6 +29,8 @@ describe('recover-task', () => {
   });
 
   it('should handle retry_direct by re-executing the task', async () => {
+    const { createChildEnv } = await import('../infrastructure/trace/index.js');
+    const createChildEnvMock = vi.mocked(createChildEnv);
     runTaskMock.mockResolvedValueOnce({
       success: true,
       output: 'Task completed successfully',
@@ -60,12 +62,20 @@ describe('recover-task', () => {
       taskLabel: 'Implement feature X',
       doc: undefined,
     });
+    expect(createChildEnvMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        traceId: 'tr-recovery-001',
+        parentSpanId: 'span-001',
+        source: 'cli',
+      }),
+      'span-001',
+    );
   });
 
   it('should handle retry_direct failure', async () => {
     runTaskMock.mockResolvedValueOnce({
       success: false,
-      output: 'Agent failed again',
+      output: 'timed out after 10m',
       command: 'aider --message "test"',
     });
 
@@ -80,6 +90,8 @@ describe('recover-task', () => {
     expect(result.ok).toBe(false);
     expect(result.decision.kind).toBe('retry_direct');
     expect(result.recoveryRecord?.status).toBe('failed');
+    expect(result.failureKind).toBe('timeout');
+    expect(result.status).toBe('failed');
   });
 
   it('should block recovery for config failure', async () => {
@@ -181,6 +193,23 @@ describe('recover-task', () => {
     });
   });
 
+  it('should block and skip runTask when instruction hash drift is detected', async () => {
+    const result = await recoverTask({
+      runId: 'run-failed-012',
+      taskId: 'task-012',
+      taskLabel: 'Hash drift task',
+      tool: 'aider',
+      sourceFailureKind: 'timeout',
+      previousInstructionHash: 'old-hash',
+      currentInstructionHash: 'new-hash',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.decision.kind).toBe('blocked');
+    expect(result.decision.reason).toBe('instruction-changed');
+    expect(runTaskMock).not.toHaveBeenCalled();
+  });
+
   it('should handle unknown failure kind as suggest_fix', async () => {
     const result = await recoverTask({
       runId: 'run-failed-008',
@@ -239,5 +268,6 @@ describe('recover-task', () => {
     expect(result.recoveryTraceId).toBe('tr-recovery-001');
     expect(result.recoveryRecord?.sourceTraceId).toBe('tr-source-011');
     expect(result.recoveryRecord?.recoveryTraceId).toBe('tr-recovery-001');
+    expect(result.recoveryRecord?.retryOfRunId).toBe('run-011');
   });
 });

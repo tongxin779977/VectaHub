@@ -86,6 +86,22 @@ export interface DocTaskRecoveryRecord {
   retryOfRunId?: string;
 }
 
+export interface RecoveryExecutionSummary {
+  ok?: boolean;
+  status?: string;
+  failureKind?: string;
+  runResult?: {
+    ok?: boolean;
+    output?: string;
+  };
+  error?: string;
+}
+
+export interface RecoveryOutcomeClassification {
+  status: DocTaskRunStatus;
+  failureKind?: DocTaskFailureKind;
+}
+
 // ─── Build Recovery Input ────────────────────────────────────────────────────
 
 /**
@@ -362,4 +378,58 @@ export function createRecoveryRunId(): string {
  */
 export function isRecoveryEligible(status: DocTaskRunStatus): boolean {
   return status.startsWith('failed_') || status === 'cancelled';
+}
+
+export function classifyRecoveryOutcome(summary: RecoveryExecutionSummary): RecoveryOutcomeClassification {
+  if (summary.runResult?.ok === true || summary.ok === true || summary.status === 'success') {
+    return { status: 'success', failureKind: undefined };
+  }
+
+  const normalizedKind = normalizeFailureKind(summary.failureKind);
+  if (normalizedKind) {
+    return {
+      status: failureKindToStatus(normalizedKind),
+      failureKind: normalizedKind,
+    };
+  }
+
+  const mergedText = `${summary.runResult?.output ?? ''}\n${summary.error ?? ''}`.toLowerCase();
+  if (mergedText.includes('timeout') || mergedText.includes('timed out') || mergedText.includes('超时')) {
+    return { status: 'failed_timeout', failureKind: 'timeout' };
+  }
+  if (mergedText.includes('json') && mergedText.includes('parse')) {
+    return { status: 'failed_json_protocol', failureKind: 'json_protocol' };
+  }
+  if (mergedText.includes('merge conflict') || mergedText.includes('<<<<<<<') || mergedText.includes('>>>>>>>') || mergedText.includes('冲突')) {
+    return { status: 'failed_conflict', failureKind: 'conflict' };
+  }
+  if (mergedText.includes('permission denied') || mergedText.includes('未配置') || mergedText.includes('no such file') || mergedText.includes('eacces') || mergedText.includes('enoent')) {
+    return { status: 'failed_config', failureKind: 'config' };
+  }
+  if (mergedText.includes('io error') || mergedText.includes('system error') || mergedText.includes('emfile') || mergedText.includes('enfile')) {
+    return { status: 'failed_system_internal', failureKind: 'system_internal' };
+  }
+
+  return { status: 'failed_agent', failureKind: 'unknown' };
+}
+
+function normalizeFailureKind(value?: string): DocTaskFailureKind | undefined {
+  const valid: DocTaskFailureKind[] = ['config', 'agent', 'json_protocol', 'timeout', 'test', 'conflict', 'system_internal', 'cancelled', 'unknown'];
+  if (!value) return undefined;
+  return valid.includes(value as DocTaskFailureKind) ? value as DocTaskFailureKind : undefined;
+}
+
+function failureKindToStatus(kind: DocTaskFailureKind): DocTaskRunStatus {
+  const map: Record<DocTaskFailureKind, DocTaskRunStatus> = {
+    config: 'failed_config',
+    agent: 'failed_agent',
+    json_protocol: 'failed_json_protocol',
+    timeout: 'failed_timeout',
+    test: 'failed_test',
+    conflict: 'failed_conflict',
+    system_internal: 'failed_system_internal',
+    cancelled: 'cancelled',
+    unknown: 'failed_agent',
+  };
+  return map[kind];
 }

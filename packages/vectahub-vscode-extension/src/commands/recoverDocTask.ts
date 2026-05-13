@@ -12,9 +12,10 @@ import * as vscode from 'vscode';
 import { runCli, getActiveWorkspaceFolder } from '../cli/adapter.js';
 import { logToOutput } from '../ui/output.js';
 import { DocTask, TasksViewProvider } from '../views/tasksView.js';
-import { createDocTaskRunStore, computeInstructionHash, type DocTaskRunRecord } from '../project/docTaskRunStore.js';
+import { createDocTaskRunStore, computeInstructionHash } from '../project/docTaskRunStore.js';
 import {
   buildRecoveryInput,
+  classifyRecoveryOutcome,
   decideRecovery,
   createRecoveryRecord,
   createRecoveryRunId,
@@ -39,6 +40,8 @@ interface RecoverCliResult {
     output?: string;
     outputTruncated?: boolean;
   };
+  status?: string;
+  failureKind?: string;
   recoveryRecord?: {
     status: string;
   };
@@ -129,7 +132,7 @@ export function registerRecoverDocTaskCommand(
           await runStore.saveRecoveryRecord(recoveryRecordForPersistence);
         } catch { /* best-effort */ }
         const actions = decision.suggestedActions.map((a, i) => `${i + 1}. ${a}`).join('\n');
-        const choice = await vscode.window.showInformationMessage(
+        await vscode.window.showInformationMessage(
           `任务 ${task.id} 恢复建议: ${decision.summary}`,
           { modal: true, detail: actions },
           '了解',
@@ -218,6 +221,12 @@ export function registerRecoverDocTaskCommand(
               if (latestRecord.command) {
                 args.push('--command', latestRecord.command);
               }
+              if (latestRecord.instructionHash) {
+                args.push('--previous-instruction-hash', latestRecord.instructionHash);
+              }
+              if (currentHash) {
+                args.push('--current-instruction-hash', currentHash);
+              }
 
               const result = await runCli<RecoverCliResult>(args, {
                 timeout: 600000,
@@ -232,13 +241,18 @@ export function registerRecoverDocTaskCommand(
                 // Recovery succeeded — write new run record
                 const newRunId = createRunId(task.id);
                 const runResult = result.data.runResult;
-                const changedFiles = runResult?.output ? [] : []; // simplified
-                const newStatus = runResult?.ok ? 'success' : 'failed_agent';
+                const classification = classifyRecoveryOutcome({
+                  ok: result.data.ok,
+                  status: result.data.status,
+                  failureKind: result.data.failureKind,
+                  runResult,
+                  error: result.data.error,
+                });
 
                 task.lastRunId = newRunId;
                 task.lastTraceId = result.data.recoveryTraceId;
-                task.lastFailureKind = runResult?.ok ? undefined : 'agent';
-                setTaskDisplayState(task, newStatus as any);
+                task.lastFailureKind = classification.failureKind;
+                setTaskDisplayState(task, classification.status);
                 tasksProvider.refresh();
 
                 try {
@@ -248,13 +262,14 @@ export function registerRecoverDocTaskCommand(
                     taskLabel: task.label,
                     docPath,
                     agentCli,
-                    status: newStatus as any,
+                    status: classification.status,
                     command: runResult?.command,
                     traceId: result.data.recoveryTraceId,
                     retryOfRunId: latestRecord.runId,
                   });
                   newRunRecord.outputSummary = runResult?.output?.slice(0, 2000);
                   newRunRecord.outputTruncated = runResult?.outputTruncated;
+                  newRunRecord.failureKind = classification.failureKind;
                   newRunRecord.endedAt = new Date().toISOString();
                   newRunRecord.updatedAt = newRunRecord.endedAt;
                   await safeUpdateRun(runStore, newRunRecord, 'recovery result', warnRunStore);
@@ -273,11 +288,11 @@ export function registerRecoverDocTaskCommand(
                 } catch { /* best-effort */ }
 
                 await recoverySpan.end({
-                  recoveryStatus: newStatus,
+                  recoveryStatus: classification.status,
                   recoveryRunId: result.data.recoveryRunId,
                 });
 
-                if (runResult?.ok) {
+                if (classification.status === 'success') {
                   vscode.window.showInformationMessage(`任务 ${task.id} 恢复成功！`);
                 } else {
                   vscode.window.showWarningMessage(`任务 ${task.id} 恢复重试后仍然失败。`);
@@ -285,15 +300,48 @@ export function registerRecoverDocTaskCommand(
               } else {
                 // Recovery CLI returned failure
                 const errMsg = result.data?.error || result.error?.message || '恢复失败';
+                const classification = classifyRecoveryOutcome({
+                  ok: result.data?.ok,
+                  status: result.data?.status,
+                  failureKind: result.data?.failureKind,
+                  runResult: result.data?.runResult,
+                  error: errMsg,
+                });
                 recoveryRecordForPersistence.status = 'failed';
                 recoveryRecordForPersistence.updatedAt = new Date().toISOString();
                 recoveryRecordForPersistence.endedAt = recoveryRecordForPersistence.updatedAt;
                 try {
                   await runStore.saveRecoveryRecord(recoveryRecordForPersistence);
                 } catch { /* best-effort */ }
-                task.lastFailureKind = latestRecord.failureKind;
-                setTaskDisplayState(task, 'failed_agent');
+                const newRunId = createRunId(task.id);
+                task.lastRunId = newRunId;
+                task.lastTraceId = result.data?.recoveryTraceId ?? traceContext.traceId;
+                task.lastFailureKind = classification.failureKind;
+                setTaskDisplayState(task, classification.status);
                 tasksProvider.refresh();
+                try {
+                  const newRunRecord = await runStore.startRun({
+                    runId: newRunId,
+                    taskId: task.id,
+                    taskLabel: task.label,
+                    docPath,
+                    agentCli,
+                    status: classification.status,
+                    command: latestRecord.command,
+                    traceId: result.data?.recoveryTraceId ?? traceContext.traceId,
+                    retryOfRunId: latestRecord.runId,
+                  });
+                  newRunRecord.failureKind = classification.failureKind;
+                  newRunRecord.errorMessage = errMsg.slice(0, 1000);
+                  newRunRecord.outputSummary = result.data?.runResult?.output?.slice(0, 2000);
+                  newRunRecord.outputTruncated = result.data?.runResult?.outputTruncated;
+                  newRunRecord.endedAt = new Date().toISOString();
+                  newRunRecord.updatedAt = newRunRecord.endedAt;
+                  await safeUpdateRun(runStore, newRunRecord, 'recovery failed result', warnRunStore);
+                } catch (persistErr) {
+                  const msg = persistErr instanceof Error ? persistErr.message : String(persistErr);
+                  warnRunStore(`[recovery] 写入失败 run record 失败: ${msg}`);
+                }
 
                 await recoverySpan.fail(new Error(errMsg), {
                   recoveryStatus: 'failed',
@@ -305,10 +353,35 @@ export function registerRecoverDocTaskCommand(
           );
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
+          const classification = classifyRecoveryOutcome({ error: msg });
           logToOutput(`[recovery] 恢复异常: ${msg}`, 'error');
-          task.lastFailureKind = latestRecord.failureKind;
-          setTaskDisplayState(task, 'failed_agent');
+          const newRunId = createRunId(task.id);
+          task.lastRunId = newRunId;
+          task.lastTraceId = traceContext.traceId;
+          task.lastFailureKind = classification.failureKind;
+          setTaskDisplayState(task, classification.status);
           tasksProvider.refresh();
+          try {
+            const newRunRecord = await runStore.startRun({
+              runId: newRunId,
+              taskId: task.id,
+              taskLabel: task.label,
+              docPath,
+              agentCli,
+              status: classification.status,
+              command: latestRecord.command,
+              traceId: traceContext.traceId,
+              retryOfRunId: latestRecord.runId,
+            });
+            newRunRecord.failureKind = classification.failureKind;
+            newRunRecord.errorMessage = msg.slice(0, 1000);
+            newRunRecord.endedAt = new Date().toISOString();
+            newRunRecord.updatedAt = newRunRecord.endedAt;
+            await safeUpdateRun(runStore, newRunRecord, 'recovery exception result', warnRunStore);
+          } catch (persistErr) {
+            const persistMsg = persistErr instanceof Error ? persistErr.message : String(persistErr);
+            warnRunStore(`[recovery] 写入异常 run record 失败: ${persistMsg}`);
+          }
           await recoverySpan.fail(err, { recoveryStatus: 'exception' });
           vscode.window.showErrorMessage(`任务 ${task.id} 恢复异常: ${msg}`);
         }

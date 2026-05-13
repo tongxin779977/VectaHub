@@ -386,6 +386,7 @@ blocked
 - 新恢复执行产生新的 run record。
 - 若恢复成功，新 run record 进入 `success` 或 `changed`。
 - 若恢复失败，新 run record 根据真实失败再次分类。
+- 插件恢复失败或异常时，不得硬编码 `failed_agent`；必须优先采用本次恢复返回的 `status/failureKind`，缺失时才降级为 `unknown/failed_agent`。
 
 ## 9. 模块职责分配
 
@@ -428,6 +429,14 @@ CLI 侧负责：
 - 在边界内执行 retry 或 fix task
 - 运行验证
 - 返回恢复 JSON 摘要
+
+`recover-task` 独立入口必须支持：
+
+- `--previous-instruction-hash`
+- `--current-instruction-hash`
+
+当 hash 不一致时，必须返回 `blocked/manual_only`，`reason=instruction-changed`，并且不得调用 `runTask`。  
+恢复 JSON 摘要需包含本次恢复结果的 `status` 与 `failureKind`，供插件侧按本次结果回写 run record。
 
 ### 9.3 不应由 Agent 负责的事情
 
@@ -564,6 +573,11 @@ npm test --workspace packages/vectahub-vscode-extension
 npm run typecheck
 npm run compile -w packages/vectahub-vscode-extension
 ```
+
+已知环境限制说明（本轮实测）：
+
+- 在未提供 `vscode` 运行时依赖的纯 Node 测试环境中，`npm test --workspace packages/vectahub-vscode-extension -- --run` 会在加载 `test/docTaskRunHelpers.test.ts` 时失败（`Cannot find package 'vscode'`）。
+- 该问题属于测试环境依赖缺失，不代表恢复合同逻辑回归；本轮已通过 `test/docTaskRecovery.test.ts` 定向验证恢复分类与合同字段。
 
 ## 18. 验收标准
 

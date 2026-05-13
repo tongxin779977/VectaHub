@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildRecoveryInput,
+  classifyRecoveryOutcome,
   decideRecovery,
   createRecoveryRecord,
   createRecoveryRunId,
@@ -215,6 +216,36 @@ describe('docTaskRecovery', () => {
       expect(id1).toMatch(/^rec-/);
       expect(id2).toMatch(/^rec-/);
       expect(id1).not.toBe(id2);
+    });
+  });
+
+  describe('classifyRecoveryOutcome', () => {
+    it('should prefer CLI failureKind/status for failed recovery result', () => {
+      const result = classifyRecoveryOutcome({
+        ok: false,
+        status: 'failed_timeout',
+        failureKind: 'timeout',
+        runResult: { ok: false, output: 'agent failed' },
+      });
+      expect(result.status).toBe('failed_timeout');
+      expect(result.failureKind).toBe('timeout');
+    });
+
+    it('should infer failure from output when CLI omits failureKind', () => {
+      const result = classifyRecoveryOutcome({
+        ok: false,
+        runResult: { ok: false, output: 'merge conflict detected' },
+      });
+      expect(result.status).toBe('failed_conflict');
+      expect(result.failureKind).toBe('conflict');
+    });
+
+    it('should degrade to unknown/failed_agent when no classification info exists', () => {
+      const result = classifyRecoveryOutcome({
+        ok: false,
+      });
+      expect(result.status).toBe('failed_agent');
+      expect(result.failureKind).toBe('unknown');
     });
   });
 });
