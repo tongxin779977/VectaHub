@@ -43,6 +43,66 @@ const docTaskState_js_1 = require("../project/docTaskState.js");
 const docTaskRunStore_js_1 = require("../project/docTaskRunStore.js");
 const docTaskContract_js_1 = require("../project/docTaskContract.js");
 const docTaskRunHelpers_js_1 = require("./docTaskRunHelpers.js");
+const docTaskRunStore_js_2 = require("../project/docTaskRunStore.js");
+const riskUI_js_1 = require("../security/riskUI.js");
+const CRITICAL_RISK_PATTERNS = [
+    /^sudo\s+/i,
+    /^rm\s+[^\s]*-rf?\s+\//i,
+    /^chmod\s+777/i,
+    /^dd\s+.*of=\//i,
+    /^mkfs/i,
+    /^shutdown/i,
+    /^reboot/i,
+    /^halt/i,
+    /^poweroff/i,
+];
+const HIGH_RISK_PATTERNS = [
+    /^iptables/i,
+    /^ip6tables/i,
+    /^ufw/i,
+    /^firewall-cmd/i,
+    /^mv\s+\/\s+/i,
+    />\s*\/etc\//i,
+    />>\s*\/etc\//i,
+    /^mount\s+.*--bind/i,
+];
+function assessValidationCommandRisk(cmd) {
+    for (const pattern of CRITICAL_RISK_PATTERNS) {
+        if (pattern.test(cmd))
+            return { level: 'critical', ruleName: 'critical-risk-pattern' };
+    }
+    for (const pattern of HIGH_RISK_PATTERNS) {
+        if (pattern.test(cmd))
+            return { level: 'high', ruleName: 'high-risk-pattern' };
+    }
+    return { level: 'safe' };
+}
+async function collectBatchRiskItems(tasks, contractSummaries) {
+    const items = [];
+    for (const task of tasks) {
+        const contract = contractSummaries.get(task.id);
+        if (!contract?.validationCommands)
+            continue;
+        for (const cmd of contract.validationCommands) {
+            const risk = assessValidationCommandRisk(cmd);
+            if (risk.level === 'high' || risk.level === 'critical') {
+                items.push({ taskId: task.id, taskLabel: task.label, cmd, level: risk.level, ruleName: risk.ruleName });
+            }
+        }
+    }
+    return items;
+}
+async function showBatchRiskDialog(riskItems) {
+    const summary = riskItems
+        .map(r => `[${r.level.toUpperCase()}] ${r.taskId}: ${r.cmd}`)
+        .join('\n');
+    const result = await vscode.window.showWarningMessage(`检测到 ${riskItems.length} 个高风险验证命令`, { modal: true, detail: summary }, '全部继续', '全部跳过高风险', '取消批量');
+    if (result === '全部继续')
+        return 'continue';
+    if (result === '全部跳过高风险')
+        return 'skip';
+    return 'cancel';
+}
 async function readDocContentOnce(docPath) {
     if (!docPath)
         return undefined;
@@ -59,6 +119,27 @@ function applyContractSummary(runRecord, resultSummary, fallbackSummary) {
     if (!runRecord)
         return;
     runRecord.agentTaskContract = (0, docTaskContract_js_1.toRunContractSummary)(resultSummary ?? fallbackSummary);
+}
+function applyVerificationToRunRecord(runRecord, verification) {
+    if (!runRecord || !verification)
+        return;
+    const failed = verification.commands.filter(c => !c.ok);
+    runRecord.verification = {
+        ok: verification.ok,
+        totalCommands: verification.commands.length,
+        passedCommands: verification.commands.filter(c => c.ok).length,
+        failedCommands: failed.length,
+        failedCommandSummary: failed.length > 0
+            ? failed.map(c => c.command).slice(0, 3).join('; ')
+            : undefined,
+    };
+}
+function resolveVerificationStatus(changedFiles, verification) {
+    if (verification && !verification.ok) {
+        return { status: 'failed_test', failureKind: 'test' };
+    }
+    const status = changedFiles.length > 0 ? 'changed' : 'success';
+    return { status };
 }
 function registerDocTaskCommands(context, tasksProvider) {
     const workspaceRoot = (0, adapter_js_1.getActiveWorkspaceFolder)();
@@ -105,7 +186,12 @@ function registerDocTaskCommands(context, tasksProvider) {
             }, async () => {
                 const result = await (0, adapter_js_1.runCli)(['parse-doc', docPath, '--json'], { timeout: 120000 });
                 if (result.ok && result.data?.tasks) {
-                    const tasksWithState = await (0, docTaskRunHelpers_js_1.applyLatestRunState)(runStore, result.data.tasks, warnRunStore);
+                    let docContent;
+                    try {
+                        docContent = await fs_1.promises.readFile(docPath, 'utf8');
+                    }
+                    catch { /* ignore */ }
+                    const tasksWithState = await (0, docTaskRunHelpers_js_1.applyLatestRunState)(runStore, result.data.tasks, warnRunStore, docContent);
                     tasksProvider.setDocTasks(tasksWithState);
                     (0, output_js_1.logToOutput)(`解析完成，共 ${tasksWithState.length} 个任务`);
                     vscode.window.showInformationMessage(`解析完成，共 ${tasksWithState.length} 个任务`);
@@ -251,18 +337,40 @@ function registerDocTaskCommands(context, tasksProvider) {
                     token,
                     traceContext: { traceId: traceContext.traceId, parentSpanId: singleSpan.spanId, source: 'vscode' },
                 });
+                // Check if CLI returned a high-risk assessment requiring user confirmation
+                if (result.ok && result.data?.riskAssessment?.needsConfirmation) {
+                    const risk = result.data.riskAssessment;
+                    const confirmed = await (0, riskUI_js_1.confirmHighRiskCommand)({ level: risk.level, ruleName: risk.ruleName, needsConfirmation: true }, `${task.id}: ${task.label}`);
+                    if (!confirmed) {
+                        (0, output_js_1.logToOutput)(`任务 ${task.id} 用户拒绝高风险命令执行`, 'warn');
+                        (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, 'cancelled');
+                        tasksProvider.refresh();
+                        if (runRecord) {
+                            runRecord.status = 'cancelled';
+                            runRecord.updatedAt = new Date().toISOString();
+                            runRecord.endedAt = runRecord.updatedAt;
+                            runRecord.durationMs = Date.now() - startedAtMs;
+                            await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'risk-cancelled update', warnRunStore);
+                        }
+                        await singleSpan.end({ taskId: task.id, status: 'cancelled' });
+                        return;
+                    }
+                    (0, output_js_1.logToOutput)(`任务 ${task.id} 用户确认高风险命令继续执行`, 'warn');
+                }
                 if (result.ok) {
                     const output = result.data?.output || '';
                     const gitChanges = result.data?.gitChanges;
                     const changedFiles = gitChanges?.changedFiles ?? [];
-                    const finalStatus = changedFiles.length > 0 ? 'changed' : 'success';
+                    const resolved = resolveVerificationStatus(changedFiles, result.data?.verification);
+                    const finalStatus = resolved.status;
                     task.lastRunId = runId;
                     task.lastTraceId = traceContext.traceId;
-                    task.lastFailureKind = undefined;
+                    task.lastFailureKind = resolved.failureKind;
                     (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, finalStatus);
                     tasksProvider.refresh();
                     if (runRecord) {
                         runRecord.status = finalStatus;
+                        runRecord.failureKind = resolved.failureKind;
                         runRecord.updatedAt = new Date().toISOString();
                         runRecord.endedAt = runRecord.updatedAt;
                         runRecord.durationMs = Date.now() - startedAtMs;
@@ -274,61 +382,113 @@ function registerDocTaskCommands(context, tasksProvider) {
                         };
                         runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(output);
                         runRecord.outputTruncated = result.data?.outputTruncated === true;
+                        // Store instruction hash for drift detection on next parse
+                        if (docPath) {
+                            try {
+                                const docContentForHash = await fs_1.promises.readFile(docPath, 'utf8');
+                                runRecord.instructionHash = (0, docTaskRunStore_js_2.computeInstructionHash)(task.id, task.label, docContentForHash.slice(0, 8000));
+                            }
+                            catch { /* ignore */ }
+                        }
                         applyContractSummary(runRecord, result.data?.agentTaskContract);
+                        applyVerificationToRunRecord(runRecord, result.data?.verification);
                         await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'success update', warnRunStore);
                     }
-                    (0, output_js_1.logToOutput)(`任务 ${task.id} 执行成功`);
-                    if (output) {
-                        (0, output_js_1.logToOutput)(output);
+                    if (finalStatus === 'failed_test') {
+                        (0, output_js_1.logToOutput)(`任务 ${task.id} Agent 成功但验证失败`, 'warn');
+                        vscode.window.showWarningMessage(`任务 ${task.id} 验证失败`);
+                    }
+                    else {
+                        (0, output_js_1.logToOutput)(`任务 ${task.id} 执行成功`);
+                        if (output) {
+                            (0, output_js_1.logToOutput)(output);
+                        }
+                        vscode.window.showInformationMessage(`任务 ${task.id} 执行成功`);
                     }
                     await singleSpan.end({
                         taskId: task.id,
                         taskLabel: task.label,
-                        status: 'success',
+                        status: finalStatus,
                         agentCli: agentCli || '',
                     });
-                    vscode.window.showInformationMessage(`任务 ${task.id} 执行成功`);
                 }
                 else {
-                    const errMsg = result.data?.error || result.data?.output || result.error?.message || '执行失败';
-                    const classified = (0, docTaskState_js_1.classifyDocTaskFailure)({
-                        ok: result.ok,
-                        errorCode: result.error?.code,
-                        errorMessage: result.error?.message || result.data?.error,
-                        output: result.data?.output
-                    });
+                    // Check if this is a verification failure (Agent succeeded but verification failed)
+                    const verificationFailed = result.data?.verification?.ok === false;
                     task.lastRunId = runId;
                     task.lastTraceId = traceContext.traceId;
-                    task.lastFailureKind = classified.kind;
-                    (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, classified.status);
-                    tasksProvider.refresh();
-                    if (runRecord) {
-                        runRecord.status = classified.status;
-                        runRecord.failureKind = classified.kind;
-                        runRecord.errorMessage = errMsg;
-                        runRecord.updatedAt = new Date().toISOString();
-                        runRecord.endedAt = runRecord.updatedAt;
-                        runRecord.durationMs = Date.now() - startedAtMs;
-                        runRecord.command = result.data?.command || runRecord.command;
-                        runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
-                        runRecord.outputTruncated = result.data?.outputTruncated === true;
+                    if (verificationFailed) {
                         const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
-                        runRecord.gitChanges = {
-                            changedFileCount: changedFiles.length,
-                            changedFiles,
-                            shortStat: result.data?.gitChanges?.shortStat
-                        };
-                        applyContractSummary(runRecord, result.data?.agentTaskContract);
-                        await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'failed update', warnRunStore);
+                        const finalStatus = 'failed_test';
+                        task.lastFailureKind = 'test';
+                        (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, finalStatus);
+                        tasksProvider.refresh();
+                        if (runRecord) {
+                            runRecord.status = finalStatus;
+                            runRecord.failureKind = 'test';
+                            runRecord.updatedAt = new Date().toISOString();
+                            runRecord.endedAt = runRecord.updatedAt;
+                            runRecord.durationMs = Date.now() - startedAtMs;
+                            runRecord.command = result.data?.command || runRecord.command;
+                            runRecord.gitChanges = {
+                                changedFileCount: changedFiles.length,
+                                changedFiles,
+                                shortStat: result.data?.gitChanges?.shortStat
+                            };
+                            runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
+                            runRecord.outputTruncated = result.data?.outputTruncated === true;
+                            applyContractSummary(runRecord, result.data?.agentTaskContract);
+                            applyVerificationToRunRecord(runRecord, result.data?.verification);
+                            await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'verification failed update', warnRunStore);
+                        }
+                        (0, output_js_1.logToOutput)(`任务 ${task.id} Agent 成功但验证失败`, 'warn');
+                        await singleSpan.end({
+                            taskId: task.id,
+                            taskLabel: task.label,
+                            status: finalStatus,
+                            agentCli: agentCli || '',
+                        });
+                        vscode.window.showWarningMessage(`任务 ${task.id} 验证失败`);
                     }
-                    (0, output_js_1.logToOutput)(`任务 ${task.id} 执行失败: ${errMsg}`, 'error');
-                    await singleSpan.fail(new Error(errMsg), {
-                        taskId: task.id,
-                        taskLabel: task.label,
-                        status: 'failed',
-                        agentCli: agentCli || '',
-                    });
-                    vscode.window.showErrorMessage(`任务 ${task.id} 执行失败: ${errMsg}`);
+                    else {
+                        const errMsg = result.data?.error || result.data?.output || result.error?.message || '执行失败';
+                        const classified = (0, docTaskState_js_1.classifyDocTaskFailure)({
+                            ok: result.ok,
+                            errorCode: result.error?.code,
+                            errorMessage: result.error?.message || result.data?.error,
+                            output: result.data?.output
+                        });
+                        task.lastFailureKind = classified.kind;
+                        (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, classified.status);
+                        tasksProvider.refresh();
+                        if (runRecord) {
+                            runRecord.status = classified.status;
+                            runRecord.failureKind = classified.kind;
+                            runRecord.errorMessage = errMsg;
+                            runRecord.updatedAt = new Date().toISOString();
+                            runRecord.endedAt = runRecord.updatedAt;
+                            runRecord.durationMs = Date.now() - startedAtMs;
+                            runRecord.command = result.data?.command || runRecord.command;
+                            runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
+                            runRecord.outputTruncated = result.data?.outputTruncated === true;
+                            const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
+                            runRecord.gitChanges = {
+                                changedFileCount: changedFiles.length,
+                                changedFiles,
+                                shortStat: result.data?.gitChanges?.shortStat
+                            };
+                            applyContractSummary(runRecord, result.data?.agentTaskContract);
+                            await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'failed update', warnRunStore);
+                        }
+                        (0, output_js_1.logToOutput)(`任务 ${task.id} 执行失败: ${errMsg}`, 'error');
+                        await singleSpan.fail(new Error(errMsg), {
+                            taskId: task.id,
+                            taskLabel: task.label,
+                            status: 'failed',
+                            agentCli: agentCli || '',
+                        });
+                        vscode.window.showErrorMessage(`任务 ${task.id} 执行失败: ${errMsg}`);
+                    }
                 }
             });
         }
@@ -539,11 +699,16 @@ function registerDocTaskCommands(context, tasksProvider) {
                         });
                         if (result.ok) {
                             const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
-                            const finalStatus = changedFiles.length > 0 ? 'changed' : 'success';
-                            task.lastFailureKind = undefined;
+                            const resolved = resolveVerificationStatus(changedFiles, result.data?.verification);
+                            const finalStatus = resolved.status;
+                            task.lastFailureKind = resolved.failureKind;
                             (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, finalStatus);
+                            if (resolved.status === 'failed_test') {
+                                failedCount++;
+                            }
                             if (runRecord) {
                                 runRecord.status = finalStatus;
+                                runRecord.failureKind = resolved.failureKind;
                                 runRecord.updatedAt = new Date().toISOString();
                                 runRecord.endedAt = runRecord.updatedAt;
                                 runRecord.durationMs = Date.now() - startedAtMs;
@@ -556,6 +721,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                                 runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
                                 runRecord.outputTruncated = result.data?.outputTruncated === true;
                                 applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
+                                applyVerificationToRunRecord(runRecord, result.data?.verification);
                                 await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch success update', warnRunStore);
                             }
                             await taskSpan.end({
@@ -564,46 +730,89 @@ function registerDocTaskCommands(context, tasksProvider) {
                                 status: finalStatus,
                                 agentCli: agentCli || '',
                             });
-                            updateProgress(task.id, '完成');
+                            if (finalStatus === 'failed_test') {
+                                (0, output_js_1.logToOutput)(`[batch] 任务 ${task.id} Agent 成功但验证失败`, 'warn');
+                                updateProgress(task.id, '验证失败');
+                            }
+                            else {
+                                updateProgress(task.id, '完成');
+                            }
                         }
                         else {
-                            const errMsg = result.data?.error || result.data?.output || '执行失败';
-                            const classified = (0, docTaskState_js_1.classifyDocTaskFailure)({
-                                ok: result.ok,
-                                errorCode: result.error?.code,
-                                errorMessage: result.error?.message || result.data?.error,
-                                output: result.data?.output
-                            });
-                            task.lastFailureKind = classified.kind;
-                            (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, classified.status);
-                            failedCount++;
-                            if (runRecord) {
-                                runRecord.status = classified.status;
-                                runRecord.failureKind = classified.kind;
-                                runRecord.errorMessage = errMsg;
-                                runRecord.updatedAt = new Date().toISOString();
-                                runRecord.endedAt = runRecord.updatedAt;
-                                runRecord.durationMs = Date.now() - startedAtMs;
-                                runRecord.command = result.data?.command || runRecord.command;
+                            // Check if this is a verification failure (Agent succeeded but verification failed)
+                            const verificationFailed = result.data?.verification?.ok === false;
+                            if (verificationFailed) {
                                 const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
-                                runRecord.gitChanges = {
-                                    changedFileCount: changedFiles.length,
-                                    changedFiles,
-                                    shortStat: result.data?.gitChanges?.shortStat
-                                };
-                                runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
-                                runRecord.outputTruncated = result.data?.outputTruncated === true;
-                                applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
-                                await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch failed update', warnRunStore);
+                                const finalStatus = 'failed_test';
+                                task.lastFailureKind = 'test';
+                                (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, finalStatus);
+                                failedCount++;
+                                if (runRecord) {
+                                    runRecord.status = finalStatus;
+                                    runRecord.failureKind = 'test';
+                                    runRecord.updatedAt = new Date().toISOString();
+                                    runRecord.endedAt = runRecord.updatedAt;
+                                    runRecord.durationMs = Date.now() - startedAtMs;
+                                    runRecord.command = result.data?.command || runRecord.command;
+                                    runRecord.gitChanges = {
+                                        changedFileCount: changedFiles.length,
+                                        changedFiles,
+                                        shortStat: result.data?.gitChanges?.shortStat
+                                    };
+                                    runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
+                                    runRecord.outputTruncated = result.data?.outputTruncated === true;
+                                    applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
+                                    applyVerificationToRunRecord(runRecord, result.data?.verification);
+                                    await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch verification failed update', warnRunStore);
+                                }
+                                (0, output_js_1.logToOutput)(`[batch] 任务 ${task.id} Agent 成功但验证失败`, 'warn');
+                                await taskSpan.end({
+                                    taskId: task.id,
+                                    taskLabel: task.label,
+                                    status: finalStatus,
+                                    agentCli: agentCli || '',
+                                });
+                                updateProgress(task.id, '验证失败');
                             }
-                            (0, output_js_1.logToOutput)(`[batch] 任务 ${task.id} 失败: ${errMsg}`, 'error');
-                            await taskSpan.fail(new Error(errMsg), {
-                                taskId: task.id,
-                                taskLabel: task.label,
-                                status: classified.status,
-                                agentCli: agentCli || '',
-                            });
-                            updateProgress(task.id, '失败');
+                            else {
+                                const errMsg = result.data?.error || result.data?.output || '执行失败';
+                                const classified = (0, docTaskState_js_1.classifyDocTaskFailure)({
+                                    ok: result.ok,
+                                    errorCode: result.error?.code,
+                                    errorMessage: result.error?.message || result.data?.error,
+                                    output: result.data?.output
+                                });
+                                task.lastFailureKind = classified.kind;
+                                (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, classified.status);
+                                failedCount++;
+                                if (runRecord) {
+                                    runRecord.status = classified.status;
+                                    runRecord.failureKind = classified.kind;
+                                    runRecord.errorMessage = errMsg;
+                                    runRecord.updatedAt = new Date().toISOString();
+                                    runRecord.endedAt = runRecord.updatedAt;
+                                    runRecord.durationMs = Date.now() - startedAtMs;
+                                    runRecord.command = result.data?.command || runRecord.command;
+                                    const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
+                                    runRecord.gitChanges = {
+                                        changedFileCount: changedFiles.length,
+                                        changedFiles,
+                                        shortStat: result.data?.gitChanges?.shortStat
+                                    };
+                                    runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
+                                    runRecord.outputTruncated = result.data?.outputTruncated === true;
+                                    applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
+                                    await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch failed update', warnRunStore);
+                                }
+                                (0, output_js_1.logToOutput)(`[batch] 任务 ${task.id} 失败: ${errMsg}`, 'error');
+                                await taskSpan.fail(new Error(errMsg), {
+                                    taskId: task.id,
+                                    taskLabel: task.label,
+                                    status: classified.status,
+                                    agentCli: agentCli || '',
+                                });
+                                updateProgress(task.id, '失败');
+                            }
                         }
                     }
                     catch (err) {
@@ -668,7 +877,34 @@ function registerDocTaskCommands(context, tasksProvider) {
                     cancelled = true;
                 }
                 else {
-                    await runWithConcurrency();
+                    // Batch risk assessment: collect all high-risk validation commands upfront
+                    const riskItems = await collectBatchRiskItems(tasks, contractSummaries);
+                    if (riskItems.length > 0) {
+                        const riskDecision = await showBatchRiskDialog(riskItems);
+                        if (riskDecision === 'cancel') {
+                            cancelled = true;
+                        }
+                        else if (riskDecision === 'skip') {
+                            (0, output_js_1.logToOutput)(`[batch] 用户选择跳过 ${riskItems.length} 个高风险验证命令`, 'warn');
+                            // mark skipped tasks and remove them from queue
+                            const skipTaskIds = new Set(riskItems.map(r => r.taskId));
+                            for (const task of [...queue]) {
+                                if (skipTaskIds.has(task.id)) {
+                                    (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, 'changed');
+                                    skippedCount++;
+                                    completedCount++;
+                                    const idx = queue.indexOf(task);
+                                    if (idx >= 0)
+                                        queue.splice(idx, 1);
+                                    notStartedTaskIds.delete(task.id);
+                                }
+                            }
+                            tasksProvider.refresh();
+                        }
+                    }
+                    if (!cancelled) {
+                        await runWithConcurrency();
+                    }
                 }
                 if (notStartedTaskIds.size > 0) {
                     const finalStatus = cancelled && !globalFailureAfterBatch ? 'cancelled' : (globalFailureAfterBatch?.status ?? 'failed_config');

@@ -55,6 +55,93 @@ function ensureRbacDir(): void {
   }
 }
 
+/**
+ * Detect variable injection attempts that could bypass RBAC.
+ * E.g., CMD="rm -rf /"; $CMD or alias rm='malicious'
+ */
+const VARIABLE_INJECTION_PATTERNS = [
+  /\$\{?\w+\}?/,           // $VAR or ${VAR}
+  /`[^`]+`/,               // backtick command substitution
+  /\$\([^)]+\)/,           // $(command) substitution
+];
+
+const ALIAS_PATTERNS = [
+  /^alias\s+/i,
+  /^unalias\s+/i,
+];
+
+const SHELL_SEPARATORS = /[;&|]{1,2}/;
+
+function detectBypassAttempt(command: string): boolean {
+  // Check for variable injection
+  for (const pattern of VARIABLE_INJECTION_PATTERNS) {
+    if (pattern.test(command)) return true;
+  }
+  // Check for alias manipulation
+  for (const pattern of ALIAS_PATTERNS) {
+    if (pattern.test(command.trim())) return true;
+  }
+  return false;
+}
+
+/**
+ * Split compound commands by shell separators (;, &&, ||, |)
+ * and return individual sub-commands for checking.
+ */
+function splitCompoundCommand(command: string): string[] {
+  // Split by ; && || | while respecting quotes
+  const parts: string[] = [];
+  let current = '';
+  let inSingle = false;
+  let inDouble = false;
+
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i];
+
+    if (inSingle) {
+      current += ch;
+      if (ch === "'") inSingle = false;
+      continue;
+    }
+    if (inDouble) {
+      current += ch;
+      if (ch === '"') inDouble = false;
+      continue;
+    }
+
+    if (ch === "'") { inSingle = true; current += ch; continue; }
+    if (ch === '"') { inDouble = true; current += ch; continue; }
+
+    // Check for shell separators
+    if (ch === ';') {
+      if (current.trim()) parts.push(current.trim());
+      current = '';
+      continue;
+    }
+    if (ch === '&' && command[i + 1] === '&') {
+      if (current.trim()) parts.push(current.trim());
+      current = '';
+      i++; // skip second &
+      continue;
+    }
+    if (ch === '|' && command[i + 1] === '|') {
+      if (current.trim()) parts.push(current.trim());
+      current = '';
+      i++; // skip second |
+      continue;
+    }
+    if (ch === '|') {
+      if (current.trim()) parts.push(current.trim());
+      current = '';
+      continue;
+    }
+
+    current += ch;
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts.filter(Boolean);
+}
+
 function matchBlockedCommand(command: string, blockedPattern: string): boolean {
   const normalizedCommand = command.trim().toLowerCase();
   const normalizedPattern = blockedPattern.trim().toLowerCase();
@@ -235,26 +322,36 @@ export function createRBACManager(): RBACManager {
   function canExecute(role: RoleName, command: string, tool?: string): boolean {
     const roleConfig = getRole(role);
 
-    // 1. 分解复合命令，确保每一部分都经过校验
-    const subCommands = ShellTokenizer.tokenize(command);
+    // 0. Block variable injection and alias bypass attempts
+    if (detectBypassAttempt(command)) {
+      return false;
+    }
 
-    for (const subCmd of subCommands) {
-      const normalizedSubCmd = subCmd.raw.toLowerCase();
+    // 1. Split compound commands by shell separators and check each part
+    const compoundParts = splitCompoundCommand(command);
 
-      // 校验黑名单
-      for (const blocked of roleConfig.blocked_commands) {
-        if (matchBlockedCommand(normalizedSubCmd, blocked)) {
-          return false;
+    for (const part of compoundParts) {
+      // Also tokenize via ShellTokenizer for deeper analysis
+      const subCommands = ShellTokenizer.tokenize(part);
+
+      for (const subCmd of subCommands) {
+        const normalizedSubCmd = subCmd.raw.toLowerCase();
+
+        // Check blocked commands
+        for (const blocked of roleConfig.blocked_commands) {
+          if (matchBlockedCommand(normalizedSubCmd, blocked)) {
+            return false;
+          }
         }
-      }
 
-      // 校验允许的工具列表
-      if (roleConfig.allowed_tools[0] !== '*') {
-        const cmdCli = subCmd.cli.toLowerCase();
-        const isAllowed = roleConfig.allowed_tools.some(t => t.toLowerCase() === cmdCli);
-        
-        if (!isAllowed) {
-          return false;
+        // Check allowed tools
+        if (roleConfig.allowed_tools[0] !== '*') {
+          const cmdCli = subCmd.cli.toLowerCase();
+          const isAllowed = roleConfig.allowed_tools.some(t => t.toLowerCase() === cmdCli);
+
+          if (!isAllowed) {
+            return false;
+          }
         }
       }
     }

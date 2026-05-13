@@ -2,6 +2,7 @@ import pino from 'pino';
 import { mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { getVectaHubPath } from '../../utils/paths.js';
+import { redactString } from '../../utils/sensitive-data.js';
 
 const VECTAHUB_DIR = getVectaHubPath();
 const LOG_DIR = getVectaHubPath('logs');
@@ -62,6 +63,20 @@ export function createLogger(prefix = ''): pino.Logger {
   return pino({
     name,
     level: getEffectiveLevel(),
+    formatters: {
+      log(obj: Record<string, unknown>) {
+        // Redact sensitive data from log messages and values
+        const redacted: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(obj)) {
+          if (typeof value === 'string') {
+            redacted[key] = redactString(value);
+          } else {
+            redacted[key] = value;
+          }
+        }
+        return redacted;
+      },
+    },
     transport: {
       targets: [
         { level: getEffectiveLevel(), target: 'pino/file', options: { destination: 1 } },
@@ -77,6 +92,19 @@ export function createConsoleLogger(prefix = ''): pino.Logger {
   return pino({
     name,
     level: getEffectiveLevel(),
+    formatters: {
+      log(obj: Record<string, unknown>) {
+        const redacted: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(obj)) {
+          if (typeof value === 'string') {
+            redacted[key] = redactString(value);
+          } else {
+            redacted[key] = value;
+          }
+        }
+        return redacted;
+      },
+    },
     transport: {
       target: 'pino-pretty',
       options: {

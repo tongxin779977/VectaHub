@@ -41,13 +41,21 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const packageJson = JSON.parse(readFileSync(join(__dirname, '../package.json'), 'utf-8'));
-const VERSION = packageJson.version;
+
+// ESM-safe: use readFileSync (already imported) instead of require()
+let _version: string | undefined;
+function getVersion(): string {
+  if (!_version) {
+    const pkg = JSON.parse(readFileSync(join(__dirname, '../package.json'), 'utf-8'));
+    _version = pkg.version;
+  }
+  return _version!;
+}
+const VERSION = getVersion();
 import { initAuditLogger, getCurrentSessionId, audit } from './utils/audit.js';
 import { setGlobalOptions, isVerbose } from './utils/global-options.js';
 import { setLogLevel, setMuted } from './infrastructure/logger/index.js';
-import { runCmd } from './commands/run.js';
-import { doctorCmd } from './commands/doctor.js';
+// runCmd and doctorCmd are lazy-loaded via the placeholder system below
 import { formatErrorMessage, toJSONError } from './utils/errors.js';
 import { loadConfig as loadUtilsConfig } from './utils/config.js';
 import { AsyncLogWriter } from './infrastructure/trace-audit/async-writer.js';
@@ -103,6 +111,20 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
   
   try {
     switch (commandName) {
+      case 'run': {
+        const { runCmd } = await import('./commands/run.js');
+        removePlaceholderCommand('run');
+        program.addCommand(runCmd);
+        loadedCommands.add('run');
+        break;
+      }
+      case 'doctor': {
+        const { doctorCmd } = await import('./commands/doctor.js');
+        removePlaceholderCommand('doctor');
+        program.addCommand(doctorCmd);
+        loadedCommands.add('doctor');
+        break;
+      }
       case 'serve':
       case 'client': {
         const { serveCmd, clientCmd } = await import('./commands/serve.js');
@@ -328,16 +350,11 @@ async function lazyLoadCliTools(): Promise<void> {
   }
 }
 
+// Defer initAuditLogger() to preAction hook to avoid sync IO at top level
+let _auditLoggerInitialized = false;
 const isDryRunInvocation = process.argv.includes('--dry-run');
 if (isDryRunInvocation) {
   process.env.VECTAHUB_AUDIT_DISABLED = '1';
-}
-
-try {
-  initAuditLogger();
-} catch (error) {
-  console.warn('⚠️  审计日志初始化失败，将继续运行...');
-  console.warn(`   原因: ${formatErrorMessage(error, '审计日志')}`);
 }
 
 function getSecurityWarningTemplate(policy: string): string {
@@ -394,6 +411,16 @@ program
   .option('-d, --debug', '调试模式（包含详细输出）')
   .option('--non-interactive', '非交互模式（适用于 CI/CD）')
   .hook('preAction', async (thisCommand) => {
+    // Lazy-init audit logger on first command invocation (not at top level)
+    if (!_auditLoggerInitialized) {
+      _auditLoggerInitialized = true;
+      try {
+        initAuditLogger();
+      } catch (error) {
+        console.warn('⚠️  审计日志初始化失败，将继续运行...');
+        console.warn(`   原因: ${formatErrorMessage(error, '审计日志')}`);
+      }
+    }
     const opts = thisCommand.opts();
     if (opts.verbose || opts.debug) {
       setGlobalOptions({ verbose: opts.verbose || false, debug: opts.debug || false });
@@ -421,7 +448,17 @@ program
     }
   });
 
-displayPolicyWarning();
+// Defer policy warning to preAction hook to avoid blocking --version path
+let policyWarningShown = false;
+program.hook('preAction', async (thisCommand) => {
+  if (!policyWarningShown) {
+    policyWarningShown = true;
+    const cmdName = thisCommand.name();
+    if (cmdName !== 'version' && cmdName !== 'help') {
+      displayPolicyWarning();
+    }
+  }
+});
 
 // Hook for audit logging (lazy loading is handled in placeholder actions)
 program.hook('preSubcommand', async (thisCommand, subcommand) => {
@@ -436,9 +473,7 @@ program.hook('preSubcommand', async (thisCommand, subcommand) => {
   }
 });
 
-program
-  .addCommand(runCmd)
-  .addCommand(doctorCmd);
+// runCmd and doctorCmd are registered as lazy-loadable commands below
 
 const setupCmd = new Command('setup')
   .description('运行优先级安装流程')
@@ -546,6 +581,8 @@ program.addCommand(configCmd);
 
 // Register lazy-loadable commands with minimal placeholder - actual implementation loaded on use
 const lazyLoadableCommands = [
+  { name: 'run', description: '执行工作流' },
+  { name: 'doctor', description: '运行系统诊断' },
   { name: 'chat', description: '启动交互式聊天会话' },
   { name: 'serve', description: '启动 VectaHub 服务器' },
   { name: 'client', description: '连接到 VectaHub 服务器' },

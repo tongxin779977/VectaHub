@@ -33,10 +33,12 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.computeInstructionHash = computeInstructionHash;
 exports.createDocTaskRunStore = createDocTaskRunStore;
 const fs = __importStar(require("fs"));
 const fs_1 = require("fs");
 const path = __importStar(require("path"));
+const crypto_1 = require("crypto");
 const adapter_js_1 = require("../cli/adapter.js");
 const MAX_ERROR_MESSAGE = 1000;
 const MAX_OUTPUT_SUMMARY = 2000;
@@ -46,6 +48,16 @@ const MAX_LATEST_CACHE = 200;
 const DEFAULT_LIST_LIMIT = 100;
 const MAX_LIST_LIMIT = 500;
 const RECENT_DAYS = 7;
+/**
+ * Compute a stable SHA-256 hash of the task instruction.
+ * Mirrors src/commands/agent-task-contract.ts computeInstructionHash exactly.
+ */
+function computeInstructionHash(taskId, label, docExcerpt, tool, allowedFiles, forbiddenFiles) {
+    const sortedAllowed = [...(allowedFiles ?? [])].sort().join(',');
+    const sortedForbidden = [...(forbiddenFiles ?? [])].sort().join(',');
+    const content = `${taskId}\n${label}\n${docExcerpt}\ntool=${tool ?? ''}\nallowed=${sortedAllowed}\nforbidden=${sortedForbidden}`;
+    return (0, crypto_1.createHash)('sha256').update(content, 'utf-8').digest('hex').slice(0, 16);
+}
 function djb2Hash(input) {
     let hash = 5381;
     for (let i = 0; i < input.length; i++) {
@@ -139,6 +151,33 @@ function createDocTaskRunStore(projectRoot) {
     function getRunFilePathByDate(d) {
         return path.join(dir, `runs-${toDatePart(d)}.jsonl`);
     }
+    async function rebuildLatestFromJsonl() {
+        // Scan recent .jsonl run files to rebuild latest.json
+        const rebuilt = new Map();
+        for (let i = 0; i < RECENT_DAYS; i++) {
+            const day = new Date();
+            day.setUTCDate(day.getUTCDate() - i);
+            const filePath = getRunFilePathByDate(day);
+            if (!fs.existsSync(filePath))
+                continue;
+            try {
+                const content = await fs_1.promises.readFile(filePath, 'utf8');
+                const lines = content.split('\n').filter(Boolean);
+                for (const line of lines) {
+                    try {
+                        const rec = JSON.parse(line);
+                        const existing = rebuilt.get(rec.taskId);
+                        if (!existing || new Date(rec.updatedAt) > new Date(existing.updatedAt)) {
+                            rebuilt.set(rec.taskId, rec);
+                        }
+                    }
+                    catch { /* skip malformed line */ }
+                }
+            }
+            catch { /* skip unreadable file */ }
+        }
+        return rebuilt;
+    }
     async function loadLatestMap() {
         if (latestCache) {
             return new Map(latestCache);
@@ -151,6 +190,13 @@ function createDocTaskRunStore(projectRoot) {
             return new Map(latestCache);
         }
         catch {
+            // latest.json missing or corrupted — attempt rebuild from .jsonl
+            const rebuilt = await rebuildLatestFromJsonl();
+            if (rebuilt.size > 0) {
+                // Persist rebuilt state for future loads
+                await saveLatestMap(rebuilt);
+                return new Map(latestCache ?? rebuilt);
+            }
             latestCache = new Map();
             return new Map();
         }

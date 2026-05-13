@@ -1,4 +1,5 @@
 import { isAbsolute, normalize, relative, resolve, sep } from 'node:path';
+import { createHash } from 'node:crypto';
 import type { AgentTaskBoundary, AgentTaskConcurrencyDecision, AgentTaskContract } from '../types/doc-task.js';
 
 const DEFAULT_MAX_EXCERPT_CHARS = 8000;
@@ -14,6 +15,26 @@ const DEFAULT_FORBIDDEN_FILES = [
   '**/node_modules/**',
   '**/.git/**',
 ];
+
+/**
+ * Compute a stable SHA-256 hash of the task instruction.
+ * Used to detect when a task's instructions have changed since the last run.
+ * Includes tool name and file boundaries to ensure hash changes when the
+ * execution context changes (e.g., switching from aider to claude).
+ */
+export function computeInstructionHash(
+  taskId: string,
+  label: string,
+  docExcerpt: string,
+  tool?: string,
+  allowedFiles?: string[],
+  forbiddenFiles?: string[],
+): string {
+  const sortedAllowed = [...(allowedFiles ?? [])].sort().join(',');
+  const sortedForbidden = [...(forbiddenFiles ?? [])].sort().join(',');
+  const content = `${taskId}\n${label}\n${docExcerpt}\ntool=${tool ?? ''}\nallowed=${sortedAllowed}\nforbidden=${sortedForbidden}`;
+  return createHash('sha256').update(content, 'utf-8').digest('hex').slice(0, 16);
+}
 
 export function deriveDocExcerpt(input: {
   docContent: string;

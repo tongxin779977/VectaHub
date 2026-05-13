@@ -4,13 +4,14 @@ import { existsSync, readFileSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { resolve } from 'node:path';
 import { getLogger } from '../utils/logger.js';
+import { assessCommandRisk } from '../security-protocol/engine.js';
 import { createLLMConfig, LLMClient } from '../nl/llm.js';
 import { AGENT_CMD_GENERATOR_ID } from '../nl/prompt-manager.js';
 import { getToolCacheManager } from '../cli-tools/discovery/cache-manager.js';
 import { getSecurityManager } from '../security-protocol/manager.js';
 import { audit } from '../infrastructure/audit/index.js';
 import { createChildEnv, getTraceContextFromEnv, startSpan, withSpan } from '../infrastructure/trace/index.js';
-import { deriveAgentTaskBoundary, deriveDocExcerpt } from './agent-task-contract.js';
+import { deriveAgentTaskBoundary, deriveDocExcerpt, computeInstructionHash } from './agent-task-contract.js';
 import type { AgentTaskContract } from '../types/doc-task.js';
 
 const execFileAsync = promisify(execFile);
@@ -52,6 +53,10 @@ const NOISY_OUTPUT_PATTERNS = [
 ];
 const TRACE_TEXT_MAX_LENGTH = 500;
 const PROMPT_CONTRACT_MAX_LENGTH = 12000;
+const MAX_VERIFICATION_COMMANDS = 10;
+const DEFAULT_VERIFICATION_TIMEOUT = 120000;
+const verificationTimeout = parseInt(process.env.VERIFICATION_TIMEOUT_MS || '', 10) || DEFAULT_VERIFICATION_TIMEOUT;
+const VERIFICATION_SUMMARY_MAX_LENGTH = 600;
 
 interface GeneratedCommand {
   command: string;
@@ -65,12 +70,27 @@ export interface GitChangeInfo {
   changedFiles: string[];
 }
 
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
 export interface RunTaskResult {
   success: boolean;
   output: string;
   command: string;
   gitChanges?: GitChangeInfo;
   agentTaskContract?: AgentTaskContractSummary;
+  verification?: VerificationResult;
+  riskAssessment?: RunTaskRiskAssessment;
+  usage?: TokenUsage;
+}
+
+export interface RunTaskRiskAssessment {
+  level: string;
+  ruleName?: string;
+  needsConfirmation: boolean;
 }
 
 export interface RunTaskJsonResult {
@@ -84,6 +104,9 @@ export interface RunTaskJsonResult {
     changedFiles: string[];
     diffStat: string;
   };
+  verification?: VerificationResult;
+  riskAssessment?: RunTaskRiskAssessment;
+  usage?: TokenUsage;
 }
 
 export interface AgentTaskContractSummary {
@@ -94,6 +117,22 @@ export interface AgentTaskContractSummary {
   executionMode: AgentTaskContract['executionMode'];
   docExcerptTruncated: boolean;
   excerptStrategy: 'task-heading' | 'task-id-window' | 'label-window' | 'head-fallback' | 'none';
+  instructionHash: string;
+}
+
+export interface VerificationCommandResult {
+  command: string;
+  ok: boolean;
+  exitCode: number | null;
+  durationMs: number;
+  stdoutSummary?: string;
+  stderrSummary?: string;
+  outputTruncated?: boolean;
+}
+
+export interface VerificationResult {
+  ok: boolean;
+  commands: VerificationCommandResult[];
 }
 
 function extractOutermostJson(str: string): string | null {
@@ -279,9 +318,154 @@ function buildAgentTaskContract(input: {
     executionMode: contract.executionMode,
     docExcerptTruncated,
     excerptStrategy,
+    instructionHash: computeInstructionHash(
+      input.taskId, input.label, docExcerpt,
+      undefined, // tool is not available at contract build time
+      boundary.allowedFiles,
+      boundary.forbiddenFiles,
+    ),
   };
 
   return { ...contract, summary };
+}
+
+/**
+ * Parse token usage from Agent CLI output.
+ * Looks for common patterns like: "tokens": {"prompt": N, "completion": N, "total": N}
+ * or usage.prompt_tokens / usage.completion_tokens
+ */
+function parseTokenUsage(output: string): TokenUsage | undefined {
+  try {
+    // Try to find JSON with usage/token info in the output
+    const jsonMatch = extractOutermostJson(output);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch);
+      // Pattern 1: usage.prompt_tokens / usage.completion_tokens
+      if (parsed.usage) {
+        const u = parsed.usage;
+        const prompt = u.prompt_tokens ?? u.promptTokens ?? u.input_tokens ?? 0;
+        const completion = u.completion_tokens ?? u.completionTokens ?? u.output_tokens ?? 0;
+        if (prompt > 0 || completion > 0) {
+          return { promptTokens: prompt, completionTokens: completion, totalTokens: prompt + completion };
+        }
+      }
+      // Pattern 2: top-level token fields
+      if (parsed.prompt_tokens || parsed.promptTokens) {
+        const prompt = parsed.prompt_tokens ?? parsed.promptTokens ?? 0;
+        const completion = parsed.completion_tokens ?? parsed.completionTokens ?? 0;
+        return { promptTokens: prompt, completionTokens: completion, totalTokens: prompt + completion };
+      }
+    }
+
+    // Pattern 3: stderr lines like "Token usage: 1234 prompt, 567 completion"
+    const tokenLine = output.match(/token[s]?\s*(?:usage|count)?:?\s*(\d+)\s*(?:prompt|input)[,\s]+(\d+)\s*(?:completion|output)/i);
+    if (tokenLine) {
+      const prompt = parseInt(tokenLine[1], 10);
+      const completion = parseInt(tokenLine[2], 10);
+      return { promptTokens: prompt, completionTokens: completion, totalTokens: prompt + completion };
+    }
+  } catch {
+    // Ignore parse errors
+  }
+  return undefined;
+}
+
+function truncateVerificationSummary(value: string | undefined): string | undefined {
+  if (!value || value.length <= VERIFICATION_SUMMARY_MAX_LENGTH) return value;
+  const suffix = '...';
+  return `${value.slice(0, VERIFICATION_SUMMARY_MAX_LENGTH - suffix.length)}${suffix}`;
+}
+
+export function splitCommandArgs(cmd: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < cmd.length; i++) {
+    const ch = cmd[i];
+    if (inSingle) {
+      if (ch === "'") { inSingle = false; } else { current += ch; }
+    } else if (inDouble) {
+      if (ch === '"') { inDouble = false; } else { current += ch; }
+    } else if (ch === "'") {
+      inSingle = true;
+    } else if (ch === '"') {
+      inDouble = true;
+    } else if (ch === ' ' || ch === '\t') {
+      if (current) { parts.push(current); current = ''; }
+    } else {
+      current += ch;
+    }
+  }
+  if (current) parts.push(current);
+  return parts;
+}
+
+export async function runVerificationCommands(
+  validationCommands: string[],
+  cwd: string,
+): Promise<VerificationResult> {
+  const commandsToRun = validationCommands.slice(0, MAX_VERIFICATION_COMMANDS);
+  const results: VerificationCommandResult[] = [];
+  let overallOk = true;
+
+  for (const cmd of commandsToRun) {
+    // Risk assessment: block critical commands, flag high-risk
+    const risk = assessCommandRisk(cmd);
+    if (risk.level === 'critical') {
+      logger.warn(`验证命令被安全策略阻断 (critical): ${cmd} — ${risk.reason || ''}`);
+      results.push({ command: cmd, ok: false, exitCode: null, durationMs: 0 });
+      overallOk = false;
+      continue;
+    }
+
+    const parts = splitCommandArgs(cmd);
+    if (parts.length === 0) {
+      results.push({ command: cmd, ok: false, exitCode: null, durationMs: 0 });
+      overallOk = false;
+      continue;
+    }
+    const [executable, ...args] = parts;
+    const startMs = Date.now();
+    try {
+      const { stdout, stderr } = await execFileAsync(executable, args, {
+        timeout: verificationTimeout,
+        cwd,
+      });
+      const durationMs = Date.now() - startMs;
+      const stdoutStr = stdout?.toString?.() || '';
+      const stderrStr = stderr?.toString?.() || '';
+      const outputTruncated = stdoutStr.length > VERIFICATION_SUMMARY_MAX_LENGTH || stderrStr.length > VERIFICATION_SUMMARY_MAX_LENGTH;
+      results.push({
+        command: cmd,
+        ok: true,
+        exitCode: 0,
+        durationMs,
+        stdoutSummary: truncateVerificationSummary(stdoutStr),
+        stderrSummary: truncateVerificationSummary(stderrStr),
+        outputTruncated,
+      });
+    } catch (error) {
+      const durationMs = Date.now() - startMs;
+      const execError = error as any;
+      const exitCode: number | null = execError.killed ? null : (execError.status ?? execError.code ?? null);
+      const stdoutStr = execError.stdout?.toString?.() || '';
+      const stderrStr = execError.stderr?.toString?.() || '';
+      const outputTruncated = stdoutStr.length > VERIFICATION_SUMMARY_MAX_LENGTH || stderrStr.length > VERIFICATION_SUMMARY_MAX_LENGTH;
+      results.push({
+        command: cmd,
+        ok: false,
+        exitCode,
+        durationMs,
+        stdoutSummary: truncateVerificationSummary(stdoutStr),
+        stderrSummary: truncateVerificationSummary(stderrStr),
+        outputTruncated,
+      });
+      overallOk = false;
+    }
+  }
+
+  return { ok: overallOk, commands: results };
 }
 
 export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
@@ -302,6 +486,15 @@ export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
   }
   if (result.agentTaskContract) {
     jsonResult.agentTaskContract = result.agentTaskContract;
+  }
+  if (result.verification) {
+    jsonResult.verification = result.verification;
+  }
+  if (result.riskAssessment) {
+    jsonResult.riskAssessment = result.riskAssessment;
+  }
+  if (result.usage) {
+    jsonResult.usage = result.usage;
   }
 
   return jsonResult;
@@ -448,15 +641,51 @@ export async function runTask(options: {
       command: limitText(fullCommand),
       fallbackUsed,
     });
-    if (detectionResult.isDangerous) {
+    // Build risk assessment for the main command
+    let riskAssessment: RunTaskRiskAssessment | undefined;
+    if (detectionResult.isDangerous && detectionResult.severity === 'critical') {
       const ruleName = detectionResult.rule?.name || 'Unknown Rule';
-      logger.error(`安全策略拦截: 命令匹配规则 "${ruleName}" (severity: ${detectionResult.severity})`);
+      logger.error(`安全策略拦截: 命令匹配规则 "${ruleName}" (severity: critical)`);
       logger.error(`匹配模式: ${detectionResult.matchedPattern}`);
       audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'BLOCKED', 'run-task');
       return { success: false, output: `安全策略拦截: ${ruleName}`, command: fullCommand, agentTaskContract: agentTaskContractSummary };
     }
+    if (detectionResult.isDangerous) {
+      // high/medium risk: pass risk info to plugin for user confirmation
+      riskAssessment = {
+        level: detectionResult.severity || 'medium',
+        ruleName: detectionResult.rule?.name,
+        needsConfirmation: detectionResult.severity === 'high',
+      };
+      logger.warn(`命令风险评级: ${riskAssessment.level} (${riskAssessment.ruleName || 'unknown'}) — 需插件端确认`);
+    }
 
     audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'EXECUTING', 'run-task');
+
+    // Agent availability preflight check
+    if (!dryRun) {
+      const preflightSpan = startSpan('cli.run-task.agentPreflight', {
+        context: traceContext,
+        parentSpanId: rootSpan.spanId,
+        source: 'cli',
+        attributes: baseAttributes,
+      });
+      try {
+        await execFileAsync(generated.command, ['--version'], { timeout: 10000 });
+        await preflightSpan.end({ agentAvailable: true });
+      } catch (preflightError) {
+        const preflightMsg = `Agent CLI "${generated.command}" 未安装或无执行权限`;
+        await preflightSpan.fail(preflightError, { agentAvailable: false });
+        logger.error(preflightMsg);
+        audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'PREFLIGHT_FAILED', 'run-task');
+        return {
+          success: false,
+          output: preflightMsg,
+          command: fullCommand,
+          agentTaskContract: agentTaskContractSummary,
+        };
+      }
+    }
 
     if (dryRun) {
       logger.info(`[dry-run] 将执行: ${fullCommand}`);
@@ -520,12 +749,52 @@ export async function runTask(options: {
         },
       });
 
+      let verification: VerificationResult | undefined;
+      const validationCommands = agentTaskContractSummary.validationCommands;
+      if (validationCommands.length > 0) {
+        const verificationSpan = startSpan('cli.run-task.verification', {
+          context: traceContext,
+          parentSpanId: rootSpan.spanId,
+          source: 'cli',
+          attributes: {
+            ...baseAttributes,
+            verificationCommandCount: validationCommands.length,
+          },
+        });
+        try {
+          verification = await runVerificationCommands(validationCommands, process.cwd());
+          await verificationSpan.end({
+            verificationOk: verification.ok,
+            verificationTotalCommands: verification.commands.length,
+            verificationPassedCommands: verification.commands.filter(c => c.ok).length,
+            verificationFailedCommands: verification.commands.filter(c => !c.ok).length,
+            verificationTotalDurationMs: verification.commands.reduce((sum, c) => sum + c.durationMs, 0),
+          });
+          logger.info(`验证完成: ${verification.ok ? '通过' : '失败'} (${verification.commands.length} 条命令)`);
+        } catch (error) {
+          verification = { ok: false, commands: [] };
+          await verificationSpan.fail(error);
+          logger.error('验证执行异常');
+        }
+      }
+
+      const finalSuccess = verification ? verification.ok : true;
+      if (!finalSuccess) {
+        logger.warn('任务 Agent 成功但验证失败');
+      }
+
+      // Parse token usage from agent output
+      const usage = parseTokenUsage(combinedOutput);
+      if (usage) {
+        logger.info(`Token 消耗: prompt=${usage.promptTokens}, completion=${usage.completionTokens}, total=${usage.totalTokens}`);
+      }
+
       audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'COMPLETED', 'run-task');
-      logger.info('任务执行成功');
+      logger.info(finalSuccess ? '任务执行成功' : '任务执行完成（验证失败）');
       if (gitChanges) {
         logger.info(`变更文件: ${gitChanges.changedFiles.length} 个`);
       }
-      return { success: true, output: combinedOutput, command: fullCommand, gitChanges, agentTaskContract: agentTaskContractSummary };
+      return { success: finalSuccess, output: combinedOutput, command: fullCommand, gitChanges, agentTaskContract: agentTaskContractSummary, verification, usage };
     } catch (error) {
       const execError = error as any;
       const errStdout = execError.stdout?.toString?.() || '';
@@ -550,7 +819,8 @@ export async function runTask(options: {
       const gitChanges = await collectGitChanges() ?? undefined;
       audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'FAILED', 'run-task');
       logger.error(`任务执行失败: ${errOutput}`);
-      return { success: false, output: errOutput, command: fullCommand, gitChanges, agentTaskContract: agentTaskContractSummary };
+      const errUsage = parseTokenUsage(errOutput);
+      return { success: false, output: errOutput, command: fullCommand, gitChanges, agentTaskContract: agentTaskContractSummary, usage: errUsage };
     }
   }, {
     context: incomingContext || undefined,

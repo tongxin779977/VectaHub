@@ -200,12 +200,14 @@ LLM prompt 大结构
 - 每个 Agent 任务必须有明确输入：
   - task id
   - task label
+  - **instructionHash (用于检测需求变更)**
   - 文档片段
   - 允许修改范围
   - 禁止修改范围
   - 验收命令
 - 默认串行。
 - 并行只允许在文件范围不重叠或隔离 worktree 下开启。
+
 - Agent 输出不作为系统状态来源，系统状态由 VectaHub 自己记录。
 
 ### 任务输入合同
@@ -236,25 +238,16 @@ interface AgentTaskContract {
 
 让每个任务完成后自动进入验证阶段，不再只依赖 Agent 自述。
 
-### 最小闭环
+### 状态
 
-```text
-Agent 执行
--> collect git diff
--> run targeted tests
--> run typecheck
--> classify result
--> update task state
-```
+**已完成第一版开发与验证**
 
-### 验证类型
-
-- targeted test。
-- typecheck。
-- lint。
-- build。
-- secret scan。
-- diff summary。
+已具备能力：
+- CLI `run-task` 在 Agent 成功后顺序执行合同里的验证命令。
+- JSON 返回包含 `verification` 摘要。
+- 插件能根据验证结果自动标记 `failed_test`。
+- 任务运行记录保存验证命令计数、耗时及失败命令摘要。
+- 验证过程已接入 Trace，可追踪每条验证命令的执行详情。
 
 ### 验收标准
 
@@ -269,14 +262,16 @@ Agent 执行
 
 所有 Agent 生成命令和系统执行命令都必须经过统一安全策略。
 
-### 关键能力
+### 状态
 
-- Agent CLI 可用性 preflight。
-- Agent 权限状态检查。
-- 命令风险评估。
-- 高风险命令拦截或要求确认。
-- env 白名单传递。
-- secrets redaction。
+**已完成第一版开发与验证**
+
+已具备能力：
+- Agent CLI 可用性与权限 `preflight`。
+- 命令风险评估 (Risk Assessment)。
+- 高风险命令拦截与用户二次确认逻辑。
+- Trace 与 Record 敏感信息脱敏 (Redaction)。
+- 安全规则库单例化与高性能扫描。
 
 ### 验收标准
 
@@ -289,17 +284,17 @@ Agent 执行
 
 ### 目标
 
-保证执行系统长期运行时速度快、内存小、不会因日志和 trace 膨胀拖垮。
+保证执行系统长期运行时速度快、内存小、不会因日志和 trace 膨胀拖垮，并实现 LLM 消耗成本审计。
 
 ### 性能边界
 
 ```text
-CLI 轻量命令冷启动：< 300ms
+CLI 轻量命令冷启动：< 250ms
 trace 单 span 写入：不阻塞主流程
 trace list 默认 limit：20
-trace list 最大 limit：100
-单 span JSON 建议上限：8KB
-插件常驻增量内存：尽量 < 30MB
+单任务 Token 审计记录：必选
+批量任务 Token 预算预警：可选
+插件常驻增量内存：尽量 < 20MB
 普通 CLI 峰值内存：尽量 < 120MB
 ```
 
@@ -319,7 +314,22 @@ trace list 最大 limit：100
 - 大文档解析走分块。
 - 批量任务失败不会重复跑无意义 Agent 调用。
 
-## 10. P6：自愈与恢复
+## 10. P5.5：工作区隔离层 (Isolated Exec)
+
+### 目标
+解决并发任务的 Git 状态污染和 Diff 归因冲突。
+
+### 关键能力
+- 基于 `git worktree` 的轻量环境克隆。
+- 任务执行与主目录隔离。
+- 并发任务间的物理文件隔离。
+- 自动清理过期临时工作区。
+
+### 验收标准
+- 多个任务同时修改同一组文件时，不再产生 Git Merge 冲突。
+- 并发任务的 Diff 归因准确率 100%。
+
+## 11. P6：自愈与恢复
 
 ### 目标
 
@@ -390,7 +400,7 @@ trace list 最大 limit：100
 ```text
 success -> end
 failure -> fail
-cancel -> fail
+cancel -> fail (全局中断，停止后续所有待执行任务)
 user dismiss before execution -> end or fail
 spawn error -> fail
 ```
@@ -418,27 +428,19 @@ spawn error -> fail
 ### 当前立即处理
 
 ```text
-P0 hardening
+P5 性能与资源控制
 ```
 
-处理 Trace v1 的边界问题，确保它成为可靠基线。
+解决批量执行中的 IO 竞争、大文档解析瓶颈及 Token 审计。
 
 ### 下一阶段
 
 ```text
-P1 文档任务状态机
+P5.5 工作区隔离层 (Worktree Isolation)
+P6 自愈与恢复
+P7 插件可视化体验
 ```
 
-这是后续 Agent Worker 化和验证闭环的前置条件。
-
-### 再下一阶段
-
-```text
-P2 Agent Worker 化
-P3 验证闭环
-```
-
-这两步可以并行设计，但实现上应先 P2 后 P3。
 
 ## 14. 文档拆分建议
 

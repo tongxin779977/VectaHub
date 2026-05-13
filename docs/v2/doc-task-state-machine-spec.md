@@ -108,7 +108,18 @@ needs_confirmation
 
 `verifying` 和 `failed_test` 可以先保留类型，P3 验证闭环再完整接入。
 
-### 5.3 展示状态
+### 5.4 插件端指纹校验与状态回滚 (Hash Validation)
+
+为了确保文档内容变更后任务状态能实时响应，插件端必须实现以下逻辑：
+
+1.  **同算法实现**：插件端必须实现与 CLI 完全一致的 `computeInstructionHash` 算法。
+2.  **加载时校验**：插件在从 `latest.json` 或 `.jsonl` 加载 `DocTaskRunRecord` 时，必须立即根据当前文档内容重新计算 Hash。
+3.  **状态失效处理**：
+    *   若 `calculatedHash !== record.instructionHash`，则视为该次运行记录已失效。
+    *   系统必须将该任务的显示状态回滚为 `ready`（或 `pending`），并在 UI 上清除旧的 `gitChanges` 摘要。
+    *   失效的记录不得被用于 `resume` 或 `rerun` 逻辑。
+
+**DoD**：用户在 Markdown 文档中修改任一任务描述后，保存文档，VS Code 任务树中对应的 `success` 图标应立即变回待执行状态。
 
 插件树视图不需要展示所有内部状态。映射为：
 
@@ -282,25 +293,15 @@ single record serialized size: <= 16KB
 
 ```text
 runs-YYYY-MM-DD.jsonl:
-  每次状态变化 append 一条最新 record snapshot
+  每次状态变化 append 一条最新 record snapshot (唯一真理来源)
 
 latest.json:
-  只保存每个 taskId 的最新 run 摘要
+  只保存每个 taskId 的最新 run 摘要 (快照索引/热缓存)
 ```
 
-原因：
-
-- append 写入快。
-- 崩溃后仍保留历史。
-- `latest.json` 让插件刷新时不需要扫描全部历史。
-
-### 8.3 原子性
-
-`latest.json` 写入必须使用临时文件再 rename：
-
-```text
-latest.json.tmp -> latest.json
-```
+**索引一致性保障**：
+- `latest.json` 写入必须使用临时文件再 rename。
+- **自愈机制**：如果 `latest.json` 损坏、缺失或与 `.jsonl` 状态严重不一致，系统必须具备从 `.jsonl` 尾部回溯解析并重建 `latest.json` 的能力。
 
 JSONL append 失败应返回错误；插件需要展示状态写入失败，但不能让进程崩溃。
 

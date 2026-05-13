@@ -4,7 +4,7 @@ import { getActiveWorkspaceFolder, runCli } from '../cli/adapter.js';
 import { logToOutput } from '../ui/output.js';
 import { DocTask, TasksViewProvider } from '../views/tasksView.js';
 import { createRootTraceContext, startSpan } from '../trace/index.js';
-import { classifyDocTaskFailure, type DocTaskRunStatus } from '../project/docTaskState.js';
+import { classifyDocTaskFailure, type DocTaskFailureKind, type DocTaskRunStatus } from '../project/docTaskState.js';
 import { createDocTaskRunStore, type DocTaskBatchRunRecord, type DocTaskRunRecord } from '../project/docTaskRunStore.js';
 import {
   buildAgentTaskContractSummaries,
@@ -21,6 +21,83 @@ import {
   setTaskDisplayState,
   summarizeOutput,
 } from './docTaskRunHelpers.js';
+import { computeInstructionHash } from '../project/docTaskRunStore.js';
+import { confirmHighRiskCommand, type RiskLevel } from '../security/riskUI.js';
+
+const CRITICAL_RISK_PATTERNS: RegExp[] = [
+  /^sudo\s+/i,
+  /^rm\s+[^\s]*-rf?\s+\//i,
+  /^chmod\s+777/i,
+  /^dd\s+.*of=\//i,
+  /^mkfs/i,
+  /^shutdown/i,
+  /^reboot/i,
+  /^halt/i,
+  /^poweroff/i,
+];
+
+const HIGH_RISK_PATTERNS: RegExp[] = [
+  /^iptables/i,
+  /^ip6tables/i,
+  /^ufw/i,
+  /^firewall-cmd/i,
+  /^mv\s+\/\s+/i,
+  />\s*\/etc\//i,
+  />>\s*\/etc\//i,
+  /^mount\s+.*--bind/i,
+];
+
+function assessValidationCommandRisk(cmd: string): { level: RiskLevel; ruleName?: string } {
+  for (const pattern of CRITICAL_RISK_PATTERNS) {
+    if (pattern.test(cmd)) return { level: 'critical', ruleName: 'critical-risk-pattern' };
+  }
+  for (const pattern of HIGH_RISK_PATTERNS) {
+    if (pattern.test(cmd)) return { level: 'high', ruleName: 'high-risk-pattern' };
+  }
+  return { level: 'safe' };
+}
+
+interface RiskItem {
+  taskId: string;
+  taskLabel: string;
+  cmd: string;
+  level: RiskLevel;
+  ruleName?: string;
+}
+
+async function collectBatchRiskItems(
+  tasks: Array<{ id: string; label: string }>,
+  contractSummaries: Map<string, { validationCommands?: string[] } | undefined>,
+): Promise<RiskItem[]> {
+  const items: RiskItem[] = [];
+  for (const task of tasks) {
+    const contract = contractSummaries.get(task.id);
+    if (!contract?.validationCommands) continue;
+    for (const cmd of contract.validationCommands) {
+      const risk = assessValidationCommandRisk(cmd);
+      if (risk.level === 'high' || risk.level === 'critical') {
+        items.push({ taskId: task.id, taskLabel: task.label, cmd, level: risk.level, ruleName: risk.ruleName });
+      }
+    }
+  }
+  return items;
+}
+
+async function showBatchRiskDialog(riskItems: RiskItem[]): Promise<'continue' | 'skip' | 'cancel'> {
+  const summary = riskItems
+    .map(r => `[${r.level.toUpperCase()}] ${r.taskId}: ${r.cmd}`)
+    .join('\n');
+  const result = await vscode.window.showWarningMessage(
+    `检测到 ${riskItems.length} 个高风险验证命令`,
+    { modal: true, detail: summary },
+    '全部继续',
+    '全部跳过高风险',
+    '取消批量',
+  );
+  if (result === '全部继续') return 'continue';
+  if (result === '全部跳过高风险') return 'skip';
+  return 'cancel';
+}
 
 interface ParseDocResult {
   ok: boolean;
@@ -37,6 +114,28 @@ interface RunTaskResult {
   gitChanges?: {
     shortStat?: string;
     changedFiles?: string[];
+  };
+  verification?: {
+    ok: boolean;
+    commands: Array<{
+      command: string;
+      ok: boolean;
+      exitCode: number | null;
+      durationMs: number;
+      stdoutSummary?: string;
+      stderrSummary?: string;
+      outputTruncated?: boolean;
+    }>;
+  };
+  riskAssessment?: {
+    level: string;
+    ruleName?: string;
+    needsConfirmation: boolean;
+  };
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
   };
   error?: string;
 }
@@ -72,6 +171,34 @@ function applyContractSummary(
 ): void {
   if (!runRecord) return;
   runRecord.agentTaskContract = toRunContractSummary(resultSummary ?? fallbackSummary);
+}
+
+function applyVerificationToRunRecord(
+  runRecord: DocTaskRunRecord | undefined,
+  verification?: RunTaskResult['verification'],
+): void {
+  if (!runRecord || !verification) return;
+  const failed = verification.commands.filter(c => !c.ok);
+  runRecord.verification = {
+    ok: verification.ok,
+    totalCommands: verification.commands.length,
+    passedCommands: verification.commands.filter(c => c.ok).length,
+    failedCommands: failed.length,
+    failedCommandSummary: failed.length > 0
+      ? failed.map(c => c.command).slice(0, 3).join('; ')
+      : undefined,
+  };
+}
+
+function resolveVerificationStatus(
+  changedFiles: string[],
+  verification?: RunTaskResult['verification'],
+): { status: DocTaskRunStatus; failureKind?: DocTaskFailureKind } {
+  if (verification && !verification.ok) {
+    return { status: 'failed_test', failureKind: 'test' };
+  }
+  const status: DocTaskRunStatus = changedFiles.length > 0 ? 'changed' : 'success';
+  return { status };
 }
 
 export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksProvider: TasksViewProvider) {
@@ -130,7 +257,11 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
           const result = await runCli<ParseDocResult>(['parse-doc', docPath, '--json'], { timeout: 120000 });
 
           if (result.ok && result.data?.tasks) {
-            const tasksWithState = await applyLatestRunState(runStore, result.data.tasks, warnRunStore);
+            let docContent: string | undefined;
+            try {
+              docContent = await fsp.readFile(docPath, 'utf8');
+            } catch { /* ignore */ }
+            const tasksWithState = await applyLatestRunState(runStore, result.data.tasks, warnRunStore, docContent);
             tasksProvider.setDocTasks(tasksWithState);
             logToOutput(`解析完成，共 ${tasksWithState.length} 个任务`);
             vscode.window.showInformationMessage(`解析完成，共 ${tasksWithState.length} 个任务`);
@@ -294,20 +425,46 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
             traceContext: { traceId: traceContext.traceId, parentSpanId: singleSpan.spanId, source: 'vscode' },
           });
 
+          // Check if CLI returned a high-risk assessment requiring user confirmation
+          if (result.ok && result.data?.riskAssessment?.needsConfirmation) {
+            const risk = result.data.riskAssessment;
+            const confirmed = await confirmHighRiskCommand(
+              { level: risk.level as RiskLevel, ruleName: risk.ruleName, needsConfirmation: true },
+              `${task.id}: ${task.label}`,
+            );
+            if (!confirmed) {
+              logToOutput(`任务 ${task.id} 用户拒绝高风险命令执行`, 'warn');
+              setTaskDisplayState(task, 'cancelled');
+              tasksProvider.refresh();
+              if (runRecord) {
+                runRecord.status = 'cancelled';
+                runRecord.updatedAt = new Date().toISOString();
+                runRecord.endedAt = runRecord.updatedAt;
+                runRecord.durationMs = Date.now() - startedAtMs;
+                await safeUpdateRun(runStore, runRecord, 'risk-cancelled update', warnRunStore);
+              }
+              await singleSpan.end({ taskId: task.id, status: 'cancelled' });
+              return;
+            }
+            logToOutput(`任务 ${task.id} 用户确认高风险命令继续执行`, 'warn');
+          }
+
           if (result.ok) {
             const output = result.data?.output || '';
             const gitChanges = result.data?.gitChanges;
             const changedFiles = gitChanges?.changedFiles ?? [];
-            const finalStatus: DocTaskRunStatus = changedFiles.length > 0 ? 'changed' : 'success';
+            const resolved = resolveVerificationStatus(changedFiles, result.data?.verification);
+            const finalStatus = resolved.status;
 
             task.lastRunId = runId;
             task.lastTraceId = traceContext.traceId;
-            task.lastFailureKind = undefined;
+            task.lastFailureKind = resolved.failureKind;
             setTaskDisplayState(task, finalStatus);
             tasksProvider.refresh();
 
             if (runRecord) {
               runRecord.status = finalStatus;
+              runRecord.failureKind = resolved.failureKind;
               runRecord.updatedAt = new Date().toISOString();
               runRecord.endedAt = runRecord.updatedAt;
               runRecord.durationMs = Date.now() - startedAtMs;
@@ -319,64 +476,126 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
               };
               runRecord.outputSummary = summarizeOutput(output);
               runRecord.outputTruncated = result.data?.outputTruncated === true;
+              // Store instruction hash for drift detection on next parse
+              if (docPath) {
+                try {
+                  const docContentForHash = await fsp.readFile(docPath, 'utf8');
+                  const resultContract = result.data?.agentTaskContract;
+                  const hashContract = resultContract ?? taskContractSummary;
+                  runRecord.instructionHash = computeInstructionHash({
+                    taskId: task.id,
+                    label: task.label,
+                    docExcerpt: docContentForHash.slice(0, 8000),
+                    tool: agentCli || undefined,
+                    allowedFiles: hashContract?.allowedFiles,
+                    forbiddenFiles: hashContract?.forbiddenFiles,
+                  });
+                } catch { /* ignore */ }
+              }
               applyContractSummary(runRecord, result.data?.agentTaskContract);
+              applyVerificationToRunRecord(runRecord, result.data?.verification);
               await safeUpdateRun(runStore, runRecord, 'success update', warnRunStore);
             }
 
-            logToOutput(`任务 ${task.id} 执行成功`);
-            if (output) {
-              logToOutput(output);
+            if (finalStatus === 'failed_test') {
+              logToOutput(`任务 ${task.id} Agent 成功但验证失败`, 'warn');
+              vscode.window.showWarningMessage(`任务 ${task.id} 验证失败`);
+            } else {
+              logToOutput(`任务 ${task.id} 执行成功`);
+              if (output) {
+                logToOutput(output);
+              }
+              vscode.window.showInformationMessage(`任务 ${task.id} 执行成功`);
             }
             await singleSpan.end({
               taskId: task.id,
               taskLabel: task.label,
-              status: 'success',
+              status: finalStatus,
               agentCli: agentCli || '',
             });
-            vscode.window.showInformationMessage(`任务 ${task.id} 执行成功`);
           } else {
-            const errMsg = result.data?.error || result.data?.output || result.error?.message || '执行失败';
-            const classified = classifyDocTaskFailure({
-              ok: result.ok,
-              errorCode: result.error?.code,
-              errorMessage: result.error?.message || result.data?.error,
-              output: result.data?.output
-            });
+            // Check if this is a verification failure (Agent succeeded but verification failed)
+            const verificationFailed = result.data?.verification?.ok === false;
 
             task.lastRunId = runId;
             task.lastTraceId = traceContext.traceId;
-            task.lastFailureKind = classified.kind;
-            setTaskDisplayState(task, classified.status);
-            tasksProvider.refresh();
 
-            if (runRecord) {
-              runRecord.status = classified.status;
-              runRecord.failureKind = classified.kind;
-              runRecord.errorMessage = errMsg;
-              runRecord.updatedAt = new Date().toISOString();
-              runRecord.endedAt = runRecord.updatedAt;
-              runRecord.durationMs = Date.now() - startedAtMs;
-              runRecord.command = result.data?.command || runRecord.command;
-              runRecord.outputSummary = summarizeOutput(result.data?.output);
-              runRecord.outputTruncated = result.data?.outputTruncated === true;
+            if (verificationFailed) {
               const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
-              runRecord.gitChanges = {
-                changedFileCount: changedFiles.length,
-                changedFiles,
-                shortStat: result.data?.gitChanges?.shortStat
-              };
-              applyContractSummary(runRecord, result.data?.agentTaskContract);
-              await safeUpdateRun(runStore, runRecord, 'failed update', warnRunStore);
-            }
+              const finalStatus: DocTaskRunStatus = 'failed_test';
+              task.lastFailureKind = 'test';
+              setTaskDisplayState(task, finalStatus);
+              tasksProvider.refresh();
 
-            logToOutput(`任务 ${task.id} 执行失败: ${errMsg}`, 'error');
-            await singleSpan.fail(new Error(errMsg), {
-              taskId: task.id,
-              taskLabel: task.label,
-              status: 'failed',
-              agentCli: agentCli || '',
-            });
-            vscode.window.showErrorMessage(`任务 ${task.id} 执行失败: ${errMsg}`);
+              if (runRecord) {
+                runRecord.status = finalStatus;
+                runRecord.failureKind = 'test';
+                runRecord.updatedAt = new Date().toISOString();
+                runRecord.endedAt = runRecord.updatedAt;
+                runRecord.durationMs = Date.now() - startedAtMs;
+                runRecord.command = result.data?.command || runRecord.command;
+                runRecord.gitChanges = {
+                  changedFileCount: changedFiles.length,
+                  changedFiles,
+                  shortStat: result.data?.gitChanges?.shortStat
+                };
+                runRecord.outputSummary = summarizeOutput(result.data?.output);
+                runRecord.outputTruncated = result.data?.outputTruncated === true;
+                applyContractSummary(runRecord, result.data?.agentTaskContract);
+                applyVerificationToRunRecord(runRecord, result.data?.verification);
+                await safeUpdateRun(runStore, runRecord, 'verification failed update', warnRunStore);
+              }
+
+              logToOutput(`任务 ${task.id} Agent 成功但验证失败`, 'warn');
+              await singleSpan.end({
+                taskId: task.id,
+                taskLabel: task.label,
+                status: finalStatus,
+                agentCli: agentCli || '',
+              });
+              vscode.window.showWarningMessage(`任务 ${task.id} 验证失败`);
+            } else {
+              const errMsg = result.data?.error || result.data?.output || result.error?.message || '执行失败';
+              const classified = classifyDocTaskFailure({
+                ok: result.ok,
+                errorCode: result.error?.code,
+                errorMessage: result.error?.message || result.data?.error,
+                output: result.data?.output
+              });
+
+              task.lastFailureKind = classified.kind;
+              setTaskDisplayState(task, classified.status);
+              tasksProvider.refresh();
+
+              if (runRecord) {
+                runRecord.status = classified.status;
+                runRecord.failureKind = classified.kind;
+                runRecord.errorMessage = errMsg;
+                runRecord.updatedAt = new Date().toISOString();
+                runRecord.endedAt = runRecord.updatedAt;
+                runRecord.durationMs = Date.now() - startedAtMs;
+                runRecord.command = result.data?.command || runRecord.command;
+                runRecord.outputSummary = summarizeOutput(result.data?.output);
+                runRecord.outputTruncated = result.data?.outputTruncated === true;
+                const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
+                runRecord.gitChanges = {
+                  changedFileCount: changedFiles.length,
+                  changedFiles,
+                  shortStat: result.data?.gitChanges?.shortStat
+                };
+                applyContractSummary(runRecord, result.data?.agentTaskContract);
+                await safeUpdateRun(runStore, runRecord, 'failed update', warnRunStore);
+              }
+
+              logToOutput(`任务 ${task.id} 执行失败: ${errMsg}`, 'error');
+              await singleSpan.fail(new Error(errMsg), {
+                taskId: task.id,
+                taskLabel: task.label,
+                status: 'failed',
+                agentCli: agentCli || '',
+              });
+              vscode.window.showErrorMessage(`任务 ${task.id} 执行失败: ${errMsg}`);
+            }
           }
         });
       } catch (err) {
@@ -610,11 +829,16 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
 
             if (result.ok) {
               const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
-              const finalStatus: DocTaskRunStatus = changedFiles.length > 0 ? 'changed' : 'success';
-              task.lastFailureKind = undefined;
+              const resolved = resolveVerificationStatus(changedFiles, result.data?.verification);
+              const finalStatus = resolved.status;
+              task.lastFailureKind = resolved.failureKind;
               setTaskDisplayState(task, finalStatus);
+              if (resolved.status === 'failed_test') {
+                failedCount++;
+              }
               if (runRecord) {
                 runRecord.status = finalStatus;
+                runRecord.failureKind = resolved.failureKind;
                 runRecord.updatedAt = new Date().toISOString();
                 runRecord.endedAt = runRecord.updatedAt;
                 runRecord.durationMs = Date.now() - startedAtMs;
@@ -627,6 +851,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
                 runRecord.outputSummary = summarizeOutput(result.data?.output);
                 runRecord.outputTruncated = result.data?.outputTruncated === true;
                 applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
+                applyVerificationToRunRecord(runRecord, result.data?.verification);
                 await safeUpdateRun(runStore, runRecord, 'batch success update', warnRunStore);
               }
               await taskSpan.end({
@@ -635,45 +860,87 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
                 status: finalStatus,
                 agentCli: agentCli || '',
               });
-              updateProgress(task.id, '完成');
-            } else {
-              const errMsg = result.data?.error || result.data?.output || '执行失败';
-              const classified = classifyDocTaskFailure({
-                ok: result.ok,
-                errorCode: result.error?.code,
-                errorMessage: result.error?.message || result.data?.error,
-                output: result.data?.output
-              });
-              task.lastFailureKind = classified.kind;
-              setTaskDisplayState(task, classified.status);
-              failedCount++;
-              if (runRecord) {
-                runRecord.status = classified.status;
-                runRecord.failureKind = classified.kind;
-                runRecord.errorMessage = errMsg;
-                runRecord.updatedAt = new Date().toISOString();
-                runRecord.endedAt = runRecord.updatedAt;
-                runRecord.durationMs = Date.now() - startedAtMs;
-                runRecord.command = result.data?.command || runRecord.command;
-                const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
-                runRecord.gitChanges = {
-                  changedFileCount: changedFiles.length,
-                  changedFiles,
-                  shortStat: result.data?.gitChanges?.shortStat
-                };
-                runRecord.outputSummary = summarizeOutput(result.data?.output);
-                runRecord.outputTruncated = result.data?.outputTruncated === true;
-                applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
-                await safeUpdateRun(runStore, runRecord, 'batch failed update', warnRunStore);
+              if (finalStatus === 'failed_test') {
+                logToOutput(`[batch] 任务 ${task.id} Agent 成功但验证失败`, 'warn');
+                updateProgress(task.id, '验证失败');
+              } else {
+                updateProgress(task.id, '完成');
               }
-              logToOutput(`[batch] 任务 ${task.id} 失败: ${errMsg}`, 'error');
-              await taskSpan.fail(new Error(errMsg), {
-                taskId: task.id,
-                taskLabel: task.label,
-                status: classified.status,
-                agentCli: agentCli || '',
-              });
-              updateProgress(task.id, '失败');
+            } else {
+              // Check if this is a verification failure (Agent succeeded but verification failed)
+              const verificationFailed = result.data?.verification?.ok === false;
+
+              if (verificationFailed) {
+                const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
+                const finalStatus: DocTaskRunStatus = 'failed_test';
+                task.lastFailureKind = 'test';
+                setTaskDisplayState(task, finalStatus);
+                failedCount++;
+                if (runRecord) {
+                  runRecord.status = finalStatus;
+                  runRecord.failureKind = 'test';
+                  runRecord.updatedAt = new Date().toISOString();
+                  runRecord.endedAt = runRecord.updatedAt;
+                  runRecord.durationMs = Date.now() - startedAtMs;
+                  runRecord.command = result.data?.command || runRecord.command;
+                  runRecord.gitChanges = {
+                    changedFileCount: changedFiles.length,
+                    changedFiles,
+                    shortStat: result.data?.gitChanges?.shortStat
+                  };
+                  runRecord.outputSummary = summarizeOutput(result.data?.output);
+                  runRecord.outputTruncated = result.data?.outputTruncated === true;
+                  applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
+                  applyVerificationToRunRecord(runRecord, result.data?.verification);
+                  await safeUpdateRun(runStore, runRecord, 'batch verification failed update', warnRunStore);
+                }
+                logToOutput(`[batch] 任务 ${task.id} Agent 成功但验证失败`, 'warn');
+                await taskSpan.end({
+                  taskId: task.id,
+                  taskLabel: task.label,
+                  status: finalStatus,
+                  agentCli: agentCli || '',
+                });
+                updateProgress(task.id, '验证失败');
+              } else {
+                const errMsg = result.data?.error || result.data?.output || '执行失败';
+                const classified = classifyDocTaskFailure({
+                  ok: result.ok,
+                  errorCode: result.error?.code,
+                  errorMessage: result.error?.message || result.data?.error,
+                  output: result.data?.output
+                });
+                task.lastFailureKind = classified.kind;
+                setTaskDisplayState(task, classified.status);
+                failedCount++;
+                if (runRecord) {
+                  runRecord.status = classified.status;
+                  runRecord.failureKind = classified.kind;
+                  runRecord.errorMessage = errMsg;
+                  runRecord.updatedAt = new Date().toISOString();
+                  runRecord.endedAt = runRecord.updatedAt;
+                  runRecord.durationMs = Date.now() - startedAtMs;
+                  runRecord.command = result.data?.command || runRecord.command;
+                  const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
+                  runRecord.gitChanges = {
+                    changedFileCount: changedFiles.length,
+                    changedFiles,
+                    shortStat: result.data?.gitChanges?.shortStat
+                  };
+                  runRecord.outputSummary = summarizeOutput(result.data?.output);
+                  runRecord.outputTruncated = result.data?.outputTruncated === true;
+                  applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
+                  await safeUpdateRun(runStore, runRecord, 'batch failed update', warnRunStore);
+                }
+                logToOutput(`[batch] 任务 ${task.id} 失败: ${errMsg}`, 'error');
+                await taskSpan.fail(new Error(errMsg), {
+                  taskId: task.id,
+                  taskLabel: task.label,
+                  status: classified.status,
+                  agentCli: agentCli || '',
+                });
+                updateProgress(task.id, '失败');
+              }
             }
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
@@ -738,7 +1005,32 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
           };
           cancelled = true;
         } else {
-          await runWithConcurrency();
+          // Batch risk assessment: collect all high-risk validation commands upfront
+          const riskItems = await collectBatchRiskItems(tasks, contractSummaries);
+          if (riskItems.length > 0) {
+            const riskDecision = await showBatchRiskDialog(riskItems);
+            if (riskDecision === 'cancel') {
+              cancelled = true;
+            } else if (riskDecision === 'skip') {
+              logToOutput(`[batch] 用户选择跳过 ${riskItems.length} 个高风险验证命令`, 'warn');
+              // mark skipped tasks and remove them from queue
+              const skipTaskIds = new Set(riskItems.map(r => r.taskId));
+              for (const task of [...queue]) {
+                if (skipTaskIds.has(task.id)) {
+                  setTaskDisplayState(task, 'changed');
+                  skippedCount++;
+                  completedCount++;
+                  const idx = queue.indexOf(task);
+                  if (idx >= 0) queue.splice(idx, 1);
+                  notStartedTaskIds.delete(task.id);
+                }
+              }
+              tasksProvider.refresh();
+            }
+          }
+          if (!cancelled) {
+            await runWithConcurrency();
+          }
         }
 
         if (notStartedTaskIds.size > 0) {

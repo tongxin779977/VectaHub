@@ -1,3 +1,12 @@
+/**
+ * Compatibility wrapper around the unified Redactor (src/security-protocol/redactor.ts).
+ * Keeps existing public interfaces (redactSensitiveData, redactString, isSensitiveKey, etc.)
+ * while delegating string-level pattern matching to the Redactor for consistency.
+ */
+import { Redactor } from '../security-protocol/redactor.js';
+
+const unifiedRedactor = new Redactor();
+
 const SENSITIVE_KEYS = [
   'apiKey',
   'api_key',
@@ -115,6 +124,14 @@ function formatRedacted(key: string, options: RedactionOptions): string {
 
 export function redactString(str: string, options?: RedactionOptions): string {
   const opts = { ...DEFAULT_OPTIONS, ...options };
+
+  // For 'full' mode (default), delegate to the unified Redactor
+  // which has the complete pattern set (API keys, PII, JWT, home paths, etc.)
+  if (opts.mode === 'full' || !opts.mode) {
+    return unifiedRedactor.redact(str);
+  }
+
+  // For 'partial'/'mask' modes, apply key-value based redaction with formatting
   let result = str;
 
   for (const def of API_KEY_PATTERNS) {
@@ -125,13 +142,13 @@ export function redactString(str: string, options?: RedactionOptions): string {
 
   for (const def of PII_PATTERNS) {
     result = result.replace(def.pattern, (match) =>
-      opts.mode === 'mask' ? maskMatch(match, opts) : '[REDACTED_PII]'
+      opts.mode === 'mask' ? maskMatch(match, opts) : '[REDACTED]'
     );
   }
 
   for (const def of FINANCIAL_PATTERNS) {
     result = result.replace(def.pattern, (match) =>
-      opts.mode === 'mask' ? maskMatch(match, opts) : '[REDACTED_FIN]'
+      opts.mode === 'mask' ? maskMatch(match, opts) : '[REDACTED]'
     );
   }
 
@@ -141,7 +158,7 @@ export function redactString(str: string, options?: RedactionOptions): string {
   }
 
   const jwtPattern = /[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}/g;
-  result = result.replace(jwtPattern, '[REDACTED_JWT]');
+  result = result.replace(jwtPattern, '[REDACTED]');
 
   return result;
 }

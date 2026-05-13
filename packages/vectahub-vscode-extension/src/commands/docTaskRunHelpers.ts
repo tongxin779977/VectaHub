@@ -1,6 +1,6 @@
 import type { DocTask } from '../views/tasksView.js';
 import { mapRunStatusToDisplayStatus, type DocTaskRunStatus } from '../project/docTaskState.js';
-import type { DocTaskBatchRunRecord, DocTaskRunRecord, DocTaskRunStore } from '../project/docTaskRunStore.js';
+import { computeInstructionHash, type DocTaskBatchRunRecord, type DocTaskRunRecord, type DocTaskRunStore } from '../project/docTaskRunStore.js';
 
 export type WarnFn = (message: string) => void;
 
@@ -54,15 +54,43 @@ export function setTaskDisplayState(task: DocTask, status: DocTaskRunStatus): vo
 export async function applyLatestRunState(
   store: DocTaskRunStore | undefined,
   tasks: DocTask[],
-  warn: WarnFn
+  warn: WarnFn,
+  docContent?: string,
 ): Promise<DocTask[]> {
   if (!store || tasks.length === 0) return tasks;
 
   try {
     const latest = await store.getLatestMap();
-    return tasks.map(task => {
+    const tasksToReset: Array<{ task: DocTask; run: DocTaskRunRecord }> = [];
+
+    const result = tasks.map(task => {
       const run = latest.get(task.id);
       if (!run) return task;
+
+      // Hash drift detection: if the task label changed since the last run,
+      // reset the task to "ready" so the user re-runs it.
+      if (run.status === 'success' || run.status === 'changed') {
+        const oldHash = run.instructionHash;
+        if (oldHash && docContent) {
+          const newHash = computeInstructionHash({
+            taskId: task.id,
+            label: task.label,
+            docExcerpt: docContent.slice(0, 8000),
+            tool: run.agentCli,
+          });
+          if (newHash !== oldHash) {
+            tasksToReset.push({ task, run });
+            return {
+              ...task,
+              status: 'ready' as const,
+              lastRunId: run.runId,
+              lastTraceId: run.traceId,
+              lastFailureKind: undefined,
+            };
+          }
+        }
+      }
+
       return {
         ...task,
         status: mapRunStatusToDisplayStatus(run.status),
@@ -71,6 +99,24 @@ export async function applyLatestRunState(
         lastFailureKind: run.failureKind,
       };
     });
+
+    // Persist the reset status so the tree view stays in sync
+    for (const { task, run } of tasksToReset) {
+      const resetRecord: DocTaskRunRecord = {
+        ...run,
+        status: 'ready',
+        failureKind: undefined,
+        updatedAt: new Date().toISOString(),
+      };
+      try {
+        await store.updateRun(resetRecord);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        warn(`[doc-task-run-store] hash drift reset 失败 (${task.id}): ${msg}`);
+      }
+    }
+
+    return result;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     warn(`[doc-task-run-store] latest 读取失败: ${msg}`);

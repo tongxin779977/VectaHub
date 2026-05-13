@@ -37,6 +37,7 @@ export class SecurityProtocolManager {
   private database: SecurityDatabase;
   private databasePath: string;
   private configPath: string;
+  private degradedMode = false;
 
   constructor(configPath?: string) {
     if (testMode && testConfig && testDatabase) {
@@ -160,6 +161,16 @@ export class SecurityProtocolManager {
     }
   }
 
+  /** Expose degraded mode status for testing and diagnostics */
+  isDegradedMode(): boolean {
+    return this.degradedMode;
+  }
+
+  /** Allow external code (e.g., during initialization failure) to enable degraded mode */
+  setDegradedMode(enabled: boolean): void {
+    this.degradedMode = enabled;
+  }
+
   getDatabase(): SecurityDatabase {
     return { ...this.database };
   }
@@ -248,9 +259,50 @@ export class SecurityProtocolManager {
   }
 
   detectCommand(command: string, cliTool?: string): DetectionResult {
+    // Fix #1: Fail-closed — oversized commands are blocked rather than bypassed
     if (command.length > 10000) {
-      return { isDangerous: false, severity: 'none' };
+      return {
+        isDangerous: true,
+        severity: 'critical',
+        matchedPattern: 'command-length-limit',
+        rule: {
+          id: 'rule-oversized-command',
+          name: 'Oversized Command',
+          description: 'Command exceeds maximum safe length and is blocked to prevent security bypass',
+          category: 'resource',
+          severity: 'critical',
+          patterns: [],
+          enabled: true,
+          createdAt: '',
+          updatedAt: '',
+          source: 'builtin',
+        },
+      };
     }
+
+    // Fix #3: Fail-closed when security engine is in degraded mode
+    if (this.degradedMode) {
+      return {
+        isDangerous: true,
+        severity: 'high',
+        matchedPattern: 'degraded-mode',
+        rule: {
+          id: 'rule-degraded-mode',
+          name: 'Degraded Security Mode',
+          description: 'Security engine is in degraded mode; non-whitelisted commands require confirmation',
+          category: 'system',
+          severity: 'high',
+          patterns: [],
+          enabled: true,
+          createdAt: '',
+          updatedAt: '',
+          source: 'builtin',
+        },
+      };
+    }
+
+    // Fix #2: Trim command to prevent anchor bypass via leading whitespace/newlines
+    const trimmed = command.trim();
     const enabledRules = this.getEnabledRules();
 
     for (const rule of enabledRules) {
@@ -263,7 +315,7 @@ export class SecurityProtocolManager {
       for (const pattern of rule.patterns) {
         try {
           const regex = new RegExp(pattern);
-          if (regex.test(command)) {
+          if (regex.test(trimmed)) {
             return {
               isDangerous: true,
               rule: { ...rule },

@@ -64,7 +64,17 @@ P2 不重写 LLM 解析器，不引入数据库，不引入 worktree 隔离。
 - 不读取整仓文件树。
 - 不把完整文档内容保存到 task run record。
 
-## 5. Agent Task Contract
+### 5.4 任务指纹 (Instruction Hash)
+为了精确检测需求变更，每个合同必须包含 `instructionHash`。
+
+**计算公式**：
+`Hash = SHA-256(taskId + label + docExcerpt + toolName + normalizedAllowedFiles + normalizedForbiddenFiles)`
+
+**执行契约 (Mandates)**：
+1.  **因子完整性**：计算 Hash 时必须包含上述所有 6 个维度。
+2.  **比对阶段的因子对称性 (Critical)**：插件在比对历史 Hash 与当前 Hash 时，**必须保证计算因子完全对称**。这意味着在比对前，系统必须先根据当前环境执行轻量级的“边界预推导”，获取当前的 `allowedFiles` 和 `forbiddenFiles`，再与 `toolName` 等共同参与计算。
+3.  **禁止单向校验**：严禁在比对阶段仅使用部分因子。不对称的计算会导致 Hash 永远无法匹配，造成系统逻辑失效。
+
 
 ### 5.1 类型定义
 

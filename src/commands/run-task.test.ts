@@ -39,6 +39,13 @@ vi.mock('../infrastructure/audit/index.js', () => ({
   },
 }));
 
+vi.mock('../security-protocol/engine.js', () => ({
+  assessCommandRisk: vi.fn(() => ({
+    level: 'safe',
+    needsConfirmation: false,
+  })),
+}));
+
 vi.mock('../utils/logger.js', () => ({
   createConsoleLogger: vi.fn(() => ({
     info: vi.fn(),
@@ -54,7 +61,7 @@ vi.mock('../utils/logger.js', () => ({
   })),
 }));
 
-import { runTask, collectGitChanges, formatRunTaskJson } from './run-task.js';
+import { runTask, collectGitChanges, formatRunTaskJson, runVerificationCommands, splitCommandArgs, type RunTaskResult } from './run-task.js';
 import { createLLMConfig } from '../nl/llm.js';
 
 describe('runTask', () => {
@@ -234,5 +241,252 @@ describe('formatRunTaskJson', () => {
     expect(result.output.length).toBeLessThanOrEqual(50000);
     expect(result.output).toContain('\n... (output truncated)');
     expect(result.output).not.toMatch(/x+\.\.\. \(output truncated\)$/);
+  });
+
+  it('should include verification in JSON when present', () => {
+    const result = formatRunTaskJson({
+      success: false,
+      command: 'aider --message test',
+      output: 'done',
+      verification: {
+        ok: false,
+        commands: [
+          { command: 'npm run typecheck', ok: false, exitCode: 1, durationMs: 500 },
+        ],
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.verification).toBeDefined();
+    expect(result.verification!.ok).toBe(false);
+    expect(result.verification!.commands).toHaveLength(1);
+  });
+
+  it('should not include verification in JSON when absent', () => {
+    const result = formatRunTaskJson({
+      success: true,
+      command: 'aider --message test',
+      output: 'done',
+    });
+
+    expect(result.verification).toBeUndefined();
+  });
+});
+
+describe('runVerificationCommands', () => {
+  it('should return ok=true when all commands pass', async () => {
+    const result = await runVerificationCommands(
+      ['node -e "process.exit(0)"', 'node -e "process.exit(0)"'],
+      process.cwd(),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.commands).toHaveLength(2);
+    expect(result.commands.every(c => c.ok)).toBe(true);
+  });
+
+  it('should return verification result with empty commands for empty input', async () => {
+    const result = await runVerificationCommands([], process.cwd());
+    expect(result.ok).toBe(true);
+    expect(result.commands).toHaveLength(0);
+  });
+
+  it('should limit commands to 10', async () => {
+    // We can't easily mock execFileAsync since it's captured at module load time.
+    // Instead, test that the function handles the slice correctly by providing
+    // commands that will fail quickly (non-existent executables).
+    const commands = Array.from({ length: 15 }, (_, i) => `nonexistent_cmd_${i}`);
+    const result = await runVerificationCommands(commands, process.cwd());
+    expect(result.commands).toHaveLength(10);
+    expect(result.ok).toBe(false);
+  });
+
+  it('should mark non-executable commands as failed', async () => {
+    const result = await runVerificationCommands(
+      ['__definitely_not_a_real_command_xyz__'],
+      process.cwd(),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.commands).toHaveLength(1);
+    expect(result.commands[0].ok).toBe(false);
+    expect(result.commands[0].command).toBe('__definitely_not_a_real_command_xyz__');
+    expect(typeof result.commands[0].durationMs).toBe('number');
+  });
+
+  it('should mark a passing command as ok', async () => {
+    const result = await runVerificationCommands(
+      ['node -e "process.exit(0)"'],
+      process.cwd(),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.commands).toHaveLength(1);
+    expect(result.commands[0].ok).toBe(true);
+    expect(result.commands[0].exitCode).toBe(0);
+    expect(result.commands[0].stdoutSummary).toBeDefined();
+  });
+
+  it('should mark a failing command as not ok', async () => {
+    const result = await runVerificationCommands(
+      ['node -e process.exit(1)'],
+      process.cwd(),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.commands).toHaveLength(1);
+    expect(result.commands[0].ok).toBe(false);
+  });
+
+  it('should track mixed pass and fail results', async () => {
+    const result = await runVerificationCommands(
+      [
+        'node -e process.exit(0)',
+        'node -e process.exit(1)',
+        'node -e process.exit(0)',
+      ],
+      process.cwd(),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.commands).toHaveLength(3);
+    expect(result.commands[0].ok).toBe(true);
+    expect(result.commands[1].ok).toBe(false);
+    expect(result.commands[2].ok).toBe(true);
+  });
+
+  it('should truncate stdout summary to 600 chars', async () => {
+    const longOutput = 'x'.repeat(1000);
+    const result = await runVerificationCommands(
+      [`node -e "process.stdout.write('${longOutput}')"`],
+      process.cwd(),
+    );
+    expect(result.commands).toHaveLength(1);
+    if (result.commands[0].stdoutSummary) {
+      expect(result.commands[0].stdoutSummary.length).toBeLessThanOrEqual(600);
+      expect(result.commands[0].outputTruncated).toBe(true);
+    }
+  });
+
+  it('should record durationMs for each command', async () => {
+    const result = await runVerificationCommands(
+      ['node -e "process.exit(0)"'],
+      process.cwd(),
+    );
+    expect(result.commands[0].durationMs).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('integration: agent success -> verification failure -> final failure', () => {
+  it('should produce ok=false in JSON when agent succeeds but verification fails', async () => {
+    // Simulate: Agent succeeded (exit 0), collect git changes, then run verification
+    const verification = await runVerificationCommands(
+      ['node -e "process.exit(1)"'],
+      process.cwd(),
+    );
+    expect(verification.ok).toBe(false);
+    expect(verification.commands).toHaveLength(1);
+    expect(verification.commands[0].ok).toBe(false);
+
+    // Compute finalSuccess as runTask does
+    const finalSuccess = verification.ok;
+    expect(finalSuccess).toBe(false);
+
+    // Format JSON as CLI does
+    const agentResult: RunTaskResult = {
+      success: finalSuccess,
+      output: 'Agent completed successfully',
+      command: 'aider --message "implement feature"',
+      gitChanges: {
+        diffStat: ' src/foo.ts | 5 +++++',
+        shortStat: ' 1 file changed, 5 insertions(+)',
+        changedFiles: ['src/foo.ts'],
+      },
+      verification,
+    };
+
+    const json = formatRunTaskJson(agentResult);
+
+    expect(json.ok).toBe(false);
+    expect(json.verification).toBeDefined();
+    expect(json.verification!.ok).toBe(false);
+    expect(json.verification!.commands).toHaveLength(1);
+    expect(json.verification!.commands[0].command).toBe('node -e "process.exit(1)"');
+    expect(json.verification!.commands[0].ok).toBe(false);
+    expect(json.verification!.commands[0].exitCode).not.toBe(0);
+  });
+
+  it('should produce ok=true in JSON when agent succeeds and verification passes', async () => {
+    const verification = await runVerificationCommands(
+      ['node -e "process.exit(0)"'],
+      process.cwd(),
+    );
+    expect(verification.ok).toBe(true);
+
+    const finalSuccess = verification.ok;
+    expect(finalSuccess).toBe(true);
+
+    const agentResult: RunTaskResult = {
+      success: finalSuccess,
+      output: 'Agent completed successfully',
+      command: 'aider --message "implement feature"',
+      verification,
+    };
+
+    const json = formatRunTaskJson(agentResult);
+
+    expect(json.ok).toBe(true);
+    expect(json.verification).toBeDefined();
+    expect(json.verification!.ok).toBe(true);
+    expect(json.verification!.commands[0].ok).toBe(true);
+  });
+
+  it('should produce ok=false when mixed verification commands have failures', async () => {
+    const verification = await runVerificationCommands(
+      [
+        'node -e "process.exit(0)"',
+        'node -e "process.exit(1)"',
+        'node -e "process.exit(0)"',
+      ],
+      process.cwd(),
+    );
+
+    expect(verification.ok).toBe(false);
+    expect(verification.commands).toHaveLength(3);
+    expect(verification.commands[0].ok).toBe(true);
+    expect(verification.commands[1].ok).toBe(false);
+    expect(verification.commands[2].ok).toBe(true);
+
+    const json = formatRunTaskJson({
+      success: verification.ok,
+      output: 'done',
+      command: 'aider --message test',
+      verification,
+    });
+
+    expect(json.ok).toBe(false);
+    expect(json.verification!.commands.filter(c => c.ok)).toHaveLength(2);
+    expect(json.verification!.commands.filter(c => !c.ok)).toHaveLength(1);
+  });
+});
+
+describe('splitCommandArgs', () => {
+  it('should split simple command by whitespace', () => {
+    expect(splitCommandArgs('npm run typecheck')).toEqual(['npm', 'run', 'typecheck']);
+  });
+
+  it('should handle double-quoted arguments with spaces', () => {
+    expect(splitCommandArgs('npm test -- "path/with space"')).toEqual(['npm', 'test', '--', 'path/with space']);
+  });
+
+  it('should handle single-quoted arguments with spaces', () => {
+    expect(splitCommandArgs("node -e 'process.exit(0)'")).toEqual(['node', '-e', 'process.exit(0)']);
+  });
+
+  it('should return empty array for empty string', () => {
+    expect(splitCommandArgs('')).toEqual([]);
+  });
+
+  it('should handle multiple spaces between args', () => {
+    expect(splitCommandArgs('a   b    c')).toEqual(['a', 'b', 'c']);
+  });
+
+  it('should handle mixed quotes', () => {
+    expect(splitCommandArgs(`cmd "arg with 'nested'" 'other "quoted"'`)).toEqual(['cmd', "arg with 'nested'", 'other "quoted"']);
   });
 });

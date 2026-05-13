@@ -14,6 +14,7 @@ export interface AgentTaskContractSummary {
 }
 
 export interface AgentTaskRunContractSummary {
+  instructionHash?: string;
   boundaryConfidence: AgentTaskContractSummary['boundaryConfidence'];
   allowedFileCount: number;
   forbiddenFileCount: number;

@@ -244,6 +244,30 @@ export const DEFAULT_SECURITY_RULES: SecurityRule[] = [
     source: 'builtin'
   },
   {
+    id: 'rule-curl-bash',
+    name: 'Download and Execute',
+    description: 'Detects piping downloaded content directly to shell interpreters',
+    category: 'network',
+    severity: 'high',
+    patterns: ['curl\\s+.*\\|\\s*(bash|sh|zsh)', 'wget\\s+.*\\|\\s*(bash|sh|zsh)', 'curl\\s+.*-o\\s*-\\s*\\|\\s*(bash|sh)'],
+    enabled: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    source: 'builtin'
+  },
+  {
+    id: 'rule-base64-execute',
+    name: 'Base64 Encoded Execution',
+    description: 'Detects decoding base64 content and piping to shell interpreters',
+    category: 'resource',
+    severity: 'medium',
+    patterns: ['base64\\s+(-d|--decode)\\s*\\|\\s*(bash|sh|zsh)', 'echo\\s+.*\\|\\s*base64\\s+(-d|--decode)\\s*\\|\\s*(bash|sh)'],
+    enabled: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    source: 'builtin'
+  },
+  {
     id: 'rule-agent-command-injection',
     name: 'Agent CLI Command Injection via Args',
     description: 'Detects shell command injection attempts embedded in agent CLI arguments via backtick or dollar-substitution',

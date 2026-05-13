@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import { promises as fsp } from 'fs';
 import * as path from 'path';
+import { createHash } from 'crypto';
 import { getVectaHubHome } from '../cli/adapter.js';
 import type { DocTaskFailureKind, DocTaskRunStatus } from './docTaskState.js';
 import type { AgentTaskRunContractSummary } from './docTaskContract.js';
@@ -13,6 +14,7 @@ export interface DocTaskRunRecord {
   docPath?: string;
   agentCli: string;
   status: DocTaskRunStatus;
+  instructionHash?: string;
   failureKind?: DocTaskFailureKind;
   errorMessage?: string;
   command?: string;
@@ -29,6 +31,13 @@ export interface DocTaskRunRecord {
   outputSummary?: string;
   outputTruncated?: boolean;
   agentTaskContract?: AgentTaskRunContractSummary;
+  verification?: {
+    ok: boolean;
+    totalCommands: number;
+    passedCommands: number;
+    failedCommands: number;
+    failedCommandSummary?: string;
+  };
   retryOfRunId?: string;
 }
 
@@ -83,6 +92,15 @@ export interface DocTaskRunStore {
   listRuns(options?: ListRunsOptions): Promise<DocTaskRunRecord[]>;
 }
 
+export interface InstructionHashContract {
+  taskId: string;
+  label: string;
+  docExcerpt: string;
+  tool?: string;
+  allowedFiles?: string[];
+  forbiddenFiles?: string[];
+}
+
 const MAX_ERROR_MESSAGE = 1000;
 const MAX_OUTPUT_SUMMARY = 2000;
 const MAX_CHANGED_FILES = 100;
@@ -91,6 +109,19 @@ const MAX_LATEST_CACHE = 200;
 const DEFAULT_LIST_LIMIT = 100;
 const MAX_LIST_LIMIT = 500;
 const RECENT_DAYS = 7;
+
+/**
+ * Compute a stable SHA-256 hash of the task instruction.
+ * Mirrors src/commands/agent-task-contract.ts computeInstructionHash exactly.
+ */
+export function computeInstructionHash(
+  contract: InstructionHashContract,
+): string {
+  const sortedAllowed = [...(contract.allowedFiles ?? [])].sort().join(',');
+  const sortedForbidden = [...(contract.forbiddenFiles ?? [])].sort().join(',');
+  const content = `${contract.taskId}\n${contract.label}\n${contract.docExcerpt}\ntool=${contract.tool ?? ''}\nallowed=${sortedAllowed}\nforbidden=${sortedForbidden}`;
+  return createHash('sha256').update(content, 'utf-8').digest('hex').slice(0, 16);
+}
 
 function djb2Hash(input: string): string {
   let hash = 5381;
@@ -202,6 +233,31 @@ export function createDocTaskRunStore(projectRoot: string): DocTaskRunStore {
     return path.join(dir, `runs-${toDatePart(d)}.jsonl`);
   }
 
+  async function rebuildLatestFromJsonl(): Promise<Map<string, DocTaskRunRecord>> {
+    // Scan recent .jsonl run files to rebuild latest.json
+    const rebuilt = new Map<string, DocTaskRunRecord>();
+    for (let i = 0; i < RECENT_DAYS; i++) {
+      const day = new Date();
+      day.setUTCDate(day.getUTCDate() - i);
+      const filePath = getRunFilePathByDate(day);
+      if (!fs.existsSync(filePath)) continue;
+      try {
+        const content = await fsp.readFile(filePath, 'utf8');
+        const lines = content.split('\n').filter(Boolean);
+        for (const line of lines) {
+          try {
+            const rec = JSON.parse(line) as DocTaskRunRecord;
+            const existing = rebuilt.get(rec.taskId);
+            if (!existing || new Date(rec.updatedAt) > new Date(existing.updatedAt)) {
+              rebuilt.set(rec.taskId, rec);
+            }
+          } catch { /* skip malformed line */ }
+        }
+      } catch { /* skip unreadable file */ }
+    }
+    return rebuilt;
+  }
+
   async function loadLatestMap(): Promise<Map<string, DocTaskRunRecord>> {
     if (latestCache) {
       return new Map(latestCache);
@@ -213,6 +269,13 @@ export function createDocTaskRunStore(projectRoot: string): DocTaskRunStore {
       latestCache = sanitizeLatestMap(map);
       return new Map(latestCache);
     } catch {
+      // latest.json missing or corrupted — attempt rebuild from .jsonl
+      const rebuilt = await rebuildLatestFromJsonl();
+      if (rebuilt.size > 0) {
+        // Persist rebuilt state for future loads
+        await saveLatestMap(rebuilt);
+        return new Map(latestCache ?? rebuilt);
+      }
       latestCache = new Map();
       return new Map();
     }
