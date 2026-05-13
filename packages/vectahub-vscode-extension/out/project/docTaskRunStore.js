@@ -318,6 +318,35 @@ function createDocTaskRunStore(projectRoot) {
                 all.push(...rows.slice(0, remains));
             }
             return all.slice(0, limit);
+        },
+        async saveRecoveryRecord(record) {
+            const recoveryPath = path.join(dir, `recovery-${toDatePart(new Date())}.jsonl`);
+            await enqueueWrite(() => appendJsonl(recoveryPath, record));
+        },
+        async listRecoveryRecords(limit) {
+            const effectiveLimit = clampLimit(limit);
+            const all = [];
+            for (let i = 0; i < RECENT_DAYS && all.length < effectiveLimit; i++) {
+                const day = new Date();
+                day.setUTCDate(day.getUTCDate() - i);
+                const recoveryPath = path.join(dir, `recovery-${toDatePart(day)}.jsonl`);
+                if (!fs.existsSync(recoveryPath))
+                    continue;
+                try {
+                    const content = await fs_1.promises.readFile(recoveryPath, 'utf8');
+                    const lines = content.split('\n').filter(Boolean);
+                    for (const line of lines) {
+                        if (all.length >= effectiveLimit)
+                            break;
+                        try {
+                            all.push(JSON.parse(line));
+                        }
+                        catch { /* skip malformed line */ }
+                    }
+                }
+                catch { /* skip unreadable file */ }
+            }
+            return all.slice(0, effectiveLimit);
         }
     };
 }

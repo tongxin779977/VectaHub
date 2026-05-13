@@ -1,113 +1,181 @@
-# VectaHub Project Rules
+# VectaHub × Cline Workspace Rule
 
-> Natural Language Workflow Engine — TypeScript/Node.js CLI, ESM, 1185+ tests.
+> Purpose: make Cline act like a disciplined project agent, not a generic coder.
+> Scope: always-on workspace rule for this repository.
 
-## Project Context
+## 1. How Cline Should Work Here
+
+- Treat this repo as a TypeScript/Node.js CLI product with a VS Code extension, not a generic app.
+- Prefer **small, verifiable steps** over broad rewrites.
+- Use **existing project patterns first**. Only introduce a new pattern when current code clearly cannot support the task.
+- Do not guess success. If you did not run a check, say you did not run it.
+- Keep context lean. Read the minimum relevant files first, then expand only if blocked.
+
+## 2. Cline Task Router
+
+Before making substantial edits, classify the task and load exactly the most relevant skill file from `.cline/skills/`.
+
+| Task Type | Read First |
+|---|---|
+| CLI command / command wiring | `.cline/skills/vectahub-cli.md` |
+| Workflow / DAG / executor / expression / storage | `.cline/skills/vectahub-workflow.md` |
+| NL / LLM / intent / prompts / sessions | `.cline/skills/vectahub-nl.md` |
+| Sandbox / security / audit / command risk | `.cline/skills/vectahub-security.md` |
+| Debugging / doctor / diagnostics / audit queries | `.cline/skills/vectahub-debug.md` |
+
+Routing rules:
+
+- If the user request clearly matches one row, read that skill file before editing.
+- If two areas are involved, read the primary one first and only open the second if needed.
+- Do not read every skill file “just in case”.
+- If the task is only planning or reviewing, read the smallest relevant skill and stay focused on analysis.
+
+## 3. Context Control
+
+Follow Cline’s strengths: focused context, explicit files, short loops.
+
+- Prefer targeted file reads over opening whole directories.
+- Prefer `rg`/`find` to locate symbols or paths before reading full files.
+- If a document is large, search for the relevant heading/section first.
+- Do not paste or load long irrelevant docs into context.
+- When the user names files or modules, start there.
+- When a task touches one file or one bug, avoid repo-wide exploration.
+
+## 4. Execution Modes
+
+Use this repo-specific decision policy:
+
+- **Plan mode behavior**:
+  - If the user asks for plan, analysis, review, design, or comparison, do not edit first.
+  - Output: goal, scope, affected files, edge cases, verification, open questions.
+
+- **Act mode behavior**:
+  - If the request is a direct fix/implementation and scope is clear, edit directly.
+  - Make the smallest safe change that closes the task.
+
+- **Ask-first triggers**:
+  - 2+ viable implementation paths with real tradeoffs
+  - architecture/interface changes
+  - new dependency
+  - schema/storage contract change
+  - unclear user intent with risky consequences
+
+## 5. Evidence Gate
+
+Never claim these without direct evidence:
+
+- tests pass
+- typecheck passes
+- build passes
+- security behavior is preserved
+- a CLI command works end-to-end
+
+After code changes:
+
+- run the narrowest relevant verification first
+- summarize the exact check you ran and the result
+- if it fails, show the key error and stop broad retries unless you learned something new
+
+## 6. VectaHub Hard Stops
+
+- Do not bypass sandbox, validation, risk checks, or confirmation flows.
+- Do not read, print, log, or commit secrets, tokens, keys, or `.env`.
+- Use `getVectaHubPath()` for VectaHub-managed paths.
+- Use named exports only. No default exports.
+- ESM only: imports must use `.js` extensions where required by repo style.
+- Keep tests colocated with source when adding new tests.
+- Do not claim a recovery, trace, or state-machine feature is complete unless both data flow and state persistence are verified.
+
+## 7. Project Map
 
 | Area | Path |
-|------|------|
+|---|---|
 | CLI entry | `src/cli.ts` |
-| Command wiring | `src/commands/module.ts` |
-| All commands | `src/commands/` |
-| Shared types | `src/types/index.ts` |
+| Bootstrap / startup split | `src/cli-bootstrap.ts`, `src/cli-main.ts` |
+| Commands | `src/commands/` |
+| Shared types | `src/types/` |
 | Workflow engine | `src/workflow/` |
-| NL/LLM engine | `src/nl/` |
+| NL / LLM | `src/nl/` |
 | Skills runtime | `src/skills/` |
-| Sandbox/security | `src/sandbox/`, `src/security-protocol/`, `src/command-rules/`, `src/cli-tools/` |
-| Audit/logging | `src/infrastructure/audit/`, `src/utils/audit.ts` |
-| Setup/config | `src/setup/`, `src/infrastructure/config/`, `src/utils/config.ts`, `src/utils/paths.ts` |
-| Chat interface | `src/chat/` |
-| Daemon | `src/daemon/` |
-| Monitoring | `src/monitoring/` |
-| Debugger | `src/debugger/` |
+| Security / rules / tools | `src/security-protocol/`, `src/command-rules/`, `src/cli-tools/`, `src/sandbox/` |
+| Trace / audit | `src/infrastructure/trace/`, `src/infrastructure/audit/` |
 | VS Code extension | `packages/vectahub-vscode-extension/src/` |
-| Templates | `templates/` |
-| Tests | Colocated: `src/foo.ts` → `src/foo.test.ts` |
+| Setup / config / paths | `src/setup/`, `src/infrastructure/config/`, `src/utils/config.ts`, `src/utils/paths.ts` |
 
-## Module Map
+## 8. Prompt Engineering Shortcuts
 
-| Task | Start With |
-|------|-----------|
-| CLI command bug | `src/commands/`, then `src/cli.ts`, `src/commands/module.ts` |
-| Workflow behavior | `src/workflow/`, `src/types/index.ts` |
-| Natural language / LLM | `src/nl/`, `src/skills/` |
-| Sandbox / dangerous command | `src/sandbox/`, `src/security-protocol/`, `src/command-rules/`, `src/cli-tools/` |
-| Audit / logging | `src/infrastructure/audit/`, `src/utils/audit.ts` |
-| Setup / config | `src/setup/`, `src/infrastructure/config/`, `src/utils/config.ts`, `src/utils/paths.ts` |
-| VS Code extension | `packages/vectahub-vscode-extension/src/` |
-| Chat | `src/chat/` |
-| Debug / diagnostics | `src/debugger/`, `src/commands/doctor.ts`, `src/commands/debug.ts` |
+Interpret user prompts with these lightweight patterns:
 
-## Hard Stops
+- `规划/计划/方案/设计/评审`
+  - stay analytical
+  - do not edit first
 
-- Evidence only: no tool run, no success claim.
-- Do not claim tests pass unless a real check passed.
-- After code changes, run relevant verification.
-- Do not fabricate files, APIs, IDE features, or command output.
-- Do not bypass sandbox, validation, or user confirmation.
-- Do not read, print, log, or commit secrets/tokens/keys/`.env`.
-- Use `getVectaHubPath()` for VectaHub home/config/data paths; use context-specific paths for tests and IDE storage.
-- Commit format: `[module] short description`, <=50 chars, no period.
+- `直接改/修一下/实现/补上`
+  - act directly if scope is clear
 
-## Code Style
+- `审查/review`
+  - findings first
+  - focus on bugs, regressions, contract violations, missing tests
 
-- **ESM only**: imports use `.js` extension (`import { foo } from './bar.js'`)
-- **TypeScript 5.7**, Node.js >= 21.0.0
-- **Factory pattern**: `createXxx()` functions, single responsibility
-- **Types first**: define interface/type before implementation
-- **No default exports**: use named exports
-- **Lazy loading**: CLI commands use dynamic `import()` on first invocation
-- **Commander.js** for CLI: each command exports a `Command` object
-- **Vitest** for tests: colocated `*.test.ts` files
+- `按文档实现`
+  - read the named spec first
+  - convert spec into a checklist before editing
 
-## Verify Loop
+- `根据代码更新文档`
+  - code is source of truth
+  - verify implementation before revising docs
 
-- Run the narrowest relevant check first.
-- Passing checks: summarize command and result.
-- Failing checks: show key raw error and stop before broad retries.
+## 9. Required Spec-to-Code Checklist
 
-## Verification Commands
+When implementing from a design/spec document, first extract:
+
+- required data contracts
+- required state transitions
+- required blocking conditions
+- required persistence behavior
+- required trace / audit linkage
+- required tests
+
+Then label each as one of:
+
+- `implemented in this change`
+- `already exists in code`
+- `out of scope for this task`
+
+Do not start coding until this checklist is explicit.
+
+## 10. Review Output Contract
+
+When asked to review code:
+
+- present findings first, ordered by severity
+- include file path and line number when possible
+- separate:
+  - confirmed bugs
+  - design/architecture debt
+  - test gaps
+  - open questions
+- if evidence is incomplete, say `待确认`, not `已存在问题`
+
+## 11. Verification Commands
+
+Use the narrowest relevant command first:
 
 | Command | Purpose |
-|---------|---------|
+|---|---|
 | `npm run typecheck` | Type checking |
-| `npm test` | Full test suite (watch mode) |
-| `npm run test:run` | One-shot test run (CI mode) |
-| `npm run build` | Build with tsup |
-| `npm run dev -- verify --type <typecheck\|test\|coverage\|all>` | CLI verification |
-| `npm run dev -- doctor` | Full diagnostics |
+| `npm run test:run` | One-shot test run |
+| `npm test -- <path> --run` | Narrow test target |
+| `npm run build` | Build |
+| `npm run dev -- doctor` | Diagnostics |
 | `npm run dev -- security list` | Security rules |
-| `npm run dev -- security test -- <cmd>` | Test command safety |
-| `npm run dev -- audit list --limit 20` | Recent audit logs |
-| `npm run dev -- audit query --event <type>` | Query by event type |
-| `npm run dev -- audit stats` | Audit statistics |
+| `npm run dev -- security test -- <cmd>` | Safety test |
 
-## Task Template
+## 12. Good Defaults for Cline
 
-```
-Goal:
-Observed behavior:
-Expected behavior:
-Scope:
-Do not change:
-Allowed:
-Verification:
-Direct edit or plan first:
-```
-
-- If scope is unclear, ask one blocking question.
-- If user says analysis/plan, do not edit.
-- If user says direct edit, make the smallest safe change.
-- After code changes, run relevant verification.
-
-## Detailed Skill References
-
-When working on specific modules, read the corresponding skill file for detailed guidance:
-
-| Scenario | Read This File |
-|----------|---------------|
-| Workflow engine: DAG, executor, expressions, storage | `.cline/skills/vectahub-workflow.md` |
-| NL/LLM: intents, tool calling, prompts, sessions | `.cline/skills/vectahub-nl.md` |
-| Adding/modifying CLI commands | `.cline/skills/vectahub-cli.md` |
-| Sandbox, security protocol, audit changes | `.cline/skills/vectahub-security.md` |
-| Debugging, diagnostics, doctor, audit queries | `.cline/skills/vectahub-debug.md` |
+- Prefer editing the smallest number of files that can correctly solve the task.
+- Prefer one clean implementation over speculative extensibility.
+- Prefer shared pure functions over duplicated business rules when both CLI and extension need the same decision logic.
+- Prefer persisted records for anything named `*Record`; if not persisted, explicitly state lifecycle and owner.
+- Prefer trace continuity to ad hoc logging for cross-process flows.
+- Prefer short summaries over long narration.

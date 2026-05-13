@@ -1,128 +1,54 @@
-# VectaHub NL/LLM Module
+# VectaHub NL Skill
 
-> Natural language processing, intent matching, LLM tool calling, and command synthesis. Read this when modifying `src/nl/`.
+> Use this when changing `src/nl/`, intent parsing, prompt management, tool calling, or NL routing.
 
-## Architecture
+## Goal
 
-```
-src/nl/
-├── index.ts                  # Barrel re-exports
-├── types.ts                  # NL-specific types
-├── orchestrator.ts           # Top-level NL orchestration
-├── intent-matcher.ts         # Intent matching engine
-├── intent-step-mapping.ts    # Maps intents to workflow steps
-├── command-synthesizer.ts    # Synthesizes CLI commands from NL
-├── command-config.ts         # Command configuration for NL
-├── llm.ts                    # LLM client wrapper
-├── llm-adapter.ts            # LLM adapter interface
-├── llm-orchestrator.ts       # LLM call orchestration
-├── param-extractor.ts        # Parameter extraction from NL input
-├── prompt-manager.ts         # Prompt template management
-├── session-manager.ts        # Conversation session context
-├── tool-calling.ts           # LLM tool calling schema & handlers
-│
-├── core/                     # Core NL pipeline
-│   ├── pipeline.ts               # Main NL processing pipeline
-│   ├── adapter.ts                # Core adapter
-│   ├── category-router.ts        # Route to category handlers
-│   ├── goal-parser.ts            # Parse user goals
-│   ├── goal-types.ts             # Goal type definitions
-│   ├── input-normalizer.ts       # Normalize user input
-│   ├── intent-splitter.ts        # Split compound intents
-│   ├── matching-pipeline.ts      # Intent matching pipeline
-│   └── llm-fallback.ts           # LLM fallback when NL fails
-│
-├── capabilities/             # Capability modules
-│   ├── index.ts                  # Barrel
-│   ├── types.ts                  # Capability types
-│   ├── router.ts                 # Capability router
-│   ├── plan-adapter.ts           # Plan-based adaptation
-│   ├── git-workflow.ts           # Git workflow capabilities
-│   ├── github-actions-repair.ts  # GitHub Actions repair
-│   ├── package-script.ts         # Package.json script handling
-│   └── user-report.ts            # User-facing reports
-│
-├── discovery/                # Command discovery
-│   └── command-discovery.ts      # Discover available commands
-│
-├── executor/                 # Command execution
-│   └── command-executor.ts       # Execute synthesized commands
-│
-└── handler/                  # Intent handlers
-    └── intent-handler.ts         # Handle specific intents
+Keep NL changes bounded, testable, and compatible with fallback behavior.
+
+## Read First
+
+1. Exact target file in `src/nl/`
+2. Its nearest test file
+3. `src/nl/core/` if the issue is pipeline-level
+4. `src/nl/prompt-manager.ts` only if prompt construction is relevant
+
+## First 5 Questions
+
+1. Is this rules-first logic or LLM fallback logic?
+2. Does it change parsing, routing, or command synthesis?
+3. Is the behavior already covered by a regression test?
+4. Does it affect JSON/tool-calling contract?
+5. Can the bug be fixed in one stage of the pipeline instead of several?
+
+## Pipeline Reminder
+
+Typical order:
+
+```text
+normalize -> split -> parse -> route -> match -> fallback -> extract -> synthesize
 ```
 
-## Processing Pipeline
+Do not edit multiple stages unless necessary.
 
-```
-User Input
-  → input-normalizer.ts     (normalize text)
-  → intent-splitter.ts      (split compound requests)
-  → goal-parser.ts          (parse into Goal objects)
-  → category-router.ts      (route by category)
-  → matching-pipeline.ts    (match to known intents)
-  → llm-fallback.ts         (LLM if no match)
-  → param-extractor.ts      (extract parameters)
-  → command-synthesizer.ts  (synthesize CLI command)
-  → command-executor.ts     (execute)
-```
+## NL Safety Rules
 
-## Key Patterns
+- prefer deterministic fix before prompt change
+- if changing prompt behavior, preserve fallback path
+- do not silently widen intent matches without tests
+- do not change output contracts used by downstream commands
 
-### Intent Matching
-- `intent-matcher.ts` matches user input to predefined intents
-- Uses `config/commands/intents.yaml` for intent definitions
-- Fallback to LLM when no intent matches
-
-### Tool Calling (`tool-calling.ts`)
-- Defines tool schemas for LLM function calling
-- LLM returns structured tool calls
-- Tool calls are mapped to VectaHub commands
-
-### Command Synthesis (`command-synthesizer.ts`)
-- Converts parsed intent + parameters into CLI command strings
-- Handles option mapping and argument formatting
-
-### Session Management (`session-manager.ts`)
-- Maintains conversation context across multiple interactions
-- Stores previous intents, parameters, and results
-- Used by `src/chat/` for interactive mode
-
-### Prompt Management (`prompt-manager.ts`)
-- Template-based prompt construction
-- System prompts, context injection, few-shot examples
-
-## Config Files
-
-- `config/commands/intents.yaml` — Intent definitions
-- `config/commands/templates.yaml` — Command templates
-
-## Capabilities
-
-| Module | Purpose |
-|--------|---------|
-| `git-workflow.ts` | Git operations via NL |
-| `github-actions-repair.ts` | Fix GitHub Actions via NL |
-| `package-script.ts` | npm/yarn script handling |
-| `plan-adapter.ts` | Plan-based workflow adaptation |
-| `user-report.ts` | Generate user-facing reports |
-
-## Verification
+## Minimal Verification
 
 ```bash
-# Typecheck NL module
 npm run typecheck
-
-# Run NL-specific tests
-npx vitest run src/nl/ --reporter=verbose
-
-# Integration tests
-npx vitest run src/nl/core/ --reporter=verbose
+npm test -- src/nl/<target>.test.ts --run
+npm test -- src/nl/core/<target>.test.ts --run
 ```
 
-## Common Pitfalls
+## Common Mistakes
 
-- Intent definitions in YAML must match `intent-matcher.ts` patterns
-- Tool calling schemas must be valid JSON Schema
-- Session context has TTL — expired sessions lose history
-- LLM fallback adds latency — prefer intent matching when possible
+- editing prompts when matcher bug is deterministic
+- changing both parser and synthesizer in one shot
+- no regression test for the exact utterance pattern
+

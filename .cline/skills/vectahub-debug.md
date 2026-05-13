@@ -1,131 +1,55 @@
-# VectaHub Debug & Diagnostics
+# VectaHub Debug Skill
 
-> Debugging, diagnostics, doctor, audit queries, and troubleshooting. Read this when investigating issues.
+> Use this when debugging failures, doctor output, audit issues, trace confusion, or status mismatches.
 
-## Architecture
+## Goal
 
-```
-src/debugger/                    # Workflow debugging
-├── workflow-debugger.ts         # WorkflowDebugger — step-through debugging
-├── debugger-api.ts              # Debugger API interface
-└── *.test.ts
+Make Cline debug with evidence, not speculation.
 
-src/commands/doctor.ts           # `vectahub doctor` — full diagnostics
-src/commands/debug.ts            # `vectahub debug` — debug mode
-src/commands/verify.ts           # `vectahub verify` — verification runner
-src/commands/status.ts           # `vectahub dev status` — runtime status
+## Read First
 
-src/monitoring/                  # Runtime monitoring
-├── monitor.ts                   # Monitor — execution monitoring
-├── metrics.ts                   # Metrics collection
-└── *.test.ts
+1. The failing command or module file
+2. Its nearest test file
+3. `src/infrastructure/trace/` or `src/infrastructure/audit/` if the issue involves observability
+4. `src/commands/doctor.ts` / `src/commands/debug.ts` only if directly relevant
 
-src/infrastructure/audit/        # Audit logging backend
-├── audit-logger.ts              # Audit log writer
-├── audit-store.ts               # Audit log storage
-└── index.ts
+## Debug Loop
 
-src/utils/audit.ts               # Audit utility functions
+1. Reproduce with the smallest command or test
+2. Locate the failing layer
+3. Read only the files for that layer
+4. Form one concrete hypothesis
+5. Verify the hypothesis
+6. Edit only after the failure path is clear
 
-src/daemon/                      # Background daemon
-├── socket-server.ts             # Socket-based IPC server
-├── client.ts                    # Daemon client
-├── types.ts                     # Daemon types
-└── index.ts
-```
+## Failure Layer Map
 
-## Diagnostic Commands
+| Symptom | Check First |
+|---|---|
+| command not working | `src/commands/*`, `src/cli.ts` |
+| trace missing / broken | `src/infrastructure/trace/`, extension `src/trace/` |
+| audit missing | `src/infrastructure/audit/`, `src/utils/audit.ts` |
+| verification mismatch | `src/commands/run-task.ts`, P3-related files |
+| extension state mismatch | extension command + project model/store |
 
-### Full Diagnostics
+## Evidence Rules
+
+- if you did not reproduce it, say so
+- if you did not inspect the failing layer, do not conclude root cause
+- if there are multiple plausible causes, list them before editing
+
+## Minimal Verification
+
 ```bash
+npm run typecheck
+npm test -- <closest-test-file> --run
 npm run dev -- doctor
 ```
-Checks: Node.js version / config files / storage permissions / sandbox policies / tool registration / LLM connectivity
 
-### Runtime Status
-```bash
-npm run dev -- dev status
-```
+## Common Mistakes
 
-### Verification Suite
-```bash
-npm run dev -- verify --type typecheck    # Type checking only
-npm run dev -- verify --type test         # Tests only
-npm run dev -- verify --type coverage     # Coverage report
-npm run dev -- verify --type all          # Everything
-```
+- jumping to workflow engine when bug is CLI wiring
+- using full test suite before narrow reproduction
+- fixing output text instead of state source
+- treating logs as truth when structured state exists
 
-## Audit Queries
-
-```bash
-# Recent logs
-npm run dev -- audit list --limit 20
-
-# By event type
-npm run dev -- audit query --event cli_command
-npm run dev -- audit query --event workflow_start
-npm run dev -- audit query --event workflow_step
-npm run dev -- audit query --event workflow_end
-npm run dev -- audit query --event sandbox_detect
-npm run dev -- audit query --event intent_match
-
-# Statistics
-npm run dev -- audit stats
-```
-
-## Workflow Debugging
-
-Use `WorkflowDebugger` from `src/debugger/workflow-debugger.ts`:
-
-```ts
-import { createWorkflowDebugger } from '../debugger/workflow-debugger.js';
-
-const debugger = createWorkflowDebugger(workflowDef);
-// Step through execution, inspect context at each step
-```
-
-## Log Locations
-
-| Data | Path |
-|------|------|
-| Audit logs | `~/.vectahub/audit/` |
-| Execution records | `~/.vectahub/executions/` |
-| Workflow definitions | `~/.vectahub/workflows/` |
-
-Use `getVectaHubPath()` to resolve these programmatically.
-
-## Common Issues & Fixes
-
-### "Command not found" after adding new command
-- Check `lazyLoadCommand()` switch-case in `src/cli.ts`
-- Verify `.js` extension in import path
-
-### Workflow stuck in RUNNING state
-- Check `state-manager.ts` for transition errors
-- Look for unhandled promise rejections in step handlers
-- Check `depends_on` for deadlocks in DAG
-
-### LLM fallback triggered unexpectedly
-- Check `config/commands/intents.yaml` for pattern matches
-- Verify `intent-matcher.ts` regex patterns
-- Check session TTL in `session-manager.ts`
-
-### Sandbox rejection on safe command
-- Check `detector.ts` regex patterns — may be too broad
-- Review security rule database via `npm run dev -- security list`
-- Use `npm run dev -- security test -- <command>` to diagnose
-
-### Audit logs not appearing
-- Check `~/.vectahub/audit/` directory permissions
-- Verify `infrastructure/audit/` logger initialization
-- Check if audit is disabled in config
-
-## Verification After Debugging
-
-```bash
-# Narrowest check first
-npx vitest run src/<affected-module>/ --reporter=verbose
-
-# Then broader
-npm run typecheck
-npm run test:run

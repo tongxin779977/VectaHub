@@ -1,157 +1,97 @@
-# VectaHub CLI Command Development
+# VectaHub CLI Skill
 
-> How to add, modify, and wire CLI commands. Read this when working on `src/commands/`, `src/cli.ts`, or `src/commands/module.ts`.
+> Use this when changing `src/commands/`, `src/cli.ts`, `src/cli-main.ts`, `src/cli-bootstrap.ts`, or command wiring.
 
-## Command Architecture
+## Goal
 
-```
-src/cli.ts                  # Entry point, Commander.js program, lazy loading
-src/commands/module.ts      # Module template generator for multi-agent collaboration
-src/commands/index.ts       # Barrel re-exports
-src/commands/<name>.ts      # Individual command implementations
-```
+Help Cline safely add or modify CLI commands without breaking:
 
-## Lazy Loading Pattern
+- lazy loading
+- ESM imports
+- Commander wiring
+- JSON output contracts
+- command-specific tests
 
-Commands are split into two categories:
+## Read First
 
-### Eagerly Loaded (at startup)
-```ts
-// src/cli.ts — imported at top level
-import { runCmd } from './commands/run.js';
-import { doctorCmd } from './commands/doctor.js';
-import { setupCmd } from './setup/index.js';
-import { configCmd } from './infrastructure/config/index.js';
+1. Target command file in `src/commands/`
+2. `src/cli.ts`
+3. `src/cli-main.ts`
+4. `src/commands/index.ts` or `src/commands/module.ts` only if needed
 
-program.addCommand(runCmd);
-program.addCommand(doctorCmd);
-```
+## First 5 Checks
 
-### Lazily Loaded (on first use)
-```ts
-// Registered as placeholder Commands
-program
-  .command('serve')
-  .allowUnknownOption()
-  .arguments('[args...]')
-  .action(async (...args) => {
-    await lazyLoadCommand('serve', ...args);
-  });
-```
+Before editing:
 
-**`lazyLoadCommand(name)`** does:
-1. Check `loadedCommands` Set (skip if already loaded)
-2. `switch` on name → `await import('./commands/<name>.js')`
-3. `removePlaceholderCommand(name)` — strips placeholder from Commander's internal array
-4. `program.addCommand(realCmd)` — adds real command
-5. Re-parse: `realCmd.parseAsync(remainingArgs, { from: 'user' })`
+1. Is this an existing command or a new command?
+2. Should it be eager or lazy loaded?
+3. Does it need `--json` behavior?
+4. Does it change a shared type or output schema?
+5. What is the narrowest test file to run?
 
-## Adding a New Command — Checklist
-
-### Step 1: Create the command file
+## Default Implementation Pattern
 
 ```ts
-// src/commands/my-command.ts
 import { Command } from 'commander';
 
-export const myCommandCmd = new Command('my-command')
-  .description('What this command does')
-  .option('-f, --flag', 'Description of flag')
-  .action(async (options) => {
-    // implementation
-  });
-```
-
-### Step 2: Register in `src/cli.ts`
-
-**For lazy loading** (preferred for non-critical commands):
-```ts
-// Add to the lazy-load section
-program
-  .command('my-command')
-  .allowUnknownOption()
-  .arguments('[args...]')
-  .action(async (...args) => {
-    await lazyLoadCommand('my-command', ...args);
-  });
-```
-
-Then add the `case` in `lazyLoadCommand()`:
-```ts
-case 'my-command': {
-  const { myCommandCmd } = await import('./commands/my-command.js');
-  return myCommandCmd;
-}
-```
-
-**For eager loading** (only for critical startup commands):
-```ts
-import { myCommandCmd } from './commands/my-command.js';
-program.addCommand(myCommandCmd);
-```
-
-### Step 3: Add test file
-
-```ts
-// src/commands/my-command.test.ts
-import { describe, it, expect } from 'vitest';
-
-describe('my-command', () => {
-  it('should do expected behavior', async () => {
-    // test implementation
-  });
-});
-```
-
-### Step 4: Verify
-
-```bash
-npm run typecheck
-npx vitest run src/commands/my-command.test.ts --reporter=verbose
-npm run dev -- my-command --help  # Test lazy loading works
-```
-
-## Command Object Structure
-
-Each command file exports a `Command` instance:
-
-```ts
 export const xxxCmd = new Command('xxx')
   .description('...')
   .option('...')
-  .argument('...')
-  .action(async (arg1, options) => {
-    // 1. Validate inputs
-    // 2. Do work
-    // 3. Output results (console.log or return)
-    // 4. Audit logging (if applicable)
+  .action(async (options) => {
+    // validate
+    // do work
+    // format output
   });
 ```
 
-## Module Generator (`module.ts`)
+Rules:
 
-`module.ts` is a **template generator** for multi-agent collaboration. It defines `MODULE_CONFIGS` with 8 modules: `nl`, `workflow`, `executor`, `storage`, `sandbox`, `utils`, `cli`, `types`. Each config contains stub files with `createX()` factory functions.
+- named export only
+- ESM import paths use `.js` where repo style requires it
+- avoid default export
+- keep command-specific logic inside the command file
+- if output is machine-consumed, preserve existing JSON field meaning
 
-This is NOT runtime wiring — it's a scaffolding tool.
+## Lazy Loading Rule
 
-## Audit Logging
+Prefer lazy loading unless the command is part of critical startup behavior.
 
-Commands that perform significant actions should log to audit:
+When adding a lazy command:
 
-```ts
-import { auditLog } from '../infrastructure/audit/index.js';
-await auditLog({
-  event: 'cli_command',
-  command: 'my-command',
-  args: options,
-  timestamp: new Date().toISOString(),
-});
+1. add placeholder in `src/cli.ts`
+2. add `case` in lazy loader
+3. verify help and actual execution
+
+## JSON Contract Rule
+
+If a command already supports `--json`:
+
+- do not silently rename fields
+- do not change boolean semantics like `ok`
+- do not mix logs into stdout JSON
+- put diagnostic logs elsewhere if needed
+
+## Common Mistakes
+
+- add command file but forget lazy-load case
+- break ESM import path
+- change JSON output shape without updating callers
+- mix human logs with JSON stdout
+- claim command works without running help/test path
+
+## Minimal Verification
+
+Choose the narrowest useful check:
+
+```bash
+npm run typecheck
+npm test -- src/commands/<name>.test.ts --run
+npm run dev -- <name> --help
 ```
 
-## Common Pitfalls
+## Escalate Before Editing If
 
-- **Forgot to add `case` in `lazyLoadCommand()`**: command silently fails
-- **Used default export**: Cline won't find it — use named exports
-- **Missing `.js` extension in import**: ESM resolution fails
-- **Shared modules**: `serve`+`client`, `export`+`import`, `dev` loads `status`/`module`/`validate`/`test`
-- **`allowUnknownOption()`** on placeholders: required to pass args through to real command
+- command output is consumed by VS Code extension
+- command changes shared types in `src/types/`
+- command changes startup behavior in `src/cli.ts` / `src/cli-bootstrap.ts`
+

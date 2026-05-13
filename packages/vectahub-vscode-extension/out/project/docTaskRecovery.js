@@ -18,7 +18,7 @@ exports.isRecoveryEligible = isRecoveryEligible;
  * Build a DocTaskRecoveryInput from a DocTaskRunRecord.
  * Strips sensitive data — only summary fields are included.
  */
-function buildRecoveryInput(record) {
+function buildRecoveryInput(record, currentInstructionHash) {
     return {
         runId: record.runId,
         taskId: record.taskId,
@@ -32,6 +32,8 @@ function buildRecoveryInput(record) {
         outputSummary: record.outputSummary,
         gitChanges: record.gitChanges,
         verification: record.verification,
+        previousInstructionHash: record.instructionHash,
+        currentInstructionHash,
         agentTaskContract: record.agentTaskContract
             ? {
                 boundaryConfidence: record.agentTaskContract.boundaryConfidence,
@@ -66,6 +68,20 @@ function decideRecovery(input) {
     }
 }
 function decideRecoveryInner(input) {
+    // ── §7.5 instructionHash 变化检测 ──
+    if (input.currentInstructionHash !== undefined &&
+        input.previousInstructionHash !== undefined &&
+        input.currentInstructionHash !== input.previousInstructionHash) {
+        return {
+            kind: 'blocked',
+            mode: 'manual_only',
+            reason: 'instruction-changed',
+            summary: '任务定义已变化，旧失败记录不再对应当前任务，禁止基于过期上下文恢复。',
+            suggestedActions: ['重新解析文档', '重新执行任务'],
+            needsNewTrace: false,
+            canReusePreviousCommand: false,
+        };
+    }
     const { failureKind, gitChanges, verification } = input;
     const hasGitChanges = (gitChanges?.changedFileCount ?? 0) > 0;
     const hasVerification = verification !== undefined && verification !== null;
