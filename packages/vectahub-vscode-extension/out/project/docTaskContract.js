@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildAgentTaskContractSummaries = buildAgentTaskContractSummaries;
+exports.deriveDocExcerptForTask = deriveDocExcerptForTask;
 exports.decideDocTaskBatchConcurrency = decideDocTaskBatchConcurrency;
 exports.toRunContractSummary = toRunContractSummary;
 const path = __importStar(require("path"));
@@ -66,6 +67,13 @@ function buildAgentTaskContractSummaries(input) {
         });
     }
     return result;
+}
+function deriveDocExcerptForTask(input) {
+    if (!input.docContent) {
+        return { excerpt: '', truncated: false, strategy: 'none' };
+    }
+    const docIndex = (0, docTaskDocIndex_js_1.buildDocIndex)(input.docContent);
+    return deriveDocExcerpt(docIndex, input.taskId, input.label);
 }
 function decideDocTaskBatchConcurrency(input) {
     const contracts = [...input.contracts.values()];

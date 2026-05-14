@@ -11,6 +11,7 @@ export interface AgentTaskContractSummary {
   executionMode: 'serial' | 'parallel-eligible' | 'isolated-required';
   docExcerptTruncated: boolean;
   excerptStrategy: 'task-heading' | 'task-id-window' | 'label-window' | 'head-fallback' | 'none';
+  instructionHash?: string;
   globalConfigDigest?: string;
 }
 

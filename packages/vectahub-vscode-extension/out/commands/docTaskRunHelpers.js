@@ -9,6 +9,8 @@ exports.summarizeOutput = summarizeOutput;
 exports.safeUpdateRun = safeUpdateRun;
 exports.safeUpdateBatch = safeUpdateBatch;
 exports.setTaskDisplayState = setTaskDisplayState;
+exports.readCurrentGlobalConfigDigest = readCurrentGlobalConfigDigest;
+exports.computeCurrentInstructionHashForRecovery = computeCurrentInstructionHashForRecovery;
 exports.applyLatestRunState = applyLatestRunState;
 const fs_1 = require("fs");
 const path_1 = __importDefault(require("path"));
@@ -69,6 +71,37 @@ async function readCurrentGlobalConfigDigest() {
         return undefined;
     }
 }
+async function computeCurrentInstructionHashForRecovery(input) {
+    const { taskId, label, docPath, projectRoot, tool } = input;
+    if (!docPath || !projectRoot || !label)
+        return undefined;
+    const docContent = await fs_1.promises.readFile(docPath, 'utf8');
+    const globalConfigDigest = await readCurrentGlobalConfigDigest();
+    if (!globalConfigDigest)
+        return undefined;
+    const contracts = (0, docTaskContract_js_1.buildAgentTaskContractSummaries)({
+        tasks: [{ id: taskId, label }],
+        docContent,
+        projectRoot,
+    });
+    const contract = contracts.get(taskId);
+    if (!contract)
+        return undefined;
+    const excerpt = (0, docTaskContract_js_1.deriveDocExcerptForTask)({
+        docContent,
+        taskId,
+        label,
+    });
+    return (0, docTaskRunStore_js_1.computeInstructionHash)({
+        taskId,
+        label,
+        docExcerpt: excerpt.excerpt,
+        tool,
+        allowedFiles: contract.allowedFiles,
+        forbiddenFiles: contract.forbiddenFiles,
+        globalConfigDigest,
+    });
+}
 async function applyLatestRunState(store, tasks, warn, docContent, projectRoot) {
     if (!store || tasks.length === 0)
         return tasks;
@@ -95,10 +128,15 @@ async function applyLatestRunState(store, tasks, warn, docContent, projectRoot) 
                     const currentContract = currentContracts.get(task.id);
                     const allowedFiles = currentContract?.allowedFiles ?? [];
                     const forbiddenFiles = currentContract?.forbiddenFiles ?? [];
+                    const excerpt = (0, docTaskContract_js_1.deriveDocExcerptForTask)({
+                        docContent,
+                        taskId: task.id,
+                        label: task.label,
+                    });
                     const newHash = (0, docTaskRunStore_js_1.computeInstructionHash)({
                         taskId: task.id,
                         label: task.label,
-                        docExcerpt: docContent.slice(0, 8000),
+                        docExcerpt: excerpt.excerpt,
                         tool: run.agentCli,
                         allowedFiles,
                         forbiddenFiles,

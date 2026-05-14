@@ -38,6 +38,22 @@ export function buildAgentTaskContractSummaries(input: {
   return result;
 }
 
+export function deriveDocExcerptForTask(input: {
+  docContent?: string;
+  taskId: string;
+  label: string;
+}): {
+  excerpt: string;
+  truncated: boolean;
+  strategy: AgentTaskContractSummary['excerptStrategy'];
+} {
+  if (!input.docContent) {
+    return { excerpt: '', truncated: false, strategy: 'none' };
+  }
+  const docIndex = buildDocIndex(input.docContent);
+  return deriveDocExcerpt(docIndex, input.taskId, input.label);
+}
+
 export function decideDocTaskBatchConcurrency(input: {
   contracts: Map<string, AgentTaskContractSummary>;
   requestedMaxConcurrent: number;

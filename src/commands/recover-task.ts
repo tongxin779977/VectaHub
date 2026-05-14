@@ -360,7 +360,7 @@ interface ClassifiedFailure {
 }
 
 function classifyFailureFromRunTaskResult(runResult: RunTaskResult): ClassifiedFailure {
-  const verification = runResult.verification as (RunTaskResult['verification'] & { isSystemError?: boolean }) | undefined;
+  const verification = runResult.verification;
   if (verification && !verification.ok) {
     if (verification.isSystemError) {
       return { kind: 'system_internal', status: 'failed_system_internal' };

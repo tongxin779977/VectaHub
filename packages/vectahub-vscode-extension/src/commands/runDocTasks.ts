@@ -21,7 +21,6 @@ import {
   setTaskDisplayState,
   summarizeOutput,
 } from './docTaskRunHelpers.js';
-import { computeInstructionHash } from '../project/docTaskRunStore.js';
 import { confirmHighRiskCommand, type RiskLevel } from '../security/riskUI.js';
 
 const CRITICAL_RISK_PATTERNS: RegExp[] = [
@@ -261,10 +260,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
           const result = await runCli<ParseDocResult>(['parse-doc', docPath, '--json'], { timeout: 120000 });
 
           if (result.ok && result.data?.tasks) {
-            let docContent: string | undefined;
-            try {
-              docContent = await fsp.readFile(docPath, 'utf8');
-            } catch { /* ignore */ }
+            const docContent = await readDocContentOnce(docPath);
             const tasksWithState = await applyLatestRunState(
               runStore,
               result.data.tasks,
@@ -487,22 +483,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
               runRecord.outputSummary = summarizeOutput(output);
               runRecord.outputTruncated = result.data?.outputTruncated === true;
               // Store instruction hash for drift detection on next parse
-              if (docPath) {
-                try {
-                  const docContentForHash = await fsp.readFile(docPath, 'utf8');
-                  const resultContract = result.data?.agentTaskContract;
-                  const hashContract = resultContract;
-                  runRecord.instructionHash = computeInstructionHash({
-                    taskId: task.id,
-                    label: task.label,
-                    docExcerpt: docContentForHash.slice(0, 8000),
-                    tool: agentCli || undefined,
-                    allowedFiles: hashContract?.allowedFiles,
-                    forbiddenFiles: hashContract?.forbiddenFiles,
-                    globalConfigDigest: resultContract?.globalConfigDigest,
-                  });
-                } catch { /* ignore */ }
-              }
+              runRecord.instructionHash = result.data?.agentTaskContract?.instructionHash;
               applyContractSummary(runRecord, result.data?.agentTaskContract);
               applyVerificationToRunRecord(runRecord, result.data?.verification);
               await safeUpdateRun(runStore, runRecord, 'success update', warnRunStore);

@@ -186,6 +186,27 @@ describe('runTask', () => {
     expect(result.success).toBe(false);
     expect(result.output).toContain('安全策略拦截');
   });
+
+  it('fallback prompt should prioritize contract excerpt instead of default full document read', async () => {
+    const llmModule = await import('../nl/llm.js');
+    const spy = vi.spyOn(llmModule.LLMClient.prototype, 'completeRaw').mockResolvedValue('not-json');
+
+    try {
+      const result = await runTask({
+        tool: 'aider',
+        taskId: 'P2-6',
+        taskLabel: '收紧默认提示词',
+        doc: '/path/to/doc.md',
+        dryRun: true,
+      });
+
+      expect(result.command).toContain('优先依据任务边界合同中的文档片段');
+      expect(result.command).toContain('仅在片段不足且不越过允许修改范围时');
+      expect(result.command).not.toContain('先阅读参考文档');
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 
 describe('collectGitChanges', () => {
@@ -310,6 +331,7 @@ describe('runVerificationCommands', () => {
     expect(result.commands[0].ok).toBe(false);
     expect(result.commands[0].command).toBe('__definitely_not_a_real_command_xyz__');
     expect(typeof result.commands[0].durationMs).toBe('number');
+    expect(result.isSystemError).toBe(true);
   });
 
   it('should mark a passing command as ok', async () => {

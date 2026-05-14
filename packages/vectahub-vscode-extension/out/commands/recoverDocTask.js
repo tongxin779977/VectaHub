@@ -50,7 +50,6 @@ const docTaskRunStore_js_1 = require("../project/docTaskRunStore.js");
 const docTaskRecovery_js_1 = require("../project/docTaskRecovery.js");
 const index_js_1 = require("../trace/index.js");
 const docTaskRunHelpers_js_1 = require("./docTaskRunHelpers.js");
-const fs_1 = require("fs");
 function registerRecoverDocTaskCommand(context, tasksProvider) {
     const workspaceRoot = (0, adapter_js_1.getActiveWorkspaceFolder)();
     const runStore = workspaceRoot ? (0, docTaskRunStore_js_1.createDocTaskRunStore)(workspaceRoot) : undefined;
@@ -72,23 +71,22 @@ function registerRecoverDocTaskCommand(context, tasksProvider) {
             return;
         }
         // 3. Build recovery input from run record (strips sensitive data)
-        // Compute current instructionHash for drift detection (§7.5)
+        // Compute current instructionHash with full contract factors for drift detection (§7.5)
         let currentHash;
         const currentDocPath = tasksProvider.getSelectedDocPath() || latestRecord.docPath;
-        if (currentDocPath && task.label) {
-            try {
-                const docContent = await fs_1.promises.readFile(currentDocPath, 'utf8');
-                currentHash = (0, docTaskRunStore_js_1.computeInstructionHash)({
-                    taskId: task.id,
-                    label: task.label,
-                    docExcerpt: docContent.slice(0, 8000),
-                });
-            }
-            catch { /* ignore */ }
+        try {
+            currentHash = await (0, docTaskRunHelpers_js_1.computeCurrentInstructionHashForRecovery)({
+                taskId: task.id,
+                label: task.label,
+                docPath: currentDocPath,
+                projectRoot: workspaceRoot,
+                tool: latestRecord.agentCli,
+            });
         }
+        catch { /* ignore and let hash guard block when needed */ }
         const recoveryInput = (0, docTaskRecovery_js_1.buildRecoveryInput)(latestRecord, currentHash);
         // 4. Deterministic recovery decision
-        const decision = (0, docTaskRecovery_js_1.decideRecovery)(recoveryInput);
+        const decision = (0, docTaskRecovery_js_1.decideRecoveryWithHashGuard)(recoveryInput);
         (0, output_js_1.logToOutput)(`[recovery] 任务 ${task.id} 恢复决策: kind=${decision.kind}, mode=${decision.mode}, reason=${decision.reason}`);
         (0, output_js_1.logToOutput)(`[recovery] 摘要: ${decision.summary}`);
         // Persist the recovery record (decision is now known)
@@ -122,7 +120,7 @@ function registerRecoverDocTaskCommand(context, tasksProvider) {
             }
             catch { /* best-effort */ }
             const actions = decision.suggestedActions.map((a, i) => `${i + 1}. ${a}`).join('\n');
-            const choice = await vscode.window.showInformationMessage(`任务 ${task.id} 恢复建议: ${decision.summary}`, { modal: true, detail: actions }, '了解');
+            await vscode.window.showInformationMessage(`任务 ${task.id} 恢复建议: ${decision.summary}`, { modal: true, detail: actions }, '了解');
             // V1 does not auto-execute fix tasks
             return;
         }
@@ -193,6 +191,12 @@ function registerRecoverDocTaskCommand(context, tasksProvider) {
                     if (latestRecord.command) {
                         args.push('--command', latestRecord.command);
                     }
+                    if (latestRecord.instructionHash) {
+                        args.push('--previous-instruction-hash', latestRecord.instructionHash);
+                    }
+                    if (currentHash) {
+                        args.push('--current-instruction-hash', currentHash);
+                    }
                     const result = await (0, adapter_js_1.runCli)(args, {
                         timeout: 600000,
                         traceContext: {
@@ -205,12 +209,17 @@ function registerRecoverDocTaskCommand(context, tasksProvider) {
                         // Recovery succeeded — write new run record
                         const newRunId = (0, docTaskRunHelpers_js_1.createRunId)(task.id);
                         const runResult = result.data.runResult;
-                        const changedFiles = runResult?.output ? [] : []; // simplified
-                        const newStatus = runResult?.ok ? 'success' : 'failed_agent';
+                        const classification = (0, docTaskRecovery_js_1.classifyRecoveryOutcome)({
+                            ok: result.data.ok,
+                            status: result.data.status,
+                            failureKind: result.data.failureKind,
+                            runResult,
+                            error: result.data.error,
+                        });
                         task.lastRunId = newRunId;
                         task.lastTraceId = result.data.recoveryTraceId;
-                        task.lastFailureKind = runResult?.ok ? undefined : 'agent';
-                        (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, newStatus);
+                        task.lastFailureKind = classification.failureKind;
+                        (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, classification.status);
                         tasksProvider.refresh();
                         try {
                             const newRunRecord = await runStore.startRun({
@@ -219,13 +228,14 @@ function registerRecoverDocTaskCommand(context, tasksProvider) {
                                 taskLabel: task.label,
                                 docPath,
                                 agentCli,
-                                status: newStatus,
+                                status: classification.status,
                                 command: runResult?.command,
                                 traceId: result.data.recoveryTraceId,
                                 retryOfRunId: latestRecord.runId,
                             });
                             newRunRecord.outputSummary = runResult?.output?.slice(0, 2000);
                             newRunRecord.outputTruncated = runResult?.outputTruncated;
+                            newRunRecord.failureKind = classification.failureKind;
                             newRunRecord.endedAt = new Date().toISOString();
                             newRunRecord.updatedAt = newRunRecord.endedAt;
                             await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, newRunRecord, 'recovery result', warnRunStore);
@@ -244,10 +254,10 @@ function registerRecoverDocTaskCommand(context, tasksProvider) {
                         }
                         catch { /* best-effort */ }
                         await recoverySpan.end({
-                            recoveryStatus: newStatus,
+                            recoveryStatus: classification.status,
                             recoveryRunId: result.data.recoveryRunId,
                         });
-                        if (runResult?.ok) {
+                        if (classification.status === 'success') {
                             vscode.window.showInformationMessage(`任务 ${task.id} 恢复成功！`);
                         }
                         else {
@@ -257,6 +267,13 @@ function registerRecoverDocTaskCommand(context, tasksProvider) {
                     else {
                         // Recovery CLI returned failure
                         const errMsg = result.data?.error || result.error?.message || '恢复失败';
+                        const classification = (0, docTaskRecovery_js_1.classifyRecoveryOutcome)({
+                            ok: result.data?.ok,
+                            status: result.data?.status,
+                            failureKind: result.data?.failureKind,
+                            runResult: result.data?.runResult,
+                            error: errMsg,
+                        });
                         recoveryRecordForPersistence.status = 'failed';
                         recoveryRecordForPersistence.updatedAt = new Date().toISOString();
                         recoveryRecordForPersistence.endedAt = recoveryRecordForPersistence.updatedAt;
@@ -264,9 +281,36 @@ function registerRecoverDocTaskCommand(context, tasksProvider) {
                             await runStore.saveRecoveryRecord(recoveryRecordForPersistence);
                         }
                         catch { /* best-effort */ }
-                        task.lastFailureKind = latestRecord.failureKind;
-                        (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, 'failed_agent');
+                        const newRunId = (0, docTaskRunHelpers_js_1.createRunId)(task.id);
+                        task.lastRunId = newRunId;
+                        task.lastTraceId = result.data?.recoveryTraceId ?? traceContext.traceId;
+                        task.lastFailureKind = classification.failureKind;
+                        (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, classification.status);
                         tasksProvider.refresh();
+                        try {
+                            const newRunRecord = await runStore.startRun({
+                                runId: newRunId,
+                                taskId: task.id,
+                                taskLabel: task.label,
+                                docPath,
+                                agentCli,
+                                status: classification.status,
+                                command: latestRecord.command,
+                                traceId: result.data?.recoveryTraceId ?? traceContext.traceId,
+                                retryOfRunId: latestRecord.runId,
+                            });
+                            newRunRecord.failureKind = classification.failureKind;
+                            newRunRecord.errorMessage = errMsg.slice(0, 1000);
+                            newRunRecord.outputSummary = result.data?.runResult?.output?.slice(0, 2000);
+                            newRunRecord.outputTruncated = result.data?.runResult?.outputTruncated;
+                            newRunRecord.endedAt = new Date().toISOString();
+                            newRunRecord.updatedAt = newRunRecord.endedAt;
+                            await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, newRunRecord, 'recovery failed result', warnRunStore);
+                        }
+                        catch (persistErr) {
+                            const msg = persistErr instanceof Error ? persistErr.message : String(persistErr);
+                            warnRunStore(`[recovery] 写入失败 run record 失败: ${msg}`);
+                        }
                         await recoverySpan.fail(new Error(errMsg), {
                             recoveryStatus: 'failed',
                         });
@@ -276,10 +320,36 @@ function registerRecoverDocTaskCommand(context, tasksProvider) {
             }
             catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
+                const classification = (0, docTaskRecovery_js_1.classifyRecoveryOutcome)({ error: msg });
                 (0, output_js_1.logToOutput)(`[recovery] 恢复异常: ${msg}`, 'error');
-                task.lastFailureKind = latestRecord.failureKind;
-                (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, 'failed_agent');
+                const newRunId = (0, docTaskRunHelpers_js_1.createRunId)(task.id);
+                task.lastRunId = newRunId;
+                task.lastTraceId = traceContext.traceId;
+                task.lastFailureKind = classification.failureKind;
+                (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, classification.status);
                 tasksProvider.refresh();
+                try {
+                    const newRunRecord = await runStore.startRun({
+                        runId: newRunId,
+                        taskId: task.id,
+                        taskLabel: task.label,
+                        docPath,
+                        agentCli,
+                        status: classification.status,
+                        command: latestRecord.command,
+                        traceId: traceContext.traceId,
+                        retryOfRunId: latestRecord.runId,
+                    });
+                    newRunRecord.failureKind = classification.failureKind;
+                    newRunRecord.errorMessage = msg.slice(0, 1000);
+                    newRunRecord.endedAt = new Date().toISOString();
+                    newRunRecord.updatedAt = newRunRecord.endedAt;
+                    await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, newRunRecord, 'recovery exception result', warnRunStore);
+                }
+                catch (persistErr) {
+                    const persistMsg = persistErr instanceof Error ? persistErr.message : String(persistErr);
+                    warnRunStore(`[recovery] 写入异常 run record 失败: ${persistMsg}`);
+                }
                 await recoverySpan.fail(err, { recoveryStatus: 'exception' });
                 vscode.window.showErrorMessage(`任务 ${task.id} 恢复异常: ${msg}`);
             }

@@ -43,7 +43,6 @@ const docTaskState_js_1 = require("../project/docTaskState.js");
 const docTaskRunStore_js_1 = require("../project/docTaskRunStore.js");
 const docTaskContract_js_1 = require("../project/docTaskContract.js");
 const docTaskRunHelpers_js_1 = require("./docTaskRunHelpers.js");
-const docTaskRunStore_js_2 = require("../project/docTaskRunStore.js");
 const riskUI_js_1 = require("../security/riskUI.js");
 const CRITICAL_RISK_PATTERNS = [
     /^sudo\s+/i,
@@ -189,11 +188,7 @@ function registerDocTaskCommands(context, tasksProvider) {
             }, async () => {
                 const result = await (0, adapter_js_1.runCli)(['parse-doc', docPath, '--json'], { timeout: 120000 });
                 if (result.ok && result.data?.tasks) {
-                    let docContent;
-                    try {
-                        docContent = await fs_1.promises.readFile(docPath, 'utf8');
-                    }
-                    catch { /* ignore */ }
+                    const docContent = await readDocContentOnce(docPath);
                     const tasksWithState = await (0, docTaskRunHelpers_js_1.applyLatestRunState)(runStore, result.data.tasks, warnRunStore, docContent, workspaceRoot);
                     tasksProvider.setDocTasks(tasksWithState);
                     (0, output_js_1.logToOutput)(`解析完成，共 ${tasksWithState.length} 个任务`);
@@ -386,23 +381,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                         runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(output);
                         runRecord.outputTruncated = result.data?.outputTruncated === true;
                         // Store instruction hash for drift detection on next parse
-                        if (docPath) {
-                            try {
-                                const docContentForHash = await fs_1.promises.readFile(docPath, 'utf8');
-                                const resultContract = result.data?.agentTaskContract;
-                                const hashContract = resultContract;
-                                runRecord.instructionHash = (0, docTaskRunStore_js_2.computeInstructionHash)({
-                                    taskId: task.id,
-                                    label: task.label,
-                                    docExcerpt: docContentForHash.slice(0, 8000),
-                                    tool: agentCli || undefined,
-                                    allowedFiles: hashContract?.allowedFiles,
-                                    forbiddenFiles: hashContract?.forbiddenFiles,
-                                    globalConfigDigest: resultContract?.globalConfigDigest,
-                                });
-                            }
-                            catch { /* ignore */ }
-                        }
+                        runRecord.instructionHash = result.data?.agentTaskContract?.instructionHash;
                         applyContractSummary(runRecord, result.data?.agentTaskContract);
                         applyVerificationToRunRecord(runRecord, result.data?.verification);
                         await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'success update', warnRunStore);

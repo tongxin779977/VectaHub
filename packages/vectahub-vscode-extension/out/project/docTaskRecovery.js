@@ -10,9 +10,11 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildRecoveryInput = buildRecoveryInput;
 exports.decideRecovery = decideRecovery;
+exports.decideRecoveryWithHashGuard = decideRecoveryWithHashGuard;
 exports.createRecoveryRecord = createRecoveryRecord;
 exports.createRecoveryRunId = createRecoveryRunId;
 exports.isRecoveryEligible = isRecoveryEligible;
+exports.classifyRecoveryOutcome = classifyRecoveryOutcome;
 // ─── Build Recovery Input ────────────────────────────────────────────────────
 /**
  * Build a DocTaskRecoveryInput from a DocTaskRunRecord.
@@ -66,6 +68,20 @@ function decideRecovery(input) {
             canReusePreviousCommand: false,
         };
     }
+}
+function decideRecoveryWithHashGuard(input) {
+    if (input.previousInstructionHash !== undefined && input.currentInstructionHash === undefined) {
+        return {
+            kind: 'blocked',
+            mode: 'manual_only',
+            reason: 'instruction-hash-unavailable',
+            summary: '无法确认当前任务定义是否变化，已保守阻断恢复以避免使用过期上下文。',
+            suggestedActions: ['确认文档可读且边界可预推导', '重新解析文档后再重试恢复'],
+            needsNewTrace: false,
+            canReusePreviousCommand: false,
+        };
+    }
+    return decideRecovery(input);
 }
 function decideRecoveryInner(input) {
     // ── §7.5 instructionHash 变化检测 ──
@@ -257,5 +273,60 @@ function createRecoveryRunId() {
  */
 function isRecoveryEligible(status) {
     return status.startsWith('failed_') || status === 'cancelled';
+}
+function classifyRecoveryOutcome(summary) {
+    if (summary.runResult?.ok === true || summary.ok === true || summary.status === 'success') {
+        return { status: 'success', failureKind: undefined };
+    }
+    const normalizedKind = normalizeFailureKind(summary.failureKind);
+    if (normalizedKind) {
+        return {
+            status: failureKindToStatus(normalizedKind),
+            failureKind: normalizedKind,
+        };
+    }
+    if (summary.runResult?.verification && !summary.runResult.verification.ok) {
+        if (summary.runResult.verification.isSystemError) {
+            return { status: 'failed_system_internal', failureKind: 'system_internal' };
+        }
+        return { status: 'failed_test', failureKind: 'test' };
+    }
+    const mergedText = `${summary.runResult?.output ?? ''}\n${summary.error ?? ''}`.toLowerCase();
+    if (mergedText.includes('timeout') || mergedText.includes('timed out') || mergedText.includes('超时')) {
+        return { status: 'failed_timeout', failureKind: 'timeout' };
+    }
+    if (mergedText.includes('json') && mergedText.includes('parse')) {
+        return { status: 'failed_json_protocol', failureKind: 'json_protocol' };
+    }
+    if (mergedText.includes('merge conflict') || mergedText.includes('<<<<<<<') || mergedText.includes('>>>>>>>') || mergedText.includes('冲突')) {
+        return { status: 'failed_conflict', failureKind: 'conflict' };
+    }
+    if (mergedText.includes('permission denied') || mergedText.includes('未配置') || mergedText.includes('no such file') || mergedText.includes('eacces') || mergedText.includes('enoent')) {
+        return { status: 'failed_config', failureKind: 'config' };
+    }
+    if (mergedText.includes('io error') || mergedText.includes('system error') || mergedText.includes('emfile') || mergedText.includes('enfile')) {
+        return { status: 'failed_system_internal', failureKind: 'system_internal' };
+    }
+    return { status: 'failed_agent', failureKind: 'unknown' };
+}
+function normalizeFailureKind(value) {
+    const valid = ['config', 'agent', 'json_protocol', 'timeout', 'test', 'conflict', 'system_internal', 'cancelled', 'unknown'];
+    if (!value)
+        return undefined;
+    return valid.includes(value) ? value : undefined;
+}
+function failureKindToStatus(kind) {
+    const map = {
+        config: 'failed_config',
+        agent: 'failed_agent',
+        json_protocol: 'failed_json_protocol',
+        timeout: 'failed_timeout',
+        test: 'failed_test',
+        conflict: 'failed_conflict',
+        system_internal: 'failed_system_internal',
+        cancelled: 'cancelled',
+        unknown: 'failed_agent',
+    };
+    return map[kind];
 }
 //# sourceMappingURL=docTaskRecovery.js.map

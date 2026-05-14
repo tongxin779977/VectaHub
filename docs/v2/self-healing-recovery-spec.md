@@ -67,6 +67,8 @@
 - 插件端没有“建议重试 / 建议人工确认 / 禁止自动修复”的稳定分流。
 - 原始失败 trace 与恢复 trace 没有正式关联合同。
 - `self-healing` 原型仍是 workflow 视角，不是 doc-task 视角。
+- 已知性能 gap：插件侧 `DocTaskDocIndex` 当前仍保留完整文档内容；在大文档/批量任务/恢复前 hash 计算场景会放大内存与 IO 压力。
+- 合同一致性要求：恢复链路和 run record 的 `instructionHash` 必须使用同一 `docExcerpt` 推导结果（或直接复用 CLI 返回的 `agentTaskContract.instructionHash`），禁止使用仅取文档开头的近似片段。
 
 ## 3. 根因分析
 

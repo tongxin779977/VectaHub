@@ -2,7 +2,7 @@ import type { DocTask } from '../views/tasksView.js';
 import { promises as fsp } from 'fs';
 import path from 'path';
 import { getVectaHubHome } from '../cli/adapter.js';
-import { buildAgentTaskContractSummaries } from '../project/docTaskContract.js';
+import { buildAgentTaskContractSummaries, deriveDocExcerptForTask } from '../project/docTaskContract.js';
 import { mapRunStatusToDisplayStatus, type DocTaskRunStatus } from '../project/docTaskState.js';
 import { computeInstructionHash, type DocTaskBatchRunRecord, type DocTaskRunRecord, type DocTaskRunStore } from '../project/docTaskRunStore.js';
 
@@ -94,11 +94,16 @@ export async function computeCurrentInstructionHashForRecovery(input: {
   });
   const contract = contracts.get(taskId);
   if (!contract) return undefined;
+  const excerpt = deriveDocExcerptForTask({
+    docContent,
+    taskId,
+    label,
+  });
 
   return computeInstructionHash({
     taskId,
     label,
-    docExcerpt: docContent.slice(0, 8000),
+    docExcerpt: excerpt.excerpt,
     tool,
     allowedFiles: contract.allowedFiles,
     forbiddenFiles: contract.forbiddenFiles,
@@ -140,10 +145,15 @@ export async function applyLatestRunState(
           const currentContract = currentContracts.get(task.id);
           const allowedFiles = currentContract?.allowedFiles ?? [];
           const forbiddenFiles = currentContract?.forbiddenFiles ?? [];
+          const excerpt = deriveDocExcerptForTask({
+            docContent,
+            taskId: task.id,
+            label: task.label,
+          });
           const newHash = computeInstructionHash({
             taskId: task.id,
             label: task.label,
-            docExcerpt: docContent.slice(0, 8000),
+            docExcerpt: excerpt.excerpt,
             tool: run.agentCli,
             allowedFiles,
             forbiddenFiles,

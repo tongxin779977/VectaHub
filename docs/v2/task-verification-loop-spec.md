@@ -62,6 +62,7 @@ Out of Scope：
 ```ts
 verification?: {
   ok: boolean;
+  isSystemError?: boolean;
   commands: Array<{
     command: string;
     ok: boolean;
@@ -123,7 +124,8 @@ P3 第一版验证命令在单个任务内串行执行。
 - `verification` 是新增可选字段。
 - 老插件忽略该字段仍可工作。
 - 新插件看到缺失 `verification` 时按旧逻辑处理。
-- 验证执行异常视为验证失败，进入 `failed_test`。
+- 断言/测试失败进入 `failed_test`。
+- 验证命令无法执行或系统错误（如 ENOENT/EACCES/EPERM）进入 `failed_system_internal`。
 
 ## 11. 文件修改清单
 

@@ -202,6 +202,7 @@ export interface VerificationCommandResult {
 export interface VerificationResult {
   ok: boolean;
   commands: VerificationCommandResult[];
+  isSystemError?: boolean;
 }
 
 function extractOutermostJson(str: string): string | null {
@@ -253,10 +254,10 @@ function buildDefaultPrompt(taskId: string, taskLabel: string, docPath: string, 
     '- 完成后运行或说明建议验证命令。',
     '',
     '执行步骤：',
-    `1. 先阅读参考文档 ${docPath}，找到任务 ${taskId} 的详细需求`,
-    '2. 按照文档中的技术方案和接口定义完整实现',
-    '3. 保持与现有代码风格一致',
-    '4. 实现完成后，运行项目测试验证功能正确性',
+    `1. 优先依据任务边界合同中的文档片段完成任务 ${taskId}`,
+    `2. 仅在片段不足且不越过允许修改范围时，查看 ${docPath} 中的必要上下文`,
+    '3. 按照文档中的技术方案和接口定义完整实现',
+    '4. 保持与现有代码风格一致，并运行建议验证命令',
   ].join('\n');
 
   if (prompt.length <= PROMPT_CONTRACT_MAX_LENGTH) {
@@ -455,7 +456,7 @@ function getRunTaskOutputDir(): string {
 export async function runVerificationCommands(
   validationCommands: string[],
   cwd: string,
-): Promise<VerificationResult & { isSystemError?: boolean }> {
+): Promise<VerificationResult> {
   const commandsToRun = validationCommands.slice(0, MAX_VERIFICATION_COMMANDS);
   const results: VerificationCommandResult[] = [];
   let overallOk = true;
@@ -871,7 +872,7 @@ export async function runTask(options: {
       const gitChanges = await collectGitChanges() ?? undefined;
       await collectSpan.end({ changedFileCount: gitChanges?.changedFiles.length || 0 });
       
-      let verification: (VerificationResult & { isSystemError?: boolean }) | undefined;
+      let verification: VerificationResult | undefined;
       const validationCommands = agentTaskContractSummary.validationCommands;
       if (validationCommands.length > 0) {
         const verificationSpan = startSpan('cli.run-task.verification', {
