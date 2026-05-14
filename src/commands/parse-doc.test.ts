@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { parseTasksFromLLMOutput, findChunkBoundary, splitDocIntoChunks, mergeAndDeduplicateDocTasks, fallbackParseByRegex, DocTask } from './parse-doc.js';
+import {
+  parseTasksFromLLMOutput,
+  findChunkBoundary,
+  splitDocIntoChunks,
+  mergeAndDeduplicateDocTasks,
+  fallbackParseByRegex,
+  parseRoadmapTableTasks,
+  DocTask
+} from './parse-doc.js';
 
 describe('parseTasksFromLLMOutput', () => {
   it('should parse valid JSON array', () => {
@@ -196,5 +204,103 @@ describe('fallbackParseByRegex', () => {
     expect(tasks).toHaveLength(2);
     expect(tasks[0].id).toBe('P2-1');
     expect(tasks[1].id).toBe('P2-2');
+  });
+
+  it('should parse roadmap table by status semantics and only keep pending gaps', () => {
+    const content = [
+      '## 3. 功能路线图',
+      '| 功能ID | 模块 | 功能 | 状态 | 说明 |',
+      '| --- | --- | --- | --- | --- |',
+      '| IMP-001 | M01 | Excel/CSV 上传和预览 | 已有 | 已支持基础上传和预览 |',
+      '| IMP-005 | M03 | 标准化数据入账 | 待补 | 增加标准化映射后自动入账 |',
+      '| IMP-006 | M03 | 导入任务审计 | 部分 | 已有任务记录，需增强错误行和可追溯详情 |',
+      '| M06-001 | M06 | AI 助理 | 暂停 | v8.1 暂不进入范围 |',
+      '',
+      '## 7. 当前开发优先级',
+      '1. 打通 M01 到 M03',
+      '2. 完善导入任务错误链路',
+      '',
+      '## 8. 不进入当前版本的需求',
+      '1. AI 自动记账',
+    ].join('\n');
+
+    const tasks = fallbackParseByRegex(content);
+    const ids = tasks.map(task => task.id);
+    const labels = tasks.map(task => task.label).join(' | ');
+
+    expect(ids).toContain('IMP-005');
+    expect(ids).toContain('IMP-006');
+    expect(ids).toContain('1');
+    expect(ids).toContain('2');
+
+    expect(ids).not.toContain('IMP-001');
+    expect(ids).not.toContain('M06-001');
+    expect(labels).toContain('增强导入任务审计');
+    expect(labels).toContain('错误行');
+    expect(labels).not.toContain('AI 自动记账');
+  });
+
+  it('should keep legacy heading parsing when no roadmap status table exists', () => {
+    const content = [
+      '## 需求',
+      '### P0-1：结账与反结账功能',
+      '### P0-2：凭证号断号管理',
+      '### 1.1 补充对账入口',
+    ].join('\n');
+    const tasks = fallbackParseByRegex(content);
+    expect(tasks.map(task => task.id)).toEqual(['P0-1', 'P0-2', '1.1']);
+  });
+});
+
+describe('parseRoadmapTableTasks', () => {
+  it('should return detected false when no status table', () => {
+    const result = parseRoadmapTableTasks('## 普通需求\n### P0-1: 实现结账');
+    expect(result.detected).toBe(false);
+    expect(result.tasks).toHaveLength(0);
+  });
+
+  it('should skip out-of-scope section tasks in current-version exclusion section', () => {
+    const content = [
+      '| ID | 功能 | 状态 | 说明 |',
+      '| --- | --- | --- | --- |',
+      '| IMP-010 | 对账中心 | 待补 | 打通对账闭环 |',
+      '',
+      '## 不进入当前版本的需求',
+      '1. 不应进入任务',
+    ].join('\n');
+    const result = parseRoadmapTableTasks(content);
+    expect(result.detected).toBe(true);
+    expect(result.tasks.some(task => task.id === '1')).toBe(false);
+    expect(result.tasks.some(task => task.id === 'IMP-010')).toBe(true);
+  });
+
+  it('should keep only pending gaps for partial status rows in roadmap-style docs', () => {
+    const content = [
+      '| 功能ID | 功能 | 状态 | 说明 |',
+      '| --- | --- | --- | --- |',
+      '| VCH-005 | 审核 / 过账 | 部分 | 需要补强制单人和审核人分离 |',
+      '| RPT-004 | 利润表 | 部分 | 已按损益科目汇总，需完善收入/费用映射 |',
+      '| AUD-003 | 识别结果确认 | 部分 | 可确认生成后续数据，需增强字段级校验 |',
+      '| SYS-006 | 账套 / 项目 | 部分 | 有项目接口，需完善前端体验和隔离校验 |',
+    ].join('\n');
+
+    const result = parseRoadmapTableTasks(content);
+    expect(result.detected).toBe(true);
+    expect(result.tasks).toHaveLength(4);
+
+    const vch = result.tasks.find(task => task.id === 'VCH-005');
+    const rpt = result.tasks.find(task => task.id === 'RPT-004');
+    const aud = result.tasks.find(task => task.id === 'AUD-003');
+    const sys = result.tasks.find(task => task.id === 'SYS-006');
+
+    expect(vch?.label).toContain('制单人和审核人分离');
+    expect(rpt?.label).toContain('收入/费用映射');
+    expect(aud?.label).toContain('字段级校验');
+    expect(sys?.label).toContain('前端体验和隔离校验');
+
+    expect(vch?.label).not.toContain('已有');
+    expect(rpt?.label).not.toContain('已按');
+    expect(aud?.label).not.toContain('可确认');
+    expect(sys?.label).not.toContain('有项目接口');
   });
 });

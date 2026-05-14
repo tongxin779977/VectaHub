@@ -16,6 +16,23 @@ const CHUNK_BOUNDARY_SEARCH_RATIO = 0.2;
 
 const CONTINUATION_SUFFIX = '\n（接下一段）';
 const CONTINUATION_PREFIX = '（接上一段）\n';
+const HEADING_PATTERN = /^#{1,6}\s+(.+)$/;
+const PRIORITY_SECTION_PATTERN = /当前开发优先级/;
+const TASK_ID_PATTERN = /([A-Za-z]{1,8}-\d+(?:[-.]\d+)*|[A-Za-z]?\d+(?:[-.]\d+)*)/;
+const VERB_PREFIX_PATTERN = /^(增强|完善|优化|补齐|打通|支持|增加|新增|提供|实现|改造|收敛|修复)(.*)$/;
+const GAP_TRIGGER_PATTERNS: Array<{ pattern: RegExp; verb?: string }> = [
+  { pattern: /需补强/, verb: '补强' },
+  { pattern: /需补齐/, verb: '补齐' },
+  { pattern: /需增强/, verb: '增强' },
+  { pattern: /需完善/, verb: '完善' },
+  { pattern: /待补齐/, verb: '补齐' },
+  { pattern: /待完善/, verb: '完善' },
+  { pattern: /待验证/, verb: '验证' },
+  { pattern: /需要/ },
+  { pattern: /需/ },
+];
+const STATUS_TABLE_HEADER_PATTERN = /状态/;
+const MARKDOWN_TABLE_DIVIDER_PATTERN = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/;
 
 export function findChunkBoundary(content: string, target: number): number {
   if (target <= 0 || target >= content.length) {
@@ -78,7 +95,181 @@ export function mergeAndDeduplicateDocTasks(allTasks: DocTask[][]): DocTask[] {
   return merged;
 }
 
+function splitMarkdownTableRow(line: string): string[] {
+  let raw = line.trim();
+  if (!raw.startsWith('|') || raw.indexOf('|') === raw.lastIndexOf('|')) {
+    return [];
+  }
+  if (raw.startsWith('|')) raw = raw.slice(1);
+  if (raw.endsWith('|')) raw = raw.slice(0, -1);
+  return raw.split('|').map(cell => cell.trim());
+}
+
+function normalizeStatus(value: string): 'existing' | 'partial' | 'pending' | 'paused' | 'unknown' {
+  const text = value.replace(/\s+/g, '');
+  if (text.includes('已有')) return 'existing';
+  if (text.includes('部分')) return 'partial';
+  if (text.includes('待补')) return 'pending';
+  if (text.includes('暂停')) return 'paused';
+  return 'unknown';
+}
+
+function cleanupTaskLabel(label: string): string {
+  return label
+    .replace(/[`*_]/g, '')
+    .replace(/\[[^\]]+\]\([^)]+\)/g, '$1')
+    .replace(/[。；;，,\s]+$/g, '')
+    .replace(/^[：:\-—\s]+/, '')
+    .trim();
+}
+
+function extractPendingWorkFromStatusRow(detail: string): string | undefined {
+  const source = cleanupTaskLabel(detail);
+  if (!source) return undefined;
+
+  for (const trigger of GAP_TRIGGER_PATTERNS) {
+    const matched = source.match(trigger.pattern);
+    if (!matched || matched.index === undefined) continue;
+
+    const tailRaw = source.slice(matched.index + matched[0].length);
+    const tail = cleanupTaskLabel(
+      tailRaw
+        .replace(/^[，。,;；:：\s-]+/, '')
+        .replace(/^(已有|已支持|已按|可确认|有接口|有项目接口|前端有|后端有)[^，。,;；]*[，。,;；]?\s*/g, '')
+    );
+    if (!tail) return undefined;
+    if (trigger.verb && !VERB_PREFIX_PATTERN.test(tail)) {
+      return cleanupTaskLabel(`${trigger.verb}${tail}`);
+    }
+    return tail;
+  }
+
+  const normalized = source
+    .replace(/^(已有|已支持|已按|可确认|有接口|有项目接口|前端有|后端有)[^，。,;；]*[，。,;；]?\s*/g, '')
+    .trim();
+  if (!normalized || !/(增强|完善|优化|补齐|补强|打通|支持|增加|新增|提供|实现|改造|收敛|修复|缺|不足|未)/.test(normalized)) {
+    return undefined;
+  }
+  return cleanupTaskLabel(normalized);
+}
+
+function buildTaskLabelFromRoadmapRow(featureLabel: string, status: 'partial' | 'pending', detail: string): string {
+  const baseFeature = cleanupTaskLabel(featureLabel).replace(/\s*\/\s*/g, '/');
+  const pendingWork = extractPendingWorkFromStatusRow(detail);
+  if (status === 'pending') {
+    return pendingWork ? cleanupTaskLabel(pendingWork) : cleanupTaskLabel(`实现${baseFeature}`);
+  }
+
+  if (!pendingWork) {
+    return cleanupTaskLabel(`完善${baseFeature}`);
+  }
+
+  const verbMatch = pendingWork.match(VERB_PREFIX_PATTERN);
+  if (!verbMatch) {
+    return cleanupTaskLabel(`完善${baseFeature}${pendingWork}`);
+  }
+  const verb = verbMatch[1];
+  const rest = cleanupTaskLabel(verbMatch[2]);
+  return cleanupTaskLabel(`${verb}${baseFeature}${rest}`);
+}
+
+function parseCurrentPriorityTasks(content: string): DocTask[] {
+  const lines = content.split('\n');
+  const tasks: DocTask[] = [];
+  let collecting = false;
+
+  for (const line of lines) {
+    const headingMatch = line.match(HEADING_PATTERN);
+    if (headingMatch) {
+      const headingText = headingMatch[1];
+      if (PRIORITY_SECTION_PATTERN.test(headingText)) {
+        collecting = true;
+        continue;
+      }
+      if (collecting) {
+        break;
+      }
+      continue;
+    }
+    if (!collecting) continue;
+
+    const trimmed = line.trim();
+    const numberedMatch = trimmed.match(/^(\d+(?:\.\d+)*|[A-Za-z]-?\d+(?:[-.]\d+)*)[.、:)]\s+(.+)$/);
+    if (!numberedMatch) continue;
+    tasks.push({
+      id: numberedMatch[1],
+      label: cleanupTaskLabel(numberedMatch[2]),
+    });
+  }
+
+  return tasks;
+}
+
+export function parseRoadmapTableTasks(content: string): { detected: boolean; tasks: DocTask[] } {
+  const lines = content.split('\n');
+  const tasks: DocTask[] = [];
+  let detected = false;
+
+  for (let i = 0; i < lines.length - 1; i++) {
+    const headerCells = splitMarkdownTableRow(lines[i]);
+    if (headerCells.length === 0 || !headerCells.some(cell => STATUS_TABLE_HEADER_PATTERN.test(cell))) {
+      continue;
+    }
+    const divider = lines[i + 1]?.trim() ?? '';
+    if (!MARKDOWN_TABLE_DIVIDER_PATTERN.test(divider)) {
+      continue;
+    }
+
+    detected = true;
+    const statusIdx = headerCells.findIndex(cell => /状态/.test(cell));
+    const featureIdx = headerCells.findIndex(cell => /(功能|需求|任务|能力|事项)/.test(cell) && !/(ID|编号|序号)/i.test(cell));
+    const idIdx = headerCells.findIndex(cell => /(ID|编号|序号)/i.test(cell));
+    const detailIdx = headerCells.findIndex(cell => /(说明|备注|缺口|现状|描述)/.test(cell));
+
+    let row = i + 2;
+    while (row < lines.length) {
+      const rowCells = splitMarkdownTableRow(lines[row]);
+      if (rowCells.length === 0) break;
+      if (rowCells.every(cell => cell === '' || /^:?-{2,}:?$/.test(cell.replace(/\s+/g, '')))) {
+        row += 1;
+        continue;
+      }
+
+      const statusText = rowCells[statusIdx] ?? '';
+      const status = normalizeStatus(statusText);
+      if (status === 'existing' || status === 'paused' || status === 'unknown') {
+        row += 1;
+        continue;
+      }
+
+      const feature = cleanupTaskLabel((featureIdx >= 0 ? rowCells[featureIdx] : rowCells[0]) ?? '');
+      const detail = cleanupTaskLabel((detailIdx >= 0 ? rowCells[detailIdx] : '') ?? '');
+      const idCandidate = (idIdx >= 0 ? rowCells[idIdx] : rowCells.find(cell => TASK_ID_PATTERN.test(cell))) ?? '';
+      const idMatch = idCandidate.match(TASK_ID_PATTERN);
+      if (!idMatch || !feature) {
+        row += 1;
+        continue;
+      }
+
+      tasks.push({
+        id: idMatch[1],
+        label: buildTaskLabelFromRoadmapRow(feature, status, detail),
+      });
+      row += 1;
+    }
+  }
+
+  const priorityTasks = parseCurrentPriorityTasks(content);
+  const merged = mergeAndDeduplicateDocTasks([tasks, priorityTasks]);
+  return { detected, tasks: merged };
+}
+
 export function fallbackParseByRegex(content: string): DocTask[] {
+  const roadmap = parseRoadmapTableTasks(content);
+  if (roadmap.detected) {
+    return roadmap.tasks;
+  }
+
   const tasks: DocTask[] = [];
   const lines = content.split('\n');
 
@@ -123,6 +314,11 @@ export async function parseDocTasks(filePath: string): Promise<DocTask[]> {
   const docContent = readFileSync(absolutePath, 'utf-8');
   if (docContent.length === 0) {
     throw new Error('文档内容为空');
+  }
+  const roadmap = parseRoadmapTableTasks(docContent);
+  if (roadmap.detected) {
+    logger.info(`检测到路线图状态表格，按状态语义提取 ${roadmap.tasks.length} 个待开发任务`);
+    return roadmap.tasks;
   }
 
   const llmConfig = createLLMConfig();
@@ -199,7 +395,7 @@ async function callLLMWithRetry(client: LLMClient, docContent: string): Promise<
       if (attempt > 0) {
         logger.info(`第 ${attempt + 1} 次尝试 (共 ${MAX_RETRIES + 1} 次)...`);
       }
-      const rawOutput = await client.completeRaw(DOC_TASK_PARSER_ID, '请从文档中提取所有开发任务', {
+      const rawOutput = await client.completeRaw(DOC_TASK_PARSER_ID, '请只提取尚需开发或补齐的任务缺口', {
         docContent,
       });
       return parseTasksFromLLMOutput(rawOutput);

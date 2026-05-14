@@ -54,6 +54,7 @@ const NOISY_OUTPUT_PATTERNS = [
   /.*_GaxiosError:.*/i,
   /.*FetchError\d*:.*/i,
   /\s*(config|response|error):\s*\{.*/i,
+  /xterm\.js:\s*parsing error.*/i,
 ];
 const TRACE_TEXT_MAX_LENGTH = 500;
 const PROMPT_CONTRACT_MAX_LENGTH = 12000;
@@ -142,6 +143,10 @@ export interface RunTaskResult {
   success: boolean;
   output: string;
   command: string;
+  error?: {
+    code: string;
+    message: string;
+  };
   gitChanges?: GitChangeInfo;
   agentTaskContract?: AgentTaskContractSummary;
   verification?: VerificationResult;
@@ -160,6 +165,10 @@ export interface RunTaskJsonResult {
   command: string;
   output: string;
   outputTruncated: boolean;
+  error?: string | {
+    code: string;
+    message: string;
+  };
   agentTaskContract?: AgentTaskContractSummary;
   gitChanges?: {
     shortStat: string;
@@ -556,6 +565,12 @@ export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
   if (result.usage) {
     jsonResult.usage = result.usage;
   }
+  if (result.error) {
+    jsonResult.error = {
+      code: result.error.code,
+      message: result.error.message,
+    };
+  }
 
   return jsonResult;
 }
@@ -801,6 +816,11 @@ export async function runTask(options: {
         env: {
           ...stripIDEEnv(),
           ...spawnEnv,
+          CI: '1',
+          NO_COLOR: '1',
+          FORCE_COLOR: '0',
+          TERM: 'dumb',
+          VECTAHUB_NON_INTERACTIVE: '1',
         },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -838,7 +858,9 @@ export async function runTask(options: {
       await new Promise<void>((resolvePromise, rejectPromise) => {
         const timer = setTimeout(() => {
           child.kill('SIGKILL');
-          rejectPromise(new Error(`Agent CLI timeout after ${agentCliTimeout}ms`));
+          const timeoutError = new Error(`Agent CLI timeout after ${agentCliTimeout}ms`);
+          (timeoutError as Error & { code?: string }).code = 'TIMEOUT';
+          rejectPromise(timeoutError);
         }, agentCliTimeout);
 
         const onErr = (err: unknown) => {
@@ -947,7 +969,20 @@ export async function runTask(options: {
       audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'FAILED', 'run-task');
       logger.error(`任务执行失败: ${errOutput}`);
       const errUsage = parseTokenUsage(rawErrOutputForUsage || errOutput);
-      return { success: false, output: errOutput, command: fullCommand, gitChanges, agentTaskContract: agentTaskContractSummary, usage: errUsage };
+      const errorCode = execError?.code === 'TIMEOUT' || /timeout/i.test(execError?.message || '') ? 'TIMEOUT' : 'AGENT_FAILED';
+      const errorMessage = execError?.message || 'Agent 执行失败';
+      return {
+        success: false,
+        output: errOutput,
+        command: fullCommand,
+        error: {
+          code: errorCode,
+          message: errorMessage,
+        },
+        gitChanges,
+        agentTaskContract: agentTaskContractSummary,
+        usage: errUsage,
+      };
     }
   }, {
     context: incomingContext || undefined,
@@ -988,7 +1023,7 @@ export const runTaskCmd = new Command('run-task')
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (options.json) {
-        console.log(JSON.stringify({ ok: false, error: message }, null, 2));
+        console.log(JSON.stringify({ ok: false, error: { code: 'CLI_ERROR', message } }, null, 2));
       } else {
         logger.error(`执行失败: ${message}`);
       }

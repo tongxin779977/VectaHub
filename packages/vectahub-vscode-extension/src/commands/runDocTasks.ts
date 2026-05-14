@@ -138,7 +138,37 @@ interface RunTaskResult {
     completionTokens: number;
     totalTokens: number;
   };
-  error?: string;
+  error?: string | {
+    code?: string;
+    message?: string;
+  };
+}
+
+function resolveStructuredError(result: { data?: RunTaskResult; error?: { code: string; message: string } }): {
+  errorCode?: string;
+  errorMessage?: string;
+  outputSummarySource?: string;
+} {
+  const dataError = result.data?.error;
+  if (typeof dataError === 'string') {
+    return {
+      errorCode: result.error?.code,
+      errorMessage: dataError,
+      outputSummarySource: dataError,
+    };
+  }
+  if (dataError && typeof dataError === 'object') {
+    return {
+      errorCode: dataError.code || result.error?.code,
+      errorMessage: dataError.message || result.error?.message,
+      outputSummarySource: dataError.message || result.data?.output,
+    };
+  }
+  return {
+    errorCode: result.error?.code,
+    errorMessage: result.error?.message,
+    outputSummarySource: result.data?.output,
+  };
 }
 
 interface AgentCliInfo {
@@ -534,12 +564,14 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
               });
               vscode.window.showWarningMessage(`任务 ${task.id} 验证失败`);
             } else {
-              const errMsg = result.data?.error || result.data?.output || result.error?.message || '执行失败';
+              const resolvedError = resolveStructuredError(result);
+              const errMsg = resolvedError.errorMessage || result.data?.output || '执行失败';
               const classified = classifyDocTaskFailure({
                 ok: result.ok,
-                errorCode: result.error?.code,
-                errorMessage: result.error?.message || result.data?.error,
-                output: result.data?.output
+                exitCode: result.exitCode ?? undefined,
+                errorCode: resolvedError.errorCode,
+                errorMessage: errMsg,
+                output: result.stderr || result.data?.output || result.stdout
               });
 
               task.lastFailureKind = classified.kind;
@@ -554,7 +586,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
                 runRecord.endedAt = runRecord.updatedAt;
                 runRecord.durationMs = Date.now() - startedAtMs;
                 runRecord.command = result.data?.command || runRecord.command;
-                runRecord.outputSummary = summarizeOutput(result.data?.output);
+                runRecord.outputSummary = summarizeOutput(resolvedError.outputSummarySource || result.data?.output || result.stderr || result.stdout);
                 runRecord.outputTruncated = result.data?.outputTruncated === true;
                 const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
                 runRecord.gitChanges = {
@@ -885,12 +917,14 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
                 });
                 updateProgress(task.id, '验证失败');
               } else {
-                const errMsg = result.data?.error || result.data?.output || '执行失败';
+                const resolvedError = resolveStructuredError(result);
+                const errMsg = resolvedError.errorMessage || result.data?.output || result.error?.message || '执行失败';
                 const classified = classifyDocTaskFailure({
                   ok: result.ok,
-                  errorCode: result.error?.code,
-                  errorMessage: result.error?.message || result.data?.error,
-                  output: result.data?.output
+                  exitCode: result.exitCode ?? undefined,
+                  errorCode: resolvedError.errorCode,
+                  errorMessage: errMsg,
+                  output: result.stderr || result.data?.output || result.stdout
                 });
                 task.lastFailureKind = classified.kind;
                 setTaskDisplayState(task, classified.status);
@@ -909,7 +943,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
                     changedFiles,
                     shortStat: result.data?.gitChanges?.shortStat
                   };
-                  runRecord.outputSummary = summarizeOutput(result.data?.output);
+                  runRecord.outputSummary = summarizeOutput(resolvedError.outputSummarySource || result.data?.output || result.stderr || result.stdout);
                   runRecord.outputTruncated = result.data?.outputTruncated === true;
                   persistContractHashFromCliResult(runRecord, result.data?.agentTaskContract);
                   applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);

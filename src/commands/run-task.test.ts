@@ -232,6 +232,7 @@ describe('formatRunTaskJson', () => {
       'All tests passed successfully.',
       'Warning: 256-color support not detected.',
       'YOLO mode is enabled. All tool calls will be automatically approved.',
+      'xterm.js: Parsing error',
       'Attempt 1 failed. Retrying with backoff... _GaxiosError: request failed',
       'x'.repeat(5000),
     ].join('\n');
@@ -244,9 +245,28 @@ describe('formatRunTaskJson', () => {
 
     expect(result.ok).toBe(true);
     expect(result.output).not.toContain('YOLO mode is enabled');
+    expect(result.output).not.toContain('xterm.js: Parsing error');
     expect(result.output).not.toContain('_GaxiosError');
     expect(String(result.output).length).toBeLessThanOrEqual(50000);
     expect(result.outputTruncated).toBe(true);
+  });
+
+  it('should include structured error field in JSON', () => {
+    const result = formatRunTaskJson({
+      success: false,
+      command: 'gemini -p "test"',
+      output: 'Agent CLI timeout after 600000ms',
+      error: {
+        code: 'TIMEOUT',
+        message: 'Agent CLI timeout after 600000ms',
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toEqual({
+      code: 'TIMEOUT',
+      message: 'Agent CLI timeout after 600000ms',
+    });
   });
 
   it('should truncate long JSON output on a line boundary when possible', () => {
