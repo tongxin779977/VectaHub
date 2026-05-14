@@ -478,8 +478,9 @@ packages/vectahub-vscode-extension/src/views/tasksView.ts
 修改：
 
 ```text
-docs/v2/agent-worker-contract-spec.md
-docs/v2/agent-execution-roadmap.md
+docs/specs/agent-worker-contract.md
+docs/agent-execution.md
+docs/roadmap.md
 ```
 
 ## 16. 实施顺序

@@ -1,0 +1,110 @@
+# VectaHub 架构总览
+
+## 定位
+
+VectaHub 是 AI 辅助开发场景下的执行编排层。
+
+它负责把自然语言、文档任务、工作流和外部 Agent CLI 转换为可治理的工程执行过程。底层 Agent 只负责执行边界清楚的小任务；VectaHub 负责合同、状态、追踪、安全、验证和恢复。
+
+```text
+User / VS Code / CLI
+        |
+        v
+VectaHub Orchestrator
+        |
+        +-- Task Contract
+        +-- Trace
+        +-- Security Policy
+        +-- Verification
+        +-- Recovery
+        |
+        v
+Agent / CLI / Workflow Worker
+```
+
+## 非目标
+
+VectaHub 不做以下事情：
+
+- 不把 Agent 输出当作系统真实状态。
+- 不让 Agent 默认读取整份大文档后自由发挥。
+- 不把高风险命令交给 Agent 静默执行。
+- 不要求插件解析人类日志来判断执行结果。
+- 不在当前阶段引入数据库、多租户 RBAC 或完整服务端控制面。
+- 不把未来 Go 重构蓝图描述为当前 TypeScript 实现。
+
+## 当前系统边界
+
+当前仓库以 TypeScript CLI、VS Code 插件和共享合同包为主：
+
+```text
+src/cli.ts                    CLI 入口
+src/index.ts                  包入口
+src/types/                    共享类型
+src/nl/                       自然语言解析与意图处理
+src/workflow/                 工作流引擎
+src/sandbox/                  沙箱和危险检测
+src/cli-tools/                外部工具集成
+src/skills/                   技能与执行能力
+src/command-rules/            命令黑白名单
+src/infrastructure/           审计、配置、错误、日志
+src/utils/                    CLI 命令实现
+packages/doc-task-contract-core/          文档任务合同纯函数包
+packages/vectahub-vscode-extension/       VS Code 插件
+```
+
+插件、Agent 任务和文档任务相关能力必须通过 CLI 的结构化协议和共享合同包接入，不能复制一份长期漂移的业务逻辑。
+
+## 核心模块
+
+| 模块 | 职责 |
+|------|------|
+| CLI | 接收用户输入，输出人类文本或稳定 JSON。 |
+| NL / Intent | 把自然语言或文档任务转换为可执行意图。 |
+| Workflow | 管理步骤、依赖、上下文和执行记录。 |
+| Agent Task Contract | 通过 `@vectahub/doc-task-contract-core` 和 CLI 为 Agent 生成边界清楚的任务合同。 |
+| Trace | 贯通插件、CLI、Agent、验证命令和恢复链路。 |
+| Security | 评估命令风险、拦截高危行为、执行脱敏。 |
+| Verification | 在 Agent 执行后运行合同中的验证命令。 |
+| Recovery | 根据失败分类、hash 和 trace 提供恢复路径。 |
+
+## 执行原则
+
+### Preview First
+
+自然语言和文档任务必须先能预览。`dry-run` 必须零副作用：
+
+- 不执行命令。
+- 不安装依赖。
+- 不扫描外部 CLI。
+- 不写执行记录。
+- 不修改配置。
+
+### Contract First
+
+Agent 任务必须通过 `AgentTaskContract` 执行。合同至少包括：
+
+- `taskId`
+- `label`
+- `instructionHash`
+- `docExcerpt`
+- `allowedFiles`
+- `forbiddenFiles`
+- `validationCommands`
+- `timeoutMs`
+
+### State Owned By VectaHub
+
+系统状态由 VectaHub 自己记录。Agent 的文本输出只能作为输入材料，不能作为成功、失败、恢复或漂移判断的真相源。
+
+### Structured Protocol
+
+面向插件、脚本和未来 SDK 的接口必须使用结构化 JSON。机器调用方不得依赖人类日志格式。
+
+### Safety By Default
+
+高风险命令必须确认，敏感信息必须在落盘前脱敏。安全评估失败时默认进入保守模式。
+
+## 演进方向
+
+长期方向是让 CLI、插件和未来 SDK 共享同一套合同和执行语义。Go 重构、REST/gRPC 和数据库索引等历史蓝图已从当前事实层移除，后续若重启必须重新写设计文档。

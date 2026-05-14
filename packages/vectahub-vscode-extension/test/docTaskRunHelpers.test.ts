@@ -26,7 +26,6 @@ import {
   applyLatestRunState,
   computeCurrentInstructionHashForRecovery,
   getAuthoritativeGlobalConfigDigestForHash,
-  readCurrentGlobalConfigDigest,
   safeUpdateBatch,
   safeUpdateRun,
   setTaskDisplayState,
@@ -127,11 +126,6 @@ describe('doc task run helpers', () => {
   });
 
   it('digest 不可等价时，不产生 guessed currentHash', async () => {
-    process.env.VECTAHUB_LLM_MODEL = 'gpt-test';
-    process.env.VECTAHUB_LLM_TEMPERATURE = '0.2';
-    const digest = await readCurrentGlobalConfigDigest();
-    expect(digest).toBe('model=gpt-test;temperature=0.2');
-
     const authoritative = await getAuthoritativeGlobalConfigDigestForHash();
     expect(authoritative).toBeUndefined();
 
@@ -143,8 +137,6 @@ describe('doc task run helpers', () => {
       tool: 'codex',
     });
     expect(hash).toBeUndefined();
-    delete process.env.VECTAHUB_LLM_MODEL;
-    delete process.env.VECTAHUB_LLM_TEMPERATURE;
   });
 
   it('digest 不可等价时，状态刷新不会因 guessed digest 误 reset', async () => {

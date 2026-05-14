@@ -1,69 +1,77 @@
 # VectaHub 文档
 
-> 最后更新: 2026-05-10
+VectaHub 是面向 AI 辅助开发的工程执行控制面。
 
-本文档目录现只保留两类核心内容，作为唯一的 Single Source of Truth (SSOT):
+它不与底层 Agent 比“聪明”，而是把自然语言、文档任务、CLI 命令和 Agent 执行纳入同一套可预览、可追踪、可约束、可验证、可恢复的工作流。
 
-1. **VectaHub 1.x 核心架构与演进 (Features)**
-2. **VectaHub 2.0 跨项目蓝图与 Go 迁移设计 (V2)**
+```text
+Agent = Worker
+VectaHub = Orchestrator
+```
 
-历史废弃目录 (`current` 和 `developer`) 已被移除，彻底清理过期架构与死链接。
+## 核心问题
 
-## 1. VectaHub 1.x 核心架构与演进 (v1/features)
+VectaHub 解决的是 AI 执行失控问题：
 
-面向维护者与核心开发者，记录当前 TypeScript 项目在 Phase 6 经历的 LLM Native 架构重构，以及最新的意图映射、防护层和可观测性设计。
+- Agent 输入过大，任务边界不清，容易改错文件。
+- Agent 自述完成，但缺少真实验证。
+- 执行过程缺少 trace，失败后难以定位。
+- 高风险命令、权限确认和敏感信息脱敏没有统一闭环。
+- CLI、VS Code 插件和未来服务端协议容易各自复制逻辑。
+- 文档任务、执行记录、恢复记录之间缺少可靠状态来源。
 
-| 文档 | 说明 |
+## 关键要求
+
+所有核心能力必须服务于以下要求：
+
+| 要求 | 含义 |
 |------|------|
-| [LLM Self-Bootstrap 设计](./v1/features/llm-self-bootstrap-design.md) | VectaHub V1 Phase 6 核心架构演进方案 (从硬编码走向意图映射) |
-| [路线图与里程碑](./v1/features/llm-self-bootstrap-roadmap.md) | Phase 6 任务拆解、时间线与最终闭环验收状态 |
-| [实施细节说明](./v1/features/llm-self-bootstrap-implementation.md) | 逐文件、逐任务的落地细节，包括防腐层与分层记忆的实现 |
-| [风险与指标](./v1/features/llm-self-bootstrap-issues.md) | 遗留问题、运行时防漂移风险及 LLMObservability 指标 |
+| 可预览 | 自然语言和文档任务执行前必须能生成 preview。 |
+| 可约束 | Agent 只能执行边界清楚的小任务，修改范围和验证命令必须结构化。 |
+| 可追踪 | 每次用户操作、CLI 调用、Agent 执行和验证命令都能关联 trace。 |
+| 可验证 | Agent 成功后必须进入验证阶段，不能只依赖 Agent 输出。 |
+| 可恢复 | 失败必须分类，并提供恢复、重试或人工处理路径。 |
+| 安全默认 | `dry-run` 零副作用，高风险命令确认，敏感信息不得落盘。 |
+| 单一事实源 | CLI、插件、未来 SDK 不能长期维护重复合同逻辑。 |
 
-## 2. VectaHub 2.0 蓝图预研 (v2)
+## 文档入口
 
-面向未来版本。这里的内容是架构演进目标，主要探索多 Daemon 通信与跨项目元数据共享。
-
-| 文档 | 说明 |
+| 文档 | 用途 |
 |------|------|
-| [系统架构设计](./v2/system-architecture.md) | V2 总体架构、模块边界和迁移原则 |
-| [功能点开发文档](./v2/feature-development.md) | 1.x 能力迁移目标和 2.0 新增能力 |
-| [API 接口设计](./v2/api-interface.md) | 跨项目通信 JSON-RPC、REST 协议及插件 API 设计 |
-| [数据模型设计](./v2/data-model.md) | 1.x 数据兼容、核心模型和存储策略 |
-| [LLM-Native 优化方案](./v2/llm-native-optimization.md) | LLM 解析、表达式和诊断能力演进 |
-| [VS Code 插件任务](./v2/vscode-extension-tasks.md) | VS Code 插件深层集成任务 |
-| [跨项目效率任务](./v2/cross-project-productivity.md) | 项目任务识别、跨项目依赖联调设计 |
-
-## 3. 治理规范 (Governance)
-
-面向所有 vibecoding 场景，确保 AI 辅助编码的一致性。
-
-| 文件 | 位置 | 说明 |
-|------|------|------|
-| [Vibecoding 治理原则](../.agent/vibecoding-governance.md) | `.agent/` | 全局原则层（跨工具、跨项目，alwaysApply） |
-| [文档检索 Skill](../.agent/skills/vibecoding-context-loader/SKILL.md) | `.agent/skills/` | Token-Smart 文档按需加载（on-demand） |
-| [代码风格指南](../.trae/rules/code-style-guide.md) | `.trae/rules/` | V1 TypeScript 风格细则 |
-| [依赖管理策略](../.trae/rules/dependency-policy.md) | `.trae/rules/` | V1 依赖白名单与审批流程 |
+| [架构总览](./architecture.md) | 项目定位、系统边界、模块职责和演进方向。 |
+| [核心合同](./contracts.md) | CLI JSON、任务状态、Agent 合同、Trace、安全、恢复等协议入口。 |
+| [Agent 执行系统](./agent-execution.md) | `VectaHub = Orchestrator` 的执行模型和阶段边界。 |
+| [设计文档](./design/agent-execution-system.md) | 关键能力的方案、取舍和非目标。 |
+| [规格合同](./specs/agent-worker-contract.md) | 状态机、trace、验证、安全、恢复等细节规格。 |
+| [UI 操作文档](./ui/vscode-extension.md) | VS Code 插件实际视图、命令和用户路径。 |
+| [CLI 命令面](./specs/cli-command-surface.md) | 当前 CLI 命令、参数、JSON 支持和副作用边界。 |
+| [工作流生命周期](./specs/workflow-lifecycle.md) | 工作流保存、执行、历史、详情、重跑、恢复和归档。 |
+| [工具与安全规则](./specs/tools-security-management.md) | CLI 工具注册、命令规则、安全规则增删改查和风险检测。 |
+| [生成、模板与调度](./specs/templates-generation-scheduling.md) | LLM 生成 workflow、模板市场、本地模板和 cron 调度。 |
+| [服务与导入导出](./specs/service-import-export.md) | 本地 socket 服务、AI daemon、数据导入导出和模式切换。 |
+| [配置与数据存储](./specs/config-data-storage.md) | `VECTAHUB_HOME`、执行记录、输出、trace、队列和归档落点。 |
+| [路线图](./roadmap.md) | 当前优先级、下一步任务和不建议立即投入的方向。 |
+| [归档说明](./archive.md) | 旧文档清理原则和仍保留的参考文档。 |
+| [Agent 操作规范](./agent-operating-guide.md) | 开发 Agent 执行项目任务时必须遵守的工程规范。 |
 
 ## 阅读路径
 
-**新任核心开发者:**
-请务必按照以下顺序阅读 `v1/features` 下的文档，理解最新的意图防腐层架构：
-1. [LLM Self-Bootstrap 设计](./v1/features/llm-self-bootstrap-design.md)
-2. [实施细节说明](./v1/features/llm-self-bootstrap-implementation.md)
+新加入项目时按以下顺序阅读：
 
-**架构师/V2 设计者:**
-1. [跨项目效率任务](./v2/cross-project-productivity.md)
-2. [系统架构设计](./v2/system-architecture.md)
-3. [API 接口设计](./v2/api-interface.md)
+1. [架构总览](./architecture.md)
+2. [Agent 执行系统](./agent-execution.md)
+3. [核心合同](./contracts.md)
+4. [插件/CLI 边界设计](./design/plugin-cli-boundary.md)
+5. [VS Code 插件 UI](./ui/vscode-extension.md)
+6. [CLI 命令面](./specs/cli-command-surface.md)
+7. [工作流生命周期](./specs/workflow-lifecycle.md)
+8. [工具与安全规则](./specs/tools-security-management.md)
+9. [路线图](./roadmap.md)
 
-## 当前状态说明
+做具体实现时再读取相关规格文档，不要默认通读所有历史材料。
 
-当前 VectaHub (V1.0.0-Beta) 已完成 **Phase 6: LLM 架构全面升级**。所有基于硬编码与 Regex 的弱链接均已被基于 JSON Schema 和确定性映射的**防腐层 (Anti-Corruption Layer)** 替代。
+## 当前事实边界
 
-系统测试全量绿色通过：
+当前仓库是 TypeScript CLI + VS Code 插件 + 共享合同包项目。当前事实来源包括 `src/`、`packages/vectahub-vscode-extension/` 和 `packages/doc-task-contract-core/`。
 
-```bash
-npm run typecheck
-npx vitest run
-```
+文档中的“已有第一版”表示已有设计或实现记录，但最终状态必须以当前代码、测试和运行结果为准。完成任务前仍需运行相关验证命令。

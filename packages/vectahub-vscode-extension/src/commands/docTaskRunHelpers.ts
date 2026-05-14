@@ -1,7 +1,5 @@
 import type { DocTask } from '../views/tasksView.js';
 import { promises as fsp } from 'fs';
-import path from 'path';
-import { getVectaHubHome } from '../cli/adapter.js';
 import { buildAgentTaskContractSummaries, deriveDocExcerptForTask } from '../project/docTaskContract.js';
 import { mapRunStatusToDisplayStatus, type DocTaskRunStatus } from '../project/docTaskState.js';
 import { computeInstructionHash, type DocTaskBatchRunRecord, type DocTaskRunRecord, type DocTaskRunStore } from '../project/docTaskRunStore.js';
@@ -53,24 +51,6 @@ export async function safeUpdateBatch(
 
 export function setTaskDisplayState(task: DocTask, status: DocTaskRunStatus): void {
   task.status = mapRunStatusToDisplayStatus(status);
-}
-
-export async function readCurrentGlobalConfigDigest(): Promise<string | undefined> {
-  const envModel = process.env.VECTAHUB_LLM_MODEL?.trim();
-  const envTemp = process.env.VECTAHUB_LLM_TEMPERATURE?.trim();
-  if (envModel || envTemp) {
-    return `model=${envModel || 'unknown'};temperature=${envTemp || 'default'}`;
-  }
-
-  const configPath = path.join(getVectaHubHome(), 'config.yaml');
-  try {
-    const raw = await fsp.readFile(configPath, 'utf8');
-    const model = raw.match(/^\s*model:\s*["']?([^"'\n]+)["']?\s*$/m)?.[1]?.trim() || 'unknown';
-    const temperature = raw.match(/^\s*temperature:\s*([0-9.]+)\s*$/m)?.[1]?.trim() || 'default';
-    return `model=${model};temperature=${temperature}`;
-  } catch {
-    return undefined;
-  }
 }
 
 /**

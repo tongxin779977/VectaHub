@@ -38,7 +38,7 @@ exports.createDocTaskRunStore = createDocTaskRunStore;
 const fs = __importStar(require("fs"));
 const fs_1 = require("fs");
 const path = __importStar(require("path"));
-const crypto_1 = require("crypto");
+const index_js_1 = require("../../../doc-task-contract-core/src/index.js");
 const adapter_js_1 = require("../cli/adapter.js");
 const MAX_ERROR_MESSAGE = 1000;
 const MAX_OUTPUT_SUMMARY = 2000;
@@ -53,10 +53,7 @@ const RECENT_DAYS = 7;
  * Mirrors src/commands/agent-task-contract.ts computeInstructionHash exactly.
  */
 function computeInstructionHash(contract) {
-    const sortedAllowed = [...(contract.allowedFiles ?? [])].sort().join(',');
-    const sortedForbidden = [...(contract.forbiddenFiles ?? [])].sort().join(',');
-    const content = `${contract.taskId}\n${contract.label}\n${contract.docExcerpt}\ntool=${contract.tool ?? ''}\nallowed=${sortedAllowed}\nforbidden=${sortedForbidden}\nconfig=${contract.globalConfigDigest ?? ''}`;
-    return (0, crypto_1.createHash)('sha256').update(content, 'utf-8').digest('hex').slice(0, 16);
+    return (0, index_js_1.computeInstructionHash)(contract);
 }
 function djb2Hash(input) {
     let hash = 5381;

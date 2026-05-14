@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import { promises as fsp } from 'fs';
 import * as path from 'path';
-import { createHash } from 'crypto';
+import { computeInstructionHash as sharedComputeInstructionHash } from '../../../doc-task-contract-core/src/index.js';
 import { getVectaHubHome } from '../cli/adapter.js';
 import type { DocTaskFailureKind, DocTaskRunStatus } from './docTaskState.js';
 import type { AgentTaskRunContractSummary } from './docTaskContract.js';
@@ -142,10 +142,7 @@ const RECENT_DAYS = 7;
 export function computeInstructionHash(
   contract: InstructionHashContract,
 ): string {
-  const sortedAllowed = [...(contract.allowedFiles ?? [])].sort().join(',');
-  const sortedForbidden = [...(contract.forbiddenFiles ?? [])].sort().join(',');
-  const content = `${contract.taskId}\n${contract.label}\n${contract.docExcerpt}\ntool=${contract.tool ?? ''}\nallowed=${sortedAllowed}\nforbidden=${sortedForbidden}\nconfig=${contract.globalConfigDigest ?? ''}`;
-  return createHash('sha256').update(content, 'utf-8').digest('hex').slice(0, 16);
+  return sharedComputeInstructionHash(contract);
 }
 
 function djb2Hash(input: string): string {

@@ -1,7 +1,4 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createRunId = createRunId;
 exports.createBatchRunId = createBatchRunId;
@@ -9,13 +6,10 @@ exports.summarizeOutput = summarizeOutput;
 exports.safeUpdateRun = safeUpdateRun;
 exports.safeUpdateBatch = safeUpdateBatch;
 exports.setTaskDisplayState = setTaskDisplayState;
-exports.readCurrentGlobalConfigDigest = readCurrentGlobalConfigDigest;
 exports.getAuthoritativeGlobalConfigDigestForHash = getAuthoritativeGlobalConfigDigestForHash;
 exports.computeCurrentInstructionHashForRecovery = computeCurrentInstructionHashForRecovery;
 exports.applyLatestRunState = applyLatestRunState;
 const fs_1 = require("fs");
-const path_1 = __importDefault(require("path"));
-const adapter_js_1 = require("../cli/adapter.js");
 const docTaskContract_js_1 = require("../project/docTaskContract.js");
 const docTaskState_js_1 = require("../project/docTaskState.js");
 const docTaskRunStore_js_1 = require("../project/docTaskRunStore.js");
@@ -54,23 +48,6 @@ async function safeUpdateBatch(store, record, label, warn) {
 }
 function setTaskDisplayState(task, status) {
     task.status = (0, docTaskState_js_1.mapRunStatusToDisplayStatus)(status);
-}
-async function readCurrentGlobalConfigDigest() {
-    const envModel = process.env.VECTAHUB_LLM_MODEL?.trim();
-    const envTemp = process.env.VECTAHUB_LLM_TEMPERATURE?.trim();
-    if (envModel || envTemp) {
-        return `model=${envModel || 'unknown'};temperature=${envTemp || 'default'}`;
-    }
-    const configPath = path_1.default.join((0, adapter_js_1.getVectaHubHome)(), 'config.yaml');
-    try {
-        const raw = await fs_1.promises.readFile(configPath, 'utf8');
-        const model = raw.match(/^\s*model:\s*["']?([^"'\n]+)["']?\s*$/m)?.[1]?.trim() || 'unknown';
-        const temperature = raw.match(/^\s*temperature:\s*([0-9.]+)\s*$/m)?.[1]?.trim() || 'default';
-        return `model=${model};temperature=${temperature}`;
-    }
-    catch {
-        return undefined;
-    }
 }
 /**
  * Authoritative hash drift / recovery guard requires CLI-equivalent digest.
