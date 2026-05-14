@@ -19,7 +19,7 @@
 - P3 验证闭环：已完成第一版。
 - P4 安全与权限闭环：已完成第一版。
 - P5 性能与资源控制：已完成第一版，不应再视为“未开始”。
-- P6 自愈与恢复：只有局部能力，尚未进入文档任务主链路。
+- P6 自愈与恢复：主链路第一版已成型，仍需收紧 authoritative hash/digest 来源和文档/测试基线。
 - P7 插件可视化体验：已有基础状态展示，但未形成时间线和自助诊断入口。
 
 结论：
@@ -33,7 +33,7 @@
 
 ### Priority A
 
-1. P6 自愈与恢复执行规格落地。
+1. P6 authoritative hash/digest 来源收敛。
 2. P2 合同推导单一事实源收敛。
 3. P5 性能 hardening 与基准补齐。
 
@@ -48,31 +48,39 @@
 
 ## 4. 任务分配
 
-### A1. P6 自愈与恢复执行规格
+### A1. P6 authoritative hash/digest 来源收敛
 
 目标：
-- 把现有 `self-healing` 原型、`rerun/resume` 能力和文档任务状态机打通，形成文档任务主链路可用的恢复模型。
+- 为恢复 hash guard 和状态刷新 drift 检测提供与 CLI 等价的 authoritative hash/digest 来源。
+- 保留当前安全降级：在 authoritative digest unavailable 时，恢复保守阻断，状态刷新不做 drift reset。
 
 代码依据：
-- `src/commands/self-healing.ts`
-- `src/commands/rerun.ts`
-- `src/commands/resume.ts`
+- `src/commands/run-task.ts`
+- `src/commands/agent-task-contract.ts`
+- `packages/vectahub-vscode-extension/src/commands/docTaskRunHelpers.ts`
 - `packages/vectahub-vscode-extension/src/project/docTaskRunStore.ts`
-- `packages/vectahub-vscode-extension/src/project/docTaskState.ts`
+- `packages/vectahub-vscode-extension/src/project/docTaskContract.ts`
 
-需要产出：
-- `docs/v2/self-healing-recovery-spec.md`
+当前已完成：
+- run record 持久化优先使用 CLI 返回的 `agentTaskContract.instructionHash`。
+- 恢复记录优先使用 currentHash，缺失时继承 latest run record 的 `instructionHash`。
+- 插件侧 guessed `globalConfigDigest` 不再参与权威 hash 判断。
+
+当前问题：
+- authoritative `globalConfigDigest` 仍 unavailable，插件侧 drift 检测会保守停用。
+- 恢复链路在 currentHash unavailable 时会保守阻断，安全但增加人工路径。
+- 插件和 CLI 仍有两套合同推导实现，长期存在漂移风险。
 
 子任务：
-- 定义文档任务场景下的失败输入模型。
-- 定义恢复决策模型：自动重试、人工确认、禁止自动修复。
-- 定义新 trace 与原 trace 的关联合同。
-- 定义插件端触发恢复、CLI 执行恢复、状态回写的完整链路。
-- 明确 P6 第一版不做的范围，避免与 workflow 层通用恢复混淆。
+- 设计 authoritative digest/hash 获取方式：CLI contract-preview、共享合同纯函数或中间合同文件。
+- 明确插件侧何时可以重新启用 drift reset。
+- 明确恢复 hash guard 的 unavailable 用户提示和重跑路径。
+- 补充回归测试，覆盖 authoritative digest available/unavailable 两类路径。
 
 验收标准：
-- 文档层面能明确回答“什么失败可以重试、什么失败只能建议修复、什么失败必须人工处理”。
-- 文档任务恢复链路与现有 workflow `rerun/resume` 边界清晰，不互相覆盖。
+- 插件不再需要 guessed digest 参与权威判断。
+- authoritative digest/hash available 时可以安全执行 drift 检测。
+- authoritative digest/hash unavailable 时仍保持安全降级。
 
 ### A2. P2 合同推导单一事实源收敛
 
@@ -86,6 +94,7 @@
 当前问题：
 - 两端都在独立实现 doc excerpt、路径提取、validation command 推导和 instruction hash 因子处理。
 - 当前规则虽然接近，但并非同一来源，未来修改极易漂移。
+- 当前 P3 安全降级避免了 guessed digest 误判，但没有解决权威合同来源缺失。
 
 子任务：
 - 输出一份收敛设计，决定是共享纯函数、共享预览 JSON，还是生成中间合同文件。
@@ -124,6 +133,7 @@
 剩余问题：
 - `DocTaskDocIndex` 仍保留完整文档内容。
 - 插件侧仍存在多处全量读取文档路径，和 no-full-read/低内存目标未完全收口。
+- 当前 no-full-read 仍是 hardening gap，不能视为 P2/P5 完整闭环。
 - 写队列不等于批量 flush。
 - 冷启动性能预算没有实测。
 - 顶级作用域零副作用约束尚未完全满足。

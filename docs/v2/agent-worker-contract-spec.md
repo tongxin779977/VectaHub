@@ -76,6 +76,12 @@ P2 不重写 LLM 解析器，不引入数据库，不引入 worktree 隔离。
 3.  **比对阶段的因子对称性 (Critical)**：插件在解析阶段比对历史记录时，**必须先执行边界预推导 (Pre-derivation)**，获取当前的 `allowedFiles` 和 `forbiddenFiles`。
 4.  **历史数据失效**：如果旧记录缺失关键 Hash 因子，必须强制将其标记为失效（回滚至 ready），不得使用残缺因子进行降级比对。
 
+当前实现边界：
+- run record 持久化时，CLI 返回的 `agentTaskContract.instructionHash` 是真相源。
+- 插件侧不得用 guessed `globalConfigDigest`、文档头部片段或 `docContent.slice(0, 8000)` 生成权威 hash。
+- 在插件无法获得与 CLI 等价的 authoritative `globalConfigDigest` 时，恢复 hash guard 应保守阻断，状态刷新应跳过 drift reset，避免误判。
+- 完整闭环仍依赖后续 authoritative digest/hash 来源，例如 CLI contract-preview 或共享合同推导实现。
+
 
 ### 5.1 类型定义
 

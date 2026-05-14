@@ -112,16 +112,22 @@ needs_confirmation
 
 ### 5.4 插件端指纹校验与状态回滚 (Hash Validation)
 
-为了确保文档内容变更后任务状态能实时响应，插件端必须实现以下逻辑：
+为了确保文档内容变更后任务状态能实时响应，插件端在**authoritative hash 可计算**时必须实现以下逻辑：
 
 1.  **同算法实现**：插件端必须实现与 CLI 完全一致的 `computeInstructionHash` 算法。
-2.  **加载时校验**：插件在从 `latest.json` 或 `.jsonl` 加载 `DocTaskRunRecord` 时，必须立即根据当前文档内容重新计算 Hash。
+2.  **加载时校验（有条件）**：插件在从 `latest.json` 或 `.jsonl` 加载 `DocTaskRunRecord` 时，若当前 authoritative hash 可计算，必须立即根据当前文档内容重新计算 Hash。
 3.  **状态失效处理**：
     *   若 `calculatedHash !== record.instructionHash`，则视为该次运行记录已失效。
     *   系统必须将该任务的显示状态回滚为 `ready`（或 `pending`），并在 UI 上清除旧的 `gitChanges` 摘要。
     *   失效的记录不得被用于 `resume` 或 `rerun` 逻辑。
+4.  **安全降级（authoritative hash unavailable）**：
+    *   不得使用 guessed digest 或非等价 hash 触发 reset。
+    *   状态刷新应保持 latest 映射，不做 drift reset。
+    *   应将“真实需求变更无法即时发现”记录为 residual risk，并在后续 authoritative hash/digest 来源收口任务中处理。
 
-**DoD**：用户在 Markdown 文档中修改任一任务描述后，保存文档，VS Code 任务树中对应的 `success` 图标应立即变回待执行状态。
+**DoD**：
+- authoritative hash available 时：用户修改任务描述并保存后，对应 `success` 任务应回到待执行状态。
+- authoritative hash unavailable 时：系统不得误 reset；并保留后续 authoritative hash/digest 来源收口任务。
 
 插件树视图不需要展示所有内部状态。映射为：
 

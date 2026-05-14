@@ -2,8 +2,10 @@
 
 > 文档版本: v1.0
 > 创建日期: 2026-05-08
-> 状态: 可执行，CLI JSON 协议仍为插件前置 P0
+> 状态: Historical / superseded。本文保留为早期插件实施计划，不代表当前仓库状态。
 > 目标环境: Trae 中由 agent 分阶段实施
+
+> 当前状态说明：`packages/vectahub-vscode-extension` 已存在，插件源码、命令、视图、测试和文档任务执行链路均已进入后续迭代。后续 Agent 不应根据本文重新创建插件骨架或重复执行早期 M0/M1 任务。当前优先级以 `docs/v2/next-task-allocation.md` 和 `docs/v2/agent-execution-roadmap.md` 为准。
 
 ## 1. 产品决策冻结
 
@@ -26,7 +28,7 @@
 
 ## 2. 总体目标
 
-在当前仓库中新增一个 VS Code 插件包 `packages/vectahub-vscode-extension`。插件作为 VectaHub CLI 的 UI 外壳，为用户提供:
+历史目标是在仓库中新增一个 VS Code 插件包 `packages/vectahub-vscode-extension`。该插件包当前已存在。本文后续任务条目主要用于追溯早期设计，不应直接视为当前未完成事项。
 
 - 自动检测本地 `vectahub` CLI。
 - 找不到 CLI 时提供安装引导。
@@ -298,7 +300,7 @@ export interface CliResult<T = unknown> {
 
 ### VSC-M0-01: 插件包骨架
 
-**状态**: 未完成。当前仓库尚无 `packages/vectahub-vscode-extension`。
+**状态**: Historical / obsolete。当前仓库已存在 `packages/vectahub-vscode-extension`。
 
 **目标**
 

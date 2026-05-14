@@ -27,8 +27,8 @@
 当前事实：
 
 - P2 已能生成 `AgentTaskContract.validationCommands`。
-- `run-task` 已返回合同摘要，但不会自动执行验证命令。
-- 插件状态机已有 `verifying` 和 `failed_test` 状态。
+- `run-task` 已在 Agent 成功后执行 `AgentTaskContract.validationCommands`，并返回 `verification` 摘要。
+- 插件状态机已有 `verifying`、`failed_test` 和 `failed_system_internal` 状态。
 - 插件 task run record 只保存摘要，不保存完整大输出。
 
 ## 3. 根因分析
@@ -45,7 +45,7 @@ In Scope：
 
 - CLI `run-task` 在 Agent 成功后顺序执行合同里的验证命令。
 - JSON 增加可选 `verification` 摘要。
-- 插件根据 `verification.ok === false` 标记 `failed_test`。
+- 插件根据 `verification` 分类结果标记 `failed_test` 或 `failed_system_internal`。
 - task run record 保存验证摘要计数和失败命令摘要。
 
 Out of Scope：
@@ -89,7 +89,8 @@ Agent success
 -> verifying
 -> run validationCommands sequentially
 -> verification ok: success/changed
--> verification failed: failed_test
+-> verification failed (assertion/non-zero exit): failed_test
+-> verification system error (ENOENT/EACCES/EPERM/command unavailable): failed_system_internal
 ```
 
 Agent 失败时不运行验证命令。
@@ -124,8 +125,8 @@ P3 第一版验证命令在单个任务内串行执行。
 - `verification` 是新增可选字段。
 - 老插件忽略该字段仍可工作。
 - 新插件看到缺失 `verification` 时按旧逻辑处理。
-- 断言/测试失败进入 `failed_test`。
-- 验证命令无法执行或系统错误（如 ENOENT/EACCES/EPERM）进入 `failed_system_internal`。
+- 验证命令正常执行但断言失败/退出非零：进入 `failed_test`。
+- 验证命令无法执行、权限错误、`ENOENT`/`EACCES`/`EPERM`：进入 `failed_system_internal`。
 
 ## 11. 文件修改清单
 
@@ -145,7 +146,7 @@ packages/vectahub-vscode-extension/src/project/docTaskState.ts
 2. 在 `run-task` 中实现验证命令执行函数。
 3. Agent 成功后执行验证命令。
 4. JSON 返回 `verification`。
-5. 插件识别验证失败并写入 `failed_test`。
+5. 插件识别验证结果并按失败类型写入 `failed_test` 或 `failed_system_internal`。
 6. task run record 保存验证摘要。
 
 ## 13. 测试计划
@@ -163,7 +164,7 @@ npm run compile -w packages/vectahub-vscode-extension
 ## 14. 验收标准
 
 - Agent 成功但验证失败时，CLI JSON `ok=false`。
-- 插件将验证失败任务标记为 `failed_test`。
+- 插件将普通验证失败任务标记为 `failed_test`，将验证系统错误标记为 `failed_system_internal`。
 - JSON 和 task run record 不包含完整验证输出。
 - trace 能看到验证阶段耗时和失败命令。
 

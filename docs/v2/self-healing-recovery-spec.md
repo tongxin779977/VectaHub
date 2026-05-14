@@ -67,8 +67,10 @@
 - 插件端没有“建议重试 / 建议人工确认 / 禁止自动修复”的稳定分流。
 - 原始失败 trace 与恢复 trace 没有正式关联合同。
 - `self-healing` 原型仍是 workflow 视角，不是 doc-task 视角。
-- 已知性能 gap：插件侧 `DocTaskDocIndex` 当前仍保留完整文档内容；在大文档/批量任务/恢复前 hash 计算场景会放大内存与 IO 压力。
-- 合同一致性要求：恢复链路和 run record 的 `instructionHash` 必须使用同一 `docExcerpt` 推导结果（或直接复用 CLI 返回的 `agentTaskContract.instructionHash`），禁止使用仅取文档开头的近似片段。
+- 已知性能 gap：插件侧仍有全量读取文档路径，`DocTaskDocIndex` 也仍保留完整文档内容；在大文档/批量任务/恢复前 hash 计算场景会放大内存与 IO 压力。
+- 中期 hardening 要求：必须收敛到同一套流式片段提取或偏移索引能力，避免重复全量扫描。
+- 合同一致性要求：恢复链路和 run record 的 `instructionHash` 必须使用同一 `docExcerpt` 推导结果（或直接复用 CLI 返回的 `agentTaskContract.instructionHash`），不允许插件和 CLI 长期各自推导合同因子。
+- 当前 P3 收口状态：插件侧已禁止 guessed `globalConfigDigest` 参与权威 hash 判断；authoritative digest 目前 unavailable，因此恢复链路会在 currentHash unavailable 时保守阻断，状态刷新会跳过 drift reset 以避免误重置。
 
 ## 3. 根因分析
 
@@ -134,6 +136,21 @@ P6 不得重新从终端文案猜测这些信息。
 - P5 性能预算
 
 恢复不是越权通道。
+
+### 5.5 instructionHash 真相源
+
+`instructionHash` 用于判断失败记录是否仍对应当前任务定义。P6 中它必须遵循以下来源优先级：
+
+1. run record 持久化时，优先使用 CLI JSON 返回的 `agentTaskContract.instructionHash`。
+2. 恢复记录写入时，优先使用当前已计算的 authoritative `currentHash`；如果 unavailable，则继承 latest run record 上已有的 `instructionHash`。
+3. 插件不得使用 `docContent.slice(0, 8000)`、文档头部片段或 guessed `globalConfigDigest` 重新计算权威 hash。
+
+当前限制：
+
+- 插件侧尚无与 CLI `createLLMConfig()` 等价的 authoritative `globalConfigDigest` 来源。
+- 因此恢复前 currentHash 可能 unavailable；该情况下 hash guard 必须保守阻断，而不是猜测为可恢复。
+- 状态刷新遇到 authoritative digest unavailable 时，不做 drift reset，避免因 guessed digest 差异误重置任务。
+- 这是一种安全降级，不代表 digest 等价闭环已经完成。
 
 ## 6. 数据合同
 
@@ -341,6 +358,18 @@ failureKind = system_internal
 
 原因：
 - 旧失败记录已经不再对应当前任务定义，禁止基于过期上下文恢复。
+
+如果历史记录有 `instructionHash`，但当前 authoritative hash 无法计算：
+
+```text
+-> decision.kind = blocked
+-> mode = manual_only
+-> reason = instruction-hash-unavailable
+```
+
+原因：
+- 无法证明当前任务定义与失败记录一致，必须保守阻断。
+- 不能用插件侧 guessed `globalConfigDigest` 或非等价片段推导绕过该保护。
 
 ## 8. 生命周期合同
 
@@ -564,6 +593,7 @@ packages/vectahub-vscode-extension/src/project/docTaskState.ts
 8. 恢复失败后重新分类，不沿用旧 failureKind
 9. 恢复输入和记录不包含完整 stdout/stderr
 10. 高风险修复动作必须人工确认
+11. currentHash unavailable -> blocked/manual_only
 ```
 
 建议运行：
