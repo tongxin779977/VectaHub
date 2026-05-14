@@ -107,10 +107,17 @@ async function runCli(args, options = {}) {
     };
     (0, output_js_1.logToOutput)(`Running CLI: ${cliPath} ${args.join(' ')}`);
     return new Promise((resolve) => {
+        const commandName = args[0] || '';
+        const requestedTimeout = options.timeout ?? 30000;
+        const effectiveTimeout = commandName === 'run-task'
+            ? Math.max(requestedTimeout, 660000)
+            : requestedTimeout;
+        const startedAt = Date.now();
+        let cancelledByUser = false;
         const child = (0, child_process_1.spawn)(spawnCmd, spawnArgs, {
             cwd,
             env,
-            timeout: options.timeout || 30000,
+            timeout: effectiveTimeout,
             detached: true,
             stdio: ['ignore', 'pipe', 'pipe']
         });
@@ -138,8 +145,26 @@ async function runCli(args, options = {}) {
             }
             stderr += output;
         });
+        function terminateProcessTree(signal = 'SIGTERM') {
+            if (child.pid == null)
+                return;
+            try {
+                process.kill(-child.pid, signal);
+            }
+            catch {
+                // ignore
+            }
+            try {
+                child.kill(signal);
+            }
+            catch {
+                // ignore
+            }
+        }
         options.token?.onCancellationRequested(() => {
-            child.kill();
+            cancelledByUser = true;
+            terminateProcessTree('SIGTERM');
+            setTimeout(() => terminateProcessTree('SIGKILL'), 2000);
             const cancelled = new Error('Command was cancelled by user');
             void (0, index_js_1.startSpan)('vscode.cli.cancel', {
                 context: baseTraceContext,
@@ -160,10 +185,25 @@ async function runCli(args, options = {}) {
             });
         });
         child.on('close', (code) => {
+            const signal = child.signalCode ?? null;
+            const elapsed = Date.now() - startedAt;
+            const timedOut = !cancelledByUser
+                && code === null
+                && (signal === 'SIGTERM' || signal === 'SIGKILL')
+                && elapsed >= effectiveTimeout;
             const isJson = args.includes('--json');
             let data;
             let ok = code === 0;
             let error;
+            if (!ok && !error && timedOut) {
+                error = { code: 'TIMEOUT', message: `CLI timeout after ${effectiveTimeout}ms` };
+            }
+            else if (!ok && !error && cancelledByUser) {
+                error = { code: 'CANCELLED', message: 'Command was cancelled by user' };
+            }
+            else if (!ok && !error && (signal === 'SIGTERM' || signal === 'SIGKILL')) {
+                error = { code: 'CANCELLED', message: `Command terminated by signal ${signal}` };
+            }
             if (isJson && stdout.trim()) {
                 const parseSpan = (0, index_js_1.startSpan)('vscode.cli.parseJson', {
                     context: baseTraceContext,

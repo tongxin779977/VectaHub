@@ -103,6 +103,28 @@ async function showBatchRiskDialog(riskItems) {
         return 'skip';
     return 'cancel';
 }
+function resolveStructuredError(result) {
+    const dataError = result.data?.error;
+    if (typeof dataError === 'string') {
+        return {
+            errorCode: result.error?.code,
+            errorMessage: dataError,
+            outputSummarySource: dataError,
+        };
+    }
+    if (dataError && typeof dataError === 'object') {
+        return {
+            errorCode: dataError.code || result.error?.code,
+            errorMessage: dataError.message || result.error?.message,
+            outputSummarySource: dataError.message || result.data?.output,
+        };
+    }
+    return {
+        errorCode: result.error?.code,
+        errorMessage: result.error?.message,
+        outputSummarySource: result.data?.output,
+    };
+}
 async function readDocContentOnce(docPath) {
     if (!docPath)
         return undefined;
@@ -434,12 +456,14 @@ function registerDocTaskCommands(context, tasksProvider) {
                         vscode.window.showWarningMessage(`任务 ${task.id} 验证失败`);
                     }
                     else {
-                        const errMsg = result.data?.error || result.data?.output || result.error?.message || '执行失败';
+                        const resolvedError = resolveStructuredError(result);
+                        const errMsg = resolvedError.errorMessage || result.data?.output || '执行失败';
                         const classified = (0, docTaskState_js_1.classifyDocTaskFailure)({
                             ok: result.ok,
-                            errorCode: result.error?.code,
-                            errorMessage: result.error?.message || result.data?.error,
-                            output: result.data?.output
+                            exitCode: result.exitCode ?? undefined,
+                            errorCode: resolvedError.errorCode,
+                            errorMessage: errMsg,
+                            output: result.stderr || result.data?.output || result.stdout
                         });
                         task.lastFailureKind = classified.kind;
                         (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, classified.status);
@@ -452,7 +476,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                             runRecord.endedAt = runRecord.updatedAt;
                             runRecord.durationMs = Date.now() - startedAtMs;
                             runRecord.command = result.data?.command || runRecord.command;
-                            runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
+                            runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(resolvedError.outputSummarySource || result.data?.output || result.stderr || result.stdout);
                             runRecord.outputTruncated = result.data?.outputTruncated === true;
                             const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
                             runRecord.gitChanges = {
@@ -761,12 +785,14 @@ function registerDocTaskCommands(context, tasksProvider) {
                                 updateProgress(task.id, '验证失败');
                             }
                             else {
-                                const errMsg = result.data?.error || result.data?.output || '执行失败';
+                                const resolvedError = resolveStructuredError(result);
+                                const errMsg = resolvedError.errorMessage || result.data?.output || result.error?.message || '执行失败';
                                 const classified = (0, docTaskState_js_1.classifyDocTaskFailure)({
                                     ok: result.ok,
-                                    errorCode: result.error?.code,
-                                    errorMessage: result.error?.message || result.data?.error,
-                                    output: result.data?.output
+                                    exitCode: result.exitCode ?? undefined,
+                                    errorCode: resolvedError.errorCode,
+                                    errorMessage: errMsg,
+                                    output: result.stderr || result.data?.output || result.stdout
                                 });
                                 task.lastFailureKind = classified.kind;
                                 (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, classified.status);
@@ -785,7 +811,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                                         changedFiles,
                                         shortStat: result.data?.gitChanges?.shortStat
                                     };
-                                    runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
+                                    runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(resolvedError.outputSummarySource || result.data?.output || result.stderr || result.stdout);
                                     runRecord.outputTruncated = result.data?.outputTruncated === true;
                                     (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                                     applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
