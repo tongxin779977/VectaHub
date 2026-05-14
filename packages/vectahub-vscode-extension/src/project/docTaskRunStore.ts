@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import { promises as fsp } from 'fs';
 import * as path from 'path';
-import { computeInstructionHash as sharedComputeInstructionHash } from '../../../doc-task-contract-core/src/index.js';
+import { computeInstructionHash as sharedComputeInstructionHash } from '@vectahub/doc-task-contract-core';
 import { getVectaHubHome } from '../cli/adapter.js';
 import type { DocTaskFailureKind, DocTaskRunStatus } from './docTaskState.js';
 import type { AgentTaskRunContractSummary } from './docTaskContract.js';

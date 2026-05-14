@@ -14,8 +14,8 @@ packages/doc-task-contract-core/
 
 ## 目标
 
-- 合同推导规则收敛到共享包或 CLI 结构化预览。
-- 插件不长期复制 CLI 业务规则。
+- 合同推导规则收敛到共享包。
+- 插件不复制 CLI 的合同纯函数规则。
 - `instructionHash` 的计算因子保持对称。
 - authoritative digest/hash 不可用时保守降级。
 
@@ -27,7 +27,7 @@ packages/doc-task-contract-core/
 
 ## 方案
 
-短期以共享包作为合同纯函数事实源：
+当前以共享包作为合同纯函数事实源：
 
 ```text
 @vectahub/doc-task-contract-core
@@ -38,7 +38,24 @@ packages/doc-task-contract-core/
   -> concurrency decision
 ```
 
-CLI 和插件应优先复用共享包。需要访问 CLI 配置或运行态信息时，由 CLI 提供结构化预览命令，插件消费 JSON 结果。
+CLI 和插件均消费共享包。需要访问 CLI 配置或运行态信息时，由 CLI 提供结构化预览命令，插件消费 JSON 结果。
+
+## 当前实现状态
+
+已完成 A1/A2 收敛：
+
+- 新增 `@vectahub/doc-task-contract-core` 共享纯函数模块。
+- CLI `src/commands/agent-task-contract.ts` 保持原导出签名，并消费共享模块。
+- 插件 `docTaskContract.ts` 和 `docTaskRunStore.ts` 消费同一共享模块。
+- authoritative digest unavailable 时保持保守降级：恢复 hash guard 阻断，状态刷新不做 drift reset。
+- 公开 JSON 协议未改变。
+
+已验证：
+
+```bash
+npm test --workspace packages/vectahub-vscode-extension -- --run
+npm run typecheck
+```
 
 ## 取舍
 

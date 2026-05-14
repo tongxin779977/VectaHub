@@ -21,7 +21,8 @@ P2 的核心目标：
 - P1 文档任务状态机已完成，任务运行记录可以持久化。
 - `parse-doc` 只提取 `id` 和 `label`。
 - `run-task` 已接入 `AgentTaskContract`，JSON 输出只包含合同摘要。
-- 插件批量执行前已做本地轻量边界预检。
+- CLI 和插件已通过 `@vectahub/doc-task-contract-core` 共享合同纯函数。
+- 插件批量执行前已做轻量边界预检。
 - 边界未知或文件重叠时，插件会自动降级串行。
 
 P2 不重写 LLM 解析器，不引入数据库，不引入 worktree 隔离。
@@ -34,12 +35,12 @@ P2 不重写 LLM 解析器，不引入数据库，不引入 worktree 隔离。
 - 阶段 2：CLI `run-task` 接入。
 - 阶段 3：插件批量边界检查。
 - 阶段 4：合同预览和 lint hardening。
+- A1/A2：共享纯函数单一事实源收敛，公开 JSON 协议不变。
 
 仍需后续 hardening：
 
-- 合并 CLI 与插件端的合同推导实现，减少规则重复。
 - 增加真实批量执行的端到端测试。
-- 插件端后续可改为调用合同预览命令，避免长期复制 CLI 规则。
+- 为运行态配置 digest 提供更完整的 authoritative 来源。
 
 ## 3. In Scope
 
@@ -80,7 +81,7 @@ P2 不重写 LLM 解析器，不引入数据库，不引入 worktree 隔离。
 - run record 持久化时，CLI 返回的 `agentTaskContract.instructionHash` 是真相源。
 - 插件侧不得用 guessed `globalConfigDigest`、文档头部片段或 `docContent.slice(0, 8000)` 生成权威 hash。
 - 在插件无法获得与 CLI 等价的 authoritative `globalConfigDigest` 时，恢复 hash guard 应保守阻断，状态刷新应跳过 drift reset，避免误判。
-- 完整闭环仍依赖后续 authoritative digest/hash 来源，例如 CLI contract-preview 或共享合同推导实现。
+- 共享纯函数已经落地；完整闭环仍依赖后续更完整的运行态 authoritative digest 来源。
 
 
 ### 5.1 类型定义

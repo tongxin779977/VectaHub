@@ -7,7 +7,7 @@ import {
   deriveValidationCommands as sharedDeriveValidationCommands,
   normalizeAgentTaskFiles as sharedNormalizeAgentTaskFiles,
   decideAgentTaskConcurrency as sharedDecideAgentTaskConcurrency,
-} from '../../packages/doc-task-contract-core/src/index.js';
+} from '@vectahub/doc-task-contract-core';
 import type { AgentTaskBoundary, AgentTaskConcurrencyDecision, AgentTaskContract } from '../types/doc-task.js';
 export function computeInstructionHash(
   taskId: string,

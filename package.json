@@ -17,7 +17,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "compile:extension": "npm run compile -w packages/vectahub-vscode-extension",
-    "package:vsix": "npm run compile -w packages/vectahub-vscode-extension && cd packages/vectahub-vscode-extension && rm -f ../.DS_Store && find . -name '.DS_Store' -delete && npx vsce package --allow-missing-repository --no-yarn",
+    "package:vsix": "npm run compile -w packages/vectahub-vscode-extension && cd packages/vectahub-vscode-extension && rm -f ../.DS_Store && find . -name '.DS_Store' -delete && npx vsce package --allow-missing-repository --no-yarn --no-dependencies",
     "release": "npm run bump && npm run build && npm run package:vsix && npm link",
     "prepublishOnly": "npm run build"
   },

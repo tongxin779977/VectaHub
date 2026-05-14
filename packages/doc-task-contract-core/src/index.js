@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { isAbsolute, normalize, relative, resolve } from 'node:path';
+import { isAbsolute, normalize, relative, resolve, posix, win32 } from 'node:path';
 
 const DEFAULT_MAX_EXCERPT_CHARS = 8000;
 const DEFAULT_WINDOW_BEFORE = 2000;
@@ -16,8 +16,8 @@ const DEFAULT_FORBIDDEN_FILES = [
 ];
 
 export function computeInstructionHash(input) {
-  const sortedAllowed = [...(input.allowedFiles ?? [])].sort().join(',');
-  const sortedForbidden = [...(input.forbiddenFiles ?? [])].sort().join(',');
+  const sortedAllowed = JSON.stringify([...(input.allowedFiles ?? [])].sort());
+  const sortedForbidden = JSON.stringify([...(input.forbiddenFiles ?? [])].sort());
   const content = `${input.taskId}\n${input.label}\n${input.docExcerpt}\ntool=${input.tool ?? ''}\nallowed=${sortedAllowed}\nforbidden=${sortedForbidden}\nconfig=${input.globalConfigDigest ?? ''}`;
   return createHash('sha256').update(content, 'utf-8').digest('hex').slice(0, 16);
 }
@@ -106,8 +106,8 @@ async function scanDocExcerptAsync(source, input) {
       beforeWindow = beforeWindow.slice(beforeWindow.length - DEFAULT_WINDOW_BEFORE);
     }
 
-    const taskDone = hasHeadingSection || taskWindowRemaining === 0;
-    const labelDone = labelWindowRemaining === 0;
+    const taskDone = hasHeadingSection || taskWindowRemaining <= 0;
+    const labelDone = labelWindowRemaining <= 0;
     if (taskDone && labelDone && head.length >= captureLimit) {
       break;
     }
@@ -178,8 +178,8 @@ function scanDocExcerptSync(source, input) {
       beforeWindow = beforeWindow.slice(beforeWindow.length - DEFAULT_WINDOW_BEFORE);
     }
 
-    const taskDone = hasHeadingSection || taskWindowRemaining === 0;
-    const labelDone = labelWindowRemaining === 0;
+    const taskDone = hasHeadingSection || taskWindowRemaining <= 0;
+    const labelDone = labelWindowRemaining <= 0;
     if (taskDone && labelDone && head.length >= captureLimit) {
       break;
     }
@@ -195,6 +195,9 @@ export function normalizeAgentTaskFiles(input) {
   const seen = new Set();
   const result = [];
   const base = resolve(input.projectRoot);
+  const basePathStyle = detectPathStyle(input.projectRoot);
+  const winBase = win32.normalize(input.projectRoot);
+  const posixBase = toPosixPath(base);
   const files = Array.isArray(input.files) ? input.files : [];
 
   for (const rawPath of files) {
@@ -205,9 +208,13 @@ export function normalizeAgentTaskFiles(input) {
     const normalizedInput = toPosixPath(normalize(trimmed.replace(/\\/g, '/')));
     let projectRelativePath;
 
-    if (isAbsolute(trimmed)) {
-      const absolute = resolve(trimmed);
-      const rel = toPosixPath(relative(base, absolute));
+    if (isLikelyAbsolutePath(trimmed)) {
+      const inputPathStyle = detectPathStyle(trimmed);
+      if (basePathStyle !== inputPathStyle) continue;
+
+      const rel = inputPathStyle === 'windows'
+        ? toPosixPath(win32.relative(winBase, win32.normalize(trimmed)))
+        : toPosixPath(posix.relative(posixBase, toPosixPath(resolve(trimmed))));
       if (isOutOfProject(rel)) continue;
       projectRelativePath = rel;
     } else {
@@ -384,10 +391,14 @@ function toPosixPath(filePath) {
 }
 
 function isOutOfProject(projectRelativePath) {
+  if (!projectRelativePath) return true;
+  const normalized = toPosixPath(projectRelativePath);
   return (
-    projectRelativePath === '..' ||
-    projectRelativePath.startsWith('../') ||
-    projectRelativePath.includes('/../')
+    normalized === '..' ||
+    normalized.startsWith('../') ||
+    normalized.includes('/../') ||
+    isLikelyAbsolutePath(normalized) ||
+    /^[A-Za-z]:\//.test(normalized)
   );
 }
 
@@ -406,6 +417,21 @@ function looksLikeProjectPath(value) {
     return false;
   }
   return /^(?:\.\/)?(?:src|packages|docs|scripts|test|tests)\//.test(value);
+}
+
+function isLikelyAbsolutePath(filePath) {
+  if (!filePath) return false;
+  return (
+    isAbsolute(filePath) ||
+    /^[A-Za-z]:[\\/]/.test(filePath) ||
+    /^[/\\]{2}[^/\\]+[/\\][^/\\]+/.test(filePath)
+  );
+}
+
+function detectPathStyle(filePath) {
+  return /^[A-Za-z]:[\\/]/.test(filePath) || /^[/\\]{2}[^/\\]+[/\\][^/\\]+/.test(filePath)
+    ? 'windows'
+    : 'posix';
 }
 
 function serialDecision(contracts, reason) {

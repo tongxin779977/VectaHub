@@ -18,7 +18,7 @@
 |------|------|----------|------|
 | `run [intent...]` | 从自然语言或文件执行工作流。 | `--file`、`--mode`、`--save`、`--yes`、`--no-edit`、`--dry-run`、`--variable` | 支持 |
 | `doctor` | 系统诊断。 | 以命令实现为准。 | 支持 |
-| `chat` | 交互式聊天会话。 | 以命令实现为准。 | 未在入口声明 |
+| `chat` | 交互式聊天会话。 | 以命令实现为准。 | 未声明 |
 | `setup` | 运行优先级安装流程。 | 无 | 否 |
 | `config show/reset/tools` | 查看、重置配置，列出 CLI 工具。 | 子命令 | 否 |
 | `completion <shell>` | 生成 shell 补全脚本。 | `bash`、`zsh`、`fish` | 否 |

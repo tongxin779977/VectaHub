@@ -38,7 +38,7 @@ exports.createDocTaskRunStore = createDocTaskRunStore;
 const fs = __importStar(require("fs"));
 const fs_1 = require("fs");
 const path = __importStar(require("path"));
-const index_js_1 = require("../../../doc-task-contract-core/src/index.js");
+const doc_task_contract_core_1 = require("@vectahub/doc-task-contract-core");
 const adapter_js_1 = require("../cli/adapter.js");
 const MAX_ERROR_MESSAGE = 1000;
 const MAX_OUTPUT_SUMMARY = 2000;
@@ -53,7 +53,7 @@ const RECENT_DAYS = 7;
  * Mirrors src/commands/agent-task-contract.ts computeInstructionHash exactly.
  */
 function computeInstructionHash(contract) {
-    return (0, index_js_1.computeInstructionHash)(contract);
+    return (0, doc_task_contract_core_1.computeInstructionHash)(contract);
 }
 function djb2Hash(input) {
     let hash = 5381;

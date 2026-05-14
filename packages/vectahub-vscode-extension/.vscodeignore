@@ -2,9 +2,12 @@
 **/.vscode/**
 **/.vscode-test/**
 **/node_modules/**
+!out/node_modules/**
 **/.DS_Store
+../doc-task-contract-core/**
 src/**
 test/**
+scripts/**
 tsconfig.json
 **/*.map
 .gitignore

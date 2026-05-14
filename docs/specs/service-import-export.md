@@ -59,6 +59,12 @@ vectahub mode consensus
 
 ```bash
 vectahub export --output <dir>
+vectahub export --output <dir> --include-secrets
+vectahub export --output <dir> --no-workflows
+vectahub export --output <dir> --no-executions
+vectahub export --output <dir> --no-config
+vectahub export --output <dir> --no-sessions
+vectahub export --output <dir> --format csv --status COMPLETED --limit 100
 ```
 
 导出范围可包含：
@@ -68,15 +74,16 @@ vectahub export --output <dir>
 - executions
 - sessions
 
-默认会对配置中的常见 secret 字段脱敏。只有显式允许时才应包含 secrets。
+默认会对配置中的常见 secret 字段脱敏。只有显式 `--include-secrets` 时才应包含 secrets。
 
 导出会先创建临时目录，再在非 Windows 平台尝试打包为 `tar.gz`。打包失败时保留目录。
 
 ## 数据导入
 
 ```bash
-vectahub import --input <path>
-vectahub import --input <path> --dry-run
+vectahub import <path>
+vectahub import <path> --dry-run
+vectahub import <path> --overwrite
 ```
 
 dry-run 只展示将导入内容和目标目录。实际导入可能解压 `.tar.gz` 到临时目录，再合并或覆盖目标数据。

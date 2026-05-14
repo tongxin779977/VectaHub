@@ -2,7 +2,7 @@ import {
   deriveAgentTaskBoundary,
   deriveDocExcerptFromTextSync,
   decideAgentTaskConcurrency,
-} from '../../../doc-task-contract-core/src/index.js';
+} from '@vectahub/doc-task-contract-core';
 import type { AgentTaskContractSummary, AgentTaskRunContractSummary, DocTaskConcurrencyDecision, DocTaskContractInput } from './docTaskContractTypes.js';
 export type { AgentTaskContractSummary, AgentTaskRunContractSummary, DocTaskConcurrencyDecision, DocTaskContractInput } from './docTaskContractTypes.js';
 

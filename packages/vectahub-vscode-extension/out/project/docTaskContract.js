@@ -4,14 +4,14 @@ exports.buildAgentTaskContractSummaries = buildAgentTaskContractSummaries;
 exports.deriveDocExcerptForTask = deriveDocExcerptForTask;
 exports.decideDocTaskBatchConcurrency = decideDocTaskBatchConcurrency;
 exports.toRunContractSummary = toRunContractSummary;
-const index_js_1 = require("../../../doc-task-contract-core/src/index.js");
+const doc_task_contract_core_1 = require("@vectahub/doc-task-contract-core");
 function buildAgentTaskContractSummaries(input) {
     const result = new Map();
     for (const task of input.tasks) {
         const excerpt = input.docContent
-            ? (0, index_js_1.deriveDocExcerptFromTextSync)(input.docContent, { taskId: task.id, label: task.label })
+            ? (0, doc_task_contract_core_1.deriveDocExcerptFromTextSync)(input.docContent, { taskId: task.id, label: task.label })
             : { excerpt: '', truncated: false, strategy: 'none' };
-        const boundary = (0, index_js_1.deriveAgentTaskBoundary)({
+        const boundary = (0, doc_task_contract_core_1.deriveAgentTaskBoundary)({
             docExcerpt: excerpt.excerpt,
             label: task.label,
             projectRoot: input.projectRoot,
@@ -32,7 +32,7 @@ function deriveDocExcerptForTask(input) {
     if (!input.docContent) {
         return { excerpt: '', truncated: false, strategy: 'none' };
     }
-    return (0, index_js_1.deriveDocExcerptFromTextSync)(input.docContent, { taskId: input.taskId, label: input.label });
+    return (0, doc_task_contract_core_1.deriveDocExcerptFromTextSync)(input.docContent, { taskId: input.taskId, label: input.label });
 }
 function decideDocTaskBatchConcurrency(input) {
     const summaries = [...input.contracts.values()];
@@ -51,7 +51,7 @@ function decideDocTaskBatchConcurrency(input) {
         boundaryConfidence: summary.boundaryConfidence,
         executionMode: summary.executionMode,
     }));
-    const decision = (0, index_js_1.decideAgentTaskConcurrency)(contracts);
+    const decision = (0, doc_task_contract_core_1.decideAgentTaskConcurrency)(contracts);
     if (decision.mode === 'serial' || contracts.length <= 1 || requested <= 1) {
         return {
             mode: 'serial',
