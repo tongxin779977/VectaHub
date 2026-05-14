@@ -4,7 +4,7 @@ import { getActiveWorkspaceFolder, runCli } from '../cli/adapter.js';
 import { logToOutput } from '../ui/output.js';
 import { DocTask, TasksViewProvider } from '../views/tasksView.js';
 import { createRootTraceContext, startSpan } from '../trace/index.js';
-import { classifyDocTaskFailure, type DocTaskFailureKind, type DocTaskRunStatus } from '../project/docTaskState.js';
+import { classifyDocTaskFailure, type DocTaskRunStatus } from '../project/docTaskState.js';
 import { createDocTaskRunStore, type DocTaskBatchRunRecord, type DocTaskRunRecord } from '../project/docTaskRunStore.js';
 import {
   buildAgentTaskContractSummaries,
@@ -21,6 +21,7 @@ import {
   setTaskDisplayState,
   summarizeOutput,
 } from './docTaskRunHelpers.js';
+import { persistContractHashFromCliResult, resolveVerificationStatus } from './docTaskStatusHelpers.js';
 import { confirmHighRiskCommand, type RiskLevel } from '../security/riskUI.js';
 
 const CRITICAL_RISK_PATTERNS: RegExp[] = [
@@ -188,20 +189,6 @@ function applyVerificationToRunRecord(
       ? failed.map(c => c.command).slice(0, 3).join('; ')
       : undefined,
   };
-}
-
-function resolveVerificationStatus(
-  changedFiles: string[],
-  verification?: RunTaskResult['verification'],
-): { status: DocTaskRunStatus; failureKind?: DocTaskFailureKind } {
-  if (verification?.isSystemError) {
-    return { status: 'failed_system_internal', failureKind: 'system_internal' };
-  }
-  if (verification && !verification.ok) {
-    return { status: 'failed_test', failureKind: 'test' };
-  }
-  const status: DocTaskRunStatus = changedFiles.length > 0 ? 'changed' : 'success';
-  return { status };
 }
 
 export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksProvider: TasksViewProvider) {
@@ -482,8 +469,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
               };
               runRecord.outputSummary = summarizeOutput(output);
               runRecord.outputTruncated = result.data?.outputTruncated === true;
-              // Store instruction hash for drift detection on next parse
-              runRecord.instructionHash = result.data?.agentTaskContract?.instructionHash;
+              persistContractHashFromCliResult(runRecord, result.data?.agentTaskContract);
               applyContractSummary(runRecord, result.data?.agentTaskContract);
               applyVerificationToRunRecord(runRecord, result.data?.verification);
               await safeUpdateRun(runStore, runRecord, 'success update', warnRunStore);
@@ -506,22 +492,22 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
               agentCli: agentCli || '',
             });
           } else {
-            // Check if this is a verification failure (Agent succeeded but verification failed)
-            const verificationFailed = result.data?.verification?.ok === false;
+            const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
+            const resolved = resolveVerificationStatus(changedFiles, result.data?.verification);
+            const verificationFailed = resolved.failureKind === 'test' || resolved.failureKind === 'system_internal';
 
             task.lastRunId = runId;
             task.lastTraceId = traceContext.traceId;
 
             if (verificationFailed) {
-              const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
-              const finalStatus: DocTaskRunStatus = 'failed_test';
-              task.lastFailureKind = 'test';
+              const finalStatus = resolved.status;
+              task.lastFailureKind = resolved.failureKind;
               setTaskDisplayState(task, finalStatus);
               tasksProvider.refresh();
 
               if (runRecord) {
                 runRecord.status = finalStatus;
-                runRecord.failureKind = 'test';
+                runRecord.failureKind = resolved.failureKind;
                 runRecord.updatedAt = new Date().toISOString();
                 runRecord.endedAt = runRecord.updatedAt;
                 runRecord.durationMs = Date.now() - startedAtMs;
@@ -533,6 +519,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
                 };
                 runRecord.outputSummary = summarizeOutput(result.data?.output);
                 runRecord.outputTruncated = result.data?.outputTruncated === true;
+                persistContractHashFromCliResult(runRecord, result.data?.agentTaskContract);
                 applyContractSummary(runRecord, result.data?.agentTaskContract);
                 applyVerificationToRunRecord(runRecord, result.data?.verification);
                 await safeUpdateRun(runStore, runRecord, 'verification failed update', warnRunStore);
@@ -575,6 +562,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
                   changedFiles,
                   shortStat: result.data?.gitChanges?.shortStat
                 };
+                persistContractHashFromCliResult(runRecord, result.data?.agentTaskContract);
                 applyContractSummary(runRecord, result.data?.agentTaskContract);
                 await safeUpdateRun(runStore, runRecord, 'failed update', warnRunStore);
               }
@@ -842,6 +830,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
                 };
                 runRecord.outputSummary = summarizeOutput(result.data?.output);
                 runRecord.outputTruncated = result.data?.outputTruncated === true;
+                persistContractHashFromCliResult(runRecord, result.data?.agentTaskContract);
                 applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
                 applyVerificationToRunRecord(runRecord, result.data?.verification);
                 await safeUpdateRun(runStore, runRecord, 'batch success update', warnRunStore);
@@ -859,18 +848,18 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
                 updateProgress(task.id, '完成');
               }
             } else {
-              // Check if this is a verification failure (Agent succeeded but verification failed)
-              const verificationFailed = result.data?.verification?.ok === false;
+              const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
+              const resolved = resolveVerificationStatus(changedFiles, result.data?.verification);
+              const verificationFailed = resolved.failureKind === 'test' || resolved.failureKind === 'system_internal';
 
               if (verificationFailed) {
-                const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
-                const finalStatus: DocTaskRunStatus = 'failed_test';
-                task.lastFailureKind = 'test';
+                const finalStatus = resolved.status;
+                task.lastFailureKind = resolved.failureKind;
                 setTaskDisplayState(task, finalStatus);
                 failedCount++;
                 if (runRecord) {
                   runRecord.status = finalStatus;
-                  runRecord.failureKind = 'test';
+                  runRecord.failureKind = resolved.failureKind;
                   runRecord.updatedAt = new Date().toISOString();
                   runRecord.endedAt = runRecord.updatedAt;
                   runRecord.durationMs = Date.now() - startedAtMs;
@@ -882,6 +871,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
                   };
                   runRecord.outputSummary = summarizeOutput(result.data?.output);
                   runRecord.outputTruncated = result.data?.outputTruncated === true;
+                  persistContractHashFromCliResult(runRecord, result.data?.agentTaskContract);
                   applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
                   applyVerificationToRunRecord(runRecord, result.data?.verification);
                   await safeUpdateRun(runStore, runRecord, 'batch verification failed update', warnRunStore);
@@ -921,6 +911,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
                   };
                   runRecord.outputSummary = summarizeOutput(result.data?.output);
                   runRecord.outputTruncated = result.data?.outputTruncated === true;
+                  persistContractHashFromCliResult(runRecord, result.data?.agentTaskContract);
                   applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
                   await safeUpdateRun(runStore, runRecord, 'batch failed update', warnRunStore);
                 }
@@ -951,6 +942,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
               runRecord.updatedAt = new Date().toISOString();
               runRecord.endedAt = runRecord.updatedAt;
               runRecord.durationMs = Date.now() - startedAtMs;
+              persistContractHashFromCliResult(runRecord, undefined);
               applyContractSummary(runRecord, undefined, taskContractSummary);
               await safeUpdateRun(runStore, runRecord, 'batch exception update', warnRunStore);
             }
@@ -1068,6 +1060,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
               runRecord.updatedAt = now;
               runRecord.endedAt = now;
               runRecord.durationMs = 0;
+              persistContractHashFromCliResult(runRecord, undefined);
               applyContractSummary(runRecord, undefined, taskContractSummary);
               await safeUpdateRun(runStore, runRecord, 'batch finalize pending update', warnRunStore);
             }

@@ -10,6 +10,7 @@ exports.safeUpdateRun = safeUpdateRun;
 exports.safeUpdateBatch = safeUpdateBatch;
 exports.setTaskDisplayState = setTaskDisplayState;
 exports.readCurrentGlobalConfigDigest = readCurrentGlobalConfigDigest;
+exports.getAuthoritativeGlobalConfigDigestForHash = getAuthoritativeGlobalConfigDigestForHash;
 exports.computeCurrentInstructionHashForRecovery = computeCurrentInstructionHashForRecovery;
 exports.applyLatestRunState = applyLatestRunState;
 const fs_1 = require("fs");
@@ -71,14 +72,21 @@ async function readCurrentGlobalConfigDigest() {
         return undefined;
     }
 }
+/**
+ * Authoritative hash drift / recovery guard requires CLI-equivalent digest.
+ * 插件侧当前无法证明与 CLI createLLMConfig() 等价，故权威路径返回 unavailable。
+ */
+async function getAuthoritativeGlobalConfigDigestForHash() {
+    return undefined;
+}
 async function computeCurrentInstructionHashForRecovery(input) {
     const { taskId, label, docPath, projectRoot, tool } = input;
     if (!docPath || !projectRoot || !label)
         return undefined;
-    const docContent = await fs_1.promises.readFile(docPath, 'utf8');
-    const globalConfigDigest = await readCurrentGlobalConfigDigest();
+    const globalConfigDigest = await getAuthoritativeGlobalConfigDigestForHash();
     if (!globalConfigDigest)
         return undefined;
+    const docContent = await fs_1.promises.readFile(docPath, 'utf8');
     const contracts = (0, docTaskContract_js_1.buildAgentTaskContractSummaries)({
         tasks: [{ id: taskId, label }],
         docContent,
@@ -108,7 +116,21 @@ async function applyLatestRunState(store, tasks, warn, docContent, projectRoot) 
     try {
         const latest = await store.getLatestMap();
         const tasksToReset = [];
-        const currentGlobalConfigDigest = await readCurrentGlobalConfigDigest();
+        const currentGlobalConfigDigest = await getAuthoritativeGlobalConfigDigestForHash();
+        if (!currentGlobalConfigDigest) {
+            return tasks.map(task => {
+                const run = latest.get(task.id);
+                if (!run)
+                    return task;
+                return {
+                    ...task,
+                    status: (0, docTaskState_js_1.mapRunStatusToDisplayStatus)(run.status),
+                    lastRunId: run.runId,
+                    lastTraceId: run.traceId,
+                    lastFailureKind: run.failureKind,
+                };
+            });
+        }
         const currentContracts = (docContent && projectRoot)
             ? (0, docTaskContract_js_1.buildAgentTaskContractSummaries)({
                 tasks: tasks.map(task => ({ id: task.id, label: task.label })),

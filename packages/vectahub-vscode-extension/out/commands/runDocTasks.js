@@ -43,6 +43,7 @@ const docTaskState_js_1 = require("../project/docTaskState.js");
 const docTaskRunStore_js_1 = require("../project/docTaskRunStore.js");
 const docTaskContract_js_1 = require("../project/docTaskContract.js");
 const docTaskRunHelpers_js_1 = require("./docTaskRunHelpers.js");
+const docTaskStatusHelpers_js_1 = require("./docTaskStatusHelpers.js");
 const riskUI_js_1 = require("../security/riskUI.js");
 const CRITICAL_RISK_PATTERNS = [
     /^sudo\s+/i,
@@ -132,16 +133,6 @@ function applyVerificationToRunRecord(runRecord, verification) {
             ? failed.map(c => c.command).slice(0, 3).join('; ')
             : undefined,
     };
-}
-function resolveVerificationStatus(changedFiles, verification) {
-    if (verification?.isSystemError) {
-        return { status: 'failed_system_internal', failureKind: 'system_internal' };
-    }
-    if (verification && !verification.ok) {
-        return { status: 'failed_test', failureKind: 'test' };
-    }
-    const status = changedFiles.length > 0 ? 'changed' : 'success';
-    return { status };
 }
 function registerDocTaskCommands(context, tasksProvider) {
     const workspaceRoot = (0, adapter_js_1.getActiveWorkspaceFolder)();
@@ -359,7 +350,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                     const output = result.data?.output || '';
                     const gitChanges = result.data?.gitChanges;
                     const changedFiles = gitChanges?.changedFiles ?? [];
-                    const resolved = resolveVerificationStatus(changedFiles, result.data?.verification);
+                    const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, result.data?.verification);
                     const finalStatus = resolved.status;
                     task.lastRunId = runId;
                     task.lastTraceId = traceContext.traceId;
@@ -380,8 +371,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                         };
                         runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(output);
                         runRecord.outputTruncated = result.data?.outputTruncated === true;
-                        // Store instruction hash for drift detection on next parse
-                        runRecord.instructionHash = result.data?.agentTaskContract?.instructionHash;
+                        (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                         applyContractSummary(runRecord, result.data?.agentTaskContract);
                         applyVerificationToRunRecord(runRecord, result.data?.verification);
                         await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'success update', warnRunStore);
@@ -405,19 +395,19 @@ function registerDocTaskCommands(context, tasksProvider) {
                     });
                 }
                 else {
-                    // Check if this is a verification failure (Agent succeeded but verification failed)
-                    const verificationFailed = result.data?.verification?.ok === false;
+                    const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
+                    const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, result.data?.verification);
+                    const verificationFailed = resolved.failureKind === 'test' || resolved.failureKind === 'system_internal';
                     task.lastRunId = runId;
                     task.lastTraceId = traceContext.traceId;
                     if (verificationFailed) {
-                        const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
-                        const finalStatus = 'failed_test';
-                        task.lastFailureKind = 'test';
+                        const finalStatus = resolved.status;
+                        task.lastFailureKind = resolved.failureKind;
                         (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, finalStatus);
                         tasksProvider.refresh();
                         if (runRecord) {
                             runRecord.status = finalStatus;
-                            runRecord.failureKind = 'test';
+                            runRecord.failureKind = resolved.failureKind;
                             runRecord.updatedAt = new Date().toISOString();
                             runRecord.endedAt = runRecord.updatedAt;
                             runRecord.durationMs = Date.now() - startedAtMs;
@@ -429,6 +419,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                             };
                             runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
                             runRecord.outputTruncated = result.data?.outputTruncated === true;
+                            (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                             applyContractSummary(runRecord, result.data?.agentTaskContract);
                             applyVerificationToRunRecord(runRecord, result.data?.verification);
                             await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'verification failed update', warnRunStore);
@@ -469,6 +460,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                                 changedFiles,
                                 shortStat: result.data?.gitChanges?.shortStat
                             };
+                            (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                             applyContractSummary(runRecord, result.data?.agentTaskContract);
                             await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'failed update', warnRunStore);
                         }
@@ -691,7 +683,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                         });
                         if (result.ok) {
                             const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
-                            const resolved = resolveVerificationStatus(changedFiles, result.data?.verification);
+                            const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, result.data?.verification);
                             const finalStatus = resolved.status;
                             task.lastFailureKind = resolved.failureKind;
                             (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, finalStatus);
@@ -712,6 +704,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                                 };
                                 runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
                                 runRecord.outputTruncated = result.data?.outputTruncated === true;
+                                (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                                 applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
                                 applyVerificationToRunRecord(runRecord, result.data?.verification);
                                 await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch success update', warnRunStore);
@@ -731,17 +724,17 @@ function registerDocTaskCommands(context, tasksProvider) {
                             }
                         }
                         else {
-                            // Check if this is a verification failure (Agent succeeded but verification failed)
-                            const verificationFailed = result.data?.verification?.ok === false;
+                            const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
+                            const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, result.data?.verification);
+                            const verificationFailed = resolved.failureKind === 'test' || resolved.failureKind === 'system_internal';
                             if (verificationFailed) {
-                                const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
-                                const finalStatus = 'failed_test';
-                                task.lastFailureKind = 'test';
+                                const finalStatus = resolved.status;
+                                task.lastFailureKind = resolved.failureKind;
                                 (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, finalStatus);
                                 failedCount++;
                                 if (runRecord) {
                                     runRecord.status = finalStatus;
-                                    runRecord.failureKind = 'test';
+                                    runRecord.failureKind = resolved.failureKind;
                                     runRecord.updatedAt = new Date().toISOString();
                                     runRecord.endedAt = runRecord.updatedAt;
                                     runRecord.durationMs = Date.now() - startedAtMs;
@@ -753,6 +746,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                                     };
                                     runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
                                     runRecord.outputTruncated = result.data?.outputTruncated === true;
+                                    (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                                     applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
                                     applyVerificationToRunRecord(runRecord, result.data?.verification);
                                     await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch verification failed update', warnRunStore);
@@ -793,6 +787,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                                     };
                                     runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
                                     runRecord.outputTruncated = result.data?.outputTruncated === true;
+                                    (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                                     applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
                                     await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch failed update', warnRunStore);
                                 }
@@ -824,6 +819,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                             runRecord.updatedAt = new Date().toISOString();
                             runRecord.endedAt = runRecord.updatedAt;
                             runRecord.durationMs = Date.now() - startedAtMs;
+                            (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, undefined);
                             applyContractSummary(runRecord, undefined, taskContractSummary);
                             await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch exception update', warnRunStore);
                         }
@@ -943,6 +939,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                             runRecord.updatedAt = now;
                             runRecord.endedAt = now;
                             runRecord.durationMs = 0;
+                            (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, undefined);
                             applyContractSummary(runRecord, undefined, taskContractSummary);
                             await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch finalize pending update', warnRunStore);
                         }

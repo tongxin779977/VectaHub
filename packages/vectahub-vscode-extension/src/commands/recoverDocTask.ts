@@ -24,6 +24,7 @@ import {
 } from '../project/docTaskRecovery.js';
 import { createRootTraceContext, startSpan } from '../trace/index.js';
 import { setTaskDisplayState, createRunId, safeUpdateRun, computeCurrentInstructionHashForRecovery } from './docTaskRunHelpers.js';
+import { resolveRecoveryInstructionHash } from './recoverDocTaskHash.js';
 
 interface RecoverCliResult {
   ok: boolean;
@@ -93,6 +94,10 @@ export function registerRecoverDocTaskCommand(
         });
       } catch { /* ignore and let hash guard block when needed */ }
       const recoveryInput = buildRecoveryInput(latestRecord, currentHash);
+      const recoveryInstructionHash = resolveRecoveryInstructionHash({
+        currentHash,
+        latestInstructionHash: latestRecord.instructionHash,
+      });
 
       // 4. Deterministic recovery decision
       const decision = decideRecoveryWithHashGuard(recoveryInput);
@@ -272,6 +277,7 @@ export function registerRecoverDocTaskCommand(
                   newRunRecord.outputSummary = runResult?.output?.slice(0, 2000);
                   newRunRecord.outputTruncated = runResult?.outputTruncated;
                   newRunRecord.failureKind = classification.failureKind;
+                  newRunRecord.instructionHash = recoveryInstructionHash;
                   newRunRecord.endedAt = new Date().toISOString();
                   newRunRecord.updatedAt = newRunRecord.endedAt;
                   await safeUpdateRun(runStore, newRunRecord, 'recovery result', warnRunStore);
@@ -337,6 +343,7 @@ export function registerRecoverDocTaskCommand(
                   newRunRecord.errorMessage = errMsg.slice(0, 1000);
                   newRunRecord.outputSummary = result.data?.runResult?.output?.slice(0, 2000);
                   newRunRecord.outputTruncated = result.data?.runResult?.outputTruncated;
+                  newRunRecord.instructionHash = recoveryInstructionHash;
                   newRunRecord.endedAt = new Date().toISOString();
                   newRunRecord.updatedAt = newRunRecord.endedAt;
                   await safeUpdateRun(runStore, newRunRecord, 'recovery failed result', warnRunStore);
@@ -377,6 +384,7 @@ export function registerRecoverDocTaskCommand(
             });
             newRunRecord.failureKind = classification.failureKind;
             newRunRecord.errorMessage = msg.slice(0, 1000);
+            newRunRecord.instructionHash = recoveryInstructionHash;
             newRunRecord.endedAt = new Date().toISOString();
             newRunRecord.updatedAt = newRunRecord.endedAt;
             await safeUpdateRun(runStore, newRunRecord, 'recovery exception result', warnRunStore);

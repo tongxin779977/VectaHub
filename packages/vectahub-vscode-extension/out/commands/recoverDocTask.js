@@ -50,6 +50,7 @@ const docTaskRunStore_js_1 = require("../project/docTaskRunStore.js");
 const docTaskRecovery_js_1 = require("../project/docTaskRecovery.js");
 const index_js_1 = require("../trace/index.js");
 const docTaskRunHelpers_js_1 = require("./docTaskRunHelpers.js");
+const recoverDocTaskHash_js_1 = require("./recoverDocTaskHash.js");
 function registerRecoverDocTaskCommand(context, tasksProvider) {
     const workspaceRoot = (0, adapter_js_1.getActiveWorkspaceFolder)();
     const runStore = workspaceRoot ? (0, docTaskRunStore_js_1.createDocTaskRunStore)(workspaceRoot) : undefined;
@@ -85,6 +86,10 @@ function registerRecoverDocTaskCommand(context, tasksProvider) {
         }
         catch { /* ignore and let hash guard block when needed */ }
         const recoveryInput = (0, docTaskRecovery_js_1.buildRecoveryInput)(latestRecord, currentHash);
+        const recoveryInstructionHash = (0, recoverDocTaskHash_js_1.resolveRecoveryInstructionHash)({
+            currentHash,
+            latestInstructionHash: latestRecord.instructionHash,
+        });
         // 4. Deterministic recovery decision
         const decision = (0, docTaskRecovery_js_1.decideRecoveryWithHashGuard)(recoveryInput);
         (0, output_js_1.logToOutput)(`[recovery] 任务 ${task.id} 恢复决策: kind=${decision.kind}, mode=${decision.mode}, reason=${decision.reason}`);
@@ -236,6 +241,7 @@ function registerRecoverDocTaskCommand(context, tasksProvider) {
                             newRunRecord.outputSummary = runResult?.output?.slice(0, 2000);
                             newRunRecord.outputTruncated = runResult?.outputTruncated;
                             newRunRecord.failureKind = classification.failureKind;
+                            newRunRecord.instructionHash = recoveryInstructionHash;
                             newRunRecord.endedAt = new Date().toISOString();
                             newRunRecord.updatedAt = newRunRecord.endedAt;
                             await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, newRunRecord, 'recovery result', warnRunStore);
@@ -303,6 +309,7 @@ function registerRecoverDocTaskCommand(context, tasksProvider) {
                             newRunRecord.errorMessage = errMsg.slice(0, 1000);
                             newRunRecord.outputSummary = result.data?.runResult?.output?.slice(0, 2000);
                             newRunRecord.outputTruncated = result.data?.runResult?.outputTruncated;
+                            newRunRecord.instructionHash = recoveryInstructionHash;
                             newRunRecord.endedAt = new Date().toISOString();
                             newRunRecord.updatedAt = newRunRecord.endedAt;
                             await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, newRunRecord, 'recovery failed result', warnRunStore);
@@ -342,6 +349,7 @@ function registerRecoverDocTaskCommand(context, tasksProvider) {
                     });
                     newRunRecord.failureKind = classification.failureKind;
                     newRunRecord.errorMessage = msg.slice(0, 1000);
+                    newRunRecord.instructionHash = recoveryInstructionHash;
                     newRunRecord.endedAt = new Date().toISOString();
                     newRunRecord.updatedAt = newRunRecord.endedAt;
                     await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, newRunRecord, 'recovery exception result', warnRunStore);

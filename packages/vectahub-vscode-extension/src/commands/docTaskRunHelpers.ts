@@ -73,6 +73,14 @@ export async function readCurrentGlobalConfigDigest(): Promise<string | undefine
   }
 }
 
+/**
+ * Authoritative hash drift / recovery guard requires CLI-equivalent digest.
+ * 插件侧当前无法证明与 CLI createLLMConfig() 等价，故权威路径返回 unavailable。
+ */
+export async function getAuthoritativeGlobalConfigDigestForHash(): Promise<string | undefined> {
+  return undefined;
+}
+
 export async function computeCurrentInstructionHashForRecovery(input: {
   taskId: string;
   label: string;
@@ -83,9 +91,9 @@ export async function computeCurrentInstructionHashForRecovery(input: {
   const { taskId, label, docPath, projectRoot, tool } = input;
   if (!docPath || !projectRoot || !label) return undefined;
 
-  const docContent = await fsp.readFile(docPath, 'utf8');
-  const globalConfigDigest = await readCurrentGlobalConfigDigest();
+  const globalConfigDigest = await getAuthoritativeGlobalConfigDigestForHash();
   if (!globalConfigDigest) return undefined;
+  const docContent = await fsp.readFile(docPath, 'utf8');
 
   const contracts = buildAgentTaskContractSummaries({
     tasks: [{ id: taskId, label }],
@@ -123,7 +131,20 @@ export async function applyLatestRunState(
   try {
     const latest = await store.getLatestMap();
     const tasksToReset: Array<{ task: DocTask; run: DocTaskRunRecord }> = [];
-    const currentGlobalConfigDigest = await readCurrentGlobalConfigDigest();
+    const currentGlobalConfigDigest = await getAuthoritativeGlobalConfigDigestForHash();
+    if (!currentGlobalConfigDigest) {
+      return tasks.map(task => {
+        const run = latest.get(task.id);
+        if (!run) return task;
+        return {
+          ...task,
+          status: mapRunStatusToDisplayStatus(run.status),
+          lastRunId: run.runId,
+          lastTraceId: run.traceId,
+          lastFailureKind: run.failureKind,
+        };
+      });
+    }
 
     const currentContracts = (docContent && projectRoot)
       ? buildAgentTaskContractSummaries({
