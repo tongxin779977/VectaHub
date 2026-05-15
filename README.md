@@ -93,6 +93,24 @@ vectahub run -f check-project.yaml
 -   **分词级扫描**: 能够识别并拦截 `&&` 或 `|` 连接的复合命令中的危险操作。
 -   **环境隔离**: 默认隔离用户主目录，支持 `VECTAHUB_HOME` 自定义数据路径。
 
+### 5. 文档任务预览
+
+`run-task` 面向文档驱动的 Agent 任务，当前有两种预览相关模式：
+
+```bash
+# 只生成本地 dry-run 预览命令，不实际执行 Agent
+vectahub run-task --tool aider --task-id T1 --task-label "补测试" --doc ./docs/task.md --dry-run --json
+
+# 只生成任务边界合同摘要，不要求 --tool
+vectahub run-task --task-id T1 --task-label "补测试" --doc ./docs/task.md --contract-preview --json
+```
+
+- `--dry-run` 会先构建 `agentTaskContract` 摘要，再返回一条本地预览命令；该分支不加载 LLM、不做 tool help discovery、不执行 Agent。
+- `--contract-preview` 只返回合同摘要，用于查看任务边界、允许文件、禁止文件和建议验证命令；该分支不要求 `--tool`，也不进入命令生成流程。
+- 两个分支在 `--json` 下都会返回 `ok`、`command`、`output`、`outputTruncated` 和 `agentTaskContract`；其中 `--contract-preview` 的 `command` 和 `output` 为空字符串。
+- 正常执行路径会额外标记命令生成来源：已知 Agent adapter 返回 `commandGenerationPath: "adapter"`，未知或自定义 CLI fallback 返回 `commandGenerationPath: "llm-fallback"`；`fallbackUsed` 标记是否实际使用了 fallback 命令。
+- 审计日志写入失败会以告警方式降级处理，不中断主流程；如果日志目录无写权限，可能看到 `Failed to write audit log`。
+
 ---
 
 ## 架构工作原理

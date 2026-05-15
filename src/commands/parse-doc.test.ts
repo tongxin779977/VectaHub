@@ -303,4 +303,46 @@ describe('parseRoadmapTableTasks', () => {
     expect(aud?.label).not.toContain('可确认');
     expect(sys?.label).not.toContain('有项目接口');
   });
+
+  it('should exclude existing roadmap items and keep only partial gaps in real roadmap style', () => {
+    const content = [
+      '## 3. P0 主流程能力',
+      '### M01 数据接入',
+      '| 功能 ID | 功能 | 状态 | 说明 |',
+      '| --- | --- | --- | --- |',
+      '| IMP-001 | Excel/CSV 上传和预览 | 已有 | 支持文件解析、表头和样例预览 |',
+      '| IMP-005 | 标准化数据入账 | 待补 | 有效行需要进入草稿凭证或标准化待确认池 |',
+      '| IMP-006 | 导入任务审计 | 部分 | 已有任务记录，需增强错误行和可追溯详情 |',
+      '',
+      '### M03 凭证引擎',
+      '| 功能 ID | 功能 | 状态 | 说明 |',
+      '| --- | --- | --- | --- |',
+      '| VCH-001 | 凭证生成 | 已有 | 支持根据数据生成凭证头和分录 |',
+      '| VCH-005 | 审核 / 过账 | 部分 | 需要补强制单人和审核人分离 |',
+      '',
+      '### M05 对账引擎',
+      '| 功能 ID | 功能 | 状态 | 说明 |',
+      '| --- | --- | --- | --- |',
+      '| REC-001 | 对账任务管理 | 已有 | 支持创建、查询、删除任务 |',
+      '',
+      '### 系统与基础能力',
+      '| 功能 ID | 功能 | 状态 | 说明 |',
+      '| --- | --- | --- | --- |',
+      '| SYS-001 | 首次配置向导 | 已有 | 支持初始化配置 |',
+    ].join('\n');
+
+    const result = parseRoadmapTableTasks(content);
+    const ids = result.tasks.map(task => task.id);
+    const vch = result.tasks.find(task => task.id === 'VCH-005');
+
+    expect(result.detected).toBe(true);
+    expect(ids).toContain('IMP-005');
+    expect(ids).toContain('IMP-006');
+    expect(ids).toContain('VCH-005');
+    expect(ids).not.toContain('IMP-001');
+    expect(ids).not.toContain('VCH-001');
+    expect(ids).not.toContain('REC-001');
+    expect(ids).not.toContain('SYS-001');
+    expect(vch?.label).toContain('制单人和审核人分离');
+  });
 });

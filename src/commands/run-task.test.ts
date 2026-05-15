@@ -2,6 +2,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return {
+    ...actual,
+    execFile: vi.fn(actual.execFile),
+    spawn: vi.fn(actual.spawn),
+  };
+});
 
 vi.mock('../nl/llm.js', () => ({
   createLLMConfig: vi.fn(() => ({ provider: 'openai', model: 'test', apiKey: 'test', baseUrl: 'http://localhost' })),
@@ -13,6 +24,22 @@ vi.mock('../nl/llm.js', () => ({
 }));
 
 vi.mock('../cli-tools/discovery/cache-manager.js', () => ({
+  discoverToolHelpMock: vi.fn(() => ({
+    toolName: 'aider',
+    version: '1.0.0',
+    helpOutput: 'Usage: aider [options]',
+    capabilities: [],
+    discoveredAt: '2026-05-10T00:00:00Z',
+  })),
+  toolCacheManagerMock: {
+    discoverToolHelp: vi.fn(() => ({
+      toolName: 'aider',
+      version: '1.0.0',
+      helpOutput: 'Usage: aider [options]',
+      capabilities: [],
+      discoveredAt: '2026-05-10T00:00:00Z',
+    })),
+  },
   getToolCacheManager: vi.fn(() => ({
     discoverToolHelp: vi.fn(() => ({
       toolName: 'aider',
@@ -61,8 +88,10 @@ vi.mock('../utils/logger.js', () => ({
   })),
 }));
 
-import { runTask, collectGitChanges, formatRunTaskJson, runVerificationCommands, splitCommandArgs, type RunTaskResult } from './run-task.js';
+import { runTask, collectGitChanges, formatRunTaskJson, runVerificationCommands, splitCommandArgs, buildDefaultPrompt, type RunTaskResult } from './run-task.js';
 import { createLLMConfig } from '../nl/llm.js';
+import { execFile, spawn } from 'node:child_process';
+import type { AgentTaskContract } from '../types/doc-task.js';
 
 describe('runTask', () => {
   beforeEach(() => {
@@ -81,6 +110,39 @@ describe('runTask', () => {
     expect(result.success).toBe(true);
     expect(result.command).toContain('aider');
     expect(result.output).toBe('');
+  });
+
+  it('should keep dryRun local and skip LLM/tool discovery', async () => {
+    const llmModule = await import('../nl/llm.js');
+    const cacheManagerModule = await import('../cli-tools/discovery/cache-manager.js');
+    const llmSpy = vi.spyOn(llmModule, 'createLLMConfig');
+    const toolCacheManager = {
+      discoverToolHelp: vi.fn(() => ({
+        toolName: 'aider',
+        version: '1.0.0',
+        helpOutput: 'Usage: aider [options]',
+        capabilities: [],
+        discoveredAt: '2026-05-10T00:00:00Z',
+      })),
+    };
+    vi.mocked(cacheManagerModule.getToolCacheManager).mockReturnValue(toolCacheManager as any);
+
+    try {
+      const result = await runTask({
+        tool: 'aider',
+        taskId: '1.2',
+        taskLabel: '本地 dry-run',
+        doc: '/path/to/doc.md',
+        dryRun: true,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.command).toContain('aider --message');
+      expect(llmSpy).not.toHaveBeenCalled();
+      expect(toolCacheManager.discoverToolHelp).not.toHaveBeenCalled();
+    } finally {
+      llmSpy.mockRestore();
+    }
   });
 
   it('should return command string in result', async () => {
@@ -166,6 +228,7 @@ describe('runTask', () => {
 
   it('should block dangerous commands via security manager', async () => {
     const { getSecurityManager } = await import('../security-protocol/manager.js');
+    const originalGetSecurityManagerImpl = vi.mocked(getSecurityManager).getMockImplementation();
     const mockSecurityManager = {
       detectCommand: vi.fn(() => ({
         isDangerous: true,
@@ -176,36 +239,350 @@ describe('runTask', () => {
     };
     vi.mocked(getSecurityManager).mockReturnValue(mockSecurityManager as any);
 
-    const result = await runTask({
-      tool: 'aider',
-      taskId: '1.1',
-      taskLabel: 'dangerous task',
-      dryRun: false,
-    });
+    try {
+      const result = await runTask({
+        tool: 'aider',
+        taskId: '1.1',
+        taskLabel: 'dangerous task',
+        dryRun: false,
+      });
 
-    expect(result.success).toBe(false);
-    expect(result.output).toContain('安全策略拦截');
+      expect(result.success).toBe(false);
+      expect(result.output).toContain('安全策略拦截');
+      expect(result.commandGenerationPath).toBe('adapter');
+      expect(result.fallbackUsed).toBe(false);
+      expect(result.error).toEqual({
+        code: 'SECURITY_BLOCKED',
+        message: '安全策略拦截: test-rule',
+      });
+    } finally {
+      if (originalGetSecurityManagerImpl) {
+        vi.mocked(getSecurityManager).mockImplementation(originalGetSecurityManagerImpl as any);
+      }
+    }
   });
 
-  it('fallback prompt should prioritize contract excerpt instead of default full document read', async () => {
+  it('should build a local dry-run preview command without fallback prompt text', async () => {
+    const result = await runTask({
+      tool: 'aider',
+      taskId: 'P2-6',
+      taskLabel: '收紧默认提示词',
+      doc: '/path/to/doc.md',
+      dryRun: true,
+    });
+
+    expect(result.command).toContain('dry-run 预览');
+    expect(result.command).toContain('建议验证命令');
+    expect(result.command).not.toContain('优先依据任务边界合同中的文档片段');
+    expect(result.command).not.toContain('先阅读参考文档');
+  });
+
+  it('should use codex adapter path and skip tool discovery/LLM generation', async () => {
     const llmModule = await import('../nl/llm.js');
-    const spy = vi.spyOn(llmModule.LLMClient.prototype, 'completeRaw').mockResolvedValue('not-json');
+    const cacheManagerModule = await import('../cli-tools/discovery/cache-manager.js');
+    const llmSpy = vi.spyOn(llmModule, 'createLLMConfig');
+    const toolCacheManager = { discoverToolHelp: vi.fn() };
+    vi.mocked(cacheManagerModule.getToolCacheManager).mockReturnValue(toolCacheManager as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'P2-7',
+        taskLabel: 'adapter path codex',
+        doc: '/path/to/doc.md',
+        dryRun: true,
+      });
+      expect(result.command).toContain('codex exec --cd');
+      expect(result.commandGenerationPath).toBe('adapter');
+      expect(result.fallbackUsed).toBe(false);
+      expect(llmSpy).not.toHaveBeenCalled();
+      expect(toolCacheManager.discoverToolHelp).not.toHaveBeenCalled();
+    } finally {
+      llmSpy.mockRestore();
+    }
+  });
+
+  it('should keep mixed-case known tool on adapter dry-run path without validator block', async () => {
+    const result = await runTask({
+      tool: 'CoDeX',
+      taskId: 'P2-7B',
+      taskLabel: 'adapter mixed-case codex',
+      doc: '/path/to/doc.md',
+      dryRun: true,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.command).toContain('codex exec --cd');
+    expect(result.commandGenerationPath).toBe('adapter');
+    expect(result.fallbackUsed).toBe(false);
+  });
+
+  it('should use aider adapter path for normal run and skip tool discovery/LLM generation', async () => {
+    const llmModule = await import('../nl/llm.js');
+    const cacheManagerModule = await import('../cli-tools/discovery/cache-manager.js');
+    const llmSpy = vi.spyOn(llmModule, 'createLLMConfig');
+    const toolCacheManager = { discoverToolHelp: vi.fn() };
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    vi.mocked(cacheManagerModule.getToolCacheManager).mockReturnValue(toolCacheManager as any);
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'aider' && Array.isArray(args) && args.join(' ') === '--help') {
+        cb(null, 'Usage: aider [options]\n', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+    vi.mocked(spawn).mockImplementation(((file: any) => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      process.nextTick(() => {
+        child.stdout.write(`mock run for ${String(file)}\n`);
+        child.stdout.end();
+        child.stderr.end();
+        child.emit('close', 0);
+      });
+      return child;
+    }) as any);
 
     try {
       const result = await runTask({
         tool: 'aider',
-        taskId: 'P2-6',
-        taskLabel: '收紧默认提示词',
+        taskId: 'P2-8',
+        taskLabel: 'adapter path aider',
         doc: '/path/to/doc.md',
-        dryRun: true,
+        dryRun: false,
+      });
+      expect(result.success).toBe(true);
+      expect(result.commandGenerationPath).toBe('adapter');
+      expect(result.fallbackUsed).toBe(false);
+      expect(llmSpy).not.toHaveBeenCalled();
+      expect(toolCacheManager.discoverToolHelp).not.toHaveBeenCalled();
+    } finally {
+      process.env.VECTAHUB_HOME = originalVectaHubHome;
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+      llmSpy.mockRestore();
+    }
+  });
+
+  it('should keep unknown tool on legacy help + LLM path', async () => {
+    const llmModule = await import('../nl/llm.js');
+    const cacheManagerModule = await import('../cli-tools/discovery/cache-manager.js');
+    const llmSpy = vi.spyOn(llmModule, 'createLLMConfig');
+    const toolCacheManager = { discoverToolHelp: vi.fn(() => ({
+      toolName: 'unknown-cli',
+      version: '1.0.0',
+      helpOutput: 'Usage: unknown-cli [options]',
+      capabilities: [],
+      discoveredAt: '2026-05-10T00:00:00Z',
+    })) };
+    vi.mocked(cacheManagerModule.getToolCacheManager).mockReturnValue(toolCacheManager as any);
+
+    try {
+      const result = await runTask({
+        tool: 'unknown-cli',
+        taskId: 'P2-9',
+        taskLabel: 'legacy path',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+      const json = formatRunTaskJson(result);
+      expect(result.commandGenerationPath).toBe('llm-fallback');
+      expect(json.commandGenerationPath).toBe('llm-fallback');
+      expect(llmSpy).toHaveBeenCalled();
+      expect(toolCacheManager.discoverToolHelp).toHaveBeenCalled();
+    } finally {
+      llmSpy.mockRestore();
+    }
+  });
+
+  it('should fail closed when llm-generated command differs from input tool and never spawn', async () => {
+    const llmModule = await import('../nl/llm.js');
+    const cacheManagerModule = await import('../cli-tools/discovery/cache-manager.js');
+    const securityManagerModule = await import('../security-protocol/manager.js');
+    const originalCompleteRaw = llmModule.LLMClient.prototype.completeRaw;
+    const getSecurityManagerSpy = vi.mocked(securityManagerModule.getSecurityManager);
+    const execFileCallsBefore = vi.mocked(execFile).mock.calls.length;
+    getSecurityManagerSpy.mockClear();
+    llmModule.LLMClient.prototype.completeRaw = vi.fn(async () => (
+      '{"command":"bash","args":["-lc","echo hacked"],"explanation":"bad rewrite"}'
+    ));
+    const toolCacheManager = { discoverToolHelp: vi.fn(() => ({
+      toolName: 'unknown-cli',
+      version: '1.0.0',
+      helpOutput: 'Usage: unknown-cli [options]',
+      capabilities: [],
+      discoveredAt: '2026-05-10T00:00:00Z',
+    })) };
+    vi.mocked(cacheManagerModule.getToolCacheManager).mockReturnValue(toolCacheManager as any);
+
+    try {
+      const result = await runTask({
+        tool: 'unknown-cli',
+        taskId: 'P2-11',
+        taskLabel: 'validator block mismatched command',
+        doc: '/path/to/doc.md',
+        dryRun: false,
       });
 
-      expect(result.command).toContain('优先依据任务边界合同中的文档片段');
-      expect(result.command).toContain('仅在片段不足且不越过允许修改范围时');
-      expect(result.command).not.toContain('先阅读参考文档');
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INVOCATION');
+      expect(result.output).toContain('invocation validator');
+      expect(result.output).toContain('已阻断执行');
+      expect(result.commandGenerationPath).toBe('llm-fallback');
+      expect(vi.mocked(spawn).mock.calls.length).toBe(0);
+      expect(getSecurityManagerSpy).not.toHaveBeenCalled();
+      expect(vi.mocked(execFile).mock.calls.length).toBe(execFileCallsBefore);
     } finally {
-      spy.mockRestore();
+      llmModule.LLMClient.prototype.completeRaw = originalCompleteRaw;
     }
+  });
+
+  it('should fail preflight on codex real entry check and never spawn when exec help is unavailable', async () => {
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --help') {
+        cb(new Error('exec help failed'));
+        return {} as any;
+      }
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === '--version') {
+        cb(null, '0.99.0\n', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'P2-10',
+        taskLabel: 'preflight negative',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.output).toContain('未安装或无执行权限');
+      const codexCalls = vi.mocked(execFile).mock.calls.filter(call => call[0] === 'codex');
+      expect(codexCalls.some(call => Array.isArray(call[1]) && (call[1] as string[]).join(' ') === 'exec --help')).toBe(true);
+      expect(vi.mocked(spawn).mock.calls.length).toBe(0);
+    } finally {
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+    }
+  });
+});
+
+describe('buildDefaultPrompt', () => {
+  it('should prioritize AgentTaskContract fields and keep docPath as supplemental reference', () => {
+    const contract: AgentTaskContract = {
+      taskId: 'P4-1',
+      label: '收敛执行提示词',
+      docPath: '/tmp/tasks.md',
+      docExcerpt: '仅修改 src/commands/run-task.ts 与 run-task.test.ts',
+      allowedFiles: ['src/commands/run-task.ts', 'src/commands/run-task.test.ts'],
+      forbiddenFiles: ['src/workflow/index.ts'],
+      validationCommands: ['npm test -- src/commands/run-task.test.ts', 'npm run typecheck'],
+      timeoutMs: 600000,
+      executionMode: 'serial',
+      boundaryConfidence: 'medium',
+      notes: [],
+    };
+
+    const prompt = buildDefaultPrompt('P4-1', '收敛执行提示词', '/tmp/tasks.md', contract);
+
+    expect(prompt).toContain('合同是主输入');
+    expect(prompt).toContain('任务编号：P4-1');
+    expect(prompt).toContain('任务描述：收敛执行提示词');
+    expect(prompt).toContain('文档片段：');
+    expect(prompt).toContain('仅修改 src/commands/run-task.ts 与 run-task.test.ts');
+    expect(prompt).toContain('允许修改范围：');
+    expect(prompt).toContain('禁止修改范围：');
+    expect(prompt).toContain('建议验证命令：');
+    expect(prompt).toContain('边界可信度：medium');
+    expect(prompt).toContain('参考文档路径（补充引用）：/tmp/tasks.md');
+    expect(prompt).toContain('仅在片段不足且边界允许时，补充引用 /tmp/tasks.md 的必要上下文');
+    expect(prompt).not.toContain('先阅读参考文档');
+    expect(prompt).not.toContain('按照文档中的技术方案和接口定义完整实现');
+  });
+
+  it('should enforce minimal changes and blocking note when excerpt is missing or confidence is low', () => {
+    const contract: AgentTaskContract = {
+      taskId: 'P4-2',
+      label: '低置信度场景',
+      docPath: '/tmp/missing.md',
+      docExcerpt: '',
+      allowedFiles: ['src/commands/run-task.ts'],
+      forbiddenFiles: ['src/workflow/index.ts'],
+      validationCommands: ['npm run typecheck'],
+      timeoutMs: 600000,
+      executionMode: 'serial',
+      boundaryConfidence: 'low',
+      notes: ['doc-not-found'],
+    };
+
+    const prompt = buildDefaultPrompt('P4-2', '低置信度场景', '/tmp/missing.md', contract);
+
+    expect(prompt).toContain('当前文档片段缺失或边界可信度较低；仅允许最小改动。');
+    expect(prompt).toContain('若无法在允许修改范围内完成，输出阻塞说明并停止，不要扩大改动范围。');
+    expect(prompt).toContain('文档片段：\n(未提供文档片段)');
+  });
+
+  it('should enforce minimal-change guidance when docExcerpt is empty even with medium confidence', () => {
+    const contract: AgentTaskContract = {
+      taskId: 'P4-3',
+      label: '缺片段中等可信度',
+      docPath: '/tmp/tasks.md',
+      docExcerpt: '',
+      allowedFiles: ['src/commands/run-task.ts'],
+      forbiddenFiles: ['src/workflow/index.ts'],
+      validationCommands: ['npm run typecheck'],
+      timeoutMs: 600000,
+      executionMode: 'serial',
+      boundaryConfidence: 'medium',
+      notes: [],
+    };
+
+    const prompt = buildDefaultPrompt('P4-3', '缺片段中等可信度', '/tmp/tasks.md', contract);
+
+    expect(prompt).toContain('当前文档片段缺失或边界可信度较低；仅允许最小改动。');
+    expect(prompt).toContain('若无法在允许修改范围内完成，输出阻塞说明并停止，不要扩大改动范围。');
+  });
+
+  it('should enforce minimal-change guidance when confidence is none even with docExcerpt', () => {
+    const contract: AgentTaskContract = {
+      taskId: 'P4-4',
+      label: '有片段低可信度',
+      docPath: '/tmp/tasks.md',
+      docExcerpt: '仅限改动 run-task 文件',
+      allowedFiles: ['src/commands/run-task.ts'],
+      forbiddenFiles: ['src/workflow/index.ts'],
+      validationCommands: ['npm run typecheck'],
+      timeoutMs: 600000,
+      executionMode: 'serial',
+      boundaryConfidence: 'none',
+      notes: [],
+    };
+
+    const prompt = buildDefaultPrompt('P4-4', '有片段低可信度', '/tmp/tasks.md', contract);
+
+    expect(prompt).toContain('当前文档片段缺失或边界可信度较低；仅允许最小改动。');
+    expect(prompt).toContain('若无法在允许修改范围内完成，输出阻塞说明并停止，不要扩大改动范围。');
+    expect(prompt).toContain('仅限改动 run-task 文件');
   });
 });
 

@@ -10,7 +10,8 @@ import {
   saveConfig,
 } from '../cli-tools/index.js';
 import { npmTool } from '../cli-tools/tools/npm.js';
-import { loadConfig as loadAppConfig } from '../setup/first-run-wizard.js';
+import { loadConfig as loadSetupConfig } from '../setup/first-run-wizard.js';
+import { scanSingleTool } from '../setup/cli-scanner.js';
 
 export const toolsCmd = new Command('tools')
   .description('CLI tools management commands');
@@ -300,54 +301,59 @@ toolsCmd
   .command('agents')
   .description('List AI Agent CLIs with installation status')
   .option('--json', 'Output results in JSON format')
-  .action((options) => {
-    const appConfig = loadAppConfig();
+  .action(async (options) => {
+    const appConfig = loadSetupConfig();
     const externalCli = appConfig.external_cli || {};
+    const names = Object.keys(externalCli);
 
-    const agents = Object.entries(externalCli).map(([name, cfg]) => {
-      let installed = false;
-      let version: string | undefined;
-
-      try {
-        execSync(`which ${name}`, { stdio: 'pipe' });
-        installed = true;
-        try {
-          const out = execSync(`${name} --version`, { stdio: 'pipe' }).toString().trim();
-          version = out.split('\n')[0];
-        } catch {
-          version = undefined;
-        }
-      } catch {
-        installed = false;
-      }
-
-      return {
+    const agents = await Promise.all(names.map(async (name) => {
+      const cfg = externalCli[name] || { enabled: false, has_permission: false };
+      const detected = await scanSingleTool(name);
+      return detected ? {
         name,
-        installed,
-        version,
-        enabled: cfg.enabled,
+        installed: detected.installed,
+        version: detected.version,
+        configured_enabled: cfg.enabled,
         has_permission: cfg.has_permission,
+        invocable: detected.invocable,
+        ready: detected.ready,
+      } : {
+        name,
+        installed: false,
+        version: undefined,
+        configured_enabled: cfg.enabled,
+        has_permission: cfg.has_permission,
+        invocable: false,
+        ready: false,
       };
-    });
+    }));
 
     if (options.json) {
       console.log(JSON.stringify({ ok: true, agents }, null, 2));
-    } else {
-      if (agents.length === 0) {
-        console.log('\n⚠️  No AI Agent CLIs configured.\n');
-        return;
-      }
-
-      const lines = ['\n🤖 AI Agent CLIs:', '─'.repeat(80)];
-      for (const agent of agents) {
-        const statusIcon = agent.installed ? '✅' : '❌';
-        const versionStr = agent.version ? ` (${agent.version})` : '';
-        const permStr = agent.has_permission ? '' : ' [no permission]';
-        lines.push(`${statusIcon} ${agent.name.padEnd(15)}${versionStr}${permStr}`);
-      }
-      lines.push('');
-      console.log(lines.join('\n'));
+      return;
     }
+
+    if (agents.length === 0) {
+      console.log('\n⚠️  No AI Agent CLIs configured.\n');
+      return;
+    }
+
+    const lines = ['\n🤖 AI Agent CLIs:', '─'.repeat(80)];
+    for (const agent of agents) {
+      const isAvailable = agent.installed && agent.configured_enabled && agent.has_permission && agent.invocable && agent.ready;
+      const statusIcon = isAvailable ? '✅' : (agent.installed ? '⚠️' : '❌');
+      const versionStr = agent.version ? ` (${agent.version})` : '';
+      const reasons: string[] = [];
+      if (!agent.installed) reasons.push('not installed');
+      if (agent.installed && !agent.configured_enabled) reasons.push('disabled');
+      if (agent.installed && !agent.has_permission) reasons.push('no permission');
+      if (agent.installed && agent.has_permission && !agent.invocable) reasons.push('not invocable');
+      if (agent.installed && agent.has_permission && agent.invocable && !agent.ready) reasons.push('not ready');
+      const statusStr = reasons.length > 0 ? ` [${reasons.join(', ')}]` : ' [available]';
+      lines.push(`${statusIcon} ${agent.name.padEnd(15)}${versionStr}${statusStr}`);
+    }
+    lines.push('');
+    console.log(lines.join('\n'));
   });
 
 toolsCmd

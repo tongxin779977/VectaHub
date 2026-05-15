@@ -11,7 +11,7 @@
 | 命令 | 用途 | JSON |
 |------|------|------|
 | `tools list` | 列出已注册工具。 | 支持 |
-| `tools agents` | 列出 AI Agent CLI 安装、版本、启用和权限状态。 | 支持 |
+| `tools agents` | 列出 AI Agent CLI 安装、版本、启用、权限、入口可调用和任务就绪状态。 | 支持 |
 | `tools info <toolName>` | 查看工具信息。 | 否 |
 | `tools commands <toolName>` | 查看工具命令列表。 | 否 |
 | `tools command <toolName> <commandName>` | 查看单个命令详情。 | 否 |
@@ -23,6 +23,17 @@
 | `tools category <name>` | 列出某分类下工具。 | 否 |
 
 当前 `register all` 不代表所有工具完整实现；代码中会提示完整工具定义需要逐个补齐。
+
+### Agent CLI 状态分层
+
+`tools agents --json` 返回面向 CLI 和 VS Code 插件消费的分层状态：
+
+- `installed` / `version` 表示是否能找到二进制及其版本信息。
+- `configured_enabled` / `has_permission` 来自 VectaHub 配置，表示用户是否启用并授权该 Agent。
+- `invocable` 表示真实入口探测通过；已知 Agent 使用 descriptor 中的入口参数，例如 Codex 使用 `codex exec --help`，unknown/fallback 才保留旧的版本探测语义。
+- `ready` 表示任务执行入口就绪；缺少 `readyArgs` 时按 fail-closed 处理为未就绪，并可通过 `readyIssue` 返回原因。
+
+插件选择可用 Agent 时必须同时满足 `installed`、`configured_enabled`、`has_permission`、`invocable` 和 `ready`。
 
 ## 命令规则引擎
 

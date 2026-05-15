@@ -17,6 +17,7 @@ import type { AgentTaskContract } from '../types/doc-task.js';
 import { splitPosixArgs } from '../utils/shell.js';
 import { createRedactor } from '../security-protocol/redactor.js';
 import { getVectaHubPath, djb2Hash } from '../utils/paths.js';
+import { getAgentAdapterById, getAgentDescriptorById } from './agent-cli-adapter.js';
 
 const execFileAsync = promisify(execFile);
 const logger = getLogger('run-task');
@@ -143,6 +144,8 @@ export interface RunTaskResult {
   success: boolean;
   output: string;
   command: string;
+  commandGenerationPath?: 'adapter' | 'llm-fallback';
+  fallbackUsed?: boolean;
   error?: {
     code: string;
     message: string;
@@ -165,6 +168,8 @@ export interface RunTaskJsonResult {
   command: string;
   output: string;
   outputTruncated: boolean;
+  commandGenerationPath?: 'adapter' | 'llm-fallback';
+  fallbackUsed?: boolean;
   error?: string | {
     code: string;
     message: string;
@@ -239,34 +244,43 @@ function buildCommandString(command: string, args: string[]): string {
   return [command, ...escaped].join(' ');
 }
 
-function buildDefaultPrompt(taskId: string, taskLabel: string, docPath: string, contract: AgentTaskContract): string {
+export function buildDefaultPrompt(taskId: string, taskLabel: string, docPath: string, contract: AgentTaskContract): string {
+  const shouldEnforceMinimalChange = !contract.docExcerpt || contract.boundaryConfidence === 'none' || contract.boundaryConfidence === 'low';
+  const docExcerptText = contract.docExcerpt || '(未提供文档片段)';
+  const additionalGuidance = shouldEnforceMinimalChange
+    ? [
+      '- 当前文档片段缺失或边界可信度较低；仅允许最小改动。',
+      '- 若无法在允许修改范围内完成，输出阻塞说明并停止，不要扩大改动范围。',
+    ]
+    : [
+      '- 优先基于文档片段执行；仅在片段不足且不越过允许修改范围时，再补充引用参考文档路径。',
+    ];
   const prompt = [
-    '请严格按照以下要求实现任务。',
+    '请基于任务边界合同执行任务；合同是主输入。',
     '',
     `任务编号：${taskId}`,
     `任务描述：${taskLabel}`,
-    `参考文档：${docPath}`,
     '',
     '任务边界合同：',
-    `文档片段：\n${contract.docExcerpt || '(未提供文档片段，请只根据任务描述执行最小改动)'}`,
+    `文档片段：\n${docExcerptText}`,
     '',
     `允许修改范围：${formatListForPrompt(contract.allowedFiles, '未推导出明确文件，请保持最小改动并在输出中说明实际修改文件')}`,
     `禁止修改范围：${formatListForPrompt(contract.forbiddenFiles, '未配置')}`,
     `建议验证命令：${formatListForPrompt(contract.validationCommands, 'npm run typecheck')}`,
     `边界可信度：${contract.boundaryConfidence}`,
+    `参考文档路径（补充引用）：${docPath}`,
     '',
     '执行要求：',
     '- 只围绕当前任务改动。',
     '- 优先修改允许修改范围内的文件。',
     '- 不要修改禁止修改范围内的文件。',
-    '- 如果必须越界修改，先在输出中说明原因。',
+    ...additionalGuidance,
     '- 完成后运行或说明建议验证命令。',
     '',
     '执行步骤：',
-    `1. 优先依据任务边界合同中的文档片段完成任务 ${taskId}`,
-    `2. 仅在片段不足且不越过允许修改范围时，查看 ${docPath} 中的必要上下文`,
-    '3. 按照文档中的技术方案和接口定义完整实现',
-    '4. 保持与现有代码风格一致，并运行建议验证命令',
+    `1. 先按任务边界合同中的字段完成任务 ${taskId}`,
+    `2. 仅在片段不足且边界允许时，补充引用 ${docPath} 的必要上下文`,
+    '3. 保持与现有代码风格一致，并运行建议验证命令',
   ].join('\n');
 
   if (prompt.length <= PROMPT_CONTRACT_MAX_LENGTH) {
@@ -339,6 +353,17 @@ function limitText(value: string): string {
 function formatListForPrompt(values: string[], emptyText: string): string {
   if (!values.length) return emptyText;
   return values.map(value => `\n- ${value}`).join('');
+}
+
+function buildDryRunPrompt(taskId: string, label: string, contractSummary: AgentTaskContractSummary): string {
+  return [
+    `任务编号：${taskId}`,
+    `任务描述：${label}`,
+    'dry-run 预览：',
+    `允许修改范围：${formatListForPrompt(contractSummary.allowedFiles, '未推导出明确文件')}`,
+    `禁止修改范围：${formatListForPrompt(contractSummary.forbiddenFiles, '未配置')}`,
+    `建议验证命令：${formatListForPrompt(contractSummary.validationCommands, 'npm run typecheck')}`,
+  ].join('\n');
 }
 
 async function buildAgentTaskContract(input: {
@@ -462,6 +487,22 @@ function getRunTaskOutputDir(): string {
   return getVectaHubPath('outputs', 'run-task', djb2Hash(process.cwd()));
 }
 
+function validateGeneratedInvocation(tool: string, generated: GeneratedCommand): { valid: true } | { valid: false; message: string } {
+  if (!generated.command || typeof generated.command !== 'string' || !generated.command.trim()) {
+    return { valid: false, message: 'invocation validator: command 不能为空' };
+  }
+  if (generated.command !== tool) {
+    return { valid: false, message: `invocation validator: command 必须与 tool 一致 (tool=${tool}, command=${generated.command})` };
+  }
+  if (!Array.isArray(generated.args) || generated.args.some(arg => typeof arg !== 'string')) {
+    return { valid: false, message: 'invocation validator: args 必须是 string[]' };
+  }
+  if (generated.args.some(arg => arg.length === 0)) {
+    return { valid: false, message: 'invocation validator: args 不允许空字符串' };
+  }
+  return { valid: true };
+}
+
 export async function runVerificationCommands(
   validationCommands: string[],
   cwd: string,
@@ -545,6 +586,12 @@ export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
     output: compacted.output,
     outputTruncated: compacted.truncated,
   };
+  if (result.commandGenerationPath) {
+    jsonResult.commandGenerationPath = result.commandGenerationPath;
+  }
+  if (result.fallbackUsed !== undefined) {
+    jsonResult.fallbackUsed = result.fallbackUsed;
+  }
 
   if (result.gitChanges) {
     jsonResult.gitChanges = {
@@ -626,6 +673,8 @@ export async function runTask(options: {
         success: true,
         output: '',
         command: '',
+        commandGenerationPath: undefined,
+        fallbackUsed: false,
         agentTaskContract: agentTaskContractSummary,
       };
     }
@@ -633,96 +682,184 @@ export async function runTask(options: {
     if (!tool) {
       throw new Error('缺少 Agent CLI 工具名称，请传入 --tool <name>');
     }
+    const knownAgentDescriptor = getAgentDescriptorById(tool);
+    const knownAgentAdapter = getAgentAdapterById(tool);
 
-    const llmConfig = await withSpan('cli.run-task.loadLlmConfig', async () => {
-      const config = createLLMConfig();
-      if (!config) {
-        throw new Error('LLM 未配置，请先运行 vectahub setup 配置 AI 提供商');
-      }
-      return config;
-    }, { context: traceContext, parentSpanId: rootSpan.spanId, source: 'cli', attributes: baseAttributes });
-    const llmTemperatureRaw = process.env.VECTAHUB_LLM_TEMPERATURE;
-    const llmTemperature = llmTemperatureRaw !== undefined ? Number.parseFloat(llmTemperatureRaw) : 0.1;
-    const globalConfigDigest = buildGlobalConfigDigest({
-      model: llmConfig.model,
-      temperature: Number.isFinite(llmTemperature) ? llmTemperature : 0.1,
-    });
-    agentTaskContractSummary.globalConfigDigest = globalConfigDigest;
-    agentTaskContractSummary.instructionHash = computeInstructionHash(
-      taskId,
-      label,
-      agentTaskContract.docExcerpt || '',
-      tool,
-      agentTaskContract.allowedFiles,
-      agentTaskContract.forbiddenFiles,
-      globalConfigDigest,
-    );
-
-    const cacheManager = getToolCacheManager();
-    const discoverSpan = startSpan('cli.run-task.discoverToolHelp', {
-      context: traceContext,
-      parentSpanId: rootSpan.spanId,
-      source: 'cli',
-      attributes: baseAttributes,
-    });
-    const cacheEntry = await cacheManager.discoverToolHelp(tool);
-    await discoverSpan.end({ helpLength: cacheEntry.helpOutput.length });
-
-    const client = new LLMClient(llmConfig);
-
-    let fallbackUsed = false;
-    const generateSpan = startSpan('cli.run-task.generateCommand', {
-      context: traceContext,
-      parentSpanId: rootSpan.spanId,
-      source: 'cli',
-      attributes: baseAttributes,
-    });
-    let rawOutput = '';
-    try {
-      rawOutput = await client.completeRaw(AGENT_CMD_GENERATOR_ID, `任务 ${taskId}: ${label}，请基于工具用法和任务边界合同生成执行命令。`, {
-        toolName: tool,
-        helpOutput: cacheEntry.helpOutput,
-        taskId,
-        taskLabel: label,
-        docPath,
-        agentTaskContract: JSON.stringify(agentTaskContractForPrompt),
-        agentTaskContractSummary: JSON.stringify(agentTaskContractSummary),
-      });
-    } catch (error) {
-      await generateSpan.fail(error, { fallbackUsed: false, command: '' });
-      throw error;
-    }
-
-    let generated: GeneratedCommand;
-    try {
-      const cleaned = rawOutput.trim();
-      const jsonStr = extractOutermostJson(cleaned);
-      if (!jsonStr) {
-        throw new Error('LLM 输出中未找到有效的 JSON');
-      }
-      generated = JSON.parse(jsonStr) as GeneratedCommand;
-    } catch {
-      fallbackUsed = true;
-      logger.warn(`LLM 命令生成失败，使用默认提示词模式。原始输出: ${rawOutput.substring(0, 200)}`);
-      generated = {
-        command: tool,
-        args: ['--message', buildDefaultPrompt(taskId, label, docPath, agentTaskContract)],
-        explanation: '使用默认提示词模板',
+    if (dryRun) {
+      const dryRunPrompt = buildDryRunPrompt(taskId, label, agentTaskContractSummary);
+      const dryRunGenerated = knownAgentDescriptor && knownAgentAdapter
+        ? knownAgentAdapter.render({
+          descriptor: knownAgentDescriptor,
+          workspaceRoot: process.cwd(),
+          taskPrompt: dryRunPrompt,
+          mode: 'dry-run',
+          outputMode: 'text',
+        })
+        : {
+          command: tool,
+          args: ['--message', dryRunPrompt],
+          preview: '',
+        };
+      const dryRunCommand = buildCommandString(dryRunGenerated.command, dryRunGenerated.args);
+      logger.info(`[dry-run] 将预览: ${dryRunCommand}`);
+      return {
+        success: true,
+        output: '',
+        command: dryRunCommand,
+        commandGenerationPath: knownAgentDescriptor && knownAgentAdapter ? 'adapter' : 'llm-fallback',
+        fallbackUsed: false,
+        agentTaskContract: agentTaskContractSummary,
       };
     }
 
+    let generated: GeneratedCommand;
+    let fallbackUsed = false;
+    const commandGenerationPath = knownAgentDescriptor && knownAgentAdapter ? 'adapter' : 'llm-fallback';
+
+    if (knownAgentDescriptor && knownAgentAdapter) {
+      const adapterOutput = knownAgentAdapter.render({
+        descriptor: knownAgentDescriptor,
+        workspaceRoot: process.cwd(),
+        taskPrompt: buildDefaultPrompt(taskId, label, docPath, agentTaskContract),
+        mode: 'run',
+        outputMode: 'text',
+      });
+      generated = {
+        command: adapterOutput.command,
+        args: adapterOutput.args,
+        explanation: `使用 ${knownAgentDescriptor.id} adapter 生成确定性命令`,
+      };
+      const globalConfigDigest = `adapter=${knownAgentDescriptor.id}`;
+      agentTaskContractSummary.globalConfigDigest = globalConfigDigest;
+      agentTaskContractSummary.instructionHash = computeInstructionHash(
+        taskId,
+        label,
+        agentTaskContract.docExcerpt || '',
+        tool,
+        agentTaskContract.allowedFiles,
+        agentTaskContract.forbiddenFiles,
+        globalConfigDigest,
+      );
+    } else {
+      const llmConfig = await withSpan('cli.run-task.loadLlmConfig', async () => {
+        const config = createLLMConfig();
+        if (!config) {
+          throw new Error('LLM 未配置，请先运行 vectahub setup 配置 AI 提供商');
+        }
+        return config;
+      }, { context: traceContext, parentSpanId: rootSpan.spanId, source: 'cli', attributes: baseAttributes });
+      const llmTemperatureRaw = process.env.VECTAHUB_LLM_TEMPERATURE;
+      const llmTemperature = llmTemperatureRaw !== undefined ? Number.parseFloat(llmTemperatureRaw) : 0.1;
+      const globalConfigDigest = buildGlobalConfigDigest({
+        model: llmConfig.model,
+        temperature: Number.isFinite(llmTemperature) ? llmTemperature : 0.1,
+      });
+      agentTaskContractSummary.globalConfigDigest = globalConfigDigest;
+      agentTaskContractSummary.instructionHash = computeInstructionHash(
+        taskId,
+        label,
+        agentTaskContract.docExcerpt || '',
+        tool,
+        agentTaskContract.allowedFiles,
+        agentTaskContract.forbiddenFiles,
+        globalConfigDigest,
+      );
+
+      const cacheManager = getToolCacheManager();
+      const discoverSpan = startSpan('cli.run-task.discoverToolHelp', {
+        context: traceContext,
+        parentSpanId: rootSpan.spanId,
+        source: 'cli',
+        attributes: {
+          ...baseAttributes,
+          knownAgentDescriptor: knownAgentDescriptor?.id || '',
+          commandGenerationPath,
+        },
+      });
+      const cacheEntry = await cacheManager.discoverToolHelp(tool);
+      await discoverSpan.end({ helpLength: cacheEntry.helpOutput.length });
+
+      const client = new LLMClient(llmConfig);
+
+      const generateSpan = startSpan('cli.run-task.generateCommand', {
+        context: traceContext,
+        parentSpanId: rootSpan.spanId,
+        source: 'cli',
+        attributes: {
+          ...baseAttributes,
+          commandGenerationPath,
+        },
+      });
+      let rawOutput = '';
+      try {
+        rawOutput = await client.completeRaw(AGENT_CMD_GENERATOR_ID, `任务 ${taskId}: ${label}，请基于工具用法和任务边界合同生成执行命令。`, {
+          toolName: tool,
+          helpOutput: cacheEntry.helpOutput,
+          taskId,
+          taskLabel: label,
+          docPath,
+          agentTaskContract: JSON.stringify(agentTaskContractForPrompt),
+          agentTaskContractSummary: JSON.stringify(agentTaskContractSummary),
+        });
+      } catch (error) {
+        await generateSpan.fail(error, { fallbackUsed: false, command: '' });
+        throw error;
+      }
+
+      try {
+        const cleaned = rawOutput.trim();
+        const jsonStr = extractOutermostJson(cleaned);
+        if (!jsonStr) {
+          throw new Error('LLM 输出中未找到有效的 JSON');
+        }
+        generated = JSON.parse(jsonStr) as GeneratedCommand;
+      } catch {
+        fallbackUsed = true;
+        logger.warn(`LLM 命令生成失败，使用默认提示词模式。原始输出: ${rawOutput.substring(0, 200)}`);
+        generated = {
+          command: tool,
+          args: ['--message', buildDefaultPrompt(taskId, label, docPath, agentTaskContract)],
+          explanation: '使用默认提示词模板',
+        };
+      }
+
+      const fullCommand = buildCommandString(generated.command, generated.args);
+      await generateSpan.end({
+        fallbackUsed,
+        command: limitText(fullCommand),
+      });
+    }
+
     const fullCommand = buildCommandString(generated.command, generated.args);
-    await generateSpan.end({
-      fallbackUsed,
-      command: limitText(fullCommand),
-    });
+    if (commandGenerationPath === 'llm-fallback') {
+      const invocationValidation = validateGeneratedInvocation(tool, generated);
+      if (!invocationValidation.valid) {
+        const validationErrorMessage = `${invocationValidation.message}；已阻断执行`;
+        logger.error(validationErrorMessage);
+        return {
+          success: false,
+          output: validationErrorMessage,
+          command: fullCommand,
+          commandGenerationPath,
+          fallbackUsed,
+          error: {
+            code: 'INVALID_INVOCATION',
+            message: invocationValidation.message,
+          },
+          agentTaskContract: agentTaskContractSummary,
+        };
+      }
+    }
 
     const securityManager = getSecurityManager();
     const securitySpan = startSpan('cli.run-task.securityCheck', {
       context: traceContext,
       parentSpanId: rootSpan.spanId,
       source: 'cli',
-      attributes: baseAttributes,
+      attributes: {
+        ...baseAttributes,
+        commandGenerationPath,
+      },
     });
     const detectionResult = securityManager.detectCommand(fullCommand, generated.command);
     await securitySpan.end({
@@ -739,7 +876,18 @@ export async function runTask(options: {
       logger.error(`安全策略拦截: 命令匹配规则 "${ruleName}" (severity: critical)`);
       logger.error(`匹配模式: ${detectionResult.matchedPattern}`);
       audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'BLOCKED', 'run-task');
-      return { success: false, output: `安全策略拦截: ${ruleName}`, command: fullCommand, agentTaskContract: agentTaskContractSummary };
+      return {
+        success: false,
+        output: `安全策略拦截: ${ruleName}`,
+        command: fullCommand,
+        commandGenerationPath,
+        fallbackUsed,
+        error: {
+          code: 'SECURITY_BLOCKED',
+          message: `安全策略拦截: ${ruleName}`,
+        },
+        agentTaskContract: agentTaskContractSummary,
+      };
     }
     if (detectionResult.isDangerous) {
       // high/medium risk: pass risk info to plugin for user confirmation
@@ -759,10 +907,16 @@ export async function runTask(options: {
         context: traceContext,
         parentSpanId: rootSpan.spanId,
         source: 'cli',
-        attributes: baseAttributes,
+        attributes: {
+          ...baseAttributes,
+          commandGenerationPath,
+        },
       });
       try {
-        await execFileAsync(generated.command, ['--version'], { timeout: 10000 });
+        const preflightArgs = (commandGenerationPath === 'adapter' && knownAgentDescriptor?.preflightSpec.invocableArgs?.length)
+          ? knownAgentDescriptor.preflightSpec.invocableArgs
+          : ['--version'];
+        await execFileAsync(generated.command, preflightArgs, { timeout: 10000 });
         await preflightSpan.end({ agentAvailable: true });
       } catch (preflightError) {
         const preflightMsg = `Agent CLI "${generated.command}" 未安装或无执行权限`;
@@ -773,17 +927,11 @@ export async function runTask(options: {
           success: false,
           output: preflightMsg,
           command: fullCommand,
+          commandGenerationPath,
+          fallbackUsed,
           agentTaskContract: agentTaskContractSummary,
         };
       }
-    }
-
-    if (dryRun) {
-      logger.info(`[dry-run] 将执行: ${fullCommand}`);
-      if (generated.explanation) {
-        logger.info(`说明: ${generated.explanation}`);
-      }
-      return { success: true, output: '', command: fullCommand, agentTaskContract: agentTaskContractSummary };
     }
 
     logger.info(`执行: ${fullCommand}`);
@@ -799,6 +947,7 @@ export async function runTask(options: {
         source: 'cli',
         attributes: {
           ...baseAttributes,
+          commandGenerationPath,
           fallbackUsed,
           command: limitText(fullCommand),
           timeoutMs: agentCliTimeout,
@@ -942,7 +1091,17 @@ export async function runTask(options: {
       if (gitChanges) {
         logger.info(`变更文件: ${gitChanges.changedFiles.length} 个`);
       }
-      return { success: finalSuccess, output: combinedOutput, command: fullCommand, gitChanges, agentTaskContract: agentTaskContractSummary, verification, usage };
+      return {
+        success: finalSuccess,
+        output: combinedOutput,
+        command: fullCommand,
+        commandGenerationPath,
+        fallbackUsed,
+        gitChanges,
+        agentTaskContract: agentTaskContractSummary,
+        verification,
+        usage,
+      };
     } catch (error) {
       const execError = error as any;
       const errStdout = execError.stdout?.toString?.() || '';
@@ -975,6 +1134,8 @@ export async function runTask(options: {
         success: false,
         output: errOutput,
         command: fullCommand,
+        commandGenerationPath,
+        fallbackUsed,
         error: {
           code: errorCode,
           message: errorMessage,

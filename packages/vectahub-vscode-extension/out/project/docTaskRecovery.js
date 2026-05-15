@@ -5,7 +5,7 @@
  * Provides deterministic recovery decision logic for doc-task failures.
  * Builds recovery input from DocTaskRunRecord and creates recovery records.
  *
- * See docs/v2/self-healing-recovery-spec.md §9.1.
+ * See docs/specs/recovery-loop.md.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildRecoveryInput = buildRecoveryInput;

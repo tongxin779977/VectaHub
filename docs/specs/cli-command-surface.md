@@ -46,6 +46,19 @@
 | `recover-task` | 恢复失败文档任务。 | 支持 |
 | `trace list/show` | 查看链路追踪数据。 | 支持 |
 
+### `run-task` 预览与合同语义
+
+当前实现以 `src/commands/run-task.ts` 为准：
+
+- `run-task --contract-preview` 会先构建 `agentTaskContract` 摘要，然后立即返回。
+- `--contract-preview` 不要求 `--tool`，不会加载 LLM，不会发现工具 help，不会执行 Agent。
+- `run-task --dry-run` 要求提供 `--tool`，返回的是一条本地预览命令，命令消息体包含任务编号、任务描述、允许修改范围、禁止修改范围和建议验证命令。
+- `--dry-run` 也会先构建 `agentTaskContract` 摘要，但在该分支中不会加载 LLM、不会做 tool help discovery、不会执行 Agent。
+- 两个分支的 `--json` 输出都保留 `ok`、`command`、`output`、`outputTruncated` 和 `agentTaskContract` 字段；`--contract-preview` 的 `command` 与 `output` 为空字符串。
+- 正常执行路径才会继续进入命令生成、安全检查、Agent preflight、Agent 执行、git 变更收集和验证命令执行；已知 Agent adapter 走确定性命令渲染，未知或自定义 CLI 保留 LLM fallback。
+- 正常执行路径的 `--json` 输出会通过 `commandGenerationPath` 标记 `adapter` 或 `llm-fallback`，并通过 `fallbackUsed` 标记是否实际使用 fallback 命令；安全拦截等失败结果也保留这些字段用于诊断。
+- 审计日志写入失败采用告警降级，不改变命令返回结构；可能看到 `Failed to write audit log: ...` 的 stderr/console 告警。
+
 ## 工具、安全和诊断命令
 
 | 命令 | 用途 |

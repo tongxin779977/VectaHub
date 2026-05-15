@@ -2,7 +2,7 @@
  * P6 Self-Healing & Recovery — Type Definitions
  *
  * Data contracts for doc-task recovery decision model.
- * See docs/v2/self-healing-recovery-spec.md §6.
+ * See docs/specs/recovery-loop.md.
  */
 
 import type { DocTaskFailureKind, DocTaskRunStatus } from './doc-task.js';

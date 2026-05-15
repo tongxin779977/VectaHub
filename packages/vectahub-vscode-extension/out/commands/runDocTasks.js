@@ -125,6 +125,45 @@ function resolveStructuredError(result) {
         outputSummarySource: result.data?.output,
     };
 }
+function normalizeAgentCliInfo(raw) {
+    return {
+        name: raw.name ?? '',
+        installed: raw.installed === true,
+        version: raw.version,
+        configured_enabled: raw.configured_enabled === true,
+        has_permission: raw.has_permission === true,
+        invocable: raw.invocable === true,
+        // Fail-closed for old CLI payloads missing ready.
+        ready: raw.ready === true,
+    };
+}
+function formatAgentAvailabilityMessage(agents) {
+    const available = agents.filter(a => a.installed && a.configured_enabled && a.has_permission && a.invocable && a.ready).map(a => a.name);
+    const installedButDisabled = agents.filter(a => a.installed && !a.configured_enabled).map(a => a.name);
+    const installedButNoPermission = agents.filter(a => a.installed && !a.has_permission).map(a => a.name);
+    const installedButNotInvocable = agents.filter(a => a.installed && a.has_permission && !a.invocable).map(a => a.name);
+    const installedButNotReady = agents
+        .filter(a => a.installed && a.has_permission && a.invocable && !a.ready)
+        .map(a => a.name);
+    const notInstalled = agents.filter(a => !a.installed).map(a => a.name);
+    const parts = [];
+    if (available.length > 0)
+        parts.push(`可用: ${available.join(', ')}`);
+    if (installedButDisabled.length > 0)
+        parts.push(`已安装但未启用: ${installedButDisabled.join(', ')}`);
+    if (installedButNoPermission.length > 0)
+        parts.push(`已安装但未授权: ${installedButNoPermission.join(', ')}`);
+    if (installedButNotInvocable.length > 0)
+        parts.push(`已安装但不可调用: ${installedButNotInvocable.join(', ')}`);
+    if (installedButNotReady.length > 0)
+        parts.push(`已安装但未就绪: ${installedButNotReady.join(', ')}`);
+    if (notInstalled.length > 0)
+        parts.push(`未安装: ${notInstalled.join(', ')}`);
+    if (parts.length === 0) {
+        return '未检测到可用的 AI Agent CLI，请先安装并授权 gemini/claude/codex/aider 等工具';
+    }
+    return `未检测到可用的 AI Agent CLI。${parts.join('；')}`;
+}
 async function readDocContentOnce(docPath) {
     if (!docPath)
         return undefined;
@@ -228,9 +267,11 @@ function registerDocTaskCommands(context, tasksProvider) {
         const result = await (0, adapter_js_1.runCli)(['tools', 'agents', '--json']);
         const items = [];
         if (result.ok && result.data?.agents) {
-            const installedAgents = result.data.agents.filter(a => a.installed && a.enabled && a.has_permission);
+            const normalizedAgents = result.data.agents.map(agent => normalizeAgentCliInfo(agent));
+            const installedAgents = normalizedAgents
+                .filter(a => a.installed && a.configured_enabled && a.has_permission && a.invocable && a.ready);
             if (installedAgents.length === 0) {
-                vscode.window.showWarningMessage('未检测到已安装且已启用的 AI Agent CLI，请先安装并授权 gemini/claude/codex/aider 等工具');
+                vscode.window.showWarningMessage(formatAgentAvailabilityMessage(normalizedAgents));
             }
             for (const agent of installedAgents) {
                 items.push({

@@ -80,6 +80,13 @@ packages/vectahub-vscode-extension/       VS Code 插件
 - 不写执行记录。
 - 不修改配置。
 
+对 `run-task` 而言，当前代码中的预览边界更具体：
+
+- `run-task --dry-run` 会先构建任务边界合同摘要，再返回一条本地预览命令。
+- 该分支在返回前不会加载 LLM 配置，不会发现外部工具 help，也不会执行 Agent。
+- `run-task --contract-preview` 比 `--dry-run` 更早返回，只暴露合同摘要，不要求 `--tool`。
+- 预览模式返回的重点是结构化边界，不是完整文档回显；长文档内容不应原样泄漏到预览命令文本。
+
 ### Contract First
 
 Agent 任务必须通过 `AgentTaskContract` 执行。合同至少包括：
@@ -104,6 +111,8 @@ Agent 任务必须通过 `AgentTaskContract` 执行。合同至少包括：
 ### Safety By Default
 
 高风险命令必须确认，敏感信息必须在落盘前脱敏。安全评估失败时默认进入保守模式。
+
+当前审计实现允许“告警后继续”降级：如果审计日志目录不可写，系统会输出 `Failed to write audit log` 告警，但不应改变 `run-task`、`contract-preview` 等主流程语义。
 
 ## 演进方向
 

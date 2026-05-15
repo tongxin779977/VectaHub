@@ -6,7 +6,7 @@
  * `suggest_fix` returns structured guidance without auto-execution.
  * `blocked` returns explanation and stops.
  *
- * See docs/v2/self-healing-recovery-spec.md §8, §9.2.
+ * See docs/specs/recovery-loop.md.
  */
 
 import { Command } from 'commander';
