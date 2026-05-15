@@ -44,7 +44,7 @@ const docTaskRunStore_js_1 = require("../project/docTaskRunStore.js");
 const docTaskContract_js_1 = require("../project/docTaskContract.js");
 const docTaskRunHelpers_js_1 = require("./docTaskRunHelpers.js");
 const docTaskStatusHelpers_js_1 = require("./docTaskStatusHelpers.js");
-const riskUI_js_1 = require("../security/riskUI.js");
+const runTaskResultSemantics_js_1 = require("./runTaskResultSemantics.js");
 const agentAvailability_js_1 = require("./agentAvailability.js");
 const CRITICAL_RISK_PATTERNS = [
     /^sudo\s+/i,
@@ -156,6 +156,12 @@ function applyVerificationToRunRecord(runRecord, verification) {
             ? failed.map(c => c.command).slice(0, 3).join('; ')
             : undefined,
     };
+}
+function applyExecutionSemanticsToRunRecord(runRecord, semantics) {
+    if (!runRecord)
+        return;
+    runRecord.confirmationSource = semantics.confirmationSource;
+    runRecord.unclosedExecution = semantics.unclosedExecution || undefined;
 }
 function registerDocTaskCommands(context, tasksProvider) {
     const workspaceRoot = (0, adapter_js_1.getActiveWorkspaceFolder)();
@@ -350,25 +356,44 @@ function registerDocTaskCommands(context, tasksProvider) {
                     token,
                     traceContext: { traceId: traceContext.traceId, parentSpanId: singleSpan.spanId, source: 'vscode' },
                 });
-                // Check if CLI returned a high-risk assessment requiring user confirmation
-                if (result.ok && result.data?.riskAssessment?.needsConfirmation) {
-                    const risk = result.data.riskAssessment;
-                    const confirmed = await (0, riskUI_js_1.confirmHighRiskCommand)({ level: risk.level, ruleName: risk.ruleName, needsConfirmation: true }, `${task.id}: ${task.label}`);
-                    if (!confirmed) {
-                        (0, output_js_1.logToOutput)(`任务 ${task.id} 用户拒绝高风险命令执行`, 'warn');
-                        (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, 'cancelled');
-                        tasksProvider.refresh();
-                        if (runRecord) {
-                            runRecord.status = 'cancelled';
-                            runRecord.updatedAt = new Date().toISOString();
-                            runRecord.endedAt = runRecord.updatedAt;
-                            runRecord.durationMs = Date.now() - startedAtMs;
-                            await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'risk-cancelled update', warnRunStore);
-                        }
-                        await singleSpan.end({ taskId: task.id, status: 'cancelled' });
-                        return;
+                const semantics = (0, runTaskResultSemantics_js_1.resolveRunTaskExecutionSemantics)(result);
+                if (semantics.needsConfirmation) {
+                    const source = semantics.confirmationSource;
+                    const status = source === 'post-execution' ? 'changed' : 'preflight';
+                    task.lastFailureKind = undefined;
+                    (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, 'needs_confirmation');
+                    tasksProvider.refresh();
+                    if (runRecord) {
+                        const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
+                        runRecord.status = 'needs_confirmation';
+                        runRecord.failureKind = undefined;
+                        runRecord.updatedAt = new Date().toISOString();
+                        runRecord.endedAt = runRecord.updatedAt;
+                        runRecord.durationMs = Date.now() - startedAtMs;
+                        runRecord.command = result.data?.command || runRecord.command;
+                        runRecord.gitChanges = {
+                            changedFileCount: changedFiles.length,
+                            changedFiles,
+                            shortStat: result.data?.gitChanges?.shortStat,
+                        };
+                        runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output || '');
+                        runRecord.outputTruncated = result.data?.outputTruncated === true;
+                        (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
+                        applyContractSummary(runRecord, result.data?.agentTaskContract);
+                        applyExecutionSemanticsToRunRecord(runRecord, semantics);
+                        await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'needs confirmation update', warnRunStore);
                     }
-                    (0, output_js_1.logToOutput)(`任务 ${task.id} 用户确认高风险命令继续执行`, 'warn');
+                    await singleSpan.end({
+                        taskId: task.id,
+                        taskLabel: task.label,
+                        status: 'needs_confirmation',
+                        agentCli: agentCli || '',
+                        confirmationSource: source || 'unknown',
+                        confirmationStageStatus: status,
+                    });
+                    (0, output_js_1.logToOutput)(`任务 ${task.id} 需要人工确认（来源: ${source || 'unknown'}）`, 'warn');
+                    vscode.window.showWarningMessage(`任务 ${task.id} 需要人工确认（${source === 'post-execution' ? '执行后确认' : '执行前确认'}）`);
+                    return;
                 }
                 if (result.ok) {
                     const output = result.data?.output || '';
@@ -398,6 +423,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                         (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                         applyContractSummary(runRecord, result.data?.agentTaskContract);
                         applyVerificationToRunRecord(runRecord, result.data?.verification);
+                        applyExecutionSemanticsToRunRecord(runRecord, semantics);
                         await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'success update', warnRunStore);
                     }
                     if (finalStatus === 'failed_test') {
@@ -434,6 +460,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                             runRecord.outputTruncated = result.data?.outputTruncated === true;
                             (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                             applyContractSummary(runRecord, result.data?.agentTaskContract);
+                            applyExecutionSemanticsToRunRecord(runRecord, semantics);
                             await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'planned-only reset update', warnRunStore);
                         }
                         (0, output_js_1.logToOutput)(`任务 ${task.id} 仅输出计划，未执行实现，已回退为 ready`, 'warn');
@@ -473,6 +500,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                             (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                             applyContractSummary(runRecord, result.data?.agentTaskContract);
                             applyVerificationToRunRecord(runRecord, result.data?.verification);
+                            applyExecutionSemanticsToRunRecord(runRecord, semantics);
                             await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'verification failed update', warnRunStore);
                         }
                         (0, output_js_1.logToOutput)(`任务 ${task.id} Agent 成功但验证失败`, 'warn');
@@ -515,6 +543,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                             };
                             (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                             applyContractSummary(runRecord, result.data?.agentTaskContract);
+                            applyExecutionSemanticsToRunRecord(runRecord, semantics);
                             await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'failed update', warnRunStore);
                         }
                         (0, output_js_1.logToOutput)(`任务 ${task.id} 执行失败: ${errMsg}`, 'error');
@@ -734,6 +763,42 @@ function registerDocTaskCommands(context, tasksProvider) {
                             token,
                             traceContext: { traceId: batchTraceContext.traceId, parentSpanId: taskSpan.spanId, source: 'vscode' },
                         });
+                        const semantics = (0, runTaskResultSemantics_js_1.resolveRunTaskExecutionSemantics)(result);
+                        if (semantics.needsConfirmation) {
+                            const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
+                            task.lastFailureKind = undefined;
+                            (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, 'needs_confirmation');
+                            failedCount++;
+                            if (runRecord) {
+                                runRecord.status = 'needs_confirmation';
+                                runRecord.failureKind = undefined;
+                                runRecord.updatedAt = new Date().toISOString();
+                                runRecord.endedAt = runRecord.updatedAt;
+                                runRecord.durationMs = Date.now() - startedAtMs;
+                                runRecord.command = result.data?.command || runRecord.command;
+                                runRecord.gitChanges = {
+                                    changedFileCount: changedFiles.length,
+                                    changedFiles,
+                                    shortStat: result.data?.gitChanges?.shortStat
+                                };
+                                runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output || '');
+                                runRecord.outputTruncated = result.data?.outputTruncated === true;
+                                (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
+                                applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
+                                applyExecutionSemanticsToRunRecord(runRecord, semantics);
+                                await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch needs confirmation update', warnRunStore);
+                            }
+                            await taskSpan.end({
+                                taskId: task.id,
+                                taskLabel: task.label,
+                                status: 'needs_confirmation',
+                                agentCli: agentCli || '',
+                                confirmationSource: semantics.confirmationSource || 'unknown',
+                            });
+                            (0, output_js_1.logToOutput)(`[batch] 任务 ${task.id} 需要人工确认（来源: ${semantics.confirmationSource || 'unknown'}）`, 'warn');
+                            updateProgress(task.id, '需确认');
+                            return;
+                        }
                         if (result.ok) {
                             const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
                             const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, result.data?.verification, result.data?.agentExecutionOutcome);
@@ -760,6 +825,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                                 (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                                 applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
                                 applyVerificationToRunRecord(runRecord, result.data?.verification);
+                                applyExecutionSemanticsToRunRecord(runRecord, semantics);
                                 await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch success update', warnRunStore);
                             }
                             await taskSpan.end({
@@ -792,6 +858,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                                     runRecord.outputTruncated = result.data?.outputTruncated === true;
                                     (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                                     applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
+                                    applyExecutionSemanticsToRunRecord(runRecord, semantics);
                                     await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch planned-only reset update', warnRunStore);
                                 }
                                 (0, output_js_1.logToOutput)(`[batch] 任务 ${task.id} 仅输出计划，未执行实现，已回退为 ready`, 'warn');
@@ -829,6 +896,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                                     (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                                     applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
                                     applyVerificationToRunRecord(runRecord, result.data?.verification);
+                                    applyExecutionSemanticsToRunRecord(runRecord, semantics);
                                     await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch verification failed update', warnRunStore);
                                 }
                                 (0, output_js_1.logToOutput)(`[batch] 任务 ${task.id} Agent 成功但验证失败`, 'warn');
@@ -871,6 +939,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                                     runRecord.outputTruncated = result.data?.outputTruncated === true;
                                     (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                                     applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
+                                    applyExecutionSemanticsToRunRecord(runRecord, semantics);
                                     await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch failed update', warnRunStore);
                                 }
                                 (0, output_js_1.logToOutput)(`[batch] 任务 ${task.id} 失败: ${errMsg}`, 'error');

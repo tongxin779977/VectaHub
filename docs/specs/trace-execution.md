@@ -4,6 +4,8 @@
 
 为 VectaHub 增加跨 VS Code 插件和 CLI 的轻量链路追踪能力。一次用户操作必须能追踪到插件入口、CLI 调用、CLI 内部关键步骤、Agent 子进程执行、JSON 解析和任务状态更新。
 
+`run-task` 的完整执行合同、完成边界和“未收口执行”术语，以 [Run-Task 执行合同规格](./run-task-execution-contract.md) 为准。本文只定义 trace 必须如何观测这些事实。
+
 核心目标不是替换现有日志，而是让失败可定位：
 
 - 一个命令执行了哪些步骤。
@@ -336,7 +338,7 @@ collectGitChanges:
 
 - `spawnAgent` 的完成边界不能只靠一个布尔“是否结束”。实现必须区分 `exit`、`close`、总超时杀进程、以及 `exit` 后的有界流刷新收口。
 - 已确认的真实场景是：某些 Agent CLI 会在仓库已写盘后长时间不 `close`。trace 不得仅凭“尚未 close”推断“尚未执行”。
-- 至少应能从 trace 上区分“Agent 没执行”“Agent 已写盘但未收口”“Agent 正常完成并返回”这三类链路。
+- 至少应能从 trace 上区分“Agent 没执行”“Agent 已写盘但未收口”“Agent 正常完成并返回”这三类链路。其中“Agent 已写盘但未收口”对应执行合同中的“未收口执行”。
 
 禁止记录：
 
@@ -411,7 +413,7 @@ vectahub trace show tr_xxx --json
 
 - `runCli` 开始时，如果 options 没有 trace context，就创建一个 span。
 - spawn CLI 前把 trace env 合并到 env。
-- 插件侧当前第一版仍主要在 child close 后记录 exitCode、stdoutLength、stderrLength、durationMs；该层仍有“已写盘但未收口”表达缺口，需要后续补强。
+- 插件侧当前第一版仍主要依赖 child 生命周期做聚合记录；该层对“未收口执行”的表达能力仍弱于 CLI 主链路，需要后续补强，不能反向覆盖 CLI 的权威完成边界。
 - JSON 解析单独建 span。
 - cancellation 单独记录 failed span，error message 为 `Command was cancelled by user`。
 - spawn error 单独记录 failed span。

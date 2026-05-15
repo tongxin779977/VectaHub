@@ -4,6 +4,8 @@
 
 目标：每个文档任务执行后由 VectaHub 运行验证命令，不再只依赖 Agent 自述。
 
+`run-task` 的完整执行合同、何时允许进入 `verification`、执行前确认语义和“未收口执行”术语，以 [Run-Task 执行合同规格](./run-task-execution-contract.md) 为准。
+
 禁止事项：
 
 - 不从 Agent 输出中提取任意命令执行。
@@ -30,7 +32,7 @@
 - `run-task` 已在 Agent 成功后执行 `AgentTaskContract.validationCommands`，并返回 `verification` 摘要。
 - 插件状态机已有 `verifying`、`failed_test` 和 `failed_system_internal` 状态。
 - 插件 task run record 只保存摘要，不保存完整大输出。
-- 当前验证闭环的前提不是“Agent 子进程退出码为 0”，而是“Agent 已真正完成执行且未命中系统类软失败短路条件”。
+- 当前验证闭环的前提不是“Agent 子进程退出码为 0”，而是“Agent 已真正完成执行且未命中系统类软失败短路条件，且不属于未收口执行”。
 
 ## 3. 根因分析
 
@@ -98,7 +100,7 @@ Agent success
 Agent 失败时不运行验证命令。
 Agent 软失败时同样不运行验证命令。
 
-如果 Agent 已经产生 `gitChanges`，但最终以 `failed_timeout` 或其他未完成收口的失败返回，验证命令仍然不得执行；此时 `verification` 必须缺失，由上层结合 `gitChanges` 和失败分类决定后续恢复或人工处理。
+如果 Agent 已经产生 `gitChanges`，但最终以 `failed_timeout` 或其他未完成收口的失败返回，验证命令仍然不得执行；此时 `verification` 必须缺失，由上层结合 `gitChanges` 和失败分类决定后续恢复或人工处理。这类场景属于“未收口执行”。
 
 这里的 Agent 软失败包括但不限于：
 

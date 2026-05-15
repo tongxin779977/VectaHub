@@ -638,7 +638,7 @@ npm run lint -w packages/vectahub-vscode-extension
 处理顺序：
 
 1. 保留当前 LLM 生成路径作为 fallback。
-2. 后续为 `codex`、`gemini`、`aider`、`claude` 增加确定性命令模板。
+2. 后续优先为 `codex`、`gemini`、`aider` 保持 adapter-backed 命令模板，并为 `claude` 补齐从 descriptor-known 到 adapter-backed 的执行模板。
 3. 模板命中时跳过 LLM 命令生成，只保留安全检查和 trace。
 
 ### 21.3 根因三：并发写运行记录会竞争 latest 状态

@@ -4,6 +4,8 @@
 
 把文档任务执行从“插件按钮触发 CLI”升级为轻量、可持久化、可恢复、可分类失败的状态机。
 
+`run-task` 的完整执行合同、完成边界、`needs_confirmation` 双来源和“未收口执行”术语，以 [Run-Task 执行合同规格](./run-task-execution-contract.md) 为准。
+
 P1 的核心目标：
 
 - 每个文档任务有独立运行记录。
@@ -110,6 +112,12 @@ needs_confirmation
 
 `verifying` 和 `failed_test` 可以先保留类型，P3 验证闭环再完整接入。
 
+关于 `needs_confirmation`：
+
+- 该状态名可来自“执行前确认”或“执行后确认”
+- 两者同名，但来源、时机、恢复策略不同
+- 状态机实现与插件展示不得把二者混写成单一“高风险确认”
+
 ### 5.4 插件端指纹校验与状态回滚 (Hash Validation)
 
 为了确保文档内容变更后任务状态能实时响应，插件端在**authoritative hash 可计算**时必须实现以下逻辑：
@@ -190,7 +198,7 @@ failed_timeout:
   - result.error.code=TIMEOUT
   - error message 包含 timeout / timed out
   - 超时前可能已经产生 `gitChanges`，但 CLI 未完成权威收口，且 `verification` 缺失
-  - 这种场景属于“部分落地但未完成”，不得自动视为 success，也不得在无人工确认时当作可直接重试
+  - 这种场景属于“未收口执行”，不得自动视为 success，也不得在无人工确认时当作可直接重试
 
 failed_conflict:
   - git diff 中存在未预期冲突标记
@@ -399,6 +407,7 @@ ready
 
 ```text
 preflight -> failed_config
+preflight -> needs_confirmation      (执行前确认)
 running -> failed_agent
 running -> failed_json_protocol
 running -> failed_timeout
@@ -411,6 +420,8 @@ changed -> needs_confirmation
 
 - `running -> failed_timeout` 时，如果已经观测到 `gitChanges`，最终状态仍然是 `failed_timeout`，不是 `changed`。
 - `changed` 只表示成功链路中的“已完成且可继续验证/展示”的结果，不能用来表示“仓库已被改动但 CLI 未收口”。
+- `preflight -> needs_confirmation` 表示执行前确认：此时不得已有仓库副作用。
+- `changed -> needs_confirmation` 表示执行后确认：此时必须已经存在可归因的执行副作用。
 
 ### 10.2 批量任务
 

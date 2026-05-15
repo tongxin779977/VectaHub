@@ -38,6 +38,8 @@ export interface DocTaskRunRecord {
     failedCommands: number;
     failedCommandSummary?: string;
   };
+  confirmationSource?: 'preflight' | 'post-execution';
+  unclosedExecution?: boolean;
   retryOfRunId?: string;
 }
 

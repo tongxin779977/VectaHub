@@ -61,6 +61,16 @@ describe('docTaskRecovery', () => {
       const input = buildRecoveryInput(record);
       expect(input.failureKind).toBe('unknown');
     });
+
+    it('should include confirmationSource and unclosedExecution metadata when present', () => {
+      const record = makeRecord({
+        confirmationSource: 'post-execution',
+        unclosedExecution: true,
+      });
+      const input = buildRecoveryInput(record);
+      expect(input.confirmationSource).toBe('post-execution');
+      expect(input.unclosedExecution).toBe(true);
+    });
   });
 
   describe('decideRecovery', () => {
@@ -133,6 +143,40 @@ describe('docTaskRecovery', () => {
         gitChanges: { changedFileCount: 1, changedFiles: ['x.ts'] },
       }));
       expect(d.kind).toBe('suggest_fix');
+      expect(d.mode).toBe('confirm_required');
+      expect(d.reason).toBe('unclosed-execution');
+    });
+
+    it('should route timeout + gitChanges + no verification to suggest_fix + confirm_required', () => {
+      const d = decideRecovery(makeInput('timeout', {
+        gitChanges: { changedFileCount: 2, changedFiles: ['a.ts', 'b.ts'] },
+        verification: undefined,
+      }));
+      expect(d.kind).toBe('suggest_fix');
+      expect(d.mode).toBe('confirm_required');
+      expect(d.reason).toBe('unclosed-execution');
+      expect(d.canReusePreviousCommand).toBe(false);
+    });
+
+    it('should classify preflight confirmation as blocked/manual_only', () => {
+      const d = decideRecovery(makeInput('agent', {
+        status: 'needs_confirmation',
+        confirmationSource: 'preflight',
+      }));
+      expect(d.kind).toBe('blocked');
+      expect(d.mode).toBe('manual_only');
+      expect(d.reason).toBe('confirmation-required-preflight');
+    });
+
+    it('should classify post-execution confirmation as suggest_fix/confirm_required', () => {
+      const d = decideRecovery(makeInput('agent', {
+        status: 'needs_confirmation',
+        confirmationSource: 'post-execution',
+        gitChanges: { changedFileCount: 1, changedFiles: ['src/a.ts'] },
+      }));
+      expect(d.kind).toBe('suggest_fix');
+      expect(d.mode).toBe('confirm_required');
+      expect(d.reason).toBe('confirmation-required-post-execution');
     });
 
     it('should return suggest_fix for unknown failure', () => {

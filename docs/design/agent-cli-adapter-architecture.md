@@ -2,6 +2,8 @@
 
 ## 背景
 
+`run-task` 的完整执行合同、`dry-run` 权威语义、完成边界和 Agent 支持分层，以 [Run-Task 执行合同规格](../specs/run-task-execution-contract.md) 为准。本文只描述适配架构的设计方向与迁移方案。
+
 当前 `run-task` 已具备合同构建、trace、安全检查、Agent 执行、验证和恢复链路，但外部 Agent CLI 接入仍存在两个结构性问题：
 
 1. 已知 Agent CLI 仍主要依赖“读取 `--help` + LLM 生成命令”的方式组装执行命令。
@@ -69,7 +71,7 @@
 
 ### Adapter First
 
-已知 Agent CLI 走确定性 adapter；只有未知 CLI 才允许退回 `help + LLM` 猜测模式。
+`adapter-backed known agents` 走确定性 adapter；`descriptor-known but adapter-incomplete agents` 与 `unknown/fallback agents` 在完整 adapter 落地前仍可能退回 `help + LLM` 猜测模式。
 
 ### Prompt / Transport 解耦
 
@@ -255,14 +257,13 @@ preflight 必须在 runtime bootstrap 之后执行，否则“可调用”结论
 
 ## 已知 Agent 与未知 Agent 的策略分流
 
-### 已知 Agent CLI
+### adapter-backed known agents
 
 适用对象：
 
 - `codex`
 - `gemini`
 - `aider`
-- `claude`
 
 策略：
 
@@ -272,7 +273,20 @@ preflight 必须在 runtime bootstrap 之后执行，否则“可调用”结论
 - 只有在 descriptor 明确声明时，才允许隔离可写运行目录
 - 隔离运行目录时，仍必须继承用户默认配置语义
 
-### 未知或自定义 Agent CLI
+### descriptor-known but adapter-incomplete agents
+
+当前适用对象：
+
+- `claude`
+
+策略：
+
+- 已有 descriptor / preflight 事实，但不得在文档中表述为“已完整 adapter-backed”
+- 在完整 adapter 落地前，执行路径仍可能落入 `llm-fallback`
+- 可以先消费 descriptor 提供的入口、preflight 和运行态约束事实
+- 后续补齐 adapter 后，才可升级为 `adapter-backed`
+
+### unknown/fallback agents
 
 策略：
 
@@ -336,7 +350,7 @@ preflight 必须在 runtime bootstrap 之后执行，否则“可调用”结论
 ### 顺序 1：建立 Agent Descriptor / Adapter 抽象
 
 - 新增 descriptor registry
-- 为 `codex`、`aider`、`gemini`、`claude` 定义最小协议
+- 为 `codex`、`aider`、`gemini` 定义最小 adapter-backed 协议，并为 `claude` 保留 descriptor-known 事实
 - 新增 adapter 接口和内建 adapter
 - `run-task` 先接入 adapter 选择，但可暂时保留旧路径作为 fallback
 

@@ -41,8 +41,9 @@ VectaHub 解决的是 AI 执行失控问题：
 | [架构总览](./architecture.md) | 项目定位、系统边界、模块职责和演进方向。 |
 | [核心合同](./contracts.md) | CLI JSON、任务状态、Agent 合同、Trace、安全、恢复等协议入口。 |
 | [Agent 执行系统](./agent-execution.md) | `VectaHub = Orchestrator` 的执行模型和阶段边界。 |
+| [Run-Task 执行合同](./specs/run-task-execution-contract.md) | `run-task` 的输入分支、完成边界、失败分类、确认语义和恢复入口真相源。 |
 | [设计文档](./design/agent-execution-system.md) | 关键能力的方案、取舍和非目标。 |
-| [规格合同](./specs/agent-worker-contract.md) | 状态机、trace、验证、安全、恢复等细节规格。 |
+| [规格合同](./specs/agent-worker-contract.md) | Agent 任务边界、片段提取、文件范围和合同摘要规格。 |
 | [UI 逻辑设计](./design/vscode-ui-logic.md) | VS Code 插件的统一 UI 设计依据和用户心智规则。 |
 | [UI 修复实施计划](./design/vscode-ui-remediation-plan.md) | UI 设计落地到实现、测试和验收的执行清单。 |
 | [UI 操作文档](./ui/vscode-extension.md) | VS Code 插件实际视图、命令和用户路径导航。 |

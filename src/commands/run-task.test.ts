@@ -273,6 +273,394 @@ describe('runTask', () => {
         code: 'SECURITY_BLOCKED',
         message: '安全策略拦截: test-rule',
       });
+      expect(vi.mocked(spawn).mock.calls.length).toBe(0);
+    } finally {
+      if (originalGetSecurityManagerImpl) {
+        vi.mocked(getSecurityManager).mockImplementation(originalGetSecurityManagerImpl as any);
+      }
+    }
+  });
+
+  it('should block high-risk validation commands before spawn', async () => {
+    const { assessCommandRisk } = await import('../security-protocol/engine.js');
+    const riskSpy = vi.mocked(assessCommandRisk);
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    const tempDocDir = mkdtempSync(join(tmpdir(), 'vectahub-run-task-doc-'));
+    const docPath = join(tempDocDir, 'tasks.md');
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+
+    writeFileSync(docPath, [
+      '# Tasks',
+      '## P2-RISK-VALIDATION 高风险验证命令',
+      '修改 `src/commands/run-task.ts`。',
+      '补充 `src/commands/run-task.test.ts`。',
+      '建议执行：npm run lint',
+    ].join('\n'));
+
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
+        cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+    riskSpy.mockImplementation((() => {
+      return {
+        level: 'high',
+        ruleName: 'danger-validation',
+        needsConfirmation: true,
+      } as any;
+    }) as any);
+    vi.mocked(spawn).mockImplementation((() => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      process.nextTick(() => {
+        child.stdout.end();
+        child.stderr.end();
+        child.emit('close', 0);
+      });
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'P2-RISK-VALIDATION',
+        taskLabel: 'high risk validation preflight',
+        doc: docPath,
+        dryRun: false,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('SECURITY_BLOCKED');
+      expect(result.riskAssessment?.phase).toBe('verification');
+      expect(result.riskAssessment?.needsConfirmation).toBe(true);
+      expect(result.riskAssessment?.level).toBe('high');
+      expect(vi.mocked(spawn).mock.calls.length).toBe(0);
+    } finally {
+      process.env.VECTAHUB_HOME = originalVectaHubHome;
+      process.env.CODEX_HOME = originalCodexHome;
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
+      rmSync(tempDocDir, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+    }
+  });
+
+  it('should keep normal validation commands unaffected', async () => {
+    const { assessCommandRisk } = await import('../security-protocol/engine.js');
+    const riskSpy = vi.mocked(assessCommandRisk);
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    const tempDocDir = mkdtempSync(join(tmpdir(), 'vectahub-run-task-doc-'));
+    const docPath = join(tempDocDir, 'tasks.md');
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+
+    writeFileSync(docPath, [
+      '# Tasks',
+      '## P2-RISK-VALIDATION-SAFE 普通验证命令',
+      '修改 `src/commands/run-task.ts`。',
+      '补充 `src/commands/run-task.test.ts`。',
+      '建议执行：npm run lint',
+    ].join('\n'));
+
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
+        cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      if (file === 'npm' && Array.isArray(args) && args.join(' ') === 'run lint') {
+        cb(null, '', '');
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --shortstat') {
+        cb(null, '', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+    riskSpy.mockImplementation((() => ({
+      level: 'safe',
+      needsConfirmation: false,
+    })) as any);
+    vi.mocked(spawn).mockImplementation((() => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      process.nextTick(() => {
+        child.stdout.write('implemented\n');
+        child.stdout.end();
+        child.stderr.end();
+        child.emit('close', 0);
+      });
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'P2-RISK-VALIDATION-SAFE',
+        taskLabel: 'safe validation preflight',
+        doc: docPath,
+        dryRun: false,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.riskAssessment?.phase).not.toBe('verification');
+      expect(vi.mocked(spawn).mock.calls.length).toBe(1);
+    } finally {
+      process.env.VECTAHUB_HOME = originalVectaHubHome;
+      process.env.CODEX_HOME = originalCodexHome;
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
+      rmSync(tempDocDir, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+    }
+  });
+
+  it('should mark changed to needs_confirmation on post-execution out-of-scope change', async () => {
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    const tempDocDir = mkdtempSync(join(tmpdir(), 'vectahub-run-task-doc-'));
+    const docPath = join(tempDocDir, 'tasks.md');
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+
+    writeFileSync(docPath, [
+      '# Tasks',
+      '## P2-POST-CONFIRM 越界修改',
+      '修改 `src/commands/run-task.ts`。',
+      '补充 `src/commands/run-task.test.ts`。',
+    ].join('\n'));
+
+    let gitShortStatCalls = 0;
+    let gitDiffStatCalls = 0;
+    let npmCalled = false;
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
+        cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --shortstat') {
+        gitShortStatCalls += 1;
+        if (gitShortStatCalls === 1) {
+          cb(null, { stdout: ' 1 file changed, 1 insertion(+)\n', stderr: '' });
+        } else {
+          cb(null, { stdout: ' 2 files changed, 2 insertions(+)\n', stderr: '' });
+        }
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --stat') {
+        gitDiffStatCalls += 1;
+        if (gitDiffStatCalls === 1) {
+          cb(null, { stdout: ' existing.ts | 1 +\n 1 file changed, 1 insertion(+)\n', stderr: '' });
+        } else {
+          cb(null, { stdout: ' existing.ts | 1 +\n src/out-of-scope.ts | 1 +\n 2 files changed, 2 insertions(+)\n', stderr: '' });
+        }
+        return {} as any;
+      }
+      if (file === 'npm') {
+        npmCalled = true;
+        cb(null, '', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+
+    vi.mocked(spawn).mockImplementation((() => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      process.nextTick(() => {
+        child.stdout.write('implemented\n');
+        child.stdout.end();
+        child.stderr.end();
+        child.emit('close', 0);
+      });
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'P2-POST-CONFIRM',
+        taskLabel: 'post execution confirmation',
+        doc: docPath,
+        dryRun: false,
+      });
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('NEEDS_CONFIRMATION');
+      expect(result.riskAssessment?.confirmationSource).toBe('post-execution');
+      expect(result.agentExecutionOutcome).toBe('implemented');
+      expect(result.gitChanges?.changedFiles).toContain('src/out-of-scope.ts');
+      expect(result.verification).toBeUndefined();
+      expect(npmCalled).toBe(false);
+    } finally {
+      process.env.VECTAHUB_HOME = originalVectaHubHome;
+      process.env.CODEX_HOME = originalCodexHome;
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
+      rmSync(tempDocDir, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+    }
+  });
+
+  it('should keep gitChanges when forbidden file is modified and require post-execution confirmation', async () => {
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    const tempDocDir = mkdtempSync(join(tmpdir(), 'vectahub-run-task-doc-'));
+    const docPath = join(tempDocDir, 'tasks.md');
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+
+    writeFileSync(docPath, [
+      '# Tasks',
+      '## P2-POST-CONFIRM-FORBIDDEN forbidden',
+      '修改 `src/commands/run-task.ts`。',
+      '补充 `src/commands/run-task.test.ts`。',
+    ].join('\n'));
+
+    let gitShortStatCalls = 0;
+    let gitDiffStatCalls = 0;
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
+        cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --shortstat') {
+        gitShortStatCalls += 1;
+        if (gitShortStatCalls === 1) {
+          cb(null, { stdout: ' 1 file changed, 1 insertion(+)\n', stderr: '' });
+        } else {
+          cb(null, { stdout: ' 2 files changed, 2 insertions(+)\n', stderr: '' });
+        }
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --stat') {
+        gitDiffStatCalls += 1;
+        if (gitDiffStatCalls === 1) {
+          cb(null, { stdout: ' existing.ts | 1 +\n 1 file changed, 1 insertion(+)\n', stderr: '' });
+        } else {
+          cb(null, { stdout: ' existing.ts | 1 +\n .env.local | 1 +\n 2 files changed, 2 insertions(+)\n', stderr: '' });
+        }
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+
+    vi.mocked(spawn).mockImplementation((() => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      process.nextTick(() => {
+        child.stdout.write('implemented\n');
+        child.stdout.end();
+        child.stderr.end();
+        child.emit('close', 0);
+      });
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'P2-POST-CONFIRM-FORBIDDEN',
+        taskLabel: 'post execution forbidden',
+        doc: docPath,
+        dryRun: false,
+      });
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('NEEDS_CONFIRMATION');
+      expect(result.riskAssessment?.confirmationSource).toBe('post-execution');
+      expect(result.riskAssessment?.ruleName).toBe('forbidden_files_modified');
+      expect(result.gitChanges?.changedFiles).toContain('.env.local');
+      expect(result.verification).toBeUndefined();
+    } finally {
+      process.env.VECTAHUB_HOME = originalVectaHubHome;
+      process.env.CODEX_HOME = originalCodexHome;
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
+      rmSync(tempDocDir, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+    }
+  });
+
+  it('should distinguish preflight vs post-execution confirmation source', async () => {
+    const { getSecurityManager } = await import('../security-protocol/manager.js');
+    const originalGetSecurityManagerImpl = vi.mocked(getSecurityManager).getMockImplementation();
+    const mockSecurityManager = {
+      detectCommand: vi.fn(() => ({
+        isDangerous: true,
+        severity: 'high',
+        rule: { name: 'preflight-high-risk' },
+        matchedPattern: 'rm -rf',
+      })),
+    };
+    vi.mocked(getSecurityManager).mockReturnValue(mockSecurityManager as any);
+
+    try {
+      const result = await runTask({
+        tool: 'aider',
+        taskId: 'P2-PREFLIGHT-CONFIRM',
+        taskLabel: 'preflight confirm',
+        dryRun: false,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('SECURITY_BLOCKED');
+      expect(result.riskAssessment?.confirmationSource).toBe('preflight');
     } finally {
       if (originalGetSecurityManagerImpl) {
         vi.mocked(getSecurityManager).mockImplementation(originalGetSecurityManagerImpl as any);
@@ -340,6 +728,32 @@ describe('runTask', () => {
       expect(result.command).not.toContain('--cwd');
       expect(result.command).not.toContain('--prompt');
       expect(result.command).toContain('-y');
+      expect(result.commandGenerationPath).toBe('adapter');
+      expect(result.fallbackUsed).toBe(false);
+      expect(llmSpy).not.toHaveBeenCalled();
+      expect(toolCacheManager.discoverToolHelp).not.toHaveBeenCalled();
+    } finally {
+      llmSpy.mockRestore();
+    }
+  });
+
+  it('should use claude adapter path and skip tool discovery/LLM generation', async () => {
+    const llmModule = await import('../nl/llm.js');
+    const cacheManagerModule = await import('../cli-tools/discovery/cache-manager.js');
+    const llmSpy = vi.spyOn(llmModule, 'createLLMConfig');
+    const toolCacheManager = { discoverToolHelp: vi.fn() };
+    vi.mocked(cacheManagerModule.getToolCacheManager).mockReturnValue(toolCacheManager as any);
+
+    try {
+      const result = await runTask({
+        tool: 'claude',
+        taskId: 'P2-7C',
+        taskLabel: 'adapter path claude',
+        doc: '/path/to/doc.md',
+        dryRun: true,
+      });
+      expect(result.command).toContain('claude code --cwd');
+      expect(result.command).toContain('--message');
       expect(result.commandGenerationPath).toBe('adapter');
       expect(result.fallbackUsed).toBe(false);
       expect(llmSpy).not.toHaveBeenCalled();
@@ -421,6 +835,66 @@ describe('runTask', () => {
       process.env.VECTAHUB_HOME = originalVectaHubHome;
       process.env.CODEX_HOME = originalCodexHome;
       rmSync(tempVectaHubHome, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+      llmSpy.mockRestore();
+    }
+  });
+
+  it('should use claude adapter preflight readyArgs and stable rendered command on normal run', async () => {
+    const llmModule = await import('../nl/llm.js');
+    const cacheManagerModule = await import('../cli-tools/discovery/cache-manager.js');
+    const llmSpy = vi.spyOn(llmModule, 'createLLMConfig');
+    const toolCacheManager = { discoverToolHelp: vi.fn() };
+    vi.mocked(cacheManagerModule.getToolCacheManager).mockReturnValue(toolCacheManager as any);
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'claude' && Array.isArray(args) && args.join(' ') === 'code --help') {
+        cb(null, 'Usage: claude code\n', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+    vi.mocked(spawn).mockImplementation((() => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      process.nextTick(() => {
+        child.stdout.write('claude run ok\n');
+        child.stdout.end();
+        child.stderr.end();
+        child.emit('close', 0);
+      });
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'claude',
+        taskId: 'P2-8C',
+        taskLabel: 'adapter run claude',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.commandGenerationPath).toBe('adapter');
+      expect(result.command).toContain('claude code --cwd');
+      expect(result.command).toContain('--message');
+      const claudeCalls = vi.mocked(execFile).mock.calls.filter(call => call[0] === 'claude');
+      expect(claudeCalls.some(call => Array.isArray(call[1]) && (call[1] as string[]).join(' ') === 'code --help')).toBe(true);
+      expect(llmSpy).not.toHaveBeenCalled();
+      expect(toolCacheManager.discoverToolHelp).not.toHaveBeenCalled();
+    } finally {
       if (originalExecFileImpl) {
         vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
       }
@@ -918,8 +1392,85 @@ describe('runTask', () => {
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('TIMEOUT');
+      expect(result.agentExecutionOutcome).toBe('implemented');
       expect(result.gitChanges).toBeDefined();
       expect(result.gitChanges?.changedFiles).toContain('src/commands/run-task.ts');
+      expect(result.verification).toBeUndefined();
+      expect(npmCalled).toBe(false);
+    } finally {
+      process.env.VECTAHUB_HOME = originalVectaHubHome;
+      process.env.CODEX_HOME = originalCodexHome;
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+    }
+  });
+
+  it('should keep timeout failure without gitChanges and still skip verification', async () => {
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+
+    let npmCalled = false;
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
+        cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --shortstat') {
+        cb(null, { stdout: '', stderr: '' });
+        return {} as any;
+      }
+      if (file === 'npm') {
+        npmCalled = true;
+        cb(null, '', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+
+    vi.mocked(spawn).mockImplementation((() => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      process.nextTick(() => {
+        child.stdout.write('timeout before any durable side effect\n');
+        child.stdout.end();
+        child.stderr.end();
+        const timeoutError = new Error('Agent CLI timeout after 600000ms');
+        (timeoutError as Error & { code?: string; completionSignal?: string }).code = 'TIMEOUT';
+        (timeoutError as Error & { code?: string; completionSignal?: string }).completionSignal = 'timeout';
+        child.emit('error', timeoutError);
+      });
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'P2-CODEX-TIMEOUT-NO-GIT',
+        taskLabel: 'timeout without git changes',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('TIMEOUT');
+      expect(result.gitChanges).toBeUndefined();
+      expect(result.agentExecutionOutcome).toBeUndefined();
       expect(result.verification).toBeUndefined();
       expect(npmCalled).toBe(false);
     } finally {

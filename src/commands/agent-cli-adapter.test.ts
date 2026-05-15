@@ -113,6 +113,24 @@ describe('agent-cli-adapter registry', () => {
     expect(rendered.args).toEqual(['-p', '实现任务', '-y']);
   });
 
+  it('should render claude invocation via adapter with deterministic subcommand/cwd/message args', () => {
+    const descriptor = getAgentDescriptorById('claude');
+    const adapter = getAgentAdapterById('claude');
+    expect(descriptor).not.toBeNull();
+    expect(adapter).not.toBeNull();
+
+    const rendered = adapter!.render({
+      descriptor: descriptor!,
+      workspaceRoot: '/workspace/project',
+      taskPrompt: '实现任务',
+      mode: 'run',
+      outputMode: 'text',
+    });
+
+    expect(rendered.command).toBe('claude');
+    expect(rendered.args).toEqual(['code', '--cwd', '/workspace/project', '--message', '实现任务']);
+  });
+
   it('should keep dry-run render deterministic for known adapters', () => {
     const codexDescriptor = getAgentDescriptorById('codex');
     const codexAdapter = getAgentAdapterById('codex');

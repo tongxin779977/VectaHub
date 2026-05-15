@@ -4,6 +4,8 @@
 
 目标：确保所有 Agent 生成的命令和系统执行的验证命令都经过统一的安全策略评估，防止越权操作和敏感信息泄露。
 
+`run-task` 的完整执行合同、执行前确认/执行后确认区分和 `needs_confirmation` 的权威语义，以 [Run-Task 执行合同规格](./run-task-execution-contract.md) 为准。
+
 禁止事项：
 - 不允许 Agent 静默执行未经评估的高风险命令。
 - 不在 Trace 或运行记录中保存任何 Secret/API Key。
@@ -80,9 +82,14 @@ Task Ready
 -> if fail: failed_config
 -> Agent 执行
 -> Risk Assessment (on validation commands)
--> if high risk & no confirmation: needs_confirmation
+-> if high risk & no confirmation: needs_confirmation (执行前确认)
 -> else: run validation
 ```
+
+补充约束：
+
+- 上述 `needs_confirmation` 属于执行前确认，不得已有仓库副作用。
+- 如果是 Agent 已执行后的越界修改或 forbidden files 触发确认，属于执行后确认，应由状态机与执行合同解释，不能和本节的预执行风险确认混写。
 
 ## 7. 并发和共享状态设计
 - 安全规则库单例加载，批量任务共享。

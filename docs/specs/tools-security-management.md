@@ -4,6 +4,8 @@
 
 本文档覆盖 CLI 工具注册、工具命令查询、命令规则评估、安全规则管理和直接命令执行。实现依据为 `src/commands/tools.ts`、`src/commands/security.ts` 和 `src/commands/run-command.ts`。
 
+`run-task` 的完整执行合同、执行前确认/执行后确认区分、`dry-run` 权威语义和 Agent 支持分层，以 [Run-Task 执行合同规格](./run-task-execution-contract.md) 为准。本文只补充工具探测与安全规则局部约束。
+
 ## 工具注册与查询
 
 `tools` 命令管理 CLI tool registry。
@@ -39,6 +41,12 @@
 - `ready=true` 不等于“任务一定能成功执行”，也不保证下游 Agent 自身的二级沙箱、approval policy、远程插件同步、本地命令入口或仓库访问能力一定可用。
 - 若真实任务在 Agent 内部本地命令层失败，例如 `sandbox-exec: sandbox_apply`、本地命令工具无法启动或代码读取被阻断，CLI 必须把它归类为系统类失败，而不是继续进入 verification。
 - 对 `codex` 这类带内置沙箱/插件系统的 CLI，仍可能在 `spawn` 之后因为下游运行时限制失败，例如本地命令被拒绝、仓库只读或插件远程同步告警。
+
+对 Agent 支持层级的文档表述必须与执行合同一致：
+
+- `adapter-backed known agents`：`codex`、`gemini`、`aider`
+- `descriptor-known but adapter-incomplete agents`：`claude`
+- `unknown/fallback agents`：未知或自定义 CLI
 
 UI 展示 Agent 候选时，应优先依据运行事实，即 `installed`、`invocable` 和 `ready`。  
 `configured_enabled` 和 `has_permission` 可参与内部决策，但不应单独作为隐藏已可运行 Agent 的依据。若扫描已确认 Agent 可运行，插件应优先自动收敛内部配置态，而不是要求用户额外执行启用或授权动作。

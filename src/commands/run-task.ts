@@ -173,6 +173,9 @@ export interface RunTaskRiskAssessment {
   level: string;
   ruleName?: string;
   needsConfirmation: boolean;
+  phase?: 'command' | 'verification';
+  blockedCommand?: string;
+  confirmationSource?: 'preflight' | 'post-execution';
 }
 
 export interface RunTaskJsonResult {
@@ -642,6 +645,96 @@ function detectAgentExecutionOutcome(output: string): 'implemented' | 'planned_o
     return 'planned_only';
   }
   return 'implemented';
+}
+
+function isUnclosedExecutionFailure(input: {
+  success: boolean;
+  gitChanges?: GitChangeInfo;
+  verification?: VerificationResult;
+}): boolean {
+  const changedFileCount = input.gitChanges?.changedFiles.length ?? 0;
+  return !input.success && changedFileCount > 0 && input.verification === undefined;
+}
+
+function detectValidationPreflightRisk(validationCommands: string[]): RunTaskRiskAssessment | null {
+  const commandsToCheck = validationCommands.slice(0, MAX_VERIFICATION_COMMANDS);
+  for (const cmd of commandsToCheck) {
+    const risk = assessCommandRisk(cmd);
+    if (risk.level === 'critical' || risk.level === 'high') {
+      return {
+        level: risk.level,
+        ruleName: risk.ruleName,
+        needsConfirmation: true,
+        phase: 'verification',
+        confirmationSource: 'preflight',
+        blockedCommand: limitText(cmd),
+      };
+    }
+  }
+  return null;
+}
+
+function normalizeContractPath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/^\.\//, '').trim();
+}
+
+function detectPostExecutionConfirmation(input: {
+  gitChanges?: GitChangeInfo;
+  allowedFiles: string[];
+  forbiddenFiles: string[];
+}): { reason: string; matchedFiles: string[] } | null {
+  const changedFiles = input.gitChanges?.changedFiles ?? [];
+  if (!changedFiles.length) {
+    return null;
+  }
+
+  const normalizedChanged = changedFiles.map(normalizeContractPath);
+  const allowed = new Set(input.allowedFiles.map(normalizeContractPath).filter(Boolean));
+  const forbidden = new Set(input.forbiddenFiles.map(normalizeContractPath).filter(Boolean));
+  const isForbiddenMatch = (file: string): boolean => {
+    if (forbidden.has(file)) return true;
+    for (const pattern of forbidden) {
+      if (!pattern.includes('*')) continue;
+      if (pattern.startsWith('**/')) {
+        const suffix = pattern.slice(3);
+        if (suffix.endsWith('/**')) {
+          const dir = suffix.slice(0, -3);
+          if (dir && file.includes(`/${dir}/`)) return true;
+          if (dir && file.startsWith(`${dir}/`)) return true;
+          continue;
+        }
+        if (suffix.startsWith('*.')) {
+          const ext = suffix.slice(1);
+          if (ext && file.endsWith(ext)) return true;
+          continue;
+        }
+      }
+      if (pattern === '.env.*' && file.startsWith('.env.')) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const forbiddenMatches = normalizedChanged.filter(file => isForbiddenMatch(file));
+  if (forbiddenMatches.length > 0) {
+    return {
+      reason: 'forbidden_files_modified',
+      matchedFiles: forbiddenMatches,
+    };
+  }
+
+  if (allowed.size > 0) {
+    const outOfScope = normalizedChanged.filter(file => !allowed.has(file));
+    if (outOfScope.length > 0) {
+      return {
+        reason: 'out_of_scope_changes',
+        matchedFiles: outOfScope,
+      };
+    }
+  }
+
+  return null;
 }
 
 function detectAgentSoftSystemFailure(output: string, gitChanges?: GitChangeInfo): string | null {
@@ -1170,6 +1263,14 @@ export async function runTask(options: {
         command: fullCommand,
         commandGenerationPath,
         fallbackUsed,
+        riskAssessment: {
+          level: 'critical',
+          ruleName,
+          needsConfirmation: true,
+          phase: 'command',
+          confirmationSource: 'preflight',
+          blockedCommand: limitText(fullCommand),
+        },
         error: {
           code: 'SECURITY_BLOCKED',
           message: `安全策略拦截: ${ruleName}`,
@@ -1177,14 +1278,58 @@ export async function runTask(options: {
         agentTaskContract: agentTaskContractSummary,
       };
     }
+    if (detectionResult.isDangerous && detectionResult.severity === 'high') {
+      riskAssessment = {
+        level: 'high',
+        ruleName: detectionResult.rule?.name,
+        needsConfirmation: true,
+        phase: 'command',
+        confirmationSource: 'preflight',
+        blockedCommand: limitText(fullCommand),
+      };
+      logger.warn(`命令风险评级: ${riskAssessment.level} (${riskAssessment.ruleName || 'unknown'}) — 无确认能力，执行前阻断`);
+      audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'BLOCKED', 'run-task');
+      return {
+        success: false,
+        output: `高风险命令需确认，当前调用链无确认能力: ${riskAssessment.ruleName || 'unknown'}`,
+        command: fullCommand,
+        commandGenerationPath,
+        fallbackUsed,
+        riskAssessment,
+        error: {
+          code: 'SECURITY_BLOCKED',
+          message: `高风险命令需确认: ${riskAssessment.ruleName || 'unknown'}`,
+        },
+        agentTaskContract: agentTaskContractSummary,
+      };
+    }
     if (detectionResult.isDangerous) {
-      // high/medium risk: pass risk info to plugin for user confirmation
       riskAssessment = {
         level: detectionResult.severity || 'medium',
         ruleName: detectionResult.rule?.name,
-        needsConfirmation: detectionResult.severity === 'high',
+        needsConfirmation: false,
+        phase: 'command',
       };
-      logger.warn(`命令风险评级: ${riskAssessment.level} (${riskAssessment.ruleName || 'unknown'}) — 需插件端确认`);
+      logger.warn(`命令风险评级: ${riskAssessment.level} (${riskAssessment.ruleName || 'unknown'})`);
+    }
+
+    const validationRisk = detectValidationPreflightRisk(agentTaskContractSummary.validationCommands);
+    if (validationRisk) {
+      logger.warn(`验证命令风险评级: ${validationRisk.level} (${validationRisk.ruleName || 'unknown'}) — 无确认能力，执行前阻断`);
+      audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'BLOCKED', 'run-task');
+      return {
+        success: false,
+        output: `验证命令存在高风险，需确认后才能执行: ${validationRisk.blockedCommand || 'unknown'}`,
+        command: fullCommand,
+        commandGenerationPath,
+        fallbackUsed,
+        riskAssessment: validationRisk,
+        error: {
+          code: 'SECURITY_BLOCKED',
+          message: `验证命令高风险需确认: ${validationRisk.ruleName || validationRisk.blockedCommand || 'unknown'}`,
+        },
+        agentTaskContract: agentTaskContractSummary,
+      };
     }
 
     audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'EXECUTING', 'run-task');
@@ -1444,6 +1589,37 @@ export async function runTask(options: {
       const gitChanges = await collectGitChanges(gitDiffBefore) ?? undefined;
       await collectSpan.end({ changedFileCount: gitChanges?.changedFiles.length || 0 });
       const softSystemFailureMessage = detectAgentSoftSystemFailure(combinedOutput, gitChanges);
+      const postExecutionConfirmation = detectPostExecutionConfirmation({
+        gitChanges,
+        allowedFiles: agentTaskContractSummary.allowedFiles,
+        forbiddenFiles: agentTaskContractSummary.forbiddenFiles,
+      });
+      if (postExecutionConfirmation) {
+        audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'COMPLETED', 'run-task');
+        logger.warn(`检测到执行后确认: ${postExecutionConfirmation.reason} (${postExecutionConfirmation.matchedFiles.join(', ')})`);
+        return {
+          success: false,
+          output: combinedOutput,
+          command: fullCommand,
+          commandGenerationPath,
+          fallbackUsed,
+          agentExecutionOutcome: 'implemented',
+          riskAssessment: {
+            level: 'high',
+            ruleName: postExecutionConfirmation.reason,
+            needsConfirmation: true,
+            confirmationSource: 'post-execution',
+            blockedCommand: postExecutionConfirmation.matchedFiles.join(', '),
+          },
+          error: {
+            code: 'NEEDS_CONFIRMATION',
+            message: `检测到执行后确认: ${postExecutionConfirmation.reason}`,
+          },
+          gitChanges,
+          agentTaskContract: agentTaskContractSummary,
+          usage: capturedUsage,
+        };
+      }
       
       let verification: VerificationResult | undefined;
       const validationCommands = agentTaskContractSummary.validationCommands;
@@ -1478,12 +1654,20 @@ export async function runTask(options: {
       const finalSuccess = !softSystemFailureMessage
         && agentExecutionOutcome !== 'planned_only'
         && (verification ? (verification.ok && !verification.isSystemError) : true);
+      const unclosedExecution = isUnclosedExecutionFailure({
+        success: finalSuccess,
+        gitChanges,
+        verification,
+      });
       if (softSystemFailureMessage) {
         logger.warn('任务 Agent 输出环境受限，按系统错误处理');
       } else if (!finalSuccess && verification?.ok) {
         logger.warn('任务 Agent 成功但验证发生系统错误');
       } else if (!finalSuccess) {
         logger.warn('任务 Agent 成功但验证失败');
+      }
+      if (unclosedExecution) {
+        logger.warn('检测到未收口执行：失败 + 已有 gitChanges + verification 缺失');
       }
 
       // Usage is now captured in real-time
@@ -1535,15 +1719,24 @@ export async function runTask(options: {
         },
       });
       const completionSignal = (execError?.completionSignal as SpawnCompletionSignal | undefined) || undefined;
+      const gitChanges = await collectGitChanges(gitDiffBefore) ?? undefined;
+      const unclosedExecution = isUnclosedExecutionFailure({
+        success: false,
+        gitChanges,
+        verification: undefined,
+      });
       await spawnFailSpan.fail(error, {
         stdoutLength: errStdout.length,
         stderrLength: errStderr.length,
         exitCode: execError.code ?? null,
         completionSignal,
+        unclosedExecution,
       });
-      const gitChanges = await collectGitChanges(gitDiffBefore) ?? undefined;
       audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'FAILED', 'run-task');
       logger.error(`任务执行失败: ${errOutput}`);
+      if (unclosedExecution) {
+        logger.warn('检测到未收口执行：失败 + 已有 gitChanges + verification 缺失');
+      }
       const errUsage = parseTokenUsage(rawErrOutputForUsage || errOutput);
       const errorCode = classifyAgentFailureCode(execError, errOutput);
       const errorMessage = execError?.message || 'Agent 执行失败';
@@ -1553,6 +1746,7 @@ export async function runTask(options: {
         command: fullCommand,
         commandGenerationPath,
         fallbackUsed,
+        agentExecutionOutcome: unclosedExecution ? 'implemented' : undefined,
         error: {
           code: errorCode,
           message: errorMessage,

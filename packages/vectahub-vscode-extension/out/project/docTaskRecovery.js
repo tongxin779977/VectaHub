@@ -15,6 +15,14 @@ exports.createRecoveryRecord = createRecoveryRecord;
 exports.createRecoveryRunId = createRecoveryRunId;
 exports.isRecoveryEligible = isRecoveryEligible;
 exports.classifyRecoveryOutcome = classifyRecoveryOutcome;
+function isUnclosedExecution(input) {
+    if (input.unclosedExecution === true) {
+        return true;
+    }
+    const changedFileCount = input.gitChanges?.changedFileCount ?? 0;
+    const hasVerification = input.verification !== undefined && input.verification !== null;
+    return changedFileCount > 0 && !hasVerification;
+}
 // ─── Build Recovery Input ────────────────────────────────────────────────────
 /**
  * Build a DocTaskRecoveryInput from a DocTaskRunRecord.
@@ -34,6 +42,8 @@ function buildRecoveryInput(record, currentInstructionHash) {
         outputSummary: record.outputSummary,
         gitChanges: record.gitChanges,
         verification: record.verification,
+        confirmationSource: record.confirmationSource,
+        unclosedExecution: record.unclosedExecution,
         previousInstructionHash: record.instructionHash,
         currentInstructionHash,
         agentTaskContract: record.agentTaskContract
@@ -98,9 +108,43 @@ function decideRecoveryInner(input) {
             canReusePreviousCommand: false,
         };
     }
-    const { failureKind, gitChanges, verification } = input;
+    const { failureKind, gitChanges, verification, confirmationSource } = input;
     const hasGitChanges = (gitChanges?.changedFileCount ?? 0) > 0;
     const hasVerification = verification !== undefined && verification !== null;
+    const unclosedExecution = isUnclosedExecution(input);
+    if (confirmationSource === 'preflight') {
+        return {
+            kind: 'blocked',
+            mode: 'manual_only',
+            reason: 'confirmation-required-preflight',
+            summary: '该任务在执行前确认阶段被阻断，请先完成人工确认后再继续。',
+            suggestedActions: ['人工确认风险命令后重新执行任务'],
+            needsNewTrace: false,
+            canReusePreviousCommand: false,
+        };
+    }
+    if (confirmationSource === 'post-execution') {
+        return {
+            kind: 'suggest_fix',
+            mode: 'confirm_required',
+            reason: 'confirmation-required-post-execution',
+            summary: '该任务已产生代码修改并触发执行后确认，请先确认副作用再决定后续修复。',
+            suggestedActions: ['检查已变更文件', '人工确认后决定是否继续修复'],
+            needsNewTrace: true,
+            canReusePreviousCommand: false,
+        };
+    }
+    if (unclosedExecution) {
+        return {
+            kind: 'suggest_fix',
+            mode: 'confirm_required',
+            reason: 'unclosed-execution',
+            summary: '任务存在未收口执行：已有代码修改但未完成验证，需确认后继续修复。',
+            suggestedActions: ['检查已变更文件', '人工确认后基于当前变更继续修复'],
+            needsNewTrace: true,
+            canReusePreviousCommand: false,
+        };
+    }
     // §7.4 blocked categories
     if (failureKind === 'config') {
         return {

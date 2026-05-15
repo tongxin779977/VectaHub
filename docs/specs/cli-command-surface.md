@@ -63,6 +63,10 @@
 
 ### `run-task` 预览与合同语义
 
+`run-task` 的完整执行合同、完成边界、`dry-run` 权威语义、`needs_confirmation` 双来源和 Agent 支持分层，以 [Run-Task 执行合同规格](./run-task-execution-contract.md) 为准。
+
+本节只记录 CLI 命令面的入口事实与当前实现可观测行为，不重复定义完整链路。
+
 当前实现以 `src/commands/run-task.ts` 为准：
 
 - `run-task --contract-preview` 会先构建 `agentTaskContract` 摘要，然后立即返回。
@@ -70,7 +74,11 @@
 - `run-task --dry-run` 要求提供 `--tool`，返回的是一条本地预览命令，命令消息体包含任务编号、任务描述、允许修改范围、禁止修改范围和建议验证命令。
 - `--dry-run` 也会先构建 `agentTaskContract` 摘要，但在该分支中不会加载 LLM、不会做 tool help discovery、不会执行 Agent。
 - 两个分支的 `--json` 输出都保留 `ok`、`command`、`output`、`outputTruncated` 和 `agentTaskContract` 字段；`--contract-preview` 的 `command` 与 `output` 为空字符串。
-- 正常执行路径才会继续进入命令生成、安全检查、Agent preflight、Agent 执行、git 变更收集和验证命令执行；已知 Agent adapter 走确定性命令渲染，未知或自定义 CLI 保留 LLM fallback。
+- 正常执行路径才会继续进入命令生成、安全检查、Agent preflight、Agent 执行、git 变更收集和验证命令执行。
+- Agent 支持分层当前应按执行合同文档理解：
+  - `adapter-backed known agents`：`codex`、`gemini`、`aider`
+  - `descriptor-known but adapter-incomplete agents`：`claude`
+  - `unknown/fallback agents`：其他未知或自定义 CLI
 - 正常执行路径默认应继承用户当前 Agent CLI 的配置语义，而不是因为 VectaHub 的运行态隔离自动切换 provider、auth 或 model。
 - 如果某个已知 Agent 需要独立可写 home，`run-task` 必须先完成 runtime bootstrap：创建可写运行目录，并从用户默认配置源同步最小必要配置，然后再执行 preflight 和 spawn。
 - 未知或自定义 Agent CLI 在没有明确 descriptor 规则前，不应擅自改写其 home 或配置根；默认保持直接继承用户环境。
@@ -88,7 +96,7 @@
 - `run-task --json` 当前不会流式输出 Agent 中间日志；在最终收口前，stdout 保持静默，结束时一次性输出 JSON。
 - 当前实现收口信号为组合契约：优先 `close`；若已 `exit` 但 `close` 迟迟不到，则在有界流刷新宽限后收口。该设计用于覆盖“已写盘但后处理长期不 close”的真实场景。
 - 因此“仓库已发生改动”和“CLI 已完成返回”必须视为两个独立事实。前者不能单独证明任务成功，后者也不能抹掉前者已经产生的副作用。
-- 如果最终以 `timeout` 收口，且 `gitChanges.changedFileCount > 0`、`verification` 缺失，JSON 仍必须返回 `ok=false`，并保留已观测到的 `gitChanges` 与 Agent 输出摘要；禁止把该次执行描述为“未执行”。
+- 如果最终以 `timeout` 收口，且 `gitChanges.changedFileCount > 0`、`verification` 缺失，必须按“未收口执行”解释：JSON 返回 `ok=false`，保留 `gitChanges` 与摘要，且禁止写成“未执行”。
 - 仍保留 hardening backlog：持续优化 `exit` 后流刷新策略与空闲判定阈值，降低误判超时概率。
 
 ## 工具、安全和诊断命令

@@ -29,6 +29,12 @@ function classifyDocTaskFailure(input) {
     if (errorCode === 'TIMEOUT' || includesAny(text, ['timeout', 'timed out', '超时'])) {
         return { kind: 'timeout', status: FAILED_STATUS_BY_KIND.timeout };
     }
+    if (errorCode === 'AGENT_SYSTEM_ERROR') {
+        return { kind: 'system_internal', status: FAILED_STATUS_BY_KIND.system_internal };
+    }
+    if (errorCode === 'AGENT_CONFIG_ERROR') {
+        return { kind: 'config', status: FAILED_STATUS_BY_KIND.config };
+    }
     if (includesAny(text, [
         '<<<<<<<',
         '=======',
