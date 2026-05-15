@@ -11,6 +11,8 @@ VectaHub = Orchestrator
 
 Agent 负责执行边界清楚的小任务。VectaHub 负责把任务拆解成合同，控制执行生命周期，记录状态和 trace，执行安全评估，运行验证命令，并在失败后提供恢复路径。
 
+如果 Agent 已经启动，但在其内部本地命令层被环境阻断，VectaHub 必须先把这类问题收敛为系统类失败，而不是误把它推进到验证阶段。
+
 ## 执行链路
 
 ```text
@@ -80,6 +82,8 @@ Agent 输出不是状态来源。Agent 只能提供执行产物和诊断材料�
 | `failed_test` | 验证命令失败。 |
 | `failed_conflict` | git diff 或输出中出现冲突。 |
 | `failed_system_internal` | IO、记录写入、验证工具等系统异常。 |
+
+这里也包括 Agent 内部本地命令工具无法启动、代码读取被阻断、`sandbox_apply` 失败等“Agent 已启动但未真正落地执行”的环境问题。
 | `needs_confirmation` | 高风险命令需要用户确认。 |
 | `cancelled` | 用户取消或取消信号触发。 |
 

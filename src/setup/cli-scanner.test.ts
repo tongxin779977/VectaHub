@@ -82,6 +82,10 @@ describe('cli-scanner', () => {
           cb(null, { stdout: 'Usage: gemini\n', stderr: '' });
           return {} as any;
         }
+        if (cmd === 'gemini -p vectahub-ready-probe --help') {
+          cb(null, { stdout: 'Usage: gemini\n', stderr: '' });
+          return {} as any;
+        }
         cb(new Error(`unexpected command: ${cmd}`), { stdout: '', stderr: '' });
         return {} as any;
       });
@@ -147,6 +151,7 @@ describe('cli-scanner', () => {
           }
           if (
             cmd === 'gemini --help'
+            || cmd === 'gemini -p vectahub-ready-probe --help'
             || cmd === 'aider --help'
             || cmd === 'codex exec --help'
             || cmd === 'codex exec --sandbox workspace-write --help'
@@ -404,6 +409,7 @@ describe('cli-scanner', () => {
         }
         if (
           cmd === 'gemini --help'
+          || cmd === 'gemini -p vectahub-ready-probe --help'
           || cmd === 'codex exec --help'
           || cmd === 'codex exec --sandbox workspace-write --help'
           || cmd === 'aider --help'

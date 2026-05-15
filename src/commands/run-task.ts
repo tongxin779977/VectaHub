@@ -613,12 +613,33 @@ function detectAgentSoftSystemFailure(output: string, gitChanges?: GitChangeInfo
     '未能执行代码修改',
     '无法执行代码修改',
     '无法落盘修改',
+    '未做代码改动',
+    '无法修改文件',
+    '实际修改文件：无',
+    '本次实际修改文件：无',
+    '本地命令工具无法启动',
+    '本地命令/文件访问工具不可用',
+    '文件访问工具不可用',
+    '当前被环境阻塞',
+    '当前被执行环境阻塞',
+    '任务未落地，当前被执行环境阻塞',
+    '当前任务被工具层阻断',
+    '工具层阻断',
     '本地命令入口不可用',
     'unable to execute code changes',
     'unable to make code changes',
     'could not execute code changes',
   ];
   const environmentSignals = [
+    '本地命令工具无法启动',
+    '本地命令/文件访问工具不可用',
+    '文件访问工具不可用',
+    '当前被环境阻塞',
+    '当前被执行环境阻塞',
+    '任务未落地，当前被执行环境阻塞',
+    '当前任务被工具层阻断',
+    '工具层阻断',
+    '本地命令入口不可用',
     'sandbox-exec: sandbox_apply',
     'sandbox_apply: operation not permitted',
     'sandbox: read-only',
@@ -632,16 +653,38 @@ function detectAgentSoftSystemFailure(output: string, gitChanges?: GitChangeInfo
     '无法执行代码修改',
     '无法落盘修改',
     '无法修改代码',
+    '未做代码改动',
+    '未做代码修改',
+    '未改代码',
+    '无法修改文件',
+    '实际修改文件：无',
+    '本次实际修改文件：无',
+    '任务未落地',
     'unable to execute code changes',
     'unable to make code changes',
     'could not execute code changes',
   ];
+  const readBlockedSignals = [
+    '无法进入工作区',
+    '无法打开仓库文件',
+    '无法读取仓库代码',
+    '无法读取代码',
+    '无法读取现有代码',
+    '无法读取仓库与文档',
+    '无法读取',
+  ];
+  const verificationSkippedSignals = [
+    '未执行验证',
+    '验证未执行',
+  ];
+
+  const hasEnvironmentBlock = environmentSignals.some(signal => text.includes(signal.toLowerCase()));
+  const hasNoChangeSignal = noChangeSignals.some(signal => text.includes(signal.toLowerCase()));
+  const hasReadBlockedSignal = readBlockedSignals.some(signal => text.includes(signal.toLowerCase()));
+  const hasVerificationSkippedSignal = verificationSkippedSignals.some(signal => text.includes(signal.toLowerCase()));
 
   const matched = directFailureSignals.some(signal => text.includes(signal.toLowerCase()))
-    || (
-      environmentSignals.some(signal => text.includes(signal.toLowerCase()))
-      && noChangeSignals.some(signal => text.includes(signal.toLowerCase()))
-    );
+    || (hasEnvironmentBlock && (hasNoChangeSignal || hasReadBlockedSignal || hasVerificationSkippedSignal));
 
   return matched ? 'Agent 输出表明当前环境限制阻止了代码修改' : null;
 }

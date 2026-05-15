@@ -37,6 +37,7 @@
 
 - `ready=true` 只说明 VectaHub 能在 runtime bootstrap 后通过 descriptor 定义的外层探测命令。
 - `ready=true` 不等于“任务一定能成功执行”，也不保证下游 Agent 自身的二级沙箱、approval policy、远程插件同步、本地命令入口或仓库访问能力一定可用。
+- 若真实任务在 Agent 内部本地命令层失败，例如 `sandbox-exec: sandbox_apply`、本地命令工具无法启动或代码读取被阻断，CLI 必须把它归类为系统类失败，而不是继续进入 verification。
 - 对 `codex` 这类带内置沙箱/插件系统的 CLI，仍可能在 `spawn` 之后因为下游运行时限制失败，例如本地命令被拒绝、仓库只读或插件远程同步告警。
 
 UI 展示 Agent 候选时，应优先依据运行事实，即 `installed`、`invocable` 和 `ready`。  

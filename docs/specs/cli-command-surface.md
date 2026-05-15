@@ -76,7 +76,10 @@
 - 未知或自定义 Agent CLI 在没有明确 descriptor 规则前，不应擅自改写其 home 或配置根；默认保持直接继承用户环境。
 - `run-task` 的 preflight 只覆盖 VectaHub 已知的外层 CLI 入口，不覆盖下游 Agent 自身的二级沙箱、approval policy、远程插件同步或本地命令执行权限。
 - 因此即使 `tools agents --json` 报告某个 Agent 为 `ready`，真实任务仍可能在 `spawn` 之后因下游运行时限制失败；这类失败不应被误解为 provider/bootstrap 语义漂移。
+- 如果 Agent 已启动，但输出明确表明“本地命令工具无法启动”“无法读取代码”“未能执行代码修改”或出现 `sandbox-exec: sandbox_apply` 这类下游环境阻塞信号，`run-task` 必须直接按系统类失败收口，不得继续进入 verification。
+- 这种“Agent 已启动但未真正落地改动”的软失败，即使子进程退出码为 `0`、`agentExecutionOutcome=implemented`，也不能被视为成功执行。
 - 验证阶段与 Agent 执行阶段分离；即使 Agent 已启动成功，项目本地验证命令仍可能因环境缺失失败，例如 `vue-tsc` 不存在导致 `npm run type-check` 返回系统类错误。
+- 只有在 Agent 真正完成执行且未命中上述软失败短路条件时，才允许进入 verification。
 - 正常执行路径的 `--json` 输出会通过 `commandGenerationPath` 标记 `adapter` 或 `llm-fallback`，并通过 `fallbackUsed` 标记是否实际使用 fallback 命令；安全拦截等失败结果也保留这些字段用于诊断。
 - 审计日志写入失败采用告警降级，不改变命令返回结构；可能看到 `Failed to write audit log: ...` 的 stderr/console 告警。
 

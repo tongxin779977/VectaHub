@@ -93,7 +93,7 @@ describe('agent-cli-adapter registry', () => {
     expect(rendered.args).toEqual(['--message', '实现任务']);
   });
 
-  it('should render gemini invocation via adapter with cwd and non-interactive flag', () => {
+  it('should render gemini invocation via adapter without CLI cwd flag and with headless prompt flag', () => {
     const descriptor = getAgentDescriptorById('gemini');
     const adapter = getAgentAdapterById('gemini');
     expect(descriptor).not.toBeNull();
@@ -108,7 +108,9 @@ describe('agent-cli-adapter registry', () => {
     });
 
     expect(rendered.command).toBe('gemini');
-    expect(rendered.args).toEqual(['--cwd', '/workspace/project', '--prompt', '实现任务', '-y']);
+    expect(descriptor?.workingDirectoryArg).toBeUndefined();
+    expect(descriptor?.preflightSpec.readyArgs).toEqual(['-p', 'vectahub-ready-probe', '--help']);
+    expect(rendered.args).toEqual(['-p', '实现任务', '-y']);
   });
 
   it('should keep dry-run render deterministic for known adapters', () => {

@@ -115,9 +115,6 @@ class GeminiAdapter implements AgentAdapter {
 
   render(input: AgentAdapterInput): AgentAdapterOutput {
     const args: string[] = [];
-    if (input.descriptor.workingDirectoryArg) {
-      args.push(input.descriptor.workingDirectoryArg, input.workspaceRoot);
-    }
     if (input.descriptor.promptArgName) {
       args.push(input.descriptor.promptArgName, input.taskPrompt);
     } else {
@@ -170,15 +167,14 @@ const BUILT_IN_AGENT_DESCRIPTORS: Record<string, AgentDescriptor> = {
     displayName: 'Google Gemini CLI',
     entryCommand: 'gemini',
     promptTransport: 'arg',
-    promptArgName: '--prompt',
-    workingDirectoryArg: '--cwd',
+    promptArgName: '-p',
     nonInteractiveFlags: ['-y'],
     approvalPolicySupport: 'unknown',
     structuredOutputSupport: false,
     preflightSpec: {
       versionArgs: ['--version'],
       invocableArgs: ['--help'],
-      readyArgs: ['--help'],
+      readyArgs: ['-p', 'vectahub-ready-probe', '--help'],
     },
     dryRunRenderMode: 'prompt-only',
     runtimePolicy: {

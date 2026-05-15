@@ -30,6 +30,7 @@
 - `run-task` 已在 Agent 成功后执行 `AgentTaskContract.validationCommands`，并返回 `verification` 摘要。
 - 插件状态机已有 `verifying`、`failed_test` 和 `failed_system_internal` 状态。
 - 插件 task run record 只保存摘要，不保存完整大输出。
+- 当前验证闭环的前提不是“Agent 子进程退出码为 0”，而是“Agent 已真正完成执行且未命中系统类软失败短路条件”。
 
 ## 3. 根因分析
 
@@ -86,6 +87,7 @@ verification?: {
 ```text
 Agent success
 -> collect git diff
+-> if Agent output indicates local tool / sandbox / code-read blocker and no real change: failed_system_internal
 -> verifying
 -> run validationCommands sequentially
 -> verification ok: success/changed
@@ -94,6 +96,15 @@ Agent success
 ```
 
 Agent 失败时不运行验证命令。
+Agent 软失败时同样不运行验证命令。
+
+这里的 Agent 软失败包括但不限于：
+
+- 输出明确说明“本地命令工具无法启动”
+- 输出明确说明“无法读取代码”或“未能执行代码修改”
+- 输出明确说明“当前任务被工具层阻断”“当前被环境阻塞”“本地命令/文件访问工具不可用”“未做代码改动”“本次实际修改文件：无”或“无法进入工作区”
+- 输出包含 `sandbox-exec: sandbox_apply` 等下游环境阻塞信号
+- 且没有可归因的实际 git 改动
 
 ## 7. 并发和共享状态设计
 
