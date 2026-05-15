@@ -68,6 +68,14 @@ describe('doc-task-contract-core', () => {
     ]);
   });
 
+  it('验证命令优先匹配项目真实 type-check 脚本名', () => {
+    expect(deriveValidationCommands({
+      allowedFiles: ['src/a.ts'],
+      taskLabel: 't',
+      packageScripts: ['type-check', 'test'],
+    })).toEqual(['npm run type-check']);
+  });
+
   it('支持 Windows 盘符与 UNC 绝对路径，并拒绝项目外路径', () => {
     expect(normalizeAgentTaskFiles({
       files: [

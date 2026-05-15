@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import {
   buildAgentTaskContractSummaries,
   decideDocTaskBatchConcurrency,
@@ -91,5 +94,30 @@ describe('doc task contract', () => {
       validationCommandCount: 1,
       executionMode: 'parallel-eligible',
     });
+  });
+
+  it('插件侧合同预检优先匹配项目真实 type-check 脚本', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vectahub-doc-task-contract-'));
+    try {
+      fs.writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify({
+        name: 'tmp-project',
+        scripts: {
+          'type-check': 'tsc --noEmit',
+        },
+      }), 'utf8');
+
+      const summaries = buildAgentTaskContractSummaries({
+        tasks: [{ id: 'T1', label: 'run-task 接入' }],
+        docContent: [
+          '## T1 run-task 接入',
+          '修改 `src/commands/run-task.ts`。',
+        ].join('\n'),
+        projectRoot,
+      });
+
+      expect(summaries.get('T1')?.validationCommands).toEqual(['npm run type-check']);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
   });
 });

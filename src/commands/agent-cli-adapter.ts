@@ -87,6 +87,32 @@ class AiderAdapter implements AgentAdapter {
   }
 }
 
+class GeminiAdapter implements AgentAdapter {
+  supports(descriptor: AgentDescriptor): boolean {
+    return descriptor.id === 'gemini';
+  }
+
+  render(input: AgentAdapterInput): AgentAdapterOutput {
+    const args: string[] = [];
+    if (input.descriptor.workingDirectoryArg) {
+      args.push(input.descriptor.workingDirectoryArg, input.workspaceRoot);
+    }
+    if (input.descriptor.promptArgName) {
+      args.push(input.descriptor.promptArgName, input.taskPrompt);
+    } else {
+      args.push(input.taskPrompt);
+    }
+    for (const flag of input.descriptor.nonInteractiveFlags) {
+      args.push(flag);
+    }
+    return {
+      command: input.descriptor.entryCommand,
+      args,
+      preview: [input.descriptor.entryCommand, ...args].join(' '),
+    };
+  }
+}
+
 const BUILT_IN_AGENT_DESCRIPTORS: Record<string, AgentDescriptor> = {
   codex: {
     id: 'codex',
@@ -113,7 +139,7 @@ const BUILT_IN_AGENT_DESCRIPTORS: Record<string, AgentDescriptor> = {
     promptTransport: 'arg',
     promptArgName: '--prompt',
     workingDirectoryArg: '--cwd',
-    nonInteractiveFlags: [],
+    nonInteractiveFlags: ['-y'],
     approvalPolicySupport: 'unknown',
     structuredOutputSupport: false,
     preflightSpec: {
@@ -175,6 +201,7 @@ export function isKnownAgentCli(agentId: string): boolean {
 const BUILT_IN_ADAPTERS: AgentAdapter[] = [
   new CodexAdapter(),
   new AiderAdapter(),
+  new GeminiAdapter(),
 ];
 
 export function getAgentAdapterById(agentId: string): AgentAdapter | null {

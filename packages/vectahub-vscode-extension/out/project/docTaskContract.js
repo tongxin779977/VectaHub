@@ -1,12 +1,18 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildAgentTaskContractSummaries = buildAgentTaskContractSummaries;
 exports.deriveDocExcerptForTask = deriveDocExcerptForTask;
 exports.decideDocTaskBatchConcurrency = decideDocTaskBatchConcurrency;
 exports.toRunContractSummary = toRunContractSummary;
 const doc_task_contract_core_1 = require("@vectahub/doc-task-contract-core");
+const fs_1 = require("fs");
+const path_1 = __importDefault(require("path"));
 function buildAgentTaskContractSummaries(input) {
     const result = new Map();
+    const packageScripts = readPackageScripts(input.projectRoot);
     for (const task of input.tasks) {
         const excerpt = input.docContent
             ? (0, doc_task_contract_core_1.deriveDocExcerptFromTextSync)(input.docContent, { taskId: task.id, label: task.label })
@@ -15,6 +21,7 @@ function buildAgentTaskContractSummaries(input) {
             docExcerpt: excerpt.excerpt,
             label: task.label,
             projectRoot: input.projectRoot,
+            packageScripts,
         });
         result.set(task.id, {
             boundaryConfidence: boundary.boundaryConfidence,
@@ -27,6 +34,20 @@ function buildAgentTaskContractSummaries(input) {
         });
     }
     return result;
+}
+function readPackageScripts(projectRoot) {
+    if (!projectRoot)
+        return [];
+    const packageJsonPath = path_1.default.join(projectRoot, 'package.json');
+    if (!(0, fs_1.existsSync)(packageJsonPath))
+        return [];
+    try {
+        const packageJson = JSON.parse((0, fs_1.readFileSync)(packageJsonPath, 'utf8'));
+        return Object.keys(packageJson.scripts ?? {});
+    }
+    catch {
+        return [];
+    }
 }
 function deriveDocExcerptForTask(input) {
     if (!input.docContent) {

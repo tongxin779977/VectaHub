@@ -153,6 +153,17 @@ describe('deriveAgentTaskBoundary', () => {
     expect(boundary.forbiddenFiles).toContain('.env');
   });
 
+  it('优先使用项目真实 type-check 脚本', () => {
+    const boundary = deriveAgentTaskBoundary({
+      docExcerpt: '修改 `src/commands/run-task.ts`。',
+      label: '接入 run-task contract',
+      projectRoot: '/repo/project',
+      packageScripts: ['type-check', 'test'],
+    });
+
+    expect(boundary.validationCommands).toEqual(['npm run type-check']);
+  });
+
   it('无法提取文件时降级为未知边界', () => {
     const boundary = deriveAgentTaskBoundary({
       docExcerpt: '只描述目标，不给文件路径。',
@@ -182,6 +193,15 @@ describe('deriveValidationCommands', () => {
       'npm run typecheck',
       'npm run compile -w packages/vectahub-vscode-extension',
     ]);
+  });
+
+  it('在缺少 typecheck 时回退到 type-check', () => {
+    const commands = deriveValidationCommands({
+      allowedFiles: ['src/commands/agent-task-contract.ts'],
+      taskLabel: 'P2 阶段 1',
+      packageScripts: ['type-check'],
+    });
+    expect(commands).toEqual(['npm run type-check']);
   });
 });
 

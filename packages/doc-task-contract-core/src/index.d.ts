@@ -43,11 +43,13 @@ export interface DeriveAgentTaskBoundaryInput {
   docExcerpt: string;
   label: string;
   projectRoot: string;
+  packageScripts?: string[];
 }
 
 export interface DeriveValidationCommandsInput {
   allowedFiles: string[];
   taskLabel: string;
+  packageScripts?: string[];
 }
 
 export interface AgentTaskConcurrencyDecision {

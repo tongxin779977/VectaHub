@@ -5,6 +5,8 @@ import {
 } from '@vectahub/doc-task-contract-core';
 import type { AgentTaskContractSummary, AgentTaskRunContractSummary, DocTaskConcurrencyDecision, DocTaskContractInput } from './docTaskContractTypes.js';
 export type { AgentTaskContractSummary, AgentTaskRunContractSummary, DocTaskConcurrencyDecision, DocTaskContractInput } from './docTaskContractTypes.js';
+import { existsSync, readFileSync } from 'fs';
+import path from 'path';
 
 export function buildAgentTaskContractSummaries(input: {
   tasks: DocTaskContractInput[];
@@ -12,6 +14,7 @@ export function buildAgentTaskContractSummaries(input: {
   projectRoot: string;
 }): Map<string, AgentTaskContractSummary> {
   const result = new Map<string, AgentTaskContractSummary>();
+  const packageScripts = readPackageScripts(input.projectRoot);
   for (const task of input.tasks) {
     const excerpt = input.docContent
       ? deriveDocExcerptFromTextSync(input.docContent, { taskId: task.id, label: task.label })
@@ -20,6 +23,7 @@ export function buildAgentTaskContractSummaries(input: {
       docExcerpt: excerpt.excerpt,
       label: task.label,
       projectRoot: input.projectRoot,
+      packageScripts,
     });
     result.set(task.id, {
       boundaryConfidence: boundary.boundaryConfidence,
@@ -32,6 +36,20 @@ export function buildAgentTaskContractSummaries(input: {
     });
   }
   return result;
+}
+
+function readPackageScripts(projectRoot: string): string[] {
+  if (!projectRoot) return [];
+  const packageJsonPath = path.join(projectRoot, 'package.json');
+  if (!existsSync(packageJsonPath)) return [];
+  try {
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {
+      scripts?: Record<string, unknown>;
+    };
+    return Object.keys(packageJson.scripts ?? {});
+  } catch {
+    return [];
+  }
 }
 
 export function deriveDocExcerptForTask(input: {

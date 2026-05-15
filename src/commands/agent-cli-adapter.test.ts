@@ -80,6 +80,24 @@ describe('agent-cli-adapter registry', () => {
     expect(rendered.args).toEqual(['--message', '实现任务']);
   });
 
+  it('should render gemini invocation via adapter with cwd and non-interactive flag', () => {
+    const descriptor = getAgentDescriptorById('gemini');
+    const adapter = getAgentAdapterById('gemini');
+    expect(descriptor).not.toBeNull();
+    expect(adapter).not.toBeNull();
+
+    const rendered = adapter!.render({
+      descriptor: descriptor!,
+      workspaceRoot: '/workspace/project',
+      taskPrompt: '实现任务',
+      mode: 'run',
+      outputMode: 'text',
+    });
+
+    expect(rendered.command).toBe('gemini');
+    expect(rendered.args).toEqual(['--cwd', '/workspace/project', '--prompt', '实现任务', '-y']);
+  });
+
   it('should keep dry-run render deterministic for known adapters', () => {
     const codexDescriptor = getAgentDescriptorById('codex');
     const codexAdapter = getAgentAdapterById('codex');

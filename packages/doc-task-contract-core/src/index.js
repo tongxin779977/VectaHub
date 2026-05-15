@@ -244,6 +244,7 @@ export function deriveAgentTaskBoundary(input) {
   const validationCommands = deriveValidationCommands({
     allowedFiles,
     taskLabel: input.label,
+    packageScripts: input.packageScripts,
   });
   const boundaryConfidence = allowedFiles.length > 0 ? 'medium' : 'none';
 
@@ -261,8 +262,10 @@ export function deriveValidationCommands(input) {
   const commands = [];
   const seen = new Set();
   const files = Array.isArray(input.allowedFiles) ? input.allowedFiles : [];
+  const packageScripts = Array.isArray(input.packageScripts) ? input.packageScripts : [];
   const hasSrcChange = files.some(file => file.startsWith('src/'));
   const hasExtensionSrcChange = files.some(file => file.startsWith('packages/vectahub-vscode-extension/src/'));
+  const typecheckCommand = selectTypecheckCommand(packageScripts);
 
   for (const file of files) {
     if (!file.startsWith('src/') || !file.endsWith('.test.ts')) continue;
@@ -271,16 +274,24 @@ export function deriveValidationCommands(input) {
   }
 
   if (hasSrcChange) {
-    addCommand(commands, seen, 'npm run typecheck');
+    addCommand(commands, seen, typecheckCommand);
   }
   if (hasExtensionSrcChange) {
     addCommand(commands, seen, 'npm run compile -w packages/vectahub-vscode-extension');
   }
   if (commands.length === 0) {
-    addCommand(commands, seen, 'npm run typecheck');
+    addCommand(commands, seen, typecheckCommand);
   }
 
   return commands.slice(0, MAX_VALIDATION_COMMANDS);
+}
+
+function selectTypecheckCommand(packageScripts) {
+  if (packageScripts.includes('typecheck')) return 'npm run typecheck';
+  if (packageScripts.includes('type-check')) return 'npm run type-check';
+  if (packageScripts.includes('check-types')) return 'npm run check-types';
+  if (packageScripts.includes('check:type')) return 'npm run check:type';
+  return 'npm run typecheck';
 }
 
 export function decideAgentTaskConcurrency(contracts) {

@@ -272,9 +272,9 @@ deriveValidationCommands(input: {
 规则：
 
 - 如果涉及 `src/**/*.test.ts`，优先运行对应测试。
-- 如果涉及 `src/**`，加入 `npm run typecheck`。
+- 如果涉及 `src/**`，优先匹配项目真实脚本名，顺序为 `typecheck` -> `type-check` -> `check-types` -> `check:type`。
 - 如果涉及 `packages/vectahub-vscode-extension/src/**`，加入 `npm run compile -w packages/vectahub-vscode-extension`。
-- 如果无法推导，默认 `npm run typecheck`。
+- 如果无法推导，仍按上述顺序选择默认类型检查命令；都不存在时才回退为 `npm run typecheck`。
 - 最多 10 条。
 
 P2 只生成验证命令，不自动执行。自动执行属于 P3。

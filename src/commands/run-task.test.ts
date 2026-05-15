@@ -302,6 +302,33 @@ describe('runTask', () => {
     }
   });
 
+  it('should use gemini adapter path and skip tool discovery/LLM generation', async () => {
+    const llmModule = await import('../nl/llm.js');
+    const cacheManagerModule = await import('../cli-tools/discovery/cache-manager.js');
+    const llmSpy = vi.spyOn(llmModule, 'createLLMConfig');
+    const toolCacheManager = { discoverToolHelp: vi.fn() };
+    vi.mocked(cacheManagerModule.getToolCacheManager).mockReturnValue(toolCacheManager as any);
+
+    try {
+      const result = await runTask({
+        tool: 'gemini',
+        taskId: 'P2-7G',
+        taskLabel: 'adapter path gemini',
+        doc: '/path/to/doc.md',
+        dryRun: true,
+      });
+      expect(result.command).toContain('gemini --cwd');
+      expect(result.command).toContain('--prompt');
+      expect(result.command).toContain('-y');
+      expect(result.commandGenerationPath).toBe('adapter');
+      expect(result.fallbackUsed).toBe(false);
+      expect(llmSpy).not.toHaveBeenCalled();
+      expect(toolCacheManager.discoverToolHelp).not.toHaveBeenCalled();
+    } finally {
+      llmSpy.mockRestore();
+    }
+  });
+
   it('should keep mixed-case known tool on adapter dry-run path without validator block', async () => {
     const result = await runTask({
       tool: 'CoDeX',

@@ -72,11 +72,13 @@ export function deriveAgentTaskBoundary(input: {
   docExcerpt: string;
   label: string;
   projectRoot: string;
+  packageScripts?: string[];
 }): AgentTaskBoundary {
   return sharedDeriveAgentTaskBoundary({
     docExcerpt: input.docExcerpt,
     label: input.label,
     projectRoot: input.projectRoot,
+    packageScripts: input.packageScripts,
   });
 }
 

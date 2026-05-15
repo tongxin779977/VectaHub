@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { execFile, spawn } from 'node:child_process';
-import { existsSync, createWriteStream } from 'node:fs';
+import { existsSync, createWriteStream, readFileSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { resolve } from 'node:path';
 import { Transform } from 'node:stream';
@@ -396,6 +396,7 @@ async function buildAgentTaskContract(input: {
     docExcerpt,
     label: input.label,
     projectRoot: input.projectRoot,
+    packageScripts: readPackageScripts(input.projectRoot),
   });
   const executionMode: AgentTaskContract['executionMode'] = boundary.parallelEligible
     ? 'parallel-eligible'
@@ -430,6 +431,17 @@ async function buildAgentTaskContract(input: {
   };
 
   return { ...contract, summary };
+}
+
+function readPackageScripts(projectRoot: string): string[] {
+  try {
+    const packageJson = JSON.parse(readFileSync(resolve(projectRoot, 'package.json'), 'utf8')) as {
+      scripts?: Record<string, unknown>;
+    };
+    return Object.keys(packageJson.scripts ?? {});
+  } catch {
+    return [];
+  }
 }
 
 /**
