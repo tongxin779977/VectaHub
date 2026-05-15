@@ -38,6 +38,38 @@ describe('runTaskResultSemantics', () => {
     expect(semantics.confirmationSource).toBe('preflight');
   });
 
+  it('should treat blocked enforcement as fail-closed instead of needs_confirmation', () => {
+    const semantics = resolveRunTaskExecutionSemantics({
+      ok: false,
+      data: {
+        riskAssessment: {
+          needsConfirmation: true,
+          confirmationSource: 'preflight',
+          enforcement: 'blocked',
+        },
+      },
+    });
+    expect(semantics.needsConfirmation).toBe(false);
+    expect(semantics.confirmationSource).toBeUndefined();
+    expect(semantics.enforcement).toBe('blocked');
+  });
+
+  it('should prioritize confirm_required enforcement for preflight confirmation', () => {
+    const semantics = resolveRunTaskExecutionSemantics({
+      ok: false,
+      data: {
+        riskAssessment: {
+          needsConfirmation: false,
+          confirmationSource: 'preflight',
+          enforcement: 'confirm_required',
+        },
+      },
+    });
+    expect(semantics.needsConfirmation).toBe(true);
+    expect(semantics.confirmationSource).toBe('preflight');
+    expect(semantics.enforcement).toBe('confirm_required');
+  });
+
   it('should map post-execution confirmation source', () => {
     const semantics = resolveRunTaskExecutionSemantics({
       ok: false,

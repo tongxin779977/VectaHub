@@ -140,6 +140,7 @@ interface RunTaskResult {
     level: string;
     ruleName?: string;
     needsConfirmation: boolean;
+    enforcement?: 'blocked' | 'confirm_required';
     phase?: 'command' | 'verification';
     blockedCommand?: string;
     confirmationSource?: 'preflight' | 'post-execution';

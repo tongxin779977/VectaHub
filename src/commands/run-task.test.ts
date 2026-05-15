@@ -273,6 +273,7 @@ describe('runTask', () => {
         code: 'SECURITY_BLOCKED',
         message: '安全策略拦截: test-rule',
       });
+      expect(result.riskAssessment?.enforcement).toBe('blocked');
       expect(vi.mocked(spawn).mock.calls.length).toBe(0);
     } finally {
       if (originalGetSecurityManagerImpl) {
@@ -345,6 +346,7 @@ describe('runTask', () => {
       expect(result.error?.code).toBe('SECURITY_BLOCKED');
       expect(result.riskAssessment?.phase).toBe('verification');
       expect(result.riskAssessment?.needsConfirmation).toBe(true);
+      expect(result.riskAssessment?.enforcement).toBe('confirm_required');
       expect(result.riskAssessment?.level).toBe('high');
       expect(vi.mocked(spawn).mock.calls.length).toBe(0);
     } finally {
@@ -526,6 +528,7 @@ describe('runTask', () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('NEEDS_CONFIRMATION');
       expect(result.riskAssessment?.confirmationSource).toBe('post-execution');
+      expect(result.riskAssessment?.enforcement).toBe('confirm_required');
       expect(result.agentExecutionOutcome).toBe('implemented');
       expect(result.gitChanges?.changedFiles).toContain('src/out-of-scope.ts');
       expect(result.verification).toBeUndefined();
@@ -619,6 +622,7 @@ describe('runTask', () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('NEEDS_CONFIRMATION');
       expect(result.riskAssessment?.confirmationSource).toBe('post-execution');
+      expect(result.riskAssessment?.enforcement).toBe('confirm_required');
       expect(result.riskAssessment?.ruleName).toBe('forbidden_files_modified');
       expect(result.gitChanges?.changedFiles).toContain('.env.local');
       expect(result.verification).toBeUndefined();
@@ -661,6 +665,7 @@ describe('runTask', () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('SECURITY_BLOCKED');
       expect(result.riskAssessment?.confirmationSource).toBe('preflight');
+      expect(result.riskAssessment?.enforcement).toBe('confirm_required');
     } finally {
       if (originalGetSecurityManagerImpl) {
         vi.mocked(getSecurityManager).mockImplementation(originalGetSecurityManagerImpl as any);

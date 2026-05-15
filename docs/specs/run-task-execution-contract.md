@@ -19,7 +19,13 @@
 
 ### 2.1 执行前确认
 
-指在真正 `spawn Agent` 之前，因为主命令或验证命令的风险评估达到 `high` 或 `critical`，系统要求人工确认才能继续。
+指在真正 `spawn Agent` 之前，因为风险评估命中“可确认后继续”的前置门禁而要求人工确认。
+
+当前合同约束：
+
+- 主命令 `high`：执行前确认
+- 验证命令 `high/critical`：验证前确认
+- 主命令 `critical`：不进入执行前确认，必须 fail-closed 阻断
 
 约束：
 
@@ -313,10 +319,11 @@ Agent 输出不是最终状态真相源，只是执行材料。最终状态由 V
 `needs_confirmation` 不是单一来源状态，必须拆分解释：
 
 - 执行前确认
-  - 来源：主命令或验证命令风险达到 `high/critical`
+  - 来源：主命令风险达到 `high`，或验证命令风险达到 `high/critical`
   - 时机：`spawn` 前或验证前
   - 副作用：无仓库副作用
   - 规范状态路径：`preflight/securityCheck -> needs_confirmation`
+  - 排除：主命令 `critical` 不得落入该分支，必须按 fail-closed/security blocked 处理
 - 执行后确认
   - 来源：越界修改、forbidden files、副作用后人工接管
   - 时机：`gitChanges` 已存在后

@@ -1,9 +1,11 @@
 export type ConfirmationSource = 'preflight' | 'post-execution';
+export type RiskEnforcement = 'blocked' | 'confirm_required';
 
 export interface RunTaskResultLike {
   riskAssessment?: {
     needsConfirmation?: boolean;
     confirmationSource?: string;
+    enforcement?: string;
   };
   gitChanges?: {
     changedFiles?: string[];
@@ -14,6 +16,7 @@ export interface RunTaskResultLike {
 export interface RunTaskExecutionSemantics {
   needsConfirmation: boolean;
   confirmationSource?: ConfirmationSource;
+  enforcement?: RiskEnforcement;
   unclosedExecution: boolean;
 }
 
@@ -24,11 +27,21 @@ function toConfirmationSource(value: string | undefined): ConfirmationSource | u
   return undefined;
 }
 
+function toRiskEnforcement(value: string | undefined): RiskEnforcement | undefined {
+  if (value === 'blocked' || value === 'confirm_required') {
+    return value;
+  }
+  return undefined;
+}
+
 export function resolveRunTaskExecutionSemantics(input: {
   ok: boolean;
   data?: RunTaskResultLike;
 }): RunTaskExecutionSemantics {
-  const needsConfirmation = input.data?.riskAssessment?.needsConfirmation === true;
+  const enforcement = toRiskEnforcement(input.data?.riskAssessment?.enforcement);
+  const needsConfirmation = enforcement
+    ? enforcement === 'confirm_required'
+    : input.data?.riskAssessment?.needsConfirmation === true;
   const confirmationSource = needsConfirmation
     ? toConfirmationSource(input.data?.riskAssessment?.confirmationSource)
     : undefined;
@@ -39,6 +52,7 @@ export function resolveRunTaskExecutionSemantics(input: {
   return {
     needsConfirmation,
     confirmationSource,
+    enforcement,
     unclosedExecution,
   };
 }

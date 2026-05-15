@@ -173,6 +173,7 @@ export interface RunTaskRiskAssessment {
   level: string;
   ruleName?: string;
   needsConfirmation: boolean;
+  enforcement?: 'blocked' | 'confirm_required';
   phase?: 'command' | 'verification';
   blockedCommand?: string;
   confirmationSource?: 'preflight' | 'post-execution';
@@ -665,6 +666,7 @@ function detectValidationPreflightRisk(validationCommands: string[]): RunTaskRis
         level: risk.level,
         ruleName: risk.ruleName,
         needsConfirmation: true,
+        enforcement: 'confirm_required',
         phase: 'verification',
         confirmationSource: 'preflight',
         blockedCommand: limitText(cmd),
@@ -1267,6 +1269,7 @@ export async function runTask(options: {
           level: 'critical',
           ruleName,
           needsConfirmation: true,
+          enforcement: 'blocked',
           phase: 'command',
           confirmationSource: 'preflight',
           blockedCommand: limitText(fullCommand),
@@ -1283,6 +1286,7 @@ export async function runTask(options: {
         level: 'high',
         ruleName: detectionResult.rule?.name,
         needsConfirmation: true,
+        enforcement: 'confirm_required',
         phase: 'command',
         confirmationSource: 'preflight',
         blockedCommand: limitText(fullCommand),
@@ -1608,6 +1612,7 @@ export async function runTask(options: {
             level: 'high',
             ruleName: postExecutionConfirmation.reason,
             needsConfirmation: true,
+            enforcement: 'confirm_required',
             confirmationSource: 'post-execution',
             blockedCommand: postExecutionConfirmation.matchedFiles.join(', '),
           },

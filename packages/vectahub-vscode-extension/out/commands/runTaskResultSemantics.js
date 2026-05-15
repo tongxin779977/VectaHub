@@ -7,8 +7,17 @@ function toConfirmationSource(value) {
     }
     return undefined;
 }
+function toRiskEnforcement(value) {
+    if (value === 'blocked' || value === 'confirm_required') {
+        return value;
+    }
+    return undefined;
+}
 function resolveRunTaskExecutionSemantics(input) {
-    const needsConfirmation = input.data?.riskAssessment?.needsConfirmation === true;
+    const enforcement = toRiskEnforcement(input.data?.riskAssessment?.enforcement);
+    const needsConfirmation = enforcement
+        ? enforcement === 'confirm_required'
+        : input.data?.riskAssessment?.needsConfirmation === true;
     const confirmationSource = needsConfirmation
         ? toConfirmationSource(input.data?.riskAssessment?.confirmationSource)
         : undefined;
@@ -18,6 +27,7 @@ function resolveRunTaskExecutionSemantics(input) {
     return {
         needsConfirmation,
         confirmationSource,
+        enforcement,
         unclosedExecution,
     };
 }
