@@ -46,6 +46,21 @@
 | `recover-task` | 恢复失败文档任务。 | 支持 |
 | `trace list/show` | 查看链路追踪数据。 | 支持 |
 
+### `tools agents`
+
+当前实现支持：
+
+- `vectahub tools agents`
+- `vectahub tools agents --json`
+- `vectahub tools agents --json --sync-config`
+
+语义：
+
+- 默认返回 Agent CLI 的配置态与运行探测结果。
+- `--json` 输出供插件或其他机器调用消费。
+- `--sync-config` 会在本次扫描后，把探测得到的 `hasPermission` 结果写回 VectaHub 配置。
+- `--sync-config` 当前只自动收敛 `has_permission`，不会自动改写 `enabled`，避免覆盖用户显式禁用。
+
 ### `run-task` 预览与合同语义
 
 当前实现以 `src/commands/run-task.ts` 为准：
@@ -56,6 +71,12 @@
 - `--dry-run` 也会先构建 `agentTaskContract` 摘要，但在该分支中不会加载 LLM、不会做 tool help discovery、不会执行 Agent。
 - 两个分支的 `--json` 输出都保留 `ok`、`command`、`output`、`outputTruncated` 和 `agentTaskContract` 字段；`--contract-preview` 的 `command` 与 `output` 为空字符串。
 - 正常执行路径才会继续进入命令生成、安全检查、Agent preflight、Agent 执行、git 变更收集和验证命令执行；已知 Agent adapter 走确定性命令渲染，未知或自定义 CLI 保留 LLM fallback。
+- 正常执行路径默认应继承用户当前 Agent CLI 的配置语义，而不是因为 VectaHub 的运行态隔离自动切换 provider、auth 或 model。
+- 如果某个已知 Agent 需要独立可写 home，`run-task` 必须先完成 runtime bootstrap：创建可写运行目录，并从用户默认配置源同步最小必要配置，然后再执行 preflight 和 spawn。
+- 未知或自定义 Agent CLI 在没有明确 descriptor 规则前，不应擅自改写其 home 或配置根；默认保持直接继承用户环境。
+- `run-task` 的 preflight 只覆盖 VectaHub 已知的外层 CLI 入口，不覆盖下游 Agent 自身的二级沙箱、approval policy、远程插件同步或本地命令执行权限。
+- 因此即使 `tools agents --json` 报告某个 Agent 为 `ready`，真实任务仍可能在 `spawn` 之后因下游运行时限制失败；这类失败不应被误解为 provider/bootstrap 语义漂移。
+- 验证阶段与 Agent 执行阶段分离；即使 Agent 已启动成功，项目本地验证命令仍可能因环境缺失失败，例如 `vue-tsc` 不存在导致 `npm run type-check` 返回系统类错误。
 - 正常执行路径的 `--json` 输出会通过 `commandGenerationPath` 标记 `adapter` 或 `llm-fallback`，并通过 `fallbackUsed` 标记是否实际使用 fallback 命令；安全拦截等失败结果也保留这些字段用于诊断。
 - 审计日志写入失败采用告警降级，不改变命令返回结构；可能看到 `Failed to write audit log: ...` 的 stderr/console 告警。
 

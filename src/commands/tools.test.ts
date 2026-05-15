@@ -43,9 +43,11 @@ vi.mock('../setup/cli-scanner.js', () => ({
     invocable: true,
     ready: false,
   })),
+  syncCLIToolPermissionState: vi.fn(),
 }));
 
 const { toolsCmd } = await import('./tools.js');
+const cliScannerModule = await import('../setup/cli-scanner.js');
 
 describe('tools agents --json', () => {
   const mockLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -68,6 +70,23 @@ describe('tools agents --json', () => {
       invocable: true,
       ready: false,
     });
+  });
+
+  it('should sync permission state when --sync-config is provided', async () => {
+    const syncSpy = vi.mocked(cliScannerModule.syncCLIToolPermissionState);
+
+    await toolsCmd.parseAsync(['node', 'test', 'agents', '--json', '--sync-config']);
+
+    expect(syncSpy).toHaveBeenCalledTimes(1);
+    expect(syncSpy.mock.calls[0]?.[0]).toEqual([
+      expect.objectContaining({
+        name: 'codex',
+        installed: true,
+        hasPermission: true,
+        invocable: true,
+        ready: false,
+      }),
+    ]);
   });
 
   afterAll(() => {

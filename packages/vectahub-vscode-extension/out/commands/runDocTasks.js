@@ -45,6 +45,7 @@ const docTaskContract_js_1 = require("../project/docTaskContract.js");
 const docTaskRunHelpers_js_1 = require("./docTaskRunHelpers.js");
 const docTaskStatusHelpers_js_1 = require("./docTaskStatusHelpers.js");
 const riskUI_js_1 = require("../security/riskUI.js");
+const agentAvailability_js_1 = require("./agentAvailability.js");
 const CRITICAL_RISK_PATTERNS = [
     /^sudo\s+/i,
     /^rm\s+[^\s]*-rf?\s+\//i,
@@ -124,45 +125,6 @@ function resolveStructuredError(result) {
         errorMessage: result.error?.message,
         outputSummarySource: result.data?.output,
     };
-}
-function normalizeAgentCliInfo(raw) {
-    return {
-        name: raw.name ?? '',
-        installed: raw.installed === true,
-        version: raw.version,
-        configured_enabled: raw.configured_enabled === true,
-        has_permission: raw.has_permission === true,
-        invocable: raw.invocable === true,
-        // Fail-closed for old CLI payloads missing ready.
-        ready: raw.ready === true,
-    };
-}
-function formatAgentAvailabilityMessage(agents) {
-    const available = agents.filter(a => a.installed && a.configured_enabled && a.has_permission && a.invocable && a.ready).map(a => a.name);
-    const installedButDisabled = agents.filter(a => a.installed && !a.configured_enabled).map(a => a.name);
-    const installedButNoPermission = agents.filter(a => a.installed && !a.has_permission).map(a => a.name);
-    const installedButNotInvocable = agents.filter(a => a.installed && a.has_permission && !a.invocable).map(a => a.name);
-    const installedButNotReady = agents
-        .filter(a => a.installed && a.has_permission && a.invocable && !a.ready)
-        .map(a => a.name);
-    const notInstalled = agents.filter(a => !a.installed).map(a => a.name);
-    const parts = [];
-    if (available.length > 0)
-        parts.push(`可用: ${available.join(', ')}`);
-    if (installedButDisabled.length > 0)
-        parts.push(`已安装但未启用: ${installedButDisabled.join(', ')}`);
-    if (installedButNoPermission.length > 0)
-        parts.push(`已安装但未授权: ${installedButNoPermission.join(', ')}`);
-    if (installedButNotInvocable.length > 0)
-        parts.push(`已安装但不可调用: ${installedButNotInvocable.join(', ')}`);
-    if (installedButNotReady.length > 0)
-        parts.push(`已安装但未就绪: ${installedButNotReady.join(', ')}`);
-    if (notInstalled.length > 0)
-        parts.push(`未安装: ${notInstalled.join(', ')}`);
-    if (parts.length === 0) {
-        return '未检测到可用的 AI Agent CLI，请先安装并授权 gemini/claude/codex/aider 等工具';
-    }
-    return `未检测到可用的 AI Agent CLI。${parts.join('；')}`;
 }
 async function readDocContentOnce(docPath) {
     if (!docPath)
@@ -264,14 +226,13 @@ function registerDocTaskCommands(context, tasksProvider) {
         }
     }));
     context.subscriptions.push(vscode.commands.registerCommand('vectahubTasks.selectAgentCli', async () => {
-        const result = await (0, adapter_js_1.runCli)(['tools', 'agents', '--json']);
+        const result = await (0, adapter_js_1.runCli)(['tools', 'agents', '--json', '--sync-config']);
         const items = [];
         if (result.ok && result.data?.agents) {
-            const normalizedAgents = result.data.agents.map(agent => normalizeAgentCliInfo(agent));
-            const installedAgents = normalizedAgents
-                .filter(a => a.installed && a.configured_enabled && a.has_permission && a.invocable && a.ready);
+            const normalizedAgents = result.data.agents.map(agent => (0, agentAvailability_js_1.normalizeAgentCliInfo)(agent));
+            const installedAgents = (0, agentAvailability_js_1.getSelectableAgents)(normalizedAgents);
             if (installedAgents.length === 0) {
-                vscode.window.showWarningMessage(formatAgentAvailabilityMessage(normalizedAgents));
+                vscode.window.showWarningMessage((0, agentAvailability_js_1.formatAgentAvailabilityMessage)(normalizedAgents));
             }
             for (const agent of installedAgents) {
                 items.push({
@@ -413,7 +374,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                     const output = result.data?.output || '';
                     const gitChanges = result.data?.gitChanges;
                     const changedFiles = gitChanges?.changedFiles ?? [];
-                    const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, result.data?.verification);
+                    const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, result.data?.verification, result.data?.agentExecutionOutcome);
                     const finalStatus = resolved.status;
                     task.lastRunId = runId;
                     task.lastTraceId = traceContext.traceId;
@@ -458,8 +419,35 @@ function registerDocTaskCommands(context, tasksProvider) {
                     });
                 }
                 else {
+                    if (result.data?.agentExecutionOutcome === 'planned_only') {
+                        task.lastFailureKind = undefined;
+                        (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, 'ready');
+                        tasksProvider.refresh();
+                        if (runRecord) {
+                            runRecord.status = 'ready';
+                            runRecord.failureKind = undefined;
+                            runRecord.updatedAt = new Date().toISOString();
+                            runRecord.endedAt = runRecord.updatedAt;
+                            runRecord.durationMs = Date.now() - startedAtMs;
+                            runRecord.command = result.data?.command || runRecord.command;
+                            runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
+                            runRecord.outputTruncated = result.data?.outputTruncated === true;
+                            (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
+                            applyContractSummary(runRecord, result.data?.agentTaskContract);
+                            await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'planned-only reset update', warnRunStore);
+                        }
+                        (0, output_js_1.logToOutput)(`任务 ${task.id} 仅输出计划，未执行实现，已回退为 ready`, 'warn');
+                        await singleSpan.end({
+                            taskId: task.id,
+                            taskLabel: task.label,
+                            status: 'ready',
+                            agentCli: agentCli || '',
+                        });
+                        vscode.window.showWarningMessage(`任务 ${task.id} 仅输出计划，未执行实现`);
+                        return;
+                    }
                     const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
-                    const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, result.data?.verification);
+                    const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, result.data?.verification, result.data?.agentExecutionOutcome);
                     const verificationFailed = resolved.failureKind === 'test' || resolved.failureKind === 'system_internal';
                     task.lastRunId = runId;
                     task.lastTraceId = traceContext.traceId;
@@ -748,7 +736,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                         });
                         if (result.ok) {
                             const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
-                            const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, result.data?.verification);
+                            const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, result.data?.verification, result.data?.agentExecutionOutcome);
                             const finalStatus = resolved.status;
                             task.lastFailureKind = resolved.failureKind;
                             (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, finalStatus);
@@ -789,8 +777,35 @@ function registerDocTaskCommands(context, tasksProvider) {
                             }
                         }
                         else {
+                            if (result.data?.agentExecutionOutcome === 'planned_only') {
+                                task.lastFailureKind = undefined;
+                                (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, 'ready');
+                                skippedCount++;
+                                if (runRecord) {
+                                    runRecord.status = 'ready';
+                                    runRecord.failureKind = undefined;
+                                    runRecord.updatedAt = new Date().toISOString();
+                                    runRecord.endedAt = runRecord.updatedAt;
+                                    runRecord.durationMs = Date.now() - startedAtMs;
+                                    runRecord.command = result.data?.command || runRecord.command;
+                                    runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
+                                    runRecord.outputTruncated = result.data?.outputTruncated === true;
+                                    (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
+                                    applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
+                                    await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch planned-only reset update', warnRunStore);
+                                }
+                                (0, output_js_1.logToOutput)(`[batch] 任务 ${task.id} 仅输出计划，未执行实现，已回退为 ready`, 'warn');
+                                await taskSpan.end({
+                                    taskId: task.id,
+                                    taskLabel: task.label,
+                                    status: 'ready',
+                                    agentCli: agentCli || '',
+                                });
+                                updateProgress(task.id, '待执行');
+                                return;
+                            }
                             const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
-                            const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, result.data?.verification);
+                            const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, result.data?.verification, result.data?.agentExecutionOutcome);
                             const verificationFailed = resolved.failureKind === 'test' || resolved.failureKind === 'system_internal';
                             if (verificationFailed) {
                                 const finalStatus = resolved.status;

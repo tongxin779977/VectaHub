@@ -24,7 +24,18 @@ describe('agent-cli-adapter registry', () => {
     expect(codex?.workingDirectoryArg).toBe('--cd');
     expect(codex?.workingDirectoryArgAliases).toEqual(['-C', '--cd']);
     expect(codex?.preflightSpec.invocableArgs).toEqual(['exec', '--help']);
-    expect(codex?.preflightSpec.readyArgs).toEqual(['exec', '--help']);
+    expect(codex?.preflightSpec.readyArgs).toEqual(['exec', '--sandbox', 'workspace-write', '--help']);
+    expect(codex?.nonInteractiveFlags).toEqual(['--sandbox', 'workspace-write']);
+    expect(codex?.runtimePolicy?.configSemantics).toBe('inherit-user-default');
+    expect(codex?.runtimePolicy?.writableRuntimeHome).toEqual({
+      envVar: 'CODEX_HOME',
+      defaultHomeSubdir: '.codex',
+      bootstrapFiles: [
+        { relativePath: 'config.toml', required: false },
+        { relativePath: 'auth.json', required: false },
+      ],
+      requireAnyBootstrapFile: true,
+    });
   });
 
   it('should return null for unknown agent id', () => {
@@ -59,7 +70,9 @@ describe('agent-cli-adapter registry', () => {
 
     expect(rendered.command).toBe('codex');
     expect(rendered.args.slice(0, 3)).toEqual(['exec', '--cd', '/workspace/project']);
-    expect(rendered.args[3]).toBe('实现任务');
+    expect(rendered.args.slice(3, 5)).toEqual(['--sandbox', 'workspace-write']);
+    expect(rendered.args[5]).toBe('实现任务');
+    expect(rendered.envPatch).toBeUndefined();
   });
 
   it('should render aider invocation via adapter', () => {
@@ -108,6 +121,14 @@ describe('agent-cli-adapter registry', () => {
       mode: 'dry-run',
       outputMode: 'text',
     });
-    expect(rendered.preview).toContain('codex exec --cd /workspace/project');
+    expect(rendered.preview).toContain('codex exec --cd /workspace/project --sandbox workspace-write');
+  });
+
+  it('should keep non-codex known agents on inherited user-default config semantics only', () => {
+    for (const agentId of ['aider', 'gemini', 'claude'] as const) {
+      const descriptor = getAgentDescriptorById(agentId);
+      expect(descriptor?.runtimePolicy?.configSemantics).toBe('inherit-user-default');
+      expect(descriptor?.runtimePolicy?.writableRuntimeHome).toBeUndefined();
+    }
   });
 });

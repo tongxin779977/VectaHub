@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
@@ -92,10 +92,28 @@ import { runTask, collectGitChanges, formatRunTaskJson, runVerificationCommands,
 import { createLLMConfig } from '../nl/llm.js';
 import { execFile, spawn } from 'node:child_process';
 import type { AgentTaskContract } from '../types/doc-task.js';
+import { getAgentDescriptorById } from './agent-cli-adapter.js';
+
+const defaultExecFileImpl = vi.mocked(execFile).getMockImplementation();
+const defaultSpawnImpl = vi.mocked(spawn).getMockImplementation();
+
+function seedCodexUserHome(rootDir: string): string {
+  const codexHome = join(rootDir, 'user-codex-home');
+  mkdirSync(codexHome, { recursive: true });
+  writeFileSync(join(codexHome, 'config.toml'), 'provider = "right_code"\nmodel = "r1"\n');
+  writeFileSync(join(codexHome, 'auth.json'), JSON.stringify({ token: 'secret-token' }));
+  return codexHome;
+}
 
 describe('runTask', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    if (defaultExecFileImpl) {
+      vi.mocked(execFile).mockImplementation(defaultExecFileImpl as any);
+    }
+    if (defaultSpawnImpl) {
+      vi.mocked(spawn).mockImplementation(defaultSpawnImpl as any);
+    }
   });
 
   it('should return success with dryRun mode', async () => {
@@ -293,6 +311,7 @@ describe('runTask', () => {
         dryRun: true,
       });
       expect(result.command).toContain('codex exec --cd');
+      expect(result.command).toContain('--sandbox workspace-write');
       expect(result.commandGenerationPath).toBe('adapter');
       expect(result.fallbackUsed).toBe(false);
       expect(llmSpy).not.toHaveBeenCalled();
@@ -340,6 +359,7 @@ describe('runTask', () => {
 
     expect(result.success).toBe(true);
     expect(result.command).toContain('codex exec --cd');
+    expect(result.command).toContain('--sandbox workspace-write');
     expect(result.commandGenerationPath).toBe('adapter');
     expect(result.fallbackUsed).toBe(false);
   });
@@ -352,9 +372,11 @@ describe('runTask', () => {
     const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
     const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
     const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
     const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
     vi.mocked(cacheManagerModule.getToolCacheManager).mockReturnValue(toolCacheManager as any);
     process.env.VECTAHUB_HOME = tempVectaHubHome;
+    delete process.env.CODEX_HOME;
     vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
       const cb = typeof options === 'function' ? options : callback;
       if (file === 'aider' && Array.isArray(args) && args.join(' ') === '--help') {
@@ -364,7 +386,9 @@ describe('runTask', () => {
       cb(null, '', '');
       return {} as any;
     }) as any);
-    vi.mocked(spawn).mockImplementation(((file: any) => {
+    let capturedEnv: Record<string, string> | undefined;
+    vi.mocked(spawn).mockImplementation(((file: any, _args: any, options: any) => {
+      capturedEnv = options?.env;
       const child = new EventEmitter() as any;
       child.stdout = new PassThrough();
       child.stderr = new PassThrough();
@@ -391,8 +415,10 @@ describe('runTask', () => {
       expect(result.fallbackUsed).toBe(false);
       expect(llmSpy).not.toHaveBeenCalled();
       expect(toolCacheManager.discoverToolHelp).not.toHaveBeenCalled();
+      expect(capturedEnv?.CODEX_HOME).toBeUndefined();
     } finally {
       process.env.VECTAHUB_HOME = originalVectaHubHome;
+      process.env.CODEX_HOME = originalCodexHome;
       rmSync(tempVectaHubHome, { recursive: true, force: true });
       if (originalExecFileImpl) {
         vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
@@ -401,6 +427,262 @@ describe('runTask', () => {
         vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
       }
       llmSpy.mockRestore();
+    }
+  });
+
+  it('should mark codex planned-only output as non-implemented and skip verification success path', async () => {
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
+        cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+    vi.mocked(spawn).mockImplementation((() => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      process.nextTick(() => {
+        child.stdout.write('按 AGENTS.md 要求，我先给出实施计划，暂不执行修改。\n');
+        child.stdout.end();
+        child.stderr.end();
+        child.emit('close', 0);
+      });
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'P2-PLAN',
+        taskLabel: 'planned only',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+      expect(result.success).toBe(false);
+      expect(result.agentExecutionOutcome).toBe('planned_only');
+      expect(result.error).toEqual({
+        code: 'AGENT_PLANNED_ONLY',
+        message: 'Agent 仅输出计划，未执行实现',
+      });
+      expect(result.verification).toBeUndefined();
+    } finally {
+      process.env.VECTAHUB_HOME = originalVectaHubHome;
+      process.env.CODEX_HOME = originalCodexHome;
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+    }
+  });
+
+  it('should bootstrap codex runtime home from minimal config files and surface stderr when agent exits non-zero', async () => {
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
+        cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+
+    let capturedEnv: Record<string, string> | undefined;
+    vi.mocked(spawn).mockImplementation(((file: any, args: any, options: any) => {
+      capturedEnv = options?.env;
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      process.nextTick(() => {
+        child.stderr.write('mock codex stderr\n');
+        child.stdout.end();
+        child.stderr.end();
+        child.emit('close', 1);
+      });
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'P2-CODEX-ERR',
+        taskLabel: 'stderr surfaced',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.output).toContain('mock codex stderr');
+      expect(result.error?.code).toBe('AGENT_FAILED');
+      expect(capturedEnv?.CODEX_HOME).toContain('agent-homes/codex');
+      expect(capturedEnv?.CODEX_HOME).not.toBe(process.env.CODEX_HOME);
+      expect(readFileSync(join(capturedEnv!.CODEX_HOME, 'config.toml'), 'utf8')).toContain('provider = "right_code"');
+      expect(JSON.parse(readFileSync(join(capturedEnv!.CODEX_HOME, 'auth.json'), 'utf8'))).toEqual({ token: 'secret-token' });
+      expect(existsSync(join(capturedEnv!.CODEX_HOME, 'state.db'))).toBe(false);
+      expect(existsSync(join(capturedEnv!.CODEX_HOME, 'logs'))).toBe(false);
+    } finally {
+      process.env.VECTAHUB_HOME = originalVectaHubHome;
+      process.env.CODEX_HOME = originalCodexHome;
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+    }
+  });
+
+  it('should classify agent io/network failures as AGENT_SYSTEM_ERROR', async () => {
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
+        cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+
+    vi.mocked(spawn).mockImplementation((() => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      process.nextTick(() => {
+        child.stderr.write('IO error: Operation not permitted\nfailed to connect to websocket\n');
+        child.stdout.end();
+        child.stderr.end();
+        setImmediate(() => {
+          child.emit('close', 1);
+        });
+      });
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'P2-CODEX-SYSERR',
+        taskLabel: 'system error classified',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('AGENT_SYSTEM_ERROR');
+    } finally {
+      process.env.VECTAHUB_HOME = originalVectaHubHome;
+      process.env.CODEX_HOME = originalCodexHome;
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+    }
+  });
+
+  it('should treat exit-0 environment-restricted codex output as AGENT_SYSTEM_ERROR and skip verification', async () => {
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
+        cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      if (file === 'npm' && Array.isArray(args) && args.join(' ') === 'run typecheck') {
+        cb(null, '', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+
+    vi.mocked(spawn).mockImplementation((() => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      process.nextTick(() => {
+        child.stdout.write('受当前环境限制，任务未能执行代码修改。\n');
+        child.stderr.write('sandbox-exec: sandbox_apply: Operation not permitted\n');
+        child.stdout.end();
+        child.stderr.end();
+        child.emit('close', 0);
+      });
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'P2-CODEX-SOFT-SYSERR',
+        taskLabel: 'soft system error classified',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.agentExecutionOutcome).toBe('implemented');
+      expect(result.error?.code).toBe('AGENT_SYSTEM_ERROR');
+      expect(result.verification).toBeUndefined();
+    } finally {
+      process.env.VECTAHUB_HOME = originalVectaHubHome;
+      process.env.CODEX_HOME = originalCodexHome;
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
     }
   });
 
@@ -479,9 +761,15 @@ describe('runTask', () => {
 
   it('should fail preflight on codex real entry check and never spawn when exec help is unavailable', async () => {
     const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
     vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
       const cb = typeof options === 'function' ? options : callback;
-      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --help') {
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
         cb(new Error('exec help failed'));
         return {} as any;
       }
@@ -502,11 +790,71 @@ describe('runTask', () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.output).toContain('未安装或无执行权限');
+      expect(result.output).toContain('未通过就绪检查');
       const codexCalls = vi.mocked(execFile).mock.calls.filter(call => call[0] === 'codex');
-      expect(codexCalls.some(call => Array.isArray(call[1]) && (call[1] as string[]).join(' ') === 'exec --help')).toBe(true);
+      expect(codexCalls.some(call => Array.isArray(call[1]) && (call[1] as string[]).join(' ') === 'exec --sandbox workspace-write --help')).toBe(true);
       expect(vi.mocked(spawn).mock.calls.length).toBe(0);
     } finally {
+      process.env.VECTAHUB_HOME = originalVectaHubHome;
+      process.env.CODEX_HOME = originalCodexHome;
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+    }
+  });
+
+  it('should consume descriptor readyArgs for adapter preflight before spawn', async () => {
+    const descriptor = getAgentDescriptorById('codex');
+    const originalReadyArgs = descriptor?.preflightSpec.readyArgs;
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+    if (descriptor) {
+      descriptor.preflightSpec.readyArgs = ['exec', '--full-auto', '--help'];
+    }
+
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --full-auto --help') {
+        cb(new Error('not ready'));
+        return {} as any;
+      }
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === '--version') {
+        cb(null, '0.99.0\n', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'P2-10R',
+        taskLabel: 'preflight ready negative',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.output).toContain('未通过就绪检查');
+      const codexCalls = vi.mocked(execFile).mock.calls.filter(call => call[0] === 'codex');
+      expect(codexCalls.some(call => Array.isArray(call[1]) && (call[1] as string[]).join(' ') === 'exec --full-auto --help')).toBe(true);
+      expect(vi.mocked(spawn).mock.calls.length).toBe(0);
+    } finally {
+      if (descriptor) {
+        descriptor.preflightSpec.readyArgs = originalReadyArgs;
+      }
+      process.env.VECTAHUB_HOME = originalVectaHubHome;
+      process.env.CODEX_HOME = originalCodexHome;
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
       if (originalExecFileImpl) {
         vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
       }
@@ -628,6 +976,19 @@ describe('collectGitChanges', () => {
     const result = await collectGitChanges();
     expect(result === null || typeof result === 'object').toBe(true);
   });
+
+  it('should return only new files compared with baseline snapshot', async () => {
+    const baseline = {
+      shortStat: '1 file changed',
+      diffStat: 'existing.ts | 2 ++',
+      changedFiles: ['existing.ts'],
+    };
+    const result = await collectGitChanges(baseline as any);
+    expect(result === null || typeof result === 'object').toBe(true);
+    if (result) {
+      expect(result.changedFiles).not.toContain('existing.ts');
+    }
+  });
 });
 
 describe('formatRunTaskJson', () => {
@@ -707,6 +1068,25 @@ describe('formatRunTaskJson', () => {
     expect(result.verification!.commands).toHaveLength(1);
   });
 
+  it('should include agentExecutionOutcome in JSON when present', () => {
+    const result = formatRunTaskJson({
+      success: false,
+      command: 'codex exec test',
+      output: '按 AGENTS.md 要求，我先给出实施计划，暂不执行修改。',
+      agentExecutionOutcome: 'planned_only',
+      error: {
+        code: 'AGENT_PLANNED_ONLY',
+        message: 'Agent 仅输出计划，未执行实现',
+      },
+    });
+
+    expect(result.agentExecutionOutcome).toBe('planned_only');
+    expect(result.error).toEqual({
+      code: 'AGENT_PLANNED_ONLY',
+      message: 'Agent 仅输出计划，未执行实现',
+    });
+  });
+
   it('should not include verification in JSON when absent', () => {
     const result = formatRunTaskJson({
       success: true,
@@ -755,6 +1135,17 @@ describe('runVerificationCommands', () => {
     expect(result.commands[0].ok).toBe(false);
     expect(result.commands[0].command).toBe('__definitely_not_a_real_command_xyz__');
     expect(typeof result.commands[0].durationMs).toBe('number');
+    expect(result.isSystemError).toBe(true);
+  });
+
+  it('should mark shell command-not-found as system error', async () => {
+    const result = await runVerificationCommands(
+      ['sh -c "missing_binary_for_test_123"'],
+      process.cwd(),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.commands).toHaveLength(1);
+    expect(result.commands[0].exitCode).toBe(127);
     expect(result.isSystemError).toBe(true);
   });
 

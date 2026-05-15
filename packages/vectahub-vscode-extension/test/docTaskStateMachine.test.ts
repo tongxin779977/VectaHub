@@ -17,6 +17,16 @@ describe('doc task state machine pure functions', () => {
     expect(result).toEqual({ kind: 'timeout', status: 'failed_timeout' });
   });
 
+  it('classifies AGENT_SYSTEM_ERROR as system_internal', () => {
+    const result = classifyDocTaskFailure({ errorCode: 'AGENT_SYSTEM_ERROR' });
+    expect(result).toEqual({ kind: 'system_internal', status: 'failed_system_internal' });
+  });
+
+  it('classifies AGENT_CONFIG_ERROR as config', () => {
+    const result = classifyDocTaskFailure({ errorCode: 'AGENT_CONFIG_ERROR' });
+    expect(result).toEqual({ kind: 'config', status: 'failed_config' });
+  });
+
   it('classifies llm not configured as config', () => {
     const result = classifyDocTaskFailure({ errorMessage: 'LLM not configured' });
     expect(result).toEqual({ kind: 'config', status: 'failed_config' });

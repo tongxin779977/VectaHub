@@ -43,7 +43,9 @@ VectaHub 解决的是 AI 执行失控问题：
 | [Agent 执行系统](./agent-execution.md) | `VectaHub = Orchestrator` 的执行模型和阶段边界。 |
 | [设计文档](./design/agent-execution-system.md) | 关键能力的方案、取舍和非目标。 |
 | [规格合同](./specs/agent-worker-contract.md) | 状态机、trace、验证、安全、恢复等细节规格。 |
-| [UI 操作文档](./ui/vscode-extension.md) | VS Code 插件实际视图、命令和用户路径。 |
+| [UI 逻辑设计](./design/vscode-ui-logic.md) | VS Code 插件的统一 UI 设计依据和用户心智规则。 |
+| [UI 修复实施计划](./design/vscode-ui-remediation-plan.md) | UI 设计落地到实现、测试和验收的执行清单。 |
+| [UI 操作文档](./ui/vscode-extension.md) | VS Code 插件实际视图、命令和用户路径导航。 |
 | [CLI 命令面](./specs/cli-command-surface.md) | 当前 CLI 命令、参数、JSON 支持和副作用边界。 |
 | [工作流生命周期](./specs/workflow-lifecycle.md) | 工作流保存、执行、历史、详情、重跑、恢复和归档。 |
 | [工具与安全规则](./specs/tools-security-management.md) | CLI 工具注册、命令规则、安全规则增删改查和风险检测。 |
@@ -62,11 +64,13 @@ VectaHub 解决的是 AI 执行失控问题：
 2. [Agent 执行系统](./agent-execution.md)
 3. [核心合同](./contracts.md)
 4. [插件/CLI 边界设计](./design/plugin-cli-boundary.md)
-5. [VS Code 插件 UI](./ui/vscode-extension.md)
-6. [CLI 命令面](./specs/cli-command-surface.md)
-7. [工作流生命周期](./specs/workflow-lifecycle.md)
-8. [工具与安全规则](./specs/tools-security-management.md)
-9. [路线图](./roadmap.md)
+5. [VS Code 插件 UI 逻辑设计](./design/vscode-ui-logic.md)
+6. [VS Code 插件 UI 修复实施计划](./design/vscode-ui-remediation-plan.md)
+7. [VS Code 插件 UI](./ui/vscode-extension.md)
+8. [CLI 命令面](./specs/cli-command-surface.md)
+9. [工作流生命周期](./specs/workflow-lifecycle.md)
+10. [工具与安全规则](./specs/tools-security-management.md)
+11. [路线图](./roadmap.md)
 
 做具体实现时再读取相关规格文档，不要默认通读所有历史材料。
 

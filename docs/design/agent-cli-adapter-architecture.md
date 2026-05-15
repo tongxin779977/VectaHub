@@ -75,6 +75,10 @@
 
 “要对 Agent 说什么”与“如何把这段话传给某个 CLI”必须分离。
 
+### Config Source First
+
+第三方 Agent CLI 的用户默认配置必须保持为单一事实源。若需要隔离可写运行态，只能隔离副作用目录，不能因为切换 home 或环境变量而隐式改变 provider、auth、model 或账号语义。
+
 ### Fail Closed
 
 当协议不明确、子命令不兼容、非交互入口不可用时，系统应阻断并返回结构化失败，而不是静默回退到错误命令。
@@ -127,8 +131,18 @@ run-task
 - `structuredOutputSupport`
 - `preflightSpec`
 - `dryRunRenderMode`
+- `runtimePolicy`
 
 这层负责表达“某个 Agent CLI 该如何被调用”，而不是让 `run-task` 直接面向原始字符串。
+
+`runtimePolicy` 至少应能表达：
+
+- 是否直接继承用户默认配置
+- 是否需要独立可写运行目录
+- 独立运行目录使用哪个环境变量注入
+- 用户默认配置源如何解析
+- 需要同步哪些最小必要配置文件
+- 需要剥离哪些上层环境变量，避免污染子进程行为
 
 ### 2. Agent Adapter
 
@@ -150,6 +164,7 @@ run-task
 - `envPatch`
 - `preview`
 - `redactionHints`
+- `runtimeBootstrapSpec`
 
 adapter 的职责：
 
@@ -159,6 +174,7 @@ adapter 的职责：
 - 处理工作目录参数
 - 处理非交互参数
 - 生成 dry-run 预览内容
+- 声明运行态 bootstrap 需求，但不直接读写用户配置文件
 
 adapter 不负责：
 
@@ -203,7 +219,26 @@ prompt 输入优先级建议为：
 
 对已知 Agent CLI，校验失败应直接阻断，不得进入 `spawn`。
 
-### 5. Agent Preflight
+### 5. Agent Runtime Bootstrap
+
+在真正 `spawn` 前，系统需要有统一的 runtime bootstrap，而不是在某个 Agent 分支中零散写 home 修补。
+
+bootstrap 的职责：
+
+- 解析该 Agent CLI 的用户默认配置源
+- 创建 VectaHub 托管的可写运行态目录
+- 同步最小必要配置文件
+- 生成最终 `envPatch`
+- 记录当前运行使用的是“继承默认配置”还是“隔离运行态 + 配置同步”
+
+bootstrap 的约束：
+
+- 不得把空运行目录直接当作新的用户配置根
+- 不得因为运行态隔离而改变 provider、auth、model 或账号来源
+- 不能推断不确定的配置文件；没有证据时应保持直接继承用户环境
+- 如果 bootstrap 缺少必要配置，应返回结构化 `config` 失败，而不是让 Agent 静默回退到默认 provider
+
+### 6. Agent Preflight
 
 将检测拆成三级：
 
@@ -215,6 +250,8 @@ prompt 输入优先级建议为：
   - 最小非交互 smoke test 可通过
 
 插件和 CLI 都应消费这一分层状态，而不是只看 `--version`。
+
+preflight 必须在 runtime bootstrap 之后执行，否则“可调用”结论可能建立在错误配置源上。
 
 ## 已知 Agent 与未知 Agent 的策略分流
 
@@ -232,6 +269,8 @@ prompt 输入优先级建议为：
 - 必须走 descriptor + adapter
 - 默认跳过命令生成 LLM
 - 可选保留 LLM 仅用于任务执行 prompt 微调，但不参与命令协议决定
+- 只有在 descriptor 明确声明时，才允许隔离可写运行目录
+- 隔离运行目录时，仍必须继承用户默认配置语义
 
 ### 未知或自定义 Agent CLI
 
@@ -240,6 +279,7 @@ prompt 输入优先级建议为：
 - 可以走 `help + LLM` 命令生成 fallback
 - 但输出必须通过 invocation validator
 - fallback 必须在结果中显式标记
+- 未经证据不得为未知 CLI 发明 home、provider 或配置同步规则
 
 ## 提示词工程调整
 

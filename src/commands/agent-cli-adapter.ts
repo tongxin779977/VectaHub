@@ -8,6 +8,23 @@ export interface AgentPreflightSpec {
   readyArgs?: string[];
 }
 
+export interface AgentRuntimeBootstrapFile {
+  relativePath: string;
+  required: boolean;
+}
+
+export interface AgentWritableRuntimeHomePolicy {
+  envVar: string;
+  defaultHomeSubdir: string;
+  bootstrapFiles: AgentRuntimeBootstrapFile[];
+  requireAnyBootstrapFile: boolean;
+}
+
+export interface AgentRuntimePolicy {
+  configSemantics: 'inherit-user-default';
+  writableRuntimeHome?: AgentWritableRuntimeHomePolicy;
+}
+
 export interface AgentDescriptor {
   id: string;
   displayName: string;
@@ -22,6 +39,7 @@ export interface AgentDescriptor {
   structuredOutputSupport: boolean;
   preflightSpec: AgentPreflightSpec;
   dryRunRenderMode: 'prompt-only' | 'argv';
+  runtimePolicy?: AgentRuntimePolicy;
 }
 
 export interface AgentAdapterInput {
@@ -57,6 +75,9 @@ class CodexAdapter implements AgentAdapter {
     }
     if (input.descriptor.workingDirectoryArg) {
       args.push(input.descriptor.workingDirectoryArg, input.workspaceRoot);
+    }
+    for (const flag of input.descriptor.nonInteractiveFlags) {
+      args.push(flag);
     }
     args.push(input.taskPrompt);
     return {
@@ -122,15 +143,27 @@ const BUILT_IN_AGENT_DESCRIPTORS: Record<string, AgentDescriptor> = {
     promptTransport: 'positional',
     workingDirectoryArg: '--cd',
     workingDirectoryArgAliases: ['-C', '--cd'],
-    nonInteractiveFlags: [],
+    nonInteractiveFlags: ['--sandbox', 'workspace-write'],
     approvalPolicySupport: 'unknown',
     structuredOutputSupport: false,
     preflightSpec: {
       versionArgs: ['--version'],
       invocableArgs: ['exec', '--help'],
-      readyArgs: ['exec', '--help'],
+      readyArgs: ['exec', '--sandbox', 'workspace-write', '--help'],
     },
     dryRunRenderMode: 'argv',
+    runtimePolicy: {
+      configSemantics: 'inherit-user-default',
+      writableRuntimeHome: {
+        envVar: 'CODEX_HOME',
+        defaultHomeSubdir: '.codex',
+        bootstrapFiles: [
+          { relativePath: 'config.toml', required: false },
+          { relativePath: 'auth.json', required: false },
+        ],
+        requireAnyBootstrapFile: true,
+      },
+    },
   },
   gemini: {
     id: 'gemini',
@@ -148,6 +181,9 @@ const BUILT_IN_AGENT_DESCRIPTORS: Record<string, AgentDescriptor> = {
       readyArgs: ['--help'],
     },
     dryRunRenderMode: 'prompt-only',
+    runtimePolicy: {
+      configSemantics: 'inherit-user-default',
+    },
   },
   aider: {
     id: 'aider',
@@ -164,6 +200,9 @@ const BUILT_IN_AGENT_DESCRIPTORS: Record<string, AgentDescriptor> = {
       readyArgs: ['--help'],
     },
     dryRunRenderMode: 'prompt-only',
+    runtimePolicy: {
+      configSemantics: 'inherit-user-default',
+    },
   },
   claude: {
     id: 'claude',
@@ -182,6 +221,9 @@ const BUILT_IN_AGENT_DESCRIPTORS: Record<string, AgentDescriptor> = {
       readyArgs: ['code', '--help'],
     },
     dryRunRenderMode: 'prompt-only',
+    runtimePolicy: {
+      configSemantics: 'inherit-user-default',
+    },
   },
 };
 

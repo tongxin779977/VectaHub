@@ -3,6 +3,7 @@ import { promisify } from 'util';
 import { createInterface } from 'readline';
 import { loadConfig, saveConfig, VectaHubConfig } from './first-run-wizard.js';
 import { getAgentDescriptorById } from '../commands/agent-cli-adapter.js';
+import { bootstrapAgentRuntime } from '../commands/agent-runtime-bootstrap.js';
 
 const execAsync = promisify(exec);
 
@@ -107,6 +108,28 @@ async function checkTool(tool: { name: string; command: string; versionFlag: str
     }
 
     const descriptor = getAgentDescriptorById(tool.name);
+    let runtimeEnvPatch: Record<string, string> | undefined;
+    if (descriptor) {
+      try {
+        runtimeEnvPatch = (await bootstrapAgentRuntime({
+          descriptor,
+          workspaceRoot: process.cwd(),
+        })).envPatch;
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : '运行时配置不可用';
+        return {
+          name: tool.name,
+          installed: true,
+          version,
+          hasPermission: true,
+          invocable: false,
+          invocationIssue: `运行时配置引导失败: ${reason}`,
+          ready: false,
+          readyIssue: `运行时配置引导失败: ${reason}`,
+        };
+      }
+    }
+
     const invocableArgs = descriptor?.preflightSpec.invocableArgs;
     if (!invocableArgs || invocableArgs.length === 0) {
       return {
@@ -123,7 +146,9 @@ async function checkTool(tool: { name: string; command: string; versionFlag: str
 
     try {
       const invocableCommand = [tool.command, ...invocableArgs].join(' ');
-      await execAsync(invocableCommand);
+      await withTemporaryEnv(runtimeEnvPatch, async () => {
+        await execAsync(invocableCommand);
+      });
       const readyArgs = descriptor?.preflightSpec.readyArgs;
       if (!readyArgs || readyArgs.length === 0) {
         return {
@@ -138,7 +163,9 @@ async function checkTool(tool: { name: string; command: string; versionFlag: str
       }
       try {
         const readyCommand = [tool.command, ...readyArgs].join(' ');
-        await execAsync(readyCommand);
+        await withTemporaryEnv(runtimeEnvPatch, async () => {
+          await execAsync(readyCommand);
+        });
         return {
           name: tool.name,
           installed: true,
@@ -175,6 +202,33 @@ async function checkTool(tool: { name: string; command: string; versionFlag: str
   }
 }
 
+async function withTemporaryEnv<T>(
+  envPatch: Record<string, string> | undefined,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (!envPatch || Object.keys(envPatch).length === 0) {
+    return fn();
+  }
+
+  const previousValues = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(envPatch)) {
+    previousValues.set(key, process.env[key]);
+    process.env[key] = value;
+  }
+
+  try {
+    return await fn();
+  } finally {
+    for (const [key, value] of previousValues.entries()) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
 async function askPermission(toolName: string): Promise<boolean> {
   return new Promise((resolve) => {
     const rl = createInterface({
@@ -190,6 +244,10 @@ async function askPermission(toolName: string): Promise<boolean> {
 }
 
 export function updateCLIToolConfig(tools: CLIToolStatus[]): void {
+  syncCLIToolPermissionState(tools);
+}
+
+export function syncCLIToolPermissionState(tools: CLIToolStatus[]): void {
   const config = loadConfig();
 
   for (const tool of tools) {

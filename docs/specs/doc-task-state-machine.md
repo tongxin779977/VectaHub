@@ -167,6 +167,7 @@ export type DocTaskFailureKind =
   | 'timeout'
   | 'test'
   | 'conflict'
+  | 'system_internal'
   | 'cancelled'
   | 'unknown';
 ```
@@ -197,6 +198,11 @@ failed_agent:
   - run-task ok=false
   - Agent 子进程执行失败
   - 其他外部 CLI 错误
+
+failed_system_internal:
+  - Agent 已成功启动，但下游运行时环境阻止继续执行
+  - Agent 自身沙箱 / approval policy / 本地命令入口导致仓库读写或只读探测失败
+  - 验证工具缺失、IO 异常、只读数据库等非业务错误
 
 cancelled:
   - 用户取消

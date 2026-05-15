@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { execFile, spawn } from 'node:child_process';
-import { existsSync, createWriteStream, readFileSync } from 'node:fs';
+import { existsSync, createWriteStream, readFileSync, readdirSync } from 'node:fs';
+import { mkdir, readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { resolve } from 'node:path';
 import { Transform } from 'node:stream';
@@ -18,10 +19,12 @@ import { splitPosixArgs } from '../utils/shell.js';
 import { createRedactor } from '../security-protocol/redactor.js';
 import { getVectaHubPath, djb2Hash } from '../utils/paths.js';
 import { getAgentAdapterById, getAgentDescriptorById } from './agent-cli-adapter.js';
+import { bootstrapAgentRuntime } from './agent-runtime-bootstrap.js';
 
 const execFileAsync = promisify(execFile);
 const logger = getLogger('run-task');
 const IDE_ENV_PATTERNS = [
+  /^CODEX_(?!HOME$)/,
   /^TERM_PROGRAM$/,
   /^VSCODE_/,
   /^ELECTRON_/,
@@ -134,6 +137,12 @@ export interface GitChangeInfo {
   changedFiles: string[];
 }
 
+interface GitDiffSnapshot {
+  diffStat: string;
+  shortStat: string;
+  changedFiles: string[];
+}
+
 export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
@@ -146,6 +155,7 @@ export interface RunTaskResult {
   command: string;
   commandGenerationPath?: 'adapter' | 'llm-fallback';
   fallbackUsed?: boolean;
+  agentExecutionOutcome?: 'implemented' | 'planned_only';
   error?: {
     code: string;
     message: string;
@@ -170,6 +180,7 @@ export interface RunTaskJsonResult {
   outputTruncated: boolean;
   commandGenerationPath?: 'adapter' | 'llm-fallback';
   fallbackUsed?: boolean;
+  agentExecutionOutcome?: 'implemented' | 'planned_only';
   error?: string | {
     code: string;
     message: string;
@@ -244,6 +255,23 @@ function buildCommandString(command: string, args: string[]): string {
   return [command, ...escaped].join(' ');
 }
 
+function buildAgentChildEnv(
+  traceContext: { traceId: string; source: 'cli' },
+  parentSpanId: string,
+  envPatch?: Record<string, string>,
+): NodeJS.ProcessEnv {
+  return {
+    ...stripIDEEnv(),
+    ...createChildEnv(traceContext, parentSpanId),
+    ...(envPatch || {}),
+    CI: '1',
+    NO_COLOR: '1',
+    FORCE_COLOR: '0',
+    TERM: 'dumb',
+    VECTAHUB_NON_INTERACTIVE: '1',
+  };
+}
+
 export function buildDefaultPrompt(taskId: string, taskLabel: string, docPath: string, contract: AgentTaskContract): string {
   const shouldEnforceMinimalChange = !contract.docExcerpt || contract.boundaryConfidence === 'none' || contract.boundaryConfidence === 'low';
   const docExcerptText = contract.docExcerpt || '(未提供文档片段)';
@@ -289,7 +317,7 @@ export function buildDefaultPrompt(taskId: string, taskLabel: string, docPath: s
   return `${prompt.slice(0, PROMPT_CONTRACT_MAX_LENGTH).trimEnd()}\n... (prompt contract truncated)`;
 }
 
-export async function collectGitChanges(): Promise<GitChangeInfo | null> {
+async function readGitDiffSnapshot(): Promise<GitDiffSnapshot | null> {
   try {
     const { stdout: shortStat } = await execFileAsync('git', ['diff', '--shortstat'], { timeout: 5000 });
     if (!shortStat.trim()) return null;
@@ -310,6 +338,24 @@ export async function collectGitChanges(): Promise<GitChangeInfo | null> {
   } catch {
     return null;
   }
+}
+
+export async function collectGitChanges(before?: GitDiffSnapshot | null): Promise<GitChangeInfo | null> {
+  const after = await readGitDiffSnapshot();
+  if (!after) return null;
+  if (!before) return after;
+
+  const previousFiles = new Set(before.changedFiles);
+  const changedFiles = after.changedFiles.filter(file => !previousFiles.has(file));
+  if (changedFiles.length === 0) {
+    return null;
+  }
+
+  return {
+    shortStat: `${changedFiles.length} file${changedFiles.length > 1 ? 's' : ''} changed (task delta)`,
+    diffStat: changedFiles.join('\n'),
+    changedFiles,
+  };
 }
 
 function compactAgentOutput(output: string): { output: string; truncated: boolean } {
@@ -499,6 +545,146 @@ function getRunTaskOutputDir(): string {
   return getVectaHubPath('outputs', 'run-task', djb2Hash(process.cwd()));
 }
 
+async function safeReadTextFile(filePath: string): Promise<string> {
+  try {
+    return await readFile(filePath, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+function findLatestRunTaskOutputFiles(taskId: string): { stdoutPath?: string; stderrPath?: string } | null {
+  const outputDir = getRunTaskOutputDir();
+  if (!existsSync(outputDir)) {
+    return null;
+  }
+
+  const stdoutEntries = Array.from(new Set([
+    ...globOutputCandidates(outputDir, `${taskId}-`, '.stdout'),
+  ])).sort();
+  const stderrEntries = Array.from(new Set([
+    ...globOutputCandidates(outputDir, `${taskId}-`, '.stderr'),
+  ])).sort();
+
+  return {
+    stdoutPath: stdoutEntries.at(-1),
+    stderrPath: stderrEntries.at(-1),
+  };
+}
+
+function globOutputCandidates(outputDir: string, prefix: string, suffix: string): string[] {
+  try {
+    return readdirSync(outputDir)
+      .filter(name => name.startsWith(prefix) && name.endsWith(suffix))
+      .map(name => resolve(outputDir, name));
+  } catch {
+    return [];
+  }
+}
+
+function detectAgentExecutionOutcome(output: string): 'implemented' | 'planned_only' {
+  const text = output.toLowerCase();
+  const plannedOnlySignals = [
+    '暂不执行修改',
+    '先给出实施计划',
+    '先给出实现计划',
+    '按 agents.md 要求，我先给出实施计划',
+    '如果你确认这个方案',
+    '下一条就给出逐文件精确补丁',
+    'not executing changes yet',
+    'i will first provide a plan',
+  ];
+
+  if (plannedOnlySignals.some(signal => text.includes(signal.toLowerCase()))) {
+    return 'planned_only';
+  }
+  return 'implemented';
+}
+
+function detectAgentSoftSystemFailure(output: string, gitChanges?: GitChangeInfo): string | null {
+  if (gitChanges?.changedFiles.length) {
+    return null;
+  }
+
+  const text = output.toLowerCase();
+  const directFailureSignals = [
+    '受当前环境限制，任务未能执行代码修改',
+    '受当前环境限制',
+    '未能执行代码修改',
+    '无法执行代码修改',
+    '无法落盘修改',
+    '本地命令入口不可用',
+    'unable to execute code changes',
+    'unable to make code changes',
+    'could not execute code changes',
+  ];
+  const environmentSignals = [
+    'sandbox-exec: sandbox_apply',
+    'sandbox_apply: operation not permitted',
+    'sandbox: read-only',
+    'operation not permitted',
+    'read-only',
+    'read only',
+  ];
+  const noChangeSignals = [
+    '未执行代码修改',
+    '未能执行代码修改',
+    '无法执行代码修改',
+    '无法落盘修改',
+    '无法修改代码',
+    'unable to execute code changes',
+    'unable to make code changes',
+    'could not execute code changes',
+  ];
+
+  const matched = directFailureSignals.some(signal => text.includes(signal.toLowerCase()))
+    || (
+      environmentSignals.some(signal => text.includes(signal.toLowerCase()))
+      && noChangeSignals.some(signal => text.includes(signal.toLowerCase()))
+    );
+
+  return matched ? 'Agent 输出表明当前环境限制阻止了代码修改' : null;
+}
+
+function classifyAgentFailureCode(error: unknown, output: string): 'TIMEOUT' | 'AGENT_SYSTEM_ERROR' | 'AGENT_CONFIG_ERROR' | 'AGENT_FAILED' {
+  const execError = error as { code?: string | number; message?: string };
+  const text = `${execError?.message || ''}\n${output}`.toLowerCase();
+
+  if (execError?.code === 'TIMEOUT' || text.includes('timeout') || text.includes('timed out') || text.includes('超时')) {
+    return 'TIMEOUT';
+  }
+
+  if ([
+    'io error',
+    'operation not permitted',
+    'stream disconnected before completion',
+    'failed to connect to websocket',
+    'readonly database',
+    'read only database',
+    'attempt to write a readonly database',
+    'eperm',
+    'emfile',
+    'enfile',
+  ].some(keyword => text.includes(keyword))) {
+    return 'AGENT_SYSTEM_ERROR';
+  }
+
+  if ([
+    'permission denied',
+    'no such file',
+    'path does not exist',
+    'enoent',
+    'eacces',
+    'not found',
+    '未安装',
+    '未配置',
+  ].some(keyword => text.includes(keyword))) {
+    return 'AGENT_CONFIG_ERROR';
+  }
+
+  return 'AGENT_FAILED';
+}
+
 function validateGeneratedInvocation(tool: string, generated: GeneratedCommand): { valid: true } | { valid: false; message: string } {
   if (!generated.command || typeof generated.command !== 'string' || !generated.command.trim()) {
     return { valid: false, message: 'invocation validator: command 不能为空' };
@@ -564,15 +750,16 @@ export async function runVerificationCommands(
       const durationMs = Date.now() - startMs;
       const execError = error as any;
       
-      // Identify system errors (ENOENT, EACCES, etc.)
-      const isSystem = ['ENOENT', 'EACCES', 'EPERM'].includes(execError.code);
+      const stdoutStr = execError.stdout?.toString?.() || '';
+      const stderrStr = execError.stderr?.toString?.() || '';
+      const exitCode: number | null = execError.killed ? null : (execError.status ?? execError.code ?? null);
+      const isSystem = ['ENOENT', 'EACCES', 'EPERM'].includes(execError.code)
+        || exitCode === 127
+        || /command not found/i.test(stderrStr)
+        || /missing script/i.test(stderrStr);
       if (isSystem) {
         hasSystemError = true;
       }
-
-      const exitCode: number | null = execError.killed ? null : (execError.status ?? execError.code ?? null);
-      const stdoutStr = execError.stdout?.toString?.() || '';
-      const stderrStr = execError.stderr?.toString?.() || '';
       const outputTruncated = stdoutStr.length > VERIFICATION_SUMMARY_MAX_LENGTH || stderrStr.length > VERIFICATION_SUMMARY_MAX_LENGTH;
       results.push({
         command: cmd,
@@ -603,6 +790,9 @@ export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
   }
   if (result.fallbackUsed !== undefined) {
     jsonResult.fallbackUsed = result.fallbackUsed;
+  }
+  if (result.agentExecutionOutcome) {
+    jsonResult.agentExecutionOutcome = result.agentExecutionOutcome;
   }
 
   if (result.gitChanges) {
@@ -913,6 +1103,37 @@ export async function runTask(options: {
 
     audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'EXECUTING', 'run-task');
 
+    let runtimeEnvPatch: Record<string, string> | undefined;
+    if (knownAgentDescriptor) {
+      try {
+        const bootstrapResult = await bootstrapAgentRuntime({
+          descriptor: knownAgentDescriptor,
+          workspaceRoot: process.cwd(),
+        });
+        runtimeEnvPatch = bootstrapResult.envPatch;
+      } catch (bootstrapError) {
+        const message = bootstrapError instanceof Error
+          ? `Agent runtime bootstrap 失败: ${bootstrapError.message}`
+          : 'Agent runtime bootstrap 失败';
+        logger.error(message);
+        audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'PREFLIGHT_FAILED', 'run-task');
+        return {
+          success: false,
+          output: message,
+          command: fullCommand,
+          commandGenerationPath,
+          fallbackUsed,
+          error: {
+            code: 'AGENT_CONFIG_ERROR',
+            message,
+          },
+          agentTaskContract: agentTaskContractSummary,
+        };
+      }
+    }
+
+    const childEnv = buildAgentChildEnv(traceContext, rootSpan.spanId, runtimeEnvPatch);
+
     // Agent availability preflight check
     if (!dryRun) {
       const preflightSpan = startSpan('cli.run-task.agentPreflight', {
@@ -924,14 +1145,28 @@ export async function runTask(options: {
           commandGenerationPath,
         },
       });
+      const preflightArgs = commandGenerationPath === 'adapter'
+        ? (
+          knownAgentDescriptor?.preflightSpec.readyArgs?.length
+            ? knownAgentDescriptor.preflightSpec.readyArgs
+            : knownAgentDescriptor?.preflightSpec.invocableArgs?.length
+              ? knownAgentDescriptor.preflightSpec.invocableArgs
+              : ['--version']
+        )
+        : ['--version'];
+      const preflightCheckLabel = commandGenerationPath === 'adapter' && knownAgentDescriptor?.preflightSpec.readyArgs?.length
+        ? '就绪检查'
+        : '入口检查';
       try {
-        const preflightArgs = (commandGenerationPath === 'adapter' && knownAgentDescriptor?.preflightSpec.invocableArgs?.length)
-          ? knownAgentDescriptor.preflightSpec.invocableArgs
-          : ['--version'];
-        await execFileAsync(generated.command, preflightArgs, { timeout: 10000 });
+        await execFileAsync(generated.command, preflightArgs, {
+          timeout: 10000,
+          cwd: process.cwd(),
+          env: childEnv,
+        });
         await preflightSpan.end({ agentAvailable: true });
       } catch (preflightError) {
-        const preflightMsg = `Agent CLI "${generated.command}" 未安装或无执行权限`;
+        const preflightMsg = `Agent CLI "${generated.command}" 未通过${preflightCheckLabel}`;
+        const preflightErrorCode = classifyAgentFailureCode(preflightError, preflightMsg);
         await preflightSpan.fail(preflightError, { agentAvailable: false });
         logger.error(preflightMsg);
         audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'PREFLIGHT_FAILED', 'run-task');
@@ -941,6 +1176,10 @@ export async function runTask(options: {
           command: fullCommand,
           commandGenerationPath,
           fallbackUsed,
+          error: {
+            code: preflightErrorCode,
+            message: preflightMsg,
+          },
           agentTaskContract: agentTaskContractSummary,
         };
       }
@@ -951,8 +1190,8 @@ export async function runTask(options: {
       logger.info(`说明: ${generated.explanation}`);
     }
 
+    const gitDiffBefore = await readGitDiffSnapshot();
     try {
-      const spawnEnv = createChildEnv(traceContext, rootSpan.spanId);
       const spawnSpan = startSpan('cli.run-task.spawnAgent', {
         context: traceContext,
         parentSpanId: rootSpan.spanId,
@@ -966,7 +1205,6 @@ export async function runTask(options: {
         },
       });
       const outputDir = getRunTaskOutputDir();
-      const { mkdir } = await import('node:fs/promises');
       await mkdir(outputDir, { recursive: true });
       const ts = Date.now();
       const redactedStdoutPath = resolve(outputDir, `${taskId}-${ts}.stdout`);
@@ -974,15 +1212,7 @@ export async function runTask(options: {
 
       const child = spawn(generated.command, generated.args, {
         cwd: process.cwd(),
-        env: {
-          ...stripIDEEnv(),
-          ...spawnEnv,
-          CI: '1',
-          NO_COLOR: '1',
-          FORCE_COLOR: '0',
-          TERM: 'dumb',
-          VECTAHUB_NON_INTERACTIVE: '1',
-        },
+        env: childEnv,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
@@ -1045,6 +1275,7 @@ export async function runTask(options: {
       });
 
       const combinedOutput = `${redactedStdout}${redactedStderr ? `\n${redactedStderr}` : ''}`;
+      const agentExecutionOutcome = detectAgentExecutionOutcome(combinedOutput);
       
       const collectSpan = startSpan('cli.run-task.collectGitChanges', {
         context: traceContext,
@@ -1052,12 +1283,13 @@ export async function runTask(options: {
         source: 'cli',
         attributes: baseAttributes,
       });
-      const gitChanges = await collectGitChanges() ?? undefined;
+      const gitChanges = await collectGitChanges(gitDiffBefore) ?? undefined;
       await collectSpan.end({ changedFileCount: gitChanges?.changedFiles.length || 0 });
+      const softSystemFailureMessage = detectAgentSoftSystemFailure(combinedOutput, gitChanges);
       
       let verification: VerificationResult | undefined;
       const validationCommands = agentTaskContractSummary.validationCommands;
-      if (validationCommands.length > 0) {
+      if (validationCommands.length > 0 && agentExecutionOutcome !== 'planned_only' && !softSystemFailureMessage) {
         const verificationSpan = startSpan('cli.run-task.verification', {
           context: traceContext,
           parentSpanId: rootSpan.spanId,
@@ -1085,8 +1317,12 @@ export async function runTask(options: {
         }
       }
 
-      const finalSuccess = verification ? (verification.ok && !verification.isSystemError) : true;
-      if (!finalSuccess && verification?.ok) {
+      const finalSuccess = !softSystemFailureMessage
+        && agentExecutionOutcome !== 'planned_only'
+        && (verification ? (verification.ok && !verification.isSystemError) : true);
+      if (softSystemFailureMessage) {
+        logger.warn('任务 Agent 输出环境受限，按系统错误处理');
+      } else if (!finalSuccess && verification?.ok) {
         logger.warn('任务 Agent 成功但验证发生系统错误');
       } else if (!finalSuccess) {
         logger.warn('任务 Agent 成功但验证失败');
@@ -1109,6 +1345,12 @@ export async function runTask(options: {
         command: fullCommand,
         commandGenerationPath,
         fallbackUsed,
+        agentExecutionOutcome,
+        error: agentExecutionOutcome === 'planned_only'
+          ? { code: 'AGENT_PLANNED_ONLY', message: 'Agent 仅输出计划，未执行实现' }
+          : softSystemFailureMessage
+            ? { code: 'AGENT_SYSTEM_ERROR', message: softSystemFailureMessage }
+          : undefined,
         gitChanges,
         agentTaskContract: agentTaskContractSummary,
         verification,
@@ -1116,8 +1358,11 @@ export async function runTask(options: {
       };
     } catch (error) {
       const execError = error as any;
-      const errStdout = execError.stdout?.toString?.() || '';
-      const errStderr = execError.stderr?.toString?.() || '';
+      const latestOutputFiles = findLatestRunTaskOutputFiles(taskId);
+      const fileStdout = latestOutputFiles?.stdoutPath ? await safeReadTextFile(latestOutputFiles.stdoutPath) : '';
+      const fileStderr = latestOutputFiles?.stderrPath ? await safeReadTextFile(latestOutputFiles.stderrPath) : '';
+      const errStdout = execError.stdout?.toString?.() || fileStdout;
+      const errStderr = execError.stderr?.toString?.() || fileStderr;
       const errOutput = errStdout + (errStderr ? '\n' + errStderr : '') || execError.message || String(error);
       const rawErrOutputForUsage = errStdout + (errStderr ? '\n' + errStderr : '');
       const spawnFailSpan = startSpan('cli.run-task.spawnAgent', {
@@ -1136,11 +1381,11 @@ export async function runTask(options: {
         stderrLength: errStderr.length,
         exitCode: execError.code ?? null,
       });
-      const gitChanges = await collectGitChanges() ?? undefined;
+      const gitChanges = await collectGitChanges(gitDiffBefore) ?? undefined;
       audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'FAILED', 'run-task');
       logger.error(`任务执行失败: ${errOutput}`);
       const errUsage = parseTokenUsage(rawErrOutputForUsage || errOutput);
-      const errorCode = execError?.code === 'TIMEOUT' || /timeout/i.test(execError?.message || '') ? 'TIMEOUT' : 'AGENT_FAILED';
+      const errorCode = classifyAgentFailureCode(execError, errOutput);
       const errorMessage = execError?.message || 'Agent 执行失败';
       return {
         success: false,

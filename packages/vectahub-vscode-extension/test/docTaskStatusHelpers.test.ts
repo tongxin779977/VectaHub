@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { persistContractHashFromCliResult, resolveVerificationStatus } from '../src/commands/docTaskStatusHelpers.js';
 
 describe('resolveVerificationStatus', () => {
+  it('agentExecutionOutcome=planned_only => ready', () => {
+    const resolved = resolveVerificationStatus([], undefined, 'planned_only');
+    expect(resolved.status).toBe('ready');
+    expect(resolved.failureKind).toBeUndefined();
+  });
+
   it('result.ok=false 且 verification.isSystemError=true => failed_system_internal', () => {
     const resolved = resolveVerificationStatus([], { ok: false, isSystemError: true });
     expect(resolved.status).toBe('failed_system_internal');

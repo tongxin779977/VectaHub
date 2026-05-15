@@ -29,11 +29,20 @@
 `tools agents --json` 返回面向 CLI 和 VS Code 插件消费的分层状态：
 
 - `installed` / `version` 表示是否能找到二进制及其版本信息。
-- `configured_enabled` / `has_permission` 来自 VectaHub 配置，表示用户是否启用并授权该 Agent。
+- `configured_enabled` / `has_permission` 来自 VectaHub 配置，表示内部记录的启用与许可状态。
 - `invocable` 表示真实入口探测通过；已知 Agent 使用 descriptor 中的入口参数，例如 Codex 使用 `codex exec --help`，unknown/fallback 才保留旧的版本探测语义。
-- `ready` 表示任务执行入口就绪；缺少 `readyArgs` 时按 fail-closed 处理为未就绪，并可通过 `readyIssue` 返回原因。
+- `ready` 表示 VectaHub 已知的任务执行入口预检通过；缺少 `readyArgs` 时按 fail-closed 处理为未就绪，并可通过 `readyIssue` 返回原因。
 
-插件选择可用 Agent 时必须同时满足 `installed`、`configured_enabled`、`has_permission`、`invocable` 和 `ready`。
+边界说明：
+
+- `ready=true` 只说明 VectaHub 能在 runtime bootstrap 后通过 descriptor 定义的外层探测命令。
+- `ready=true` 不等于“任务一定能成功执行”，也不保证下游 Agent 自身的二级沙箱、approval policy、远程插件同步、本地命令入口或仓库访问能力一定可用。
+- 对 `codex` 这类带内置沙箱/插件系统的 CLI，仍可能在 `spawn` 之后因为下游运行时限制失败，例如本地命令被拒绝、仓库只读或插件远程同步告警。
+
+UI 展示 Agent 候选时，应优先依据运行事实，即 `installed`、`invocable` 和 `ready`。  
+`configured_enabled` 和 `has_permission` 可参与内部决策，但不应单独作为隐藏已可运行 Agent 的依据。若扫描已确认 Agent 可运行，插件应优先自动收敛内部配置态，而不是要求用户额外执行启用或授权动作。
+
+CLI 或插件在真正执行前，仍可结合内部配置、安全策略和外部前置条件做最终阻断；但这种阻断应面向真实原因，不应把内部布尔位直接暴露为主 UI 逻辑。
 
 ## 命令规则引擎
 

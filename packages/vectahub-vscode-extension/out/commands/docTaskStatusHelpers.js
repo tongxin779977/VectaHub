@@ -2,7 +2,10 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.resolveVerificationStatus = resolveVerificationStatus;
 exports.persistContractHashFromCliResult = persistContractHashFromCliResult;
-function resolveVerificationStatus(changedFiles, verification) {
+function resolveVerificationStatus(changedFiles, verification, agentExecutionOutcome) {
+    if (agentExecutionOutcome === 'planned_only') {
+        return { status: 'ready' };
+    }
     if (verification?.isSystemError) {
         return { status: 'failed_system_internal', failureKind: 'system_internal' };
     }

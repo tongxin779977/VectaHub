@@ -7,7 +7,11 @@ export function resolveVerificationStatus(
     ok: boolean;
     isSystemError?: boolean;
   },
+  agentExecutionOutcome?: 'implemented' | 'planned_only',
 ): { status: DocTaskRunStatus; failureKind?: DocTaskFailureKind } {
+  if (agentExecutionOutcome === 'planned_only') {
+    return { status: 'ready' };
+  }
   if (verification?.isSystemError) {
     return { status: 'failed_system_internal', failureKind: 'system_internal' };
   }

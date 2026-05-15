@@ -4,6 +4,8 @@
 
 高风险命令不能静默执行。插件需要在执行前展示确认弹窗，让用户明确选择继续或取消。
 
+本文档只覆盖真实风险确认。内部状态同步、配置收敛或可自动完成的 Agent 可用性修正，不属于这里的“权限确认”。
+
 ## 当前行为
 
 插件侧 `confirmHighRiskCommand` 会对 `high` 和 `critical` 风险显示 VS Code modal 警告框，内容包括：
@@ -32,8 +34,17 @@ type RiskLevel = 'safe' | 'low' | 'medium' | 'high' | 'critical';
 - 弹窗只展示摘要，不展示敏感原文。
 - 取消后任务不能继续执行高风险命令。
 - `critical` 的默认策略应更保守；是否允许继续由安全规格和实现共同约束。
+- 不得把内部配置布尔值、扫描缓存或可自动完成的同步动作包装成用户确认步骤。
+
+## 不应使用确认弹窗的场景
+
+- 插件自动同步 Agent 可用性状态。
+- 插件根据结构化扫描结果自动修正内部配置。
+- UI 刷新、状态回填或摘要更新。
+- 插件可安全完成的一次性预检。
 
 ## 相关文档
 
+- [VS Code 插件 UI 逻辑设计](../design/vscode-ui-logic.md)
 - [安全与权限闭环规格](../specs/security-permission-loop.md)
 - [插件/CLI 边界设计](../design/plugin-cli-boundary.md)

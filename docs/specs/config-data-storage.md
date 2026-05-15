@@ -10,6 +10,30 @@ VECTAHUB_HOME > $HOME/.vectahub
 
 所有用户数据、执行记录、输出、trace、队列和归档都应落在该目录或其项目 hash 子目录下。
 
+## 第三方 Agent CLI 配置与运行态边界
+
+`VECTAHUB_HOME` 只定义 VectaHub 自己的数据根目录，不应被解释为第三方 Agent CLI 的权威配置来源。
+
+对 `codex`、`gemini`、`claude`、`aider` 等外部 Agent CLI，必须区分两个概念：
+
+- 用户默认配置源：由对应 Agent CLI 自己的默认 home、环境变量或配置文件决定，是 provider、model、auth 和用户偏好的单一事实源。
+- 可写运行态目录：仅用于隔离 sqlite、日志、缓存、会话或其他执行期副作用，不应改变用户默认配置语义。
+
+实现要求：
+
+- VectaHub 不得因为创建隔离运行目录而隐式切换 Agent provider、账号、模型或认证来源。
+- 如果某个 Agent CLI 需要独立可写 home，系统必须先从用户默认配置源同步最小必要配置，再启动该 Agent。
+- “最小必要配置”至少应覆盖会影响 provider、auth、模型或路由选择的文件；不能只创建空目录。
+- 如果无法解析用户默认配置源，或无法完成最小必要同步，应按配置类失败处理，而不是静默回退到其他 provider。
+
+建议的 VectaHub 托管运行态目录：
+
+```text
+agent-homes/<agentId>/<projectHash>/
+```
+
+该目录属于 VectaHub 托管的运行态副作用空间，不是第三方 Agent CLI 的长期用户配置真源。
+
 ## 主要目录
 
 | 路径 | 用途 |
@@ -21,6 +45,7 @@ VECTAHUB_HOME > $HOME/.vectahub
 | `projects/<hash>/diagnostic-queue.json` | 项目级诊断队列。 |
 | `diagnostic-queue.json` | 全局诊断队列回退路径。 |
 | `archives/` | 执行记录归档。 |
+| `agent-homes/<agentId>/<projectHash>/` | 第三方 Agent CLI 的可写运行态隔离目录。 |
 
 ## 执行记录
 
@@ -80,6 +105,7 @@ CLI `trace list` 默认读取最近 trace 概览，`trace show <traceId>` 展示
 - 不得把 API key、token、private key、完整 env 写入执行记录、trace 或输出摘要。
 - Agent 输出必须在写入持久化摘要前经过脱敏策略。
 - `--dry-run` 不应写审计、执行记录或外部副作用数据。
+- 第三方 Agent CLI 的最小必要配置同步不得把 secrets 打印到 stdout/stderr、trace 或 outputSummary。
 
 ## 维护要求
 

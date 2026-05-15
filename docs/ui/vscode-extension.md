@@ -1,5 +1,7 @@
 # VS Code 插件 UI
 
+本文档是 VS Code 插件 UI 的总览与导航入口。具体交互规则以 [VS Code 插件 UI 逻辑设计](../design/vscode-ui-logic.md) 为准。
+
 ## 入口
 
 插件在 Activity Bar 中注册 `VectaHub` 容器，包含两个视图：
@@ -7,7 +9,7 @@
 - `任务面板`
 - `高级选项`
 
-插件激活后会初始化输出面板、状态栏、CLI adapter，并在开启自动检测时查找 CLI。CLI ready 后会运行 `doctor --json` 做初始诊断。
+插件激活后会初始化输出面板、状态栏和 CLI adapter，并在开启自动检测时查找 CLI。CLI ready 后会运行 `doctor --json` 做初始诊断。
 
 ## 任务面板
 
@@ -18,7 +20,7 @@
 | 一键开发 | 展示 `dev`、`start`、`serve` 等长驻任务，并支持停止运行中任务。 |
 | 质量检查 | 展示 `test`、`build`、`lint`、`typecheck`、`check`、`validate`、`format` 等任务。 |
 | Git/CI | 展示仓库、CI 或诊断队列相关动作。 |
-| 文档任务 | 选择文档、解析任务、单任务执行、批量执行、选择 Agent CLI。 |
+| 文档任务 | 选择文档、解析任务、执行单任务或批量任务。 |
 | 其他脚本 | 折叠展示其他项目脚本。 |
 | 最近失败 | 折叠展示近期失败任务。 |
 
@@ -45,14 +47,20 @@
 | `vectahubTasks.autoDetectCli` | `true` | 插件激活后是否自动检测 CLI。 |
 | `vectahubTasks.maxConcurrentTasks` | `1` | 批量执行文档任务最大并发数，默认串行。 |
 
-## UI 边界
+## UI 设计边界
 
-- UI 只展示状态和摘要，不展示完整大日志。
+- UI 只展示用户决策需要的状态和摘要。
+- 复杂执行真相、trace 细节和合同细节应通过 CLI JSON、输出面板或专门入口提供。
+- UI 应自动收敛内部状态，避免把配置态同步问题直接暴露给用户。
 - UI 需要执行核心任务时应调用 CLI 或共享合同，不复制执行逻辑。
 - 未实现的复杂 trace 时间线和恢复向导不能写成已完成能力。
 
-## 相关文档
+## 文档导航
 
+- [VS Code 插件 UI 逻辑设计](../design/vscode-ui-logic.md)
+- [VS Code 插件 UI 修复实施计划](../design/vscode-ui-remediation-plan.md)
 - [文档任务操作流程](./task-run-workflow.md)
+- [项目任务 UI 工作流](./project-task-workflows.md)
 - [恢复操作流程](./recovery-workflow.md)
 - [权限确认](./permission-prompts.md)
+- [Trace 查看](./trace-view.md)

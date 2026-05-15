@@ -11,7 +11,7 @@ import {
 } from '../cli-tools/index.js';
 import { npmTool } from '../cli-tools/tools/npm.js';
 import { loadConfig as loadSetupConfig } from '../setup/first-run-wizard.js';
-import { scanSingleTool } from '../setup/cli-scanner.js';
+import { scanSingleTool, syncCLIToolPermissionState } from '../setup/cli-scanner.js';
 
 export const toolsCmd = new Command('tools')
   .description('CLI tools management commands');
@@ -301,14 +301,27 @@ toolsCmd
   .command('agents')
   .description('List AI Agent CLIs with installation status')
   .option('--json', 'Output results in JSON format')
+  .option('--sync-config', 'Sync detected permission state back into VectaHub config')
   .action(async (options) => {
     const appConfig = loadSetupConfig();
     const externalCli = appConfig.external_cli || {};
     const names = Object.keys(externalCli);
 
-    const agents = await Promise.all(names.map(async (name) => {
-      const cfg = externalCli[name] || { enabled: false, has_permission: false };
+    const detectedTools = await Promise.all(names.map(async (name) => {
       const detected = await scanSingleTool(name);
+      return { name, detected };
+    }));
+
+    if (options.syncConfig) {
+      syncCLIToolPermissionState(
+        detectedTools
+          .map(item => item.detected)
+          .filter((item): item is NonNullable<typeof item> => item !== null),
+      );
+    }
+
+    const agents = detectedTools.map(({ name, detected }) => {
+      const cfg = externalCli[name] || { enabled: false, has_permission: false };
       return detected ? {
         name,
         installed: detected.installed,
@@ -326,7 +339,7 @@ toolsCmd
         invocable: false,
         ready: false,
       };
-    }));
+    });
 
     if (options.json) {
       console.log(JSON.stringify({ ok: true, agents }, null, 2));
