@@ -189,6 +189,8 @@ failed_json_protocol:
 failed_timeout:
   - result.error.code=TIMEOUT
   - error message 包含 timeout / timed out
+  - 超时前可能已经产生 `gitChanges`，但 CLI 未完成权威收口，且 `verification` 缺失
+  - 这种场景属于“部分落地但未完成”，不得自动视为 success，也不得在无人工确认时当作可直接重试
 
 failed_conflict:
   - git diff 中存在未预期冲突标记
@@ -404,6 +406,11 @@ running -> failed_conflict
 running -> cancelled
 changed -> needs_confirmation
 ```
+
+补充约束：
+
+- `running -> failed_timeout` 时，如果已经观测到 `gitChanges`，最终状态仍然是 `failed_timeout`，不是 `changed`。
+- `changed` 只表示成功链路中的“已完成且可继续验证/展示”的结果，不能用来表示“仓库已被改动但 CLI 未收口”。
 
 ### 10.2 批量任务
 

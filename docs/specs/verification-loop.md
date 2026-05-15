@@ -98,6 +98,8 @@ Agent success
 Agent 失败时不运行验证命令。
 Agent 软失败时同样不运行验证命令。
 
+如果 Agent 已经产生 `gitChanges`，但最终以 `failed_timeout` 或其他未完成收口的失败返回，验证命令仍然不得执行；此时 `verification` 必须缺失，由上层结合 `gitChanges` 和失败分类决定后续恢复或人工处理。
+
 这里的 Agent 软失败包括但不限于：
 
 - 输出明确说明“本地命令工具无法启动”

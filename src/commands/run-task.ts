@@ -45,6 +45,8 @@ function stripIDEEnv(): NodeJS.ProcessEnv {
 
 const DEFAULT_AGENT_CLI_TIMEOUT = 600000;
 const agentCliTimeout = parseInt(process.env.AGENT_CLI_TIMEOUT || '', 10) || DEFAULT_AGENT_CLI_TIMEOUT;
+const DEFAULT_AGENT_EXIT_FLUSH_GRACE_MS = 1500;
+const agentExitFlushGraceMs = parseInt(process.env.AGENT_EXIT_FLUSH_GRACE_MS || '', 10) || DEFAULT_AGENT_EXIT_FLUSH_GRACE_MS;
 const DEFAULT_MAX_JSON_OUTPUT_LENGTH = 50000;
 const MAX_JSON_OUTPUT_LENGTH = parseInt(process.env.RUN_TASK_MAX_JSON_OUTPUT_LENGTH || '', 10) || DEFAULT_MAX_JSON_OUTPUT_LENGTH;
 const TRUNCATED_OUTPUT_MARKER = '\n... (output truncated)';
@@ -230,6 +232,14 @@ export interface VerificationResult {
   isSystemError?: boolean;
 }
 
+type SpawnCompletionSignal = 'close' | 'exit-stream-drain' | 'exit-flush-grace' | 'timeout';
+
+interface SpawnCompletionResult {
+  exitCode: number;
+  signal: NodeJS.Signals | null;
+  completionSignal: SpawnCompletionSignal;
+}
+
 function extractOutermostJson(str: string): string | null {
   let depth = 0;
   let start = -1;
@@ -243,6 +253,39 @@ function extractOutermostJson(str: string): string | null {
     }
   }
   return null;
+}
+
+function waitForWriterSettled(writer: NodeJS.WritableStream): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const statefulWriter = writer as NodeJS.WritableStream & { writableFinished?: boolean; destroyed?: boolean };
+    if (statefulWriter.writableFinished || statefulWriter.destroyed) {
+      resolve();
+      return;
+    }
+
+    let settled = false;
+    const cleanup = () => {
+      writer.removeListener('finish', onDone);
+      writer.removeListener('close', onDone);
+      writer.removeListener('error', onError);
+    };
+    const onDone = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+    const onError = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error as Error);
+    };
+
+    writer.once('finish', onDone);
+    writer.once('close', onDone);
+    writer.once('error', onError);
+  });
 }
 
 function buildCommandString(command: string, args: string[]): string {
@@ -1289,32 +1332,104 @@ export async function runTask(options: {
         redactedStderr += chunk.toString();
       });
 
-      await new Promise<void>((resolvePromise, rejectPromise) => {
+      const streamDrainPromise = Promise.all([
+        waitForWriterSettled(stdoutRedactedWriter),
+        waitForWriterSettled(stderrRedactedWriter),
+      ]);
+      const completion = await new Promise<SpawnCompletionResult>((resolvePromise, rejectPromise) => {
+        let settled = false;
+        let closeObserved = false;
+        let exitCode: number | null = null;
+        let exitSignal: NodeJS.Signals | null = null;
+        let exitFlushTimer: NodeJS.Timeout | undefined;
+
+        const cleanup = () => {
+          clearTimeout(timer);
+          if (exitFlushTimer) {
+            clearTimeout(exitFlushTimer);
+          }
+          child.off('error', onErr);
+          child.off('exit', onExit);
+          child.off('close', onClose);
+          stdoutRedactedWriter.off('error', onErr);
+          stderrRedactedWriter.off('error', onErr);
+        };
+        const resolveOnce = (value: SpawnCompletionResult) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          resolvePromise(value);
+        };
+        const rejectOnce = (error: unknown) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          rejectPromise(error as Error);
+        };
+        const settleWithExit = (code: number | null, signal: NodeJS.Signals | null, completionSignal: SpawnCompletionSignal) => {
+          const normalizedCode = typeof code === 'number' ? code : 1;
+          if (normalizedCode === 0) {
+            resolveOnce({ exitCode: 0, signal, completionSignal });
+            return;
+          }
+
+          const message = signal
+            ? `Agent process exited with signal ${signal}`
+            : `Agent process exited with code ${code}`;
+          rejectOnce(Object.assign(new Error(message), {
+            code: normalizedCode,
+            signal,
+            completionSignal,
+          }));
+        };
+
         const timer = setTimeout(() => {
           child.kill('SIGKILL');
           const timeoutError = new Error(`Agent CLI timeout after ${agentCliTimeout}ms`);
-          (timeoutError as Error & { code?: string }).code = 'TIMEOUT';
-          rejectPromise(timeoutError);
+          (timeoutError as Error & { code?: string; completionSignal?: SpawnCompletionSignal }).code = 'TIMEOUT';
+          (timeoutError as Error & { code?: string; completionSignal?: SpawnCompletionSignal }).completionSignal = 'timeout';
+          rejectOnce(timeoutError);
         }, agentCliTimeout);
-
         const onErr = (err: unknown) => {
-          clearTimeout(timer);
-          rejectPromise(err as Error);
+          rejectOnce(err as Error);
         };
+        const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+          exitCode = code;
+          exitSignal = signal;
+
+          streamDrainPromise
+            .then(() => {
+              if (settled || closeObserved) return;
+              settleWithExit(exitCode, exitSignal, 'exit-stream-drain');
+            })
+            .catch(onErr);
+
+          if (exitFlushTimer) {
+            clearTimeout(exitFlushTimer);
+          }
+          exitFlushTimer = setTimeout(() => {
+            if (settled || closeObserved) return;
+            settleWithExit(exitCode, exitSignal, 'exit-flush-grace');
+          }, agentExitFlushGraceMs);
+        };
+        const onClose = (code: number | null, signal: NodeJS.Signals | null) => {
+          closeObserved = true;
+          settleWithExit(code, signal, 'close');
+        };
+
+        streamDrainPromise.catch(onErr);
         child.on('error', onErr);
+        child.on('exit', onExit);
+        child.on('close', onClose);
         stdoutRedactedWriter.on('error', onErr);
         stderrRedactedWriter.on('error', onErr);
-        child.on('close', (code) => {
-          clearTimeout(timer);
-          if (code === 0) resolvePromise();
-          else rejectPromise(Object.assign(new Error(`Agent process exited with code ${code}`), { code }));
-        });
       });
 
       await spawnSpan.end({
         stdoutLength: redactedStdout.length,
         stderrLength: redactedStderr.length,
-        exitCode: 0,
+        exitCode: completion.exitCode,
+        completionSignal: completion.completionSignal,
       });
 
       const combinedOutput = `${redactedStdout}${redactedStderr ? `\n${redactedStderr}` : ''}`;
@@ -1419,10 +1534,12 @@ export async function runTask(options: {
           timeoutMs: agentCliTimeout,
         },
       });
+      const completionSignal = (execError?.completionSignal as SpawnCompletionSignal | undefined) || undefined;
       await spawnFailSpan.fail(error, {
         stdoutLength: errStdout.length,
         stderrLength: errStderr.length,
         exitCode: execError.code ?? null,
+        completionSignal,
       });
       const gitChanges = await collectGitChanges(gitDiffBefore) ?? undefined;
       audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'FAILED', 'run-task');

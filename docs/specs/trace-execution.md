@@ -326,10 +326,17 @@ spawnAgent:
   stdoutLength
   stderrLength
   exitCode
+  completionSignal
 
 collectGitChanges:
   changedFileCount
 ```
+
+补充要求：
+
+- `spawnAgent` 的完成边界不能只靠一个布尔“是否结束”。实现必须区分 `exit`、`close`、总超时杀进程、以及 `exit` 后的有界流刷新收口。
+- 已确认的真实场景是：某些 Agent CLI 会在仓库已写盘后长时间不 `close`。trace 不得仅凭“尚未 close”推断“尚未执行”。
+- 至少应能从 trace 上区分“Agent 没执行”“Agent 已写盘但未收口”“Agent 正常完成并返回”这三类链路。
 
 禁止记录：
 
@@ -404,7 +411,7 @@ vectahub trace show tr_xxx --json
 
 - `runCli` 开始时，如果 options 没有 trace context，就创建一个 span。
 - spawn CLI 前把 trace env 合并到 env。
-- child close 后记录 exitCode、stdoutLength、stderrLength、durationMs。
+- 插件侧当前第一版仍主要在 child close 后记录 exitCode、stdoutLength、stderrLength、durationMs；该层仍有“已写盘但未收口”表达缺口，需要后续补强。
 - JSON 解析单独建 span。
 - cancellation 单独记录 failed span，error message 为 `Command was cancelled by user`。
 - spawn error 单独记录 failed span。

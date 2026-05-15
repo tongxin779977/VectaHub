@@ -49,6 +49,8 @@
 -> 插件更新 task run record
 ```
 
+如果 `run-task` 最终以 `timeout` 收口，但 `gitChanges` 已存在，则仍必须返回这些 `gitChanges`，同时保持 `verification` 缺失；恢复判断必须把这种情况视为“已有副作用但未正常完成”。
+
 当前代码已存在但尚未接入主链路的能力：
 
 - workflow/execution 层已有 `rerun` / `resume`。
@@ -314,6 +316,14 @@ failureKind = json_protocol
 ### 7.3 可建议修复类
 
 ```text
+failureKind = timeout
+且 gitChanges.changedFileCount > 0
+且 verification 缺失
+-> decision.kind = suggest_fix
+-> mode = confirm_required
+```
+
+```text
 failureKind = test
 -> decision.kind = suggest_fix
 -> mode = confirm_required
@@ -327,6 +337,7 @@ failureKind = agent
 ```
 
 原因：
+- 已经发生仓库副作用，但 CLI 没有正常收口；应基于当前 diff 和失败上下文继续处理，而不是盲重试。
 - 已经发生代码变更，优先基于失败上下文生成“修复任务”，而不是盲重试。
 
 ### 7.4 必须人工处理类

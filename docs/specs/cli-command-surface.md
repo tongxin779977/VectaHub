@@ -83,6 +83,14 @@
 - 正常执行路径的 `--json` 输出会通过 `commandGenerationPath` 标记 `adapter` 或 `llm-fallback`，并通过 `fallbackUsed` 标记是否实际使用 fallback 命令；安全拦截等失败结果也保留这些字段用于诊断。
 - 审计日志写入失败采用告警降级，不改变命令返回结构；可能看到 `Failed to write audit log: ...` 的 stderr/console 告警。
 
+#### 当前实现行为与已确认缺口
+
+- `run-task --json` 当前不会流式输出 Agent 中间日志；在最终收口前，stdout 保持静默，结束时一次性输出 JSON。
+- 当前实现收口信号为组合契约：优先 `close`；若已 `exit` 但 `close` 迟迟不到，则在有界流刷新宽限后收口。该设计用于覆盖“已写盘但后处理长期不 close”的真实场景。
+- 因此“仓库已发生改动”和“CLI 已完成返回”必须视为两个独立事实。前者不能单独证明任务成功，后者也不能抹掉前者已经产生的副作用。
+- 如果最终以 `timeout` 收口，且 `gitChanges.changedFileCount > 0`、`verification` 缺失，JSON 仍必须返回 `ok=false`，并保留已观测到的 `gitChanges` 与 Agent 输出摘要；禁止把该次执行描述为“未执行”。
+- 仍保留 hardening backlog：持续优化 `exit` 后流刷新策略与空闲判定阈值，降低误判超时概率。
+
 ## 工具、安全和诊断命令
 
 | 命令 | 用途 |
