@@ -170,6 +170,44 @@ describe('docTaskRunStore', () => {
     }
   });
 
+  it('batch writes buffer latest.json and flush once for high-frequency updates', async () => {
+    const projectRoot = '/repo/batch-latest-buffer';
+    const store = createDocTaskRunStore(projectRoot);
+    const writeFileSpy = vi.spyOn(fsp, 'writeFile');
+    const latestFile = path.join(mockHome, 'projects', djb2Hash(projectRoot), 'doc-task-runs', 'latest.json');
+
+    try {
+      store.beginBatchWrites();
+      for (let i = 0; i < 100; i += 1) {
+        await store.startRun({
+          runId: `run-buffered-${i}`,
+          taskId: `task-${i}`,
+          taskLabel: `task ${i}`,
+          agentCli: 'codex',
+        });
+      }
+
+      const latestWritesBeforeFlush = writeFileSpy.mock.calls.filter(call => String(call[0]).includes('latest.json.')).length;
+      expect(latestWritesBeforeFlush).toBe(0);
+      expect(fs.existsSync(latestFile)).toBe(false);
+
+      const inMemoryLatest = await store.getLatestMap();
+      expect(inMemoryLatest.size).toBe(100);
+
+      await store.endBatchWrites();
+
+      const latestWritesAfterFlush = writeFileSpy.mock.calls.filter(call => String(call[0]).includes('latest.json.')).length;
+      expect(latestWritesAfterFlush).toBe(1);
+      expect(fs.existsSync(latestFile)).toBe(true);
+
+      const persisted = JSON.parse(await fsp.readFile(latestFile, 'utf8')) as Record<string, { runId: string }>;
+      expect(Object.keys(persisted)).toHaveLength(100);
+      expect(persisted['task-99']?.runId).toBe('run-buffered-99');
+    } finally {
+      writeFileSpy.mockRestore();
+    }
+  });
+
   it('projectRoot 隔离路径稳定', async () => {
     const a = createDocTaskRunStore('/repo/x');
     const b = createDocTaskRunStore('/repo/y');

@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 export default defineConfig({
-  entry: ['src/cli.ts', 'src/utils/gh-to-queue.ts', 'src/execution/index.ts'],
+  entry: ['src/cli.ts', 'src/utils/gh-to-queue.ts', 'src/utils/process-diagnostic-queue.ts', 'src/execution/index.ts'],
   format: ['esm'],
   minify: true,
   treeshake: true,

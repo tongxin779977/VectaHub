@@ -1,4 +1,26 @@
-import type { Workflow } from '../types/index.js';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { Step, Workflow } from '../types/index.js';
+
+const modulePath = fileURLToPath(import.meta.url);
+const moduleDir = dirname(modulePath);
+const isSourceRuntime = modulePath.endsWith('.ts');
+const internalScriptDir = isSourceRuntime ? join(moduleDir, '..', 'utils') : join(moduleDir, '..');
+const internalScriptExtension = isSourceRuntime ? '.ts' : '.js';
+const internalScriptLoaderArgs = isSourceRuntime ? ['--import', 'tsx'] : [];
+
+function createInternalScriptStep(id: string, scriptName: string, args: string[]): Step {
+  return {
+    id,
+    type: 'exec',
+    cli: process.execPath,
+    args: [
+      ...internalScriptLoaderArgs,
+      join(internalScriptDir, `${scriptName}${internalScriptExtension}`),
+      ...args,
+    ],
+  };
+}
 
 export const SYSTEM_WORKFLOWS: Record<string, Workflow> = {
   'sys:fetch-gh-actions-errors': {
@@ -15,9 +37,7 @@ export const SYSTEM_WORKFLOWS: Record<string, Workflow> = {
       },
       {
         id: 'save_to_queue',
-        type: 'exec',
-        cli: 'node',
-        args: ['dist/utils/gh-to-queue.js', '${fetch_runs}']
+        ...createInternalScriptStep('save_to_queue', 'gh-to-queue', ['${fetch_runs}'])
       }
     ]
   },
@@ -27,29 +47,13 @@ export const SYSTEM_WORKFLOWS: Record<string, Workflow> = {
     mode: 'relaxed',
     createdAt: new Date(),
     steps: [
-      {
-        id: 'get_pending',
-        type: 'exec',
-        cli: 'node',
-        args: ['-e', "const { getQueueManager } = require('./dist/execution/index.js'); getQueueManager().loadTasks().then(tasks => console.log(JSON.stringify(tasks.filter(t => t.status === 'pending'))))"]
-      },
+      createInternalScriptStep('get_pending', 'process-diagnostic-queue', ['list-pending']),
       {
         id: 'process_all',
         type: 'for_each',
         items: '${get_pending.stdout}',
         body: [
-          {
-            id: 'mark_processing',
-            type: 'exec',
-            cli: 'node',
-            args: ['-e', "const { getQueueManager } = require('./dist/execution/index.js'); getQueueManager().updateTaskStatus('${item.id}', 'processing')"]
-          },
-          {
-            id: 'run_fix_and_mark',
-            type: 'exec',
-            cli: 'node',
-            args: ['-e', "const child = require('child_process').spawnSync('${item.commandToFix}', { shell: true, stdio: 'inherit' }); const exitCode = child.status || 0; const { getQueueManager } = require('./dist/execution/index.js'); getQueueManager().updateTaskStatus('${item.id}', exitCode === 0 ? 'completed' : 'failed'); process.exit(exitCode)"]
-          }
+          createInternalScriptStep('process_task', 'process-diagnostic-queue', ['process-task', '${item.id}'])
         ]
       }
     ]

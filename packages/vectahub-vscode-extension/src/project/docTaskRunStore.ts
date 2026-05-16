@@ -107,6 +107,9 @@ export interface SaveRecoveryRecordInput {
 }
 
 export interface DocTaskRunStore {
+  beginBatchWrites(): void;
+  flushBatchWrites(): Promise<void>;
+  endBatchWrites(): Promise<void>;
   startBatch(input: StartBatchInput): Promise<DocTaskBatchRunRecord>;
   updateBatch(record: DocTaskBatchRunRecord): Promise<void>;
   startRun(input: StartRunInput): Promise<DocTaskRunRecord>;
@@ -243,6 +246,8 @@ export function createDocTaskRunStore(projectRoot: string): DocTaskRunStore {
 
   let latestCache: Map<string, DocTaskRunRecord> | undefined;
   let writeQueue: Promise<void> = Promise.resolve();
+  let latestDirty = false;
+  let batchWriteDepth = 0;
 
   async function ensureDir(): Promise<void> {
     await fsp.mkdir(dir, { recursive: true });
@@ -295,13 +300,8 @@ export function createDocTaskRunStore(projectRoot: string): DocTaskRunStore {
     } catch {
       // latest.json missing or corrupted — attempt rebuild from .jsonl
       const rebuilt = await rebuildLatestFromJsonl();
-      if (rebuilt.size > 0) {
-        // Persist rebuilt state for future loads
-        await saveLatestMap(rebuilt);
-        return new Map(latestCache ?? rebuilt);
-      }
-      latestCache = new Map();
-      return new Map();
+      latestCache = sanitizeLatestMap(rebuilt);
+      return new Map(latestCache);
     }
   }
 
@@ -313,6 +313,24 @@ export function createDocTaskRunStore(projectRoot: string): DocTaskRunStore {
     await fsp.writeFile(tmpPath, JSON.stringify(asObject, null, 2), 'utf8');
     await fsp.rename(tmpPath, latestPath);
     latestCache = new Map(sanitized);
+  }
+
+  async function updateLatestRecord(record: DocTaskRunRecord): Promise<void> {
+    const latest = await loadLatestMap();
+    latest.set(record.taskId, record);
+    latestCache = sanitizeLatestMap(latest);
+    latestDirty = true;
+    if (batchWriteDepth === 0) {
+      await flushLatestMap();
+    }
+  }
+
+  async function flushLatestMap(): Promise<void> {
+    if (!latestDirty) {
+      return;
+    }
+    await saveLatestMap(latestCache ?? new Map());
+    latestDirty = false;
   }
 
   async function enqueueWrite<T>(operation: () => Promise<T>): Promise<T> {
@@ -353,6 +371,23 @@ export function createDocTaskRunStore(projectRoot: string): DocTaskRunStore {
   }
 
   return {
+    beginBatchWrites(): void {
+      batchWriteDepth += 1;
+    },
+
+    async flushBatchWrites(): Promise<void> {
+      await enqueueWrite(() => flushLatestMap());
+    },
+
+    async endBatchWrites(): Promise<void> {
+      if (batchWriteDepth > 0) {
+        batchWriteDepth -= 1;
+      }
+      if (batchWriteDepth === 0) {
+        await enqueueWrite(() => flushLatestMap());
+      }
+    },
+
     async startBatch(input: StartBatchInput): Promise<DocTaskBatchRunRecord> {
       const now = nowIso();
       const record: DocTaskBatchRunRecord = {
@@ -401,9 +436,7 @@ export function createDocTaskRunStore(projectRoot: string): DocTaskRunStore {
       const sanitized = sanitizeRunRecord(record);
       await enqueueWrite(async () => {
         await appendJsonl(getRunFilePathByDate(new Date()), sanitized);
-        const latest = await loadLatestMap();
-        latest.set(sanitized.taskId, sanitized);
-        await saveLatestMap(latest);
+        await updateLatestRecord(sanitized);
       });
     },
 

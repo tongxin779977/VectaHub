@@ -762,6 +762,8 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
       });
 
       tasksProvider.setIsBatchRunning(true);
+      runStore?.beginBatchWrites();
+      let batchFlushError: unknown;
 
       const queue = [...tasks];
       let completedCount = 0;
@@ -1285,8 +1287,18 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
         }
       });
       } finally {
+        try {
+          await runStore?.endBatchWrites();
+        } catch (err) {
+          batchFlushError = err;
+          const msg = err instanceof Error ? err.message : String(err);
+          warnRunStore(`[doc-task-run-store] batch flush 失败: ${msg}`);
+        }
         tasksProvider.setIsBatchRunning(false);
         tasksProvider.refresh();
+      }
+      if (batchFlushError) {
+        throw batchFlushError;
       }
     })
   );

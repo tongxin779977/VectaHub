@@ -36,6 +36,9 @@ import type { DocTask } from '../src/views/tasksView.js';
 
 function makeStore(overrides: Partial<DocTaskRunStore>): DocTaskRunStore {
   return {
+    beginBatchWrites: vi.fn() as any,
+    flushBatchWrites: vi.fn() as any,
+    endBatchWrites: vi.fn() as any,
     startBatch: vi.fn() as any,
     updateBatch: vi.fn() as any,
     startRun: vi.fn() as any,

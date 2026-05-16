@@ -97,6 +97,14 @@ import { getAgentDescriptorById } from './agent-cli-adapter.js';
 const defaultExecFileImpl = vi.mocked(execFile).getMockImplementation();
 const defaultSpawnImpl = vi.mocked(spawn).getMockImplementation();
 
+function restoreEnvVar(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = value;
+}
+
 function seedCodexUserHome(rootDir: string): string {
   const codexHome = join(rootDir, 'user-codex-home');
   mkdirSync(codexHome, { recursive: true });
@@ -350,8 +358,8 @@ describe('runTask', () => {
       expect(result.riskAssessment?.level).toBe('high');
       expect(vi.mocked(spawn).mock.calls.length).toBe(0);
     } finally {
-      process.env.VECTAHUB_HOME = originalVectaHubHome;
-      process.env.CODEX_HOME = originalCodexHome;
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
       rmSync(tempVectaHubHome, { recursive: true, force: true });
       rmSync(tempConfigRoot, { recursive: true, force: true });
       rmSync(tempDocDir, { recursive: true, force: true });
@@ -434,8 +442,8 @@ describe('runTask', () => {
       expect(result.riskAssessment?.phase).not.toBe('verification');
       expect(vi.mocked(spawn).mock.calls.length).toBe(1);
     } finally {
-      process.env.VECTAHUB_HOME = originalVectaHubHome;
-      process.env.CODEX_HOME = originalCodexHome;
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
       rmSync(tempVectaHubHome, { recursive: true, force: true });
       rmSync(tempConfigRoot, { recursive: true, force: true });
       rmSync(tempDocDir, { recursive: true, force: true });
@@ -534,8 +542,8 @@ describe('runTask', () => {
       expect(result.verification).toBeUndefined();
       expect(npmCalled).toBe(false);
     } finally {
-      process.env.VECTAHUB_HOME = originalVectaHubHome;
-      process.env.CODEX_HOME = originalCodexHome;
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
       rmSync(tempVectaHubHome, { recursive: true, force: true });
       rmSync(tempConfigRoot, { recursive: true, force: true });
       rmSync(tempDocDir, { recursive: true, force: true });
@@ -627,8 +635,8 @@ describe('runTask', () => {
       expect(result.gitChanges?.changedFiles).toContain('.env.local');
       expect(result.verification).toBeUndefined();
     } finally {
-      process.env.VECTAHUB_HOME = originalVectaHubHome;
-      process.env.CODEX_HOME = originalCodexHome;
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
       rmSync(tempVectaHubHome, { recursive: true, force: true });
       rmSync(tempConfigRoot, { recursive: true, force: true });
       rmSync(tempDocDir, { recursive: true, force: true });
@@ -837,8 +845,8 @@ describe('runTask', () => {
       expect(toolCacheManager.discoverToolHelp).not.toHaveBeenCalled();
       expect(capturedEnv?.CODEX_HOME).toBeUndefined();
     } finally {
-      process.env.VECTAHUB_HOME = originalVectaHubHome;
-      process.env.CODEX_HOME = originalCodexHome;
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
       rmSync(tempVectaHubHome, { recursive: true, force: true });
       if (originalExecFileImpl) {
         vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
@@ -958,8 +966,8 @@ describe('runTask', () => {
       });
       expect(result.verification).toBeUndefined();
     } finally {
-      process.env.VECTAHUB_HOME = originalVectaHubHome;
-      process.env.CODEX_HOME = originalCodexHome;
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
       rmSync(tempVectaHubHome, { recursive: true, force: true });
       rmSync(tempConfigRoot, { recursive: true, force: true });
       if (originalExecFileImpl) {
@@ -1026,8 +1034,8 @@ describe('runTask', () => {
       expect(existsSync(join(capturedEnv!.CODEX_HOME, 'state.db'))).toBe(false);
       expect(existsSync(join(capturedEnv!.CODEX_HOME, 'logs'))).toBe(false);
     } finally {
-      process.env.VECTAHUB_HOME = originalVectaHubHome;
-      process.env.CODEX_HOME = originalCodexHome;
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
       rmSync(tempVectaHubHome, { recursive: true, force: true });
       rmSync(tempConfigRoot, { recursive: true, force: true });
       if (originalExecFileImpl) {
@@ -1087,8 +1095,8 @@ describe('runTask', () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('AGENT_SYSTEM_ERROR');
     } finally {
-      process.env.VECTAHUB_HOME = originalVectaHubHome;
-      process.env.CODEX_HOME = originalCodexHome;
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
       rmSync(tempVectaHubHome, { recursive: true, force: true });
       rmSync(tempConfigRoot, { recursive: true, force: true });
       if (originalExecFileImpl) {
@@ -1161,8 +1169,8 @@ describe('runTask', () => {
       const npmCalls = vi.mocked(execFile).mock.calls.filter(call => call[0] === 'npm');
       expect(npmCalls).toEqual([]);
     } finally {
-      process.env.VECTAHUB_HOME = originalVectaHubHome;
-      process.env.CODEX_HOME = originalCodexHome;
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
       rmSync(tempVectaHubHome, { recursive: true, force: true });
       rmSync(tempConfigRoot, { recursive: true, force: true });
       rmSync(tempDocDir, { recursive: true, force: true });
@@ -1237,8 +1245,8 @@ describe('runTask', () => {
       const npmCalls = vi.mocked(execFile).mock.calls.filter(call => call[0] === 'npm');
       expect(npmCalls).toEqual([]);
     } finally {
-      process.env.VECTAHUB_HOME = originalVectaHubHome;
-      process.env.CODEX_HOME = originalCodexHome;
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
       rmSync(tempVectaHubHome, { recursive: true, force: true });
       rmSync(tempConfigRoot, { recursive: true, force: true });
       rmSync(tempDocDir, { recursive: true, force: true });
@@ -1310,8 +1318,8 @@ describe('runTask', () => {
         expect(raced.result.success).toBe(true);
       }
     } finally {
-      process.env.VECTAHUB_HOME = originalVectaHubHome;
-      process.env.CODEX_HOME = originalCodexHome;
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
       rmSync(tempVectaHubHome, { recursive: true, force: true });
       rmSync(tempConfigRoot, { recursive: true, force: true });
       if (originalExecFileImpl) {
@@ -1403,8 +1411,8 @@ describe('runTask', () => {
       expect(result.verification).toBeUndefined();
       expect(npmCalled).toBe(false);
     } finally {
-      process.env.VECTAHUB_HOME = originalVectaHubHome;
-      process.env.CODEX_HOME = originalCodexHome;
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
       rmSync(tempVectaHubHome, { recursive: true, force: true });
       rmSync(tempConfigRoot, { recursive: true, force: true });
       if (originalExecFileImpl) {
@@ -1479,8 +1487,8 @@ describe('runTask', () => {
       expect(result.verification).toBeUndefined();
       expect(npmCalled).toBe(false);
     } finally {
-      process.env.VECTAHUB_HOME = originalVectaHubHome;
-      process.env.CODEX_HOME = originalCodexHome;
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
       rmSync(tempVectaHubHome, { recursive: true, force: true });
       rmSync(tempConfigRoot, { recursive: true, force: true });
       if (originalExecFileImpl) {
@@ -1601,8 +1609,8 @@ describe('runTask', () => {
       expect(codexCalls.some(call => Array.isArray(call[1]) && (call[1] as string[]).join(' ') === 'exec --sandbox workspace-write --help')).toBe(true);
       expect(vi.mocked(spawn).mock.calls.length).toBe(0);
     } finally {
-      process.env.VECTAHUB_HOME = originalVectaHubHome;
-      process.env.CODEX_HOME = originalCodexHome;
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
       rmSync(tempVectaHubHome, { recursive: true, force: true });
       rmSync(tempConfigRoot, { recursive: true, force: true });
       if (originalExecFileImpl) {
@@ -1657,8 +1665,8 @@ describe('runTask', () => {
       if (descriptor) {
         descriptor.preflightSpec.readyArgs = originalReadyArgs;
       }
-      process.env.VECTAHUB_HOME = originalVectaHubHome;
-      process.env.CODEX_HOME = originalCodexHome;
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
       rmSync(tempVectaHubHome, { recursive: true, force: true });
       rmSync(tempConfigRoot, { recursive: true, force: true });
       if (originalExecFileImpl) {

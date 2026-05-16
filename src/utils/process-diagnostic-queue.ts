@@ -1,0 +1,160 @@
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { getQueueManager, type QueueManager } from '../execution/queue-manager.js';
+import type { DiagnosticTask } from '../types/diagnostic.js';
+import { ShellTokenizer } from './shell-tokenizer.js';
+
+export interface QueuedCommand {
+  cli: string;
+  args: string[];
+}
+
+export interface QueuedCommandResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+export interface ProcessDiagnosticQueueDependencies {
+  queueManager?: QueueManager;
+  runCommand?: (command: QueuedCommand) => Promise<QueuedCommandResult> | QueuedCommandResult;
+}
+
+export function parseQueuedCommand(commandToFix: string): QueuedCommand {
+  const commands = ShellTokenizer.tokenize(commandToFix);
+  if (commands.length !== 1) {
+    throw new Error('Queued command must be a single executable command');
+  }
+
+  const command = commands[0];
+  if (!command?.cli) {
+    throw new Error('Queued command is empty');
+  }
+
+  return {
+    cli: command.cli,
+    args: command.args,
+  };
+}
+
+function runQueuedCommand(command: QueuedCommand): QueuedCommandResult {
+  const result = spawnSync(command.cli, command.args, {
+    cwd: process.cwd(),
+    env: process.env,
+    encoding: 'utf-8',
+  });
+
+  const stdout = typeof result.stdout === 'string' ? result.stdout : '';
+  const stderr = typeof result.stderr === 'string' ? result.stderr : '';
+
+  if (stdout) {
+    process.stdout.write(stdout);
+  }
+
+  if (stderr) {
+    process.stderr.write(stderr);
+  }
+
+  if (result.error) {
+    const errorMessage = result.error.message || String(result.error);
+    if (!stderr) {
+      process.stderr.write(`${errorMessage}\n`);
+    }
+    return {
+      exitCode: 1,
+      stdout,
+      stderr: stderr || errorMessage,
+    };
+  }
+
+  if ((result.status ?? 0) !== 0 && !stderr) {
+    const fallbackError = `Command exited with code ${result.status ?? 0}`;
+    process.stderr.write(`${fallbackError}\n`);
+    return {
+      exitCode: result.status ?? 0,
+      stdout,
+      stderr: fallbackError,
+    };
+  }
+
+  return {
+    exitCode: result.status ?? 0,
+    stdout,
+    stderr,
+  };
+}
+
+export async function listPendingDiagnosticTasks(queueManager: QueueManager = getQueueManager()): Promise<DiagnosticTask[]> {
+  const tasks = await queueManager.loadTasks();
+  return tasks.filter((task) => task.status === 'pending');
+}
+
+export async function processDiagnosticTask(
+  taskId: string,
+  deps: ProcessDiagnosticQueueDependencies = {},
+): Promise<QueuedCommandResult> {
+  const queueManager = deps.queueManager ?? getQueueManager();
+  const tasks = await queueManager.loadTasks();
+  const task = tasks.find((entry) => entry.id === taskId);
+
+  if (!task) {
+    throw new Error(`Diagnostic task not found: ${taskId}`);
+  }
+
+  await queueManager.updateTaskStatus(taskId, 'processing');
+
+  let command: QueuedCommand;
+  try {
+    command = parseQueuedCommand(task.commandToFix);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await queueManager.updateTaskStatus(taskId, 'failed', message);
+    throw error;
+  }
+
+  const runner = deps.runCommand ?? runQueuedCommand;
+  const result = await runner(command);
+  const failureMessage = result.exitCode === 0 ? undefined : (result.stderr || `Command exited with code ${result.exitCode}`);
+
+  await queueManager.updateTaskStatus(
+    taskId,
+    result.exitCode === 0 ? 'completed' : 'failed',
+    failureMessage,
+  );
+
+  return result;
+}
+
+async function main(): Promise<void> {
+  const [action, taskId] = process.argv.slice(2);
+
+  if (!action) {
+    throw new Error('No action provided');
+  }
+
+  if (action === 'list-pending') {
+    const tasks = await listPendingDiagnosticTasks();
+    console.log(JSON.stringify(tasks));
+    return;
+  }
+
+  if (action === 'process-task') {
+    if (!taskId) {
+      throw new Error('No task ID provided');
+    }
+
+    const result = await processDiagnosticTask(taskId);
+    process.exit(result.exitCode);
+    return;
+  }
+
+  throw new Error(`Unknown action: ${action}`);
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  main().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(message);
+    process.exit(1);
+  });
+}

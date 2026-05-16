@@ -633,6 +633,8 @@ function registerDocTaskCommands(context, tasksProvider) {
             },
         });
         tasksProvider.setIsBatchRunning(true);
+        runStore?.beginBatchWrites();
+        let batchFlushError;
         const queue = [...tasks];
         let completedCount = 0;
         let failedCount = 0;
@@ -1153,8 +1155,19 @@ function registerDocTaskCommands(context, tasksProvider) {
             });
         }
         finally {
+            try {
+                await runStore?.endBatchWrites();
+            }
+            catch (err) {
+                batchFlushError = err;
+                const msg = err instanceof Error ? err.message : String(err);
+                warnRunStore(`[doc-task-run-store] batch flush 失败: ${msg}`);
+            }
             tasksProvider.setIsBatchRunning(false);
             tasksProvider.refresh();
+        }
+        if (batchFlushError) {
+            throw batchFlushError;
         }
     }));
 }
