@@ -34,7 +34,28 @@ VectaHub 解决的是 AI 执行失控问题：
 | 安全默认 | `dry-run` 零副作用，高风险命令确认，敏感信息不得落盘。 |
 | 单一事实源 | CLI、插件、未来 SDK 不能长期维护重复合同逻辑。 |
 
-## 文档入口
+## 用户入口
+
+| 文档 | 用途 |
+|------|------|
+| [CLI 使用手册](./usage.md) | 安装后常用命令、预览、JSON 输出、执行记录、Agent 文档任务和安全命令。 |
+| [配置手册](./configuration.md) | `VECTAHUB_HOME`、配置查看、Agent CLI 配置边界和数据目录。 |
+| [排障手册](./troubleshooting.md) | JSON 输出异常、超时、Agent 配置、权限、安全拦截和验证失败排查。 |
+| [Workflow 规格](./workflow-spec.md) | Workflow YAML/JSON 的用户级写法、步骤类型、变量和完整示例。 |
+| [UI 操作文档](./ui/vscode-extension.md) | VS Code 插件实际视图、命令和用户路径导航。 |
+
+## 维护者入口
+
+| 文档 | 用途 |
+|------|------|
+| [开发者指南](./development.md) | 本地开发、构建、调试和命令修改同步要求。 |
+| [测试指南](./testing.md) | 全量测试、定向测试、插件检查和关键链路测试重点。 |
+| [发布指南](./release.md) | 当前可确认的 release、build、VSIX 打包和发布前检查入口。 |
+| [Agent 操作规范](./agent-operating-guide.md) | 开发 Agent 执行项目任务时必须遵守的工程规范。 |
+| [路线图](./roadmap.md) | 当前优先级、下一步任务和不建议立即投入的方向。 |
+| [归档说明](./archive.md) | 旧文档清理原则和仍保留的参考文档。 |
+
+## 规格入口
 
 | 文档 | 用途 |
 |------|------|
@@ -42,36 +63,48 @@ VectaHub 解决的是 AI 执行失控问题：
 | [核心合同](./contracts.md) | CLI JSON、任务状态、Agent 合同、Trace、安全、恢复等协议入口。 |
 | [Agent 执行系统](./agent-execution.md) | `VectaHub = Orchestrator` 的执行模型和阶段边界。 |
 | [Run-Task 执行合同](./specs/run-task-execution-contract.md) | `run-task` 的输入分支、完成边界、失败分类、确认语义和恢复入口真相源。 |
-| [设计文档](./design/agent-execution-system.md) | 关键能力的方案、取舍和非目标。 |
 | [规格合同](./specs/agent-worker-contract.md) | Agent 任务边界、片段提取、文件范围和合同摘要规格。 |
-| [UI 逻辑设计](./design/vscode-ui-logic.md) | VS Code 插件的统一 UI 设计依据和用户心智规则。 |
-| [UI 修复实施计划](./design/vscode-ui-remediation-plan.md) | UI 设计落地到实现、测试和验收的执行清单。 |
-| [UI 操作文档](./ui/vscode-extension.md) | VS Code 插件实际视图、命令和用户路径导航。 |
 | [CLI 命令面](./specs/cli-command-surface.md) | 当前 CLI 命令、参数、JSON 支持和副作用边界。 |
 | [工作流生命周期](./specs/workflow-lifecycle.md) | 工作流保存、执行、历史、详情、重跑、恢复和归档。 |
 | [工具与安全规则](./specs/tools-security-management.md) | CLI 工具注册、命令规则、安全规则增删改查和风险检测。 |
 | [生成、模板与调度](./specs/templates-generation-scheduling.md) | LLM 生成 workflow、模板市场、本地模板和 cron 调度。 |
 | [服务与导入导出](./specs/service-import-export.md) | 本地 socket 服务、AI daemon、数据导入导出和模式切换。 |
 | [配置与数据存储](./specs/config-data-storage.md) | `VECTAHUB_HOME`、执行记录、输出、trace、队列和归档落点。 |
-| [路线图](./roadmap.md) | 当前优先级、下一步任务和不建议立即投入的方向。 |
-| [归档说明](./archive.md) | 旧文档清理原则和仍保留的参考文档。 |
-| [Agent 操作规范](./agent-operating-guide.md) | 开发 Agent 执行项目任务时必须遵守的工程规范。 |
+
+## 设计和 UI 入口
+
+| 文档 | 用途 |
+|------|------|
+| [设计文档](./design/agent-execution-system.md) | 关键能力的方案、取舍和非目标。 |
+| [插件/CLI 边界设计](./design/plugin-cli-boundary.md) | 插件与 CLI 的职责边界和结构化协议原则。 |
+| [UI 逻辑设计](./design/vscode-ui-logic.md) | VS Code 插件的统一 UI 设计依据和用户心智规则。 |
+| [UI 修复实施计划](./design/vscode-ui-remediation-plan.md) | UI 设计落地到实现、测试和验收的执行清单。 |
 
 ## 阅读路径
 
-新加入项目时按以下顺序阅读：
+新用户按以下顺序阅读：
+
+1. [CLI 使用手册](./usage.md)
+2. [配置手册](./configuration.md)
+3. [Workflow 规格](./workflow-spec.md)
+4. [排障手册](./troubleshooting.md)
+
+新加入维护者按以下顺序阅读：
 
 1. [架构总览](./architecture.md)
-2. [Agent 执行系统](./agent-execution.md)
-3. [核心合同](./contracts.md)
-4. [插件/CLI 边界设计](./design/plugin-cli-boundary.md)
-5. [VS Code 插件 UI 逻辑设计](./design/vscode-ui-logic.md)
-6. [VS Code 插件 UI 修复实施计划](./design/vscode-ui-remediation-plan.md)
-7. [VS Code 插件 UI](./ui/vscode-extension.md)
-8. [CLI 命令面](./specs/cli-command-surface.md)
-9. [工作流生命周期](./specs/workflow-lifecycle.md)
-10. [工具与安全规则](./specs/tools-security-management.md)
-11. [路线图](./roadmap.md)
+2. [开发者指南](./development.md)
+3. [测试指南](./testing.md)
+4. [核心合同](./contracts.md)
+5. [Agent 执行系统](./agent-execution.md)
+6. [CLI 命令面](./specs/cli-command-surface.md)
+7. [路线图](./roadmap.md)
+
+做插件或 UI 任务时按以下顺序阅读：
+
+1. [VS Code 插件 UI](./ui/vscode-extension.md)
+2. [插件/CLI 边界设计](./design/plugin-cli-boundary.md)
+3. [VS Code 插件 UI 逻辑设计](./design/vscode-ui-logic.md)
+4. [VS Code 插件 UI 修复实施计划](./design/vscode-ui-remediation-plan.md)
 
 做具体实现时再读取相关规格文档，不要默认通读所有历史材料。
 
