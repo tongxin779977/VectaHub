@@ -5,7 +5,7 @@ import type { Step, Workflow } from '../types/index.js';
 const modulePath = fileURLToPath(import.meta.url);
 const moduleDir = dirname(modulePath);
 const isSourceRuntime = modulePath.endsWith('.ts');
-const internalScriptDir = isSourceRuntime ? join(moduleDir, '..', 'utils') : join(moduleDir, '..');
+const internalScriptDir = isSourceRuntime ? join(moduleDir, '..', 'utils') : join(moduleDir, 'utils');
 const internalScriptExtension = isSourceRuntime ? '.ts' : '.js';
 const internalScriptLoaderArgs = isSourceRuntime ? ['--import', 'tsx'] : [];
 
@@ -35,10 +35,7 @@ export const SYSTEM_WORKFLOWS: Record<string, Workflow> = {
         cli: 'gh',
         args: ['run', 'list', '--status', 'failure', '--limit', '10', '--json', 'databaseId,displayTitle,workflowName']
       },
-      {
-        id: 'save_to_queue',
-        ...createInternalScriptStep('save_to_queue', 'gh-to-queue', ['${fetch_runs}'])
-      }
+      createInternalScriptStep('save_to_queue', 'gh-to-queue', ['${fetch_runs}'])
     ]
   },
   'sys:process-diagnostic-queue': {

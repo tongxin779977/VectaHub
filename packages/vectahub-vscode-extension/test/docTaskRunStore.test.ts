@@ -208,6 +208,26 @@ describe('docTaskRunStore', () => {
     }
   });
 
+  it('rebuilds missing latest.json immediately outside batch mode', async () => {
+    const projectRoot = '/repo/rebuild-latest';
+    const store = createDocTaskRunStore(projectRoot);
+    const latestFile = path.join(mockHome, 'projects', djb2Hash(projectRoot), 'doc-task-runs', 'latest.json');
+
+    await store.startRun({
+      runId: 'run-rebuild',
+      taskId: 'rebuild',
+      taskLabel: 'rebuild latest',
+      agentCli: 'codex',
+    });
+    await fsp.rm(latestFile, { force: true });
+
+    const reloadedStore = createDocTaskRunStore(projectRoot);
+    const latest = await reloadedStore.getLatestByTaskId('rebuild');
+
+    expect(latest?.runId).toBe('run-rebuild');
+    expect(fs.existsSync(latestFile)).toBe(true);
+  });
+
   it('projectRoot 隔离路径稳定', async () => {
     const a = createDocTaskRunStore('/repo/x');
     const b = createDocTaskRunStore('/repo/y');

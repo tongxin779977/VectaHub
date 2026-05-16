@@ -177,10 +177,11 @@ function createDocTaskRunStore(projectRoot) {
         }
         return rebuilt;
     }
-    async function loadLatestMap() {
+    async function loadLatestMap(options) {
         if (latestCache) {
             return new Map(latestCache);
         }
+        const persistRebuild = options?.persistRebuild ?? true;
         try {
             const raw = await fs_1.promises.readFile(latestPath, 'utf8');
             const parsed = JSON.parse(raw);
@@ -192,6 +193,9 @@ function createDocTaskRunStore(projectRoot) {
             // latest.json missing or corrupted — attempt rebuild from .jsonl
             const rebuilt = await rebuildLatestFromJsonl();
             latestCache = sanitizeLatestMap(rebuilt);
+            if (persistRebuild && rebuilt.size > 0 && batchWriteDepth === 0) {
+                await saveLatestMap(latestCache);
+            }
             return new Map(latestCache);
         }
     }
@@ -205,7 +209,7 @@ function createDocTaskRunStore(projectRoot) {
         latestCache = new Map(sanitized);
     }
     async function updateLatestRecord(record) {
-        const latest = await loadLatestMap();
+        const latest = await loadLatestMap({ persistRebuild: batchWriteDepth === 0 });
         latest.set(record.taskId, record);
         latestCache = sanitizeLatestMap(latest);
         latestDirty = true;

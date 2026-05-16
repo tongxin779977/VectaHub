@@ -1,0 +1,33 @@
+model_provider = "custom"
+model = "gpt-5.5"
+disable_response_storage = true
+model_reasoning_effort = "xhigh"
+
+[model_providers]
+[model_providers.custom]
+name = "custom"
+wire_api = "responses"
+requires_openai_auth = true
+base_url = "https://vip-sg.freemodel.dev"
+
+[marketplaces.openai-bundled]
+last_updated = "2026-05-16T07:56:53Z"
+source_type = "local"
+source = "/Users/xin.tong/.codex/.tmp/bundled-marketplaces/openai-bundled"
+
+[marketplaces.openai-primary-runtime]
+last_updated = "2026-04-30T10:23:47Z"
+source_type = "local"
+source = "/Users/xin.tong/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
+
+[projects."/Users/xin.tong/apps/project/test_trae/VectaHub"]
+trust_level = "trusted"
+
+[plugins."documents@openai-primary-runtime"]
+enabled = true
+
+[plugins."spreadsheets@openai-primary-runtime"]
+enabled = true
+
+[plugins."presentations@openai-primary-runtime"]
+enabled = true

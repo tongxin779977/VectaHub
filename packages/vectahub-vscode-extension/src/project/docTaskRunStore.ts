@@ -287,10 +287,11 @@ export function createDocTaskRunStore(projectRoot: string): DocTaskRunStore {
     return rebuilt;
   }
 
-  async function loadLatestMap(): Promise<Map<string, DocTaskRunRecord>> {
+  async function loadLatestMap(options?: { persistRebuild?: boolean }): Promise<Map<string, DocTaskRunRecord>> {
     if (latestCache) {
       return new Map(latestCache);
     }
+    const persistRebuild = options?.persistRebuild ?? true;
     try {
       const raw = await fsp.readFile(latestPath, 'utf8');
       const parsed = JSON.parse(raw) as Record<string, DocTaskRunRecord>;
@@ -301,6 +302,9 @@ export function createDocTaskRunStore(projectRoot: string): DocTaskRunStore {
       // latest.json missing or corrupted — attempt rebuild from .jsonl
       const rebuilt = await rebuildLatestFromJsonl();
       latestCache = sanitizeLatestMap(rebuilt);
+      if (persistRebuild && rebuilt.size > 0 && batchWriteDepth === 0) {
+        await saveLatestMap(latestCache);
+      }
       return new Map(latestCache);
     }
   }
@@ -316,7 +320,7 @@ export function createDocTaskRunStore(projectRoot: string): DocTaskRunStore {
   }
 
   async function updateLatestRecord(record: DocTaskRunRecord): Promise<void> {
-    const latest = await loadLatestMap();
+    const latest = await loadLatestMap({ persistRebuild: batchWriteDepth === 0 });
     latest.set(record.taskId, record);
     latestCache = sanitizeLatestMap(latest);
     latestDirty = true;

@@ -34,6 +34,13 @@ describe('process-diagnostic-queue', () => {
     expect(parsed.args).toEqual(['--version']);
   });
 
+  it('preserves quoted arguments when parsing queued commands', () => {
+    const parsed = parseQueuedCommand(`node dist/cli.js run --json "诊断队列读取失败"`);
+
+    expect(parsed.cli).toBe('node');
+    expect(parsed.args).toEqual(['dist/cli.js', 'run', '--json', '诊断队列读取失败']);
+  });
+
   it('rejects compound queued commands', () => {
     expect(() => parseQueuedCommand('node one && node two')).toThrow('Queued command must be a single executable command');
   });

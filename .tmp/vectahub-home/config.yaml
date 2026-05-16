@@ -1,0 +1,23 @@
+version: 1
+first_run_completed: true
+ai_providers:
+  vectahub_llm:
+    provider: ""
+    enabled: false
+external_cli:
+  gemini:
+    enabled: true
+    has_permission: true
+  claude:
+    enabled: true
+    has_permission: false
+  codex:
+    enabled: true
+    has_permission: true
+  aider:
+    enabled: true
+    has_permission: true
+priority:
+  - external_cli_with_permission
+  - vectahub_llm
+  - rules

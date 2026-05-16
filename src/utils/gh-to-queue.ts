@@ -1,5 +1,17 @@
 import { getQueueManager } from '../execution/queue-manager.js';
 import type { DiagnosticTask } from '../types/diagnostic.js';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const modulePath = fileURLToPath(import.meta.url);
+const moduleDir = dirname(modulePath);
+const isSourceRuntime = modulePath.endsWith('.ts');
+const cliEntryPoint = isSourceRuntime
+  ? join(moduleDir, '..', 'cli.ts')
+  : join(moduleDir, '..', 'cli.js');
+const defaultCliPath = isSourceRuntime
+  ? `${process.execPath} --import tsx ${cliEntryPoint}`
+  : `${process.execPath} ${cliEntryPoint}`;
 
 export async function processFailedRuns(input: string): Promise<number> {
   console.log(`Received input of length: ${input.length}`);
@@ -16,7 +28,7 @@ export async function processFailedRuns(input: string): Promise<number> {
   let count = 0;
 
   for (const run of runs) {
-    const cliPath = process.env.VECTAHUB_CLI_PATH || 'node dist/cli.js';
+    const cliPath = process.env.VECTAHUB_CLI_PATH || defaultCliPath;
     const task: Omit<DiagnosticTask, 'createdAt' | 'updatedAt'> = {
       id: `gh_${run.databaseId}`,
       title: `GH Action 失败: ${run.workflowName}`,

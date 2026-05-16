@@ -114,7 +114,7 @@ node dist/cli.js <command>
 | Trace 明细 | `npm run dev -- trace show <traceId> --json` | 验证可按真实 traceId 查看 spans | 先通过 `trace list` 或运行结果拿到真实 `<traceId>` | 返回 `ok=true`、`traceId`、`spans[]`；`trace show` 场景必须先拿到真实 `traceId` | `src/commands/trace.ts`；`docs/specs/trace-execution.md` |
 | 恢复执行 | `npm run dev -- recover-task --run-id <runId> --task-id <taskId> --task-label "<taskLabel>" --tool <tool> --doc <docPath> --trace-id <traceId> --json` | 验证恢复入口的结构化结果与 trace 关联 | 建议使用真实 `<runId>`、`<taskId>`、`<taskLabel>`、`<tool>` 和 `<traceId>`；缺少真实记录时也应返回结构化恢复决策 | 返回 `ok`、`decision`、`status`、`failureKind`；如果进入恢复链路，应生成新的 `recoveryTraceId`，不能覆盖原始 trace | `src/commands/recover-task.ts`；`docs/specs/recovery-loop.md` |
 | 安全检测 | `npm run dev -- security test "rm -rf /" --json` | 验证安全检测命令的结构化输出 | 无特殊前置条件 | 返回 `ok=true`；输出 `isDangerous`、`severity`、`rule`、`matchedPattern` | `src/commands/security.ts`；`docs/usage.md` |
-| VS Code 队列批处理入口 | `npm run dev -- run -f sys:process-diagnostic-queue --mode relaxed --json` | 验证 VS Code 诊断队列批处理按钮对应的真实 CLI 入口仍可执行 | 已完成首次初始化；如需观察实际处理效果，应先准备诊断队列数据 | stdout 应保持可解析；可能返回成功结果，也可能因系统工作流或安全规则返回结构化失败 | `src/commands/run.ts`；`docs/ui/project-task-workflows.md` |
+| VS Code 队列批处理入口 | `npm run dev -- run -f sys:process-diagnostic-queue --mode relaxed --json` | 验证 VS Code 诊断队列批处理按钮对应的真实 CLI 入口仍可执行 | 已完成首次初始化；如需观察实际处理效果，应先准备诊断队列数据 | stdout 应保持可解析；队列为空时应返回成功；若队列项执行失败，应返回结构化失败 | `src/commands/run.ts`；`docs/ui/project-task-workflows.md` |
 
 ## 真实场景回归
 
@@ -216,7 +216,7 @@ npm run dev -- run -f sys:process-diagnostic-queue --mode relaxed --json
 最短预期信号：
 
 - 命令本身可从仓库根目录执行。
-- 若 `VECTAHUB_HOME` 还是全新状态，可能先触发首次初始化；完成初始化后，命令应返回可解析结果，成功或失败都应可解释。
+- 若 `VECTAHUB_HOME` 还是全新状态，可能先触发首次初始化；完成初始化后，命令应返回可解析结果，队列为空时应成功，若队列项执行失败则应返回结构化失败。
 
 失败后去哪里看：
 

@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { parse } from 'shell-quote';
 import { getQueueManager, type QueueManager } from '../execution/queue-manager.js';
 import type { DiagnosticTask } from '../types/diagnostic.js';
-import { ShellTokenizer } from './shell-tokenizer.js';
 
 export interface QueuedCommand {
   cli: string;
@@ -21,19 +21,24 @@ export interface ProcessDiagnosticQueueDependencies {
 }
 
 export function parseQueuedCommand(commandToFix: string): QueuedCommand {
-  const commands = ShellTokenizer.tokenize(commandToFix);
-  if (commands.length !== 1) {
-    throw new Error('Queued command must be a single executable command');
-  }
+  const tokens = parse(commandToFix).map((part): string => {
+    if (typeof part === 'string') return part;
+    if ('op' in part) return part.op;
+    if ('pattern' in part) return String(part.pattern);
+    return String(part);
+  }).filter(Boolean);
 
-  const command = commands[0];
-  if (!command?.cli) {
+  if (tokens.length === 0) {
     throw new Error('Queued command is empty');
   }
 
+  if (tokens.some((token) => ['&&', '||', '|', ';'].includes(token))) {
+    throw new Error('Queued command must be a single executable command');
+  }
+
   return {
-    cli: command.cli,
-    args: command.args,
+    cli: tokens[0],
+    args: tokens.slice(1),
   };
 }
 
