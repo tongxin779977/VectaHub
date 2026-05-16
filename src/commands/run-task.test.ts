@@ -1409,6 +1409,10 @@ describe('runTask', () => {
       expect(result.gitChanges).toBeDefined();
       expect(result.gitChanges?.changedFiles).toContain('src/commands/run-task.ts');
       expect(result.verification).toBeUndefined();
+      expect(result.failureKind).toBe('timeout');
+      expect(result.unclosedExecution).toBe(true);
+      expect(result.completionSignal).toBe('timeout');
+      expect(result.recoveryDecision?.kind).toBe('suggest_fix');
       expect(npmCalled).toBe(false);
     } finally {
       restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
@@ -1485,6 +1489,10 @@ describe('runTask', () => {
       expect(result.gitChanges).toBeUndefined();
       expect(result.agentExecutionOutcome).toBeUndefined();
       expect(result.verification).toBeUndefined();
+      expect(result.failureKind).toBe('timeout');
+      expect(result.unclosedExecution).toBe(false);
+      expect(result.completionSignal).toBe('timeout');
+      expect(result.recoveryDecision?.kind).toBe('retry_direct');
       expect(npmCalled).toBe(false);
     } finally {
       restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
@@ -1806,6 +1814,63 @@ describe('collectGitChanges', () => {
 });
 
 describe('formatRunTaskJson', () => {
+  it('should prefer concise user-visible summary over full execution chain on success', () => {
+    const noisyOutput = [
+      'Implemented run-task summary handling.',
+      'Updated tests and verified output contract.',
+      'Task boundary contract:',
+      '允许修改范围：',
+      'session_id: sess_123456',
+      'prompt: Please inspect the following execution chain',
+      'messages: [{"role":"user","content":"very long prompt"}]',
+      'trace: cli.run-task.spawnAgent',
+      'stdout: full chain log line',
+    ].join('\n');
+
+    const result = formatRunTaskJson({
+      success: true,
+      command: 'codex exec test',
+      output: noisyOutput,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain('Implemented run-task summary handling.');
+    expect(result.output).toContain('Updated tests and verified output contract.');
+    expect(result.output).not.toContain('Task boundary contract');
+    expect(result.output).not.toContain('session_id');
+    expect(result.output).not.toContain('prompt:');
+    expect(result.output).not.toContain('messages:');
+    expect(result.output).not.toContain('trace:');
+    expect(result.output).not.toContain('stdout:');
+    expect(result.displayOutput).toBe(result.output);
+    expect(result.output.length).toBeLessThan(300);
+  });
+
+  it('should keep timeout failure semantics unchanged while exposing concise display output', () => {
+    const result = formatRunTaskJson({
+      success: false,
+      command: 'codex exec test',
+      output: 'Agent CLI timeout after 600000ms\ntrace: cli.run-task.spawnAgent',
+      failureKind: 'timeout',
+      unclosedExecution: true,
+      completionSignal: 'timeout',
+      recoveryDecision: {
+        kind: 'suggest_fix',
+        mode: 'confirm_required',
+        summary: '任务超时但存在代码变更，建议先检查并补全收口。',
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toContain('Agent CLI timeout after 600000ms');
+    expect(result.output).not.toContain('trace:');
+    expect(result.displayOutput).toBe(result.output);
+    expect(result.failureKind).toBe('timeout');
+    expect(result.unclosedExecution).toBe(true);
+    expect(result.completionSignal).toBe('timeout');
+    expect(result.recoveryDecision?.kind).toBe('suggest_fix');
+  });
+
   it('should keep JSON payload concise for noisy agent output', () => {
     const noisyOutput = [
       'All tests passed successfully.',
@@ -1845,6 +1910,31 @@ describe('formatRunTaskJson', () => {
     expect(result.error).toEqual({
       code: 'TIMEOUT',
       message: 'Agent CLI timeout after 600000ms',
+    });
+  });
+
+  it('should include structured recovery fields in JSON when present', () => {
+    const result = formatRunTaskJson({
+      success: false,
+      command: 'codex exec test',
+      output: 'Agent CLI timeout after 600000ms',
+      failureKind: 'timeout',
+      unclosedExecution: false,
+      completionSignal: 'timeout',
+      recoveryDecision: {
+        kind: 'retry_direct',
+        mode: 'confirm_required',
+        summary: '任务超时且未产生代码变更，可能是偶发执行失败，建议直接重试。',
+      },
+    });
+
+    expect(result.failureKind).toBe('timeout');
+    expect(result.unclosedExecution).toBe(false);
+    expect(result.completionSignal).toBe('timeout');
+    expect(result.recoveryDecision).toEqual({
+      kind: 'retry_direct',
+      mode: 'confirm_required',
+      summary: '任务超时且未产生代码变更，可能是偶发执行失败，建议直接重试。',
     });
   });
 

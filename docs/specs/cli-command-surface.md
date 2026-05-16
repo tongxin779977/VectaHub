@@ -74,6 +74,8 @@
 - `run-task --dry-run` 要求提供 `--tool`，返回的是一条本地预览命令，命令消息体包含任务编号、任务描述、允许修改范围、禁止修改范围和建议验证命令。
 - `--dry-run` 也会先构建 `agentTaskContract` 摘要，但在该分支中不会加载 LLM、不会做 tool help discovery、不会执行 Agent。
 - 两个分支的 `--json` 输出都保留 `ok`、`command`、`output`、`outputTruncated` 和 `agentTaskContract` 字段；`--contract-preview` 的 `command` 与 `output` 为空字符串。
+- 正常执行分支的 `--json` 在兼容旧字段的前提下，可追加返回 `failureKind`、`unclosedExecution`、`completionSignal`、`recoveryDecision`。
+- 这些新增字段都是可选字段；旧调用方只能依赖已有 `ok`、`error`、`gitChanges`、`verification` 语义，新调用方可优先消费新增结构化字段。
 - 正常执行路径才会继续进入命令生成、安全检查、Agent preflight、Agent 执行、git 变更收集和验证命令执行。
 - Agent 支持分层当前应按执行合同文档理解：
   - `adapter-backed known agents`：`codex`、`gemini`、`aider`
@@ -97,6 +99,9 @@
 - 当前实现收口信号为组合契约：优先 `close`；若已 `exit` 但 `close` 迟迟不到，则在有界流刷新宽限后收口。该设计用于覆盖“已写盘但后处理长期不 close”的真实场景。
 - 因此“仓库已发生改动”和“CLI 已完成返回”必须视为两个独立事实。前者不能单独证明任务成功，后者也不能抹掉前者已经产生的副作用。
 - 如果最终以 `timeout` 收口，且 `gitChanges.changedFileCount > 0`、`verification` 缺失，必须按“未收口执行”解释：JSON 返回 `ok=false`，保留 `gitChanges` 与摘要，且禁止写成“未执行”。
+- 如果最终以 `timeout` 收口，且 `gitChanges` 不存在、`verification` 缺失，JSON 应追加 `failureKind='timeout'`、`unclosedExecution=false`，并给出 `recoveryDecision.kind='retry_direct'`。
+- 如果最终以 `timeout` 收口，且 `gitChanges.changedFileCount > 0`、`verification` 缺失，JSON 应追加 `failureKind='timeout'`、`unclosedExecution=true`，并给出 `recoveryDecision.kind='suggest_fix'`。
+- `completionSignal` 当前可取值为 `close`、`exit-stream-drain`、`exit-flush-grace`、`timeout`，用于解释 CLI 是如何完成收口的，不改变原有成功/失败语义。
 - 仍保留 hardening backlog：持续优化 `exit` 后流刷新策略与空闲判定阈值，降低误判超时概率。
 
 ## 工具、安全和诊断命令

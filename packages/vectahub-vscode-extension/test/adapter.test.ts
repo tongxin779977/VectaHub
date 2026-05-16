@@ -23,6 +23,7 @@ vi.mock('../src/ui/output.js', () => ({
 }));
 
 import { parseCliJsonOutput } from '../src/cli/adapter.js';
+import { resolveRunTaskExecutionSemantics, resolveRunTaskFailureKind } from '../src/commands/runTaskResultSemantics.js';
 
 describe('parseCliJsonOutput', () => {
   it('parses clean JSON output', () => {
@@ -64,5 +65,39 @@ describe('parseCliJsonOutput', () => {
     if (!result.ok) {
       expect(result.error.message).toBeTruthy();
     }
+  });
+});
+
+describe('run-task display output compatibility', () => {
+  it('should preserve new displayOutput field from CLI JSON', () => {
+    const result = parseCliJsonOutput<{ ok: boolean; output: string; displayOutput?: string }>(
+      '{"ok":true,"output":"legacy output","displayOutput":"clean summary"}'
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.displayOutput).toBe('clean summary');
+      expect(result.data.output).toBe('legacy output');
+    }
+  });
+
+  it('should keep failure semantics parsing unchanged when displayOutput exists', () => {
+    const semantics = resolveRunTaskExecutionSemantics({
+      ok: false,
+      data: {
+        failureKind: 'timeout',
+        unclosedExecution: true,
+        gitChanges: { changedFiles: ['src/a.ts'] },
+        verification: undefined,
+      },
+    });
+    const failureKind = resolveRunTaskFailureKind({
+      data: {
+        failureKind: 'timeout',
+      },
+    });
+
+    expect(semantics.unclosedExecution).toBe(true);
+    expect(failureKind).toBe('timeout');
   });
 });

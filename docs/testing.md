@@ -108,7 +108,7 @@ node dist/cli.js <command>
 | Agent 可用性 | `npm run dev -- tools agents --json` | 验证 Agent CLI 探测结果仍可供插件与脚本消费 | 已配置外部 Agent CLI，或至少存在默认配置项 | 返回 `ok=true`、`agents[]`；字段应覆盖 `installed`、`invocable`、`ready`、`configured_enabled`、`has_permission`；`ready` 不等于真实执行一定成功 | `src/commands/tools.ts`；`docs/specs/tools-security-management.md` |
 | 文档任务合同预览 | `npm run dev -- run-task --task-id <taskId> --task-label "<taskLabel>" --doc <docPath> --contract-preview --json` | 验证合同摘要分支仍独立于 Agent 执行 | `<docPath>`、`<taskId>`、`<taskLabel>` 有效 | 不要求 `--tool`；返回 `ok=true`；`command` 与 `output` 为空；包含 `agentTaskContract`；不加载 LLM、不执行 Agent | `src/commands/run-task.ts`；`docs/specs/cli-command-surface.md` |
 | 文档任务 dry-run | `npm run dev -- run-task --tool <tool> --task-id <taskId> --task-label "<taskLabel>" --doc <docPath> --dry-run --json` | 验证文档任务预览命令仍可生成且无副作用 | `<tool>` 已知且可调用；合同输入有效 | 要求提供 `--tool`；返回本地预览命令与 `agentTaskContract`；不执行 Agent，不写执行副作用 | `src/commands/run-task.ts`；`docs/specs/cli-command-surface.md` |
-| 文档任务执行 | `npm run dev -- run-task --tool <tool> --task-id <taskId> --task-label "<taskLabel>" --doc <docPath> --json` | 验证真实执行路径与 JSON 收口语义 | `<tool>` 已就绪；文档任务合同可构建 | stdout 保持纯 JSON；重点观察 `ok`、`error`、`gitChanges`、`verification`、`agentTaskContract`；文档需区分成功、失败、未收口执行三类观察点 | `src/commands/run-task.ts`；`docs/specs/run-task-execution-contract.md` |
+| 文档任务执行 | `npm run dev -- run-task --tool <tool> --task-id <taskId> --task-label "<taskLabel>" --doc <docPath> --json` | 验证真实执行路径与 JSON 收口语义 | `<tool>` 已就绪；文档任务合同可构建 | stdout 保持纯 JSON；重点观察 `ok`、`error`、`gitChanges`、`verification`、`agentTaskContract`，以及可选的 `failureKind`、`unclosedExecution`、`completionSignal`、`recoveryDecision`；文档需区分成功、失败、未收口执行三类观察点 | `src/commands/run-task.ts`；`docs/specs/run-task-execution-contract.md` |
 | 运行记录查询 | `npm run dev -- doc-task-runs list --json`<br>`npm run dev -- doc-task-runs show <runId> --json`<br>`npm run dev -- doc-task-runs latest --json` | 验证执行后可从 run record 查询结果 | 如需稳定观察结果，建议先准备已知会写入 run record 的执行；`show` 需要真实 `<runId>` | `list` 返回 `ok`、`runs`、`hasMore`；`latest` 返回 `ok`、`tasks`；`show` 至少返回结构化 JSON，未命中时不应崩溃 | `src/commands/doc-task-runs.ts`；`docs/usage.md` |
 | Trace 概览 | `npm run dev -- trace list --json` | 验证 trace 摘要查询仍可用 | 至少已有一次产生 trace 的执行 | 返回 `ok=true`、`traces[]`；可查看最近 trace 摘要 | `src/commands/trace.ts`；`docs/ui/trace-view.md` |
 | Trace 明细 | `npm run dev -- trace show <traceId> --json` | 验证可按真实 traceId 查看 spans | 先通过 `trace list` 或运行结果拿到真实 `<traceId>` | 返回 `ok=true`、`traceId`、`spans[]`；`trace show` 场景必须先拿到真实 `traceId` | `src/commands/trace.ts`；`docs/specs/trace-execution.md` |
@@ -175,6 +175,8 @@ npm run dev -- trace list --json
 最短预期信号：
 
 - `run-task --json` 的 stdout 保持纯 JSON。
+- timeout 且无 git changes、无 verification 时，应观察到 `failureKind='timeout'`、`unclosedExecution=false`、`recoveryDecision.kind='retry_direct'`。
+- timeout 且已有 git changes、无 verification 时，应观察到 `failureKind='timeout'`、`unclosedExecution=true`、`recoveryDecision.kind='suggest_fix'`。
 - 失败路径不保证一定写入 `doc-task-runs`；如果当前实现没有 run record，至少应还能通过 `trace list/show` 观察执行链路。
 - 如果本次执行写入了 trace，应能从 `trace list --json` 看到摘要。
 
@@ -261,6 +263,7 @@ npm run dev -- run -f sys:process-diagnostic-queue --mode relaxed --json
 - 正常执行路径能区分 adapter 和 fallback。
 - Agent 软失败不会进入 verification。
 - timeout 且已有 git changes 时保留副作用摘要。
+- timeout 两个分支都要观察结构化收口：无变更重试建议、有变更修复建议。
 - verification 失败能进入正确失败分类。
 - `--json` stdout 保持纯 JSON。
 

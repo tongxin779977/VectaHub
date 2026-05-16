@@ -116,6 +116,21 @@ describe('docTaskRecovery', () => {
       expect(d.needsNewTrace).toBe(true);
     });
 
+    it('should add contract preview hint for weak boundary timeout without changes', () => {
+      const d = decideRecovery(makeInput('timeout', {
+        agentTaskContract: {
+          boundaryConfidence: 'none',
+          allowedFileCount: 0,
+          forbiddenFileCount: 0,
+          validationCommandCount: 0,
+          executionMode: 'serial',
+        },
+      }));
+      expect(d.kind).toBe('retry_direct');
+      expect(d.summary).toContain('--contract-preview');
+      expect(d.summary).toContain('收窄任务边界');
+    });
+
     it('should return retry_direct for json_protocol with no changes', () => {
       const d = decideRecovery(makeInput('json_protocol'));
       expect(d.kind).toBe('retry_direct');
@@ -145,6 +160,23 @@ describe('docTaskRecovery', () => {
       expect(d.kind).toBe('suggest_fix');
       expect(d.mode).toBe('confirm_required');
       expect(d.reason).toBe('unclosed-execution');
+    });
+
+    it('should add diff review hint for weak boundary timeout with changes', () => {
+      const d = decideRecovery(makeInput('timeout', {
+        gitChanges: { changedFileCount: 1, changedFiles: ['x.ts'] },
+        agentTaskContract: {
+          boundaryConfidence: 'low',
+          allowedFileCount: 0,
+          forbiddenFileCount: 0,
+          validationCommandCount: 0,
+          executionMode: 'serial',
+        },
+      }));
+      expect(d.kind).toBe('suggest_fix');
+      expect(d.reason).toBe('unclosed-execution');
+      expect(d.summary).toContain('审查现有 diff');
+      expect(d.summary).toContain('--contract-preview');
     });
 
     it('should route timeout + gitChanges + no verification to suggest_fix + confirm_required', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveRunTaskExecutionSemantics } from '../src/commands/runTaskResultSemantics.js';
+import { resolveRunTaskExecutionSemantics, resolveRunTaskFailureKind } from '../src/commands/runTaskResultSemantics.js';
 
 describe('runTaskResultSemantics', () => {
   it('should detect unclosed execution for timeout + gitChanges + no verification', () => {
@@ -83,5 +83,33 @@ describe('runTaskResultSemantics', () => {
     });
     expect(semantics.needsConfirmation).toBe(true);
     expect(semantics.confirmationSource).toBe('post-execution');
+  });
+
+  it('should prefer CLI unclosedExecution when present', () => {
+    const semantics = resolveRunTaskExecutionSemantics({
+      ok: false,
+      data: {
+        gitChanges: { changedFiles: [] },
+        verification: {},
+        unclosedExecution: true,
+      },
+    });
+    expect(semantics.unclosedExecution).toBe(true);
+  });
+
+  it('should resolve CLI failureKind when present', () => {
+    const failureKind = resolveRunTaskFailureKind({
+      data: {
+        failureKind: 'timeout',
+      },
+    });
+    expect(failureKind).toBe('timeout');
+  });
+
+  it('should return undefined failureKind when CLI omits it', () => {
+    const failureKind = resolveRunTaskFailureKind({
+      data: {},
+    });
+    expect(failureKind).toBeUndefined();
   });
 });

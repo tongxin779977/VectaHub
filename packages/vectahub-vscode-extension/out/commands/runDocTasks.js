@@ -117,14 +117,20 @@ function resolveStructuredError(result) {
         return {
             errorCode: dataError.code || result.error?.code,
             errorMessage: dataError.message || result.error?.message,
-            outputSummarySource: dataError.message || result.data?.output,
+            outputSummarySource: dataError.message || getCliDisplayOutput(result.data),
         };
     }
     return {
         errorCode: result.error?.code,
         errorMessage: result.error?.message,
-        outputSummarySource: result.data?.output,
+        outputSummarySource: getCliDisplayOutput(result.data),
     };
+}
+function getCliDisplayOutput(result) {
+    if (!result) {
+        return undefined;
+    }
+    return result.displayOutput || result.output;
 }
 async function readDocContentOnce(docPath) {
     if (!docPath)
@@ -162,6 +168,44 @@ function applyExecutionSemanticsToRunRecord(runRecord, semantics) {
         return;
     runRecord.confirmationSource = semantics.confirmationSource;
     runRecord.unclosedExecution = semantics.unclosedExecution || undefined;
+}
+function failureKindToRunStatus(kind) {
+    switch (kind) {
+        case 'config':
+            return 'failed_config';
+        case 'json_protocol':
+            return 'failed_json_protocol';
+        case 'timeout':
+            return 'failed_timeout';
+        case 'test':
+            return 'failed_test';
+        case 'conflict':
+            return 'failed_conflict';
+        case 'system_internal':
+            return 'failed_system_internal';
+        case 'cancelled':
+            return 'cancelled';
+        case 'agent':
+        case 'unknown':
+        default:
+            return 'failed_agent';
+    }
+}
+function resolveFailureClassification(result, resolvedError, errMsg) {
+    const cliFailureKind = (0, runTaskResultSemantics_js_1.resolveRunTaskFailureKind)({ data: result.data });
+    if (cliFailureKind) {
+        return {
+            kind: cliFailureKind,
+            status: failureKindToRunStatus(cliFailureKind),
+        };
+    }
+    return (0, docTaskState_js_1.classifyDocTaskFailure)({
+        ok: result.ok,
+        exitCode: result.exitCode ?? undefined,
+        errorCode: resolvedError.errorCode,
+        errorMessage: errMsg,
+        output: result.stderr || getCliDisplayOutput(result.data) || result.stdout,
+    });
 }
 function registerDocTaskCommands(context, tasksProvider) {
     const workspaceRoot = (0, adapter_js_1.getActiveWorkspaceFolder)();
@@ -357,6 +401,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                     traceContext: { traceId: traceContext.traceId, parentSpanId: singleSpan.spanId, source: 'vscode' },
                 });
                 const semantics = (0, runTaskResultSemantics_js_1.resolveRunTaskExecutionSemantics)(result);
+                const cliFailureKind = (0, runTaskResultSemantics_js_1.resolveRunTaskFailureKind)({ data: result.data });
                 if (semantics.needsConfirmation) {
                     const source = semantics.confirmationSource;
                     const status = source === 'post-execution' ? 'changed' : 'preflight';
@@ -376,7 +421,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                             changedFiles,
                             shortStat: result.data?.gitChanges?.shortStat,
                         };
-                        runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output || '');
+                        runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(getCliDisplayOutput(result.data) || '');
                         runRecord.outputTruncated = result.data?.outputTruncated === true;
                         (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                         applyContractSummary(runRecord, result.data?.agentTaskContract);
@@ -396,19 +441,19 @@ function registerDocTaskCommands(context, tasksProvider) {
                     return;
                 }
                 if (result.ok) {
-                    const output = result.data?.output || '';
+                    const output = getCliDisplayOutput(result.data) || '';
                     const gitChanges = result.data?.gitChanges;
                     const changedFiles = gitChanges?.changedFiles ?? [];
                     const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, result.data?.verification, result.data?.agentExecutionOutcome);
                     const finalStatus = resolved.status;
                     task.lastRunId = runId;
                     task.lastTraceId = traceContext.traceId;
-                    task.lastFailureKind = resolved.failureKind;
+                    task.lastFailureKind = cliFailureKind ?? resolved.failureKind;
                     (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, finalStatus);
                     tasksProvider.refresh();
                     if (runRecord) {
                         runRecord.status = finalStatus;
-                        runRecord.failureKind = resolved.failureKind;
+                        runRecord.failureKind = cliFailureKind ?? resolved.failureKind;
                         runRecord.updatedAt = new Date().toISOString();
                         runRecord.endedAt = runRecord.updatedAt;
                         runRecord.durationMs = Date.now() - startedAtMs;
@@ -456,7 +501,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                             runRecord.endedAt = runRecord.updatedAt;
                             runRecord.durationMs = Date.now() - startedAtMs;
                             runRecord.command = result.data?.command || runRecord.command;
-                            runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
+                            runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(getCliDisplayOutput(result.data));
                             runRecord.outputTruncated = result.data?.outputTruncated === true;
                             (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                             applyContractSummary(runRecord, result.data?.agentTaskContract);
@@ -480,12 +525,12 @@ function registerDocTaskCommands(context, tasksProvider) {
                     task.lastTraceId = traceContext.traceId;
                     if (verificationFailed) {
                         const finalStatus = resolved.status;
-                        task.lastFailureKind = resolved.failureKind;
+                        task.lastFailureKind = cliFailureKind ?? resolved.failureKind;
                         (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, finalStatus);
                         tasksProvider.refresh();
                         if (runRecord) {
                             runRecord.status = finalStatus;
-                            runRecord.failureKind = resolved.failureKind;
+                            runRecord.failureKind = cliFailureKind ?? resolved.failureKind;
                             runRecord.updatedAt = new Date().toISOString();
                             runRecord.endedAt = runRecord.updatedAt;
                             runRecord.durationMs = Date.now() - startedAtMs;
@@ -495,7 +540,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                                 changedFiles,
                                 shortStat: result.data?.gitChanges?.shortStat
                             };
-                            runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
+                            runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(getCliDisplayOutput(result.data));
                             runRecord.outputTruncated = result.data?.outputTruncated === true;
                             (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                             applyContractSummary(runRecord, result.data?.agentTaskContract);
@@ -514,14 +559,8 @@ function registerDocTaskCommands(context, tasksProvider) {
                     }
                     else {
                         const resolvedError = resolveStructuredError(result);
-                        const errMsg = resolvedError.errorMessage || result.data?.output || '执行失败';
-                        const classified = (0, docTaskState_js_1.classifyDocTaskFailure)({
-                            ok: result.ok,
-                            exitCode: result.exitCode ?? undefined,
-                            errorCode: resolvedError.errorCode,
-                            errorMessage: errMsg,
-                            output: result.stderr || result.data?.output || result.stdout
-                        });
+                        const errMsg = resolvedError.errorMessage || getCliDisplayOutput(result.data) || '执行失败';
+                        const classified = resolveFailureClassification(result, resolvedError, errMsg);
                         task.lastFailureKind = classified.kind;
                         (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, classified.status);
                         tasksProvider.refresh();
@@ -533,7 +572,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                             runRecord.endedAt = runRecord.updatedAt;
                             runRecord.durationMs = Date.now() - startedAtMs;
                             runRecord.command = result.data?.command || runRecord.command;
-                            runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(resolvedError.outputSummarySource || result.data?.output || result.stderr || result.stdout);
+                            runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(resolvedError.outputSummarySource || getCliDisplayOutput(result.data) || result.stderr || result.stdout);
                             runRecord.outputTruncated = result.data?.outputTruncated === true;
                             const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
                             runRecord.gitChanges = {
@@ -766,6 +805,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                             traceContext: { traceId: batchTraceContext.traceId, parentSpanId: taskSpan.spanId, source: 'vscode' },
                         });
                         const semantics = (0, runTaskResultSemantics_js_1.resolveRunTaskExecutionSemantics)(result);
+                        const cliFailureKind = (0, runTaskResultSemantics_js_1.resolveRunTaskFailureKind)({ data: result.data });
                         if (semantics.needsConfirmation) {
                             const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
                             task.lastFailureKind = undefined;
@@ -783,7 +823,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                                     changedFiles,
                                     shortStat: result.data?.gitChanges?.shortStat
                                 };
-                                runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output || '');
+                                runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(getCliDisplayOutput(result.data) || '');
                                 runRecord.outputTruncated = result.data?.outputTruncated === true;
                                 (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                                 applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
@@ -805,14 +845,14 @@ function registerDocTaskCommands(context, tasksProvider) {
                             const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
                             const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, result.data?.verification, result.data?.agentExecutionOutcome);
                             const finalStatus = resolved.status;
-                            task.lastFailureKind = resolved.failureKind;
+                            task.lastFailureKind = cliFailureKind ?? resolved.failureKind;
                             (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, finalStatus);
                             if (resolved.status === 'failed_test') {
                                 failedCount++;
                             }
                             if (runRecord) {
                                 runRecord.status = finalStatus;
-                                runRecord.failureKind = resolved.failureKind;
+                                runRecord.failureKind = cliFailureKind ?? resolved.failureKind;
                                 runRecord.updatedAt = new Date().toISOString();
                                 runRecord.endedAt = runRecord.updatedAt;
                                 runRecord.durationMs = Date.now() - startedAtMs;
@@ -822,7 +862,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                                     changedFiles,
                                     shortStat: result.data?.gitChanges?.shortStat
                                 };
-                                runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
+                                runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(getCliDisplayOutput(result.data));
                                 runRecord.outputTruncated = result.data?.outputTruncated === true;
                                 (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                                 applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
@@ -856,7 +896,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                                     runRecord.endedAt = runRecord.updatedAt;
                                     runRecord.durationMs = Date.now() - startedAtMs;
                                     runRecord.command = result.data?.command || runRecord.command;
-                                    runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
+                                    runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(getCliDisplayOutput(result.data));
                                     runRecord.outputTruncated = result.data?.outputTruncated === true;
                                     (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                                     applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
@@ -878,12 +918,12 @@ function registerDocTaskCommands(context, tasksProvider) {
                             const verificationFailed = resolved.failureKind === 'test' || resolved.failureKind === 'system_internal';
                             if (verificationFailed) {
                                 const finalStatus = resolved.status;
-                                task.lastFailureKind = resolved.failureKind;
+                                task.lastFailureKind = cliFailureKind ?? resolved.failureKind;
                                 (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, finalStatus);
                                 failedCount++;
                                 if (runRecord) {
                                     runRecord.status = finalStatus;
-                                    runRecord.failureKind = resolved.failureKind;
+                                    runRecord.failureKind = cliFailureKind ?? resolved.failureKind;
                                     runRecord.updatedAt = new Date().toISOString();
                                     runRecord.endedAt = runRecord.updatedAt;
                                     runRecord.durationMs = Date.now() - startedAtMs;
@@ -893,7 +933,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                                         changedFiles,
                                         shortStat: result.data?.gitChanges?.shortStat
                                     };
-                                    runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(result.data?.output);
+                                    runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(getCliDisplayOutput(result.data));
                                     runRecord.outputTruncated = result.data?.outputTruncated === true;
                                     (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                                     applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
@@ -912,14 +952,8 @@ function registerDocTaskCommands(context, tasksProvider) {
                             }
                             else {
                                 const resolvedError = resolveStructuredError(result);
-                                const errMsg = resolvedError.errorMessage || result.data?.output || result.error?.message || '执行失败';
-                                const classified = (0, docTaskState_js_1.classifyDocTaskFailure)({
-                                    ok: result.ok,
-                                    exitCode: result.exitCode ?? undefined,
-                                    errorCode: resolvedError.errorCode,
-                                    errorMessage: errMsg,
-                                    output: result.stderr || result.data?.output || result.stdout
-                                });
+                                const errMsg = resolvedError.errorMessage || getCliDisplayOutput(result.data) || result.error?.message || '执行失败';
+                                const classified = resolveFailureClassification(result, resolvedError, errMsg);
                                 task.lastFailureKind = classified.kind;
                                 (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, classified.status);
                                 failedCount++;
@@ -937,7 +971,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                                         changedFiles,
                                         shortStat: result.data?.gitChanges?.shortStat
                                     };
-                                    runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(resolvedError.outputSummarySource || result.data?.output || result.stderr || result.stdout);
+                                    runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(resolvedError.outputSummarySource || getCliDisplayOutput(result.data) || result.stderr || result.stdout);
                                     runRecord.outputTruncated = result.data?.outputTruncated === true;
                                     (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
                                     applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);

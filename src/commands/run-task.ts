@@ -4,6 +4,7 @@ import { existsSync, createWriteStream, readFileSync, readdirSync } from 'node:f
 import { mkdir, readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { Transform } from 'node:stream';
 import { getLogger } from '../utils/logger.js';
 import { assessCommandRisk } from '../security-protocol/engine.js';
@@ -20,6 +21,8 @@ import { createRedactor } from '../security-protocol/redactor.js';
 import { getVectaHubPath, djb2Hash } from '../utils/paths.js';
 import { getAgentAdapterById, getAgentDescriptorById } from './agent-cli-adapter.js';
 import { bootstrapAgentRuntime } from './agent-runtime-bootstrap.js';
+import { decideRecovery, type RecoveryDecision, type RecoveryDecisionKind, type RecoveryDecisionMode } from '../types/recovery.js';
+import type { DocTaskFailureKind } from '../types/doc-task.js';
 
 const execFileAsync = promisify(execFile);
 const logger = getLogger('run-task');
@@ -167,6 +170,10 @@ export interface RunTaskResult {
   verification?: VerificationResult;
   riskAssessment?: RunTaskRiskAssessment;
   usage?: TokenUsage;
+  failureKind?: DocTaskFailureKind;
+  unclosedExecution?: boolean;
+  completionSignal?: SpawnCompletionSignal;
+  recoveryDecision?: RunTaskRecoveryDecisionSummary;
 }
 
 export interface RunTaskRiskAssessment {
@@ -184,6 +191,7 @@ export interface RunTaskJsonResult {
   command: string;
   output: string;
   outputTruncated: boolean;
+  displayOutput?: string;
   commandGenerationPath?: 'adapter' | 'llm-fallback';
   fallbackUsed?: boolean;
   agentExecutionOutcome?: 'implemented' | 'planned_only';
@@ -200,6 +208,16 @@ export interface RunTaskJsonResult {
   verification?: VerificationResult;
   riskAssessment?: RunTaskRiskAssessment;
   usage?: TokenUsage;
+  failureKind?: DocTaskFailureKind;
+  unclosedExecution?: boolean;
+  completionSignal?: SpawnCompletionSignal;
+  recoveryDecision?: RunTaskRecoveryDecisionSummary;
+}
+
+export interface RunTaskRecoveryDecisionSummary {
+  kind: RecoveryDecisionKind;
+  mode: RecoveryDecisionMode;
+  summary: string;
 }
 
 export interface AgentTaskContractSummary {
@@ -423,6 +441,98 @@ function compactAgentOutput(output: string): { output: string; truncated: boolea
   };
 }
 
+function sanitizeUserVisibleLine(line: string): string | null {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const lower = trimmed.toLowerCase();
+  const hiddenPrefixes = [
+    'trace',
+    'span',
+    'session',
+    'prompt',
+    'messages',
+    'conversation',
+    'assistant',
+    'user',
+    'system',
+    'tool',
+    'stdout',
+    'stderr',
+    'diff --git',
+    'index ',
+    '@@',
+  ];
+  if (hiddenPrefixes.some(prefix => lower.startsWith(prefix))) {
+    return null;
+  }
+
+  const hiddenFragments = [
+    'task boundary contract',
+    '任务边界合同',
+    '参考文档路径',
+    '允许修改范围',
+    '禁止修改范围',
+    '建议验证命令',
+    '边界可信度',
+    '执行步骤',
+    'yolo mode is enabled',
+    'completion_tokens',
+    'prompt_tokens',
+    'messages":',
+    '"role":',
+    '"content":',
+    '"session"',
+    '"trace"',
+    '"prompt"',
+  ];
+  if (hiddenFragments.some(fragment => lower.includes(fragment))) {
+    return null;
+  }
+
+  if (/^(##+|\d+\.)\s/.test(trimmed)) {
+    return null;
+  }
+  if (/^[-*]\s+(allow|forbid|validation|task|trace|session|prompt)\b/i.test(trimmed)) {
+    return null;
+  }
+  if (/[`{}[\]]/.test(trimmed) && trimmed.length > 120) {
+    return null;
+  }
+
+  return trimmed;
+}
+
+function buildUserVisibleSummary(output: string): { output: string; truncated: boolean } {
+  const compacted = compactAgentOutput(output);
+  const candidateLines = compacted.output
+    .split(/\r?\n/)
+    .map(sanitizeUserVisibleLine)
+    .filter((line): line is string => Boolean(line));
+
+  const uniqueLines = Array.from(new Set(candidateLines));
+  const selectedLines = uniqueLines.slice(0, 6);
+  const summarySource = selectedLines.join('\n').trim();
+  if (!summarySource) {
+    return compacted;
+  }
+
+  const maxSummaryLength = Math.min(MAX_JSON_OUTPUT_LENGTH, 1200);
+  const omittedLines = selectedLines.length < uniqueLines.length;
+  const summary = summarySource.length > maxSummaryLength
+    ? truncateAtLineBoundary(summarySource, maxSummaryLength)
+    : omittedLines
+      ? `${summarySource}${TRUNCATED_OUTPUT_MARKER}`
+      : summarySource;
+
+  return {
+    output: summary,
+    truncated: compacted.truncated || omittedLines || summary.length < summarySource.length,
+  };
+}
+
 function truncateAtLineBoundary(output: string, maxLength: number): string {
   if (output.length <= maxLength) return output;
 
@@ -592,6 +702,28 @@ function getRunTaskOutputDir(): string {
   return getVectaHubPath('outputs', 'run-task', djb2Hash(process.cwd()));
 }
 
+function getRunTaskOutputDirCandidates(): string[] {
+  const preferredDir = getRunTaskOutputDir();
+  const fallbackDir = resolve(tmpdir(), 'vectahub', 'outputs', 'run-task', djb2Hash(process.cwd()));
+  return preferredDir === fallbackDir ? [preferredDir] : [preferredDir, fallbackDir];
+}
+
+async function ensureRunTaskOutputDir(): Promise<string> {
+  let lastError: unknown;
+  for (const outputDir of getRunTaskOutputDirCandidates()) {
+    try {
+      await mkdir(outputDir, { recursive: true });
+      return outputDir;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('Unable to create run-task output directory');
+}
+
 async function safeReadTextFile(filePath: string): Promise<string> {
   try {
     return await readFile(filePath, 'utf8');
@@ -601,21 +733,24 @@ async function safeReadTextFile(filePath: string): Promise<string> {
 }
 
 function findLatestRunTaskOutputFiles(taskId: string): { stdoutPath?: string; stderrPath?: string } | null {
-  const outputDir = getRunTaskOutputDir();
-  if (!existsSync(outputDir)) {
+  const stdoutEntries: string[] = [];
+  const stderrEntries: string[] = [];
+
+  for (const outputDir of getRunTaskOutputDirCandidates()) {
+    if (!existsSync(outputDir)) {
+      continue;
+    }
+
+    stdoutEntries.push(...globOutputCandidates(outputDir, `${taskId}-`, '.stdout'));
+    stderrEntries.push(...globOutputCandidates(outputDir, `${taskId}-`, '.stderr'));
+  }
+  if (stdoutEntries.length === 0 && stderrEntries.length === 0) {
     return null;
   }
 
-  const stdoutEntries = Array.from(new Set([
-    ...globOutputCandidates(outputDir, `${taskId}-`, '.stdout'),
-  ])).sort();
-  const stderrEntries = Array.from(new Set([
-    ...globOutputCandidates(outputDir, `${taskId}-`, '.stderr'),
-  ])).sort();
-
   return {
-    stdoutPath: stdoutEntries.at(-1),
-    stderrPath: stderrEntries.at(-1),
+    stdoutPath: Array.from(new Set(stdoutEntries)).sort().at(-1),
+    stderrPath: Array.from(new Set(stderrEntries)).sort().at(-1),
   };
 }
 
@@ -655,6 +790,135 @@ function isUnclosedExecutionFailure(input: {
 }): boolean {
   const changedFileCount = input.gitChanges?.changedFiles.length ?? 0;
   return !input.success && changedFileCount > 0 && input.verification === undefined;
+}
+
+function mapErrorCodeToFailureKind(
+  errorCode: string | undefined,
+  verification?: VerificationResult,
+): DocTaskFailureKind | undefined {
+  if (verification?.isSystemError) {
+    return 'system_internal';
+  }
+  if (verification && !verification.ok) {
+    return 'test';
+  }
+
+  switch (errorCode) {
+    case 'TIMEOUT':
+      return 'timeout';
+    case 'AGENT_SYSTEM_ERROR':
+      return 'system_internal';
+    case 'AGENT_CONFIG_ERROR':
+    case 'INVALID_INVOCATION':
+      return 'config';
+    case 'SECURITY_BLOCKED':
+      return 'conflict';
+    case 'INVALID_JSON':
+      return 'json_protocol';
+    case 'CANCELLED':
+      return 'cancelled';
+    case 'AGENT_PLANNED_ONLY':
+      return undefined;
+    case 'NEEDS_CONFIRMATION':
+      return undefined;
+    case 'AGENT_FAILED':
+      return 'agent';
+    default:
+      return errorCode ? 'unknown' : undefined;
+  }
+}
+
+function buildRecoveryDecisionSummary(input: {
+  failureKind?: DocTaskFailureKind;
+  gitChanges?: GitChangeInfo;
+  verification?: VerificationResult;
+  agentTaskContract?: AgentTaskContractSummary;
+}): RunTaskRecoveryDecisionSummary | undefined {
+  if (!input.failureKind) {
+    return undefined;
+  }
+
+  const decision = decideRecovery({
+    runId: 'run-task',
+    taskId: 'run-task',
+    taskLabel: 'run-task',
+    failureKind: input.failureKind,
+    status: failureKindToStatus(input.failureKind),
+    gitChanges: input.gitChanges
+      ? {
+          changedFileCount: input.gitChanges.changedFiles.length,
+          changedFiles: input.gitChanges.changedFiles,
+          shortStat: input.gitChanges.shortStat,
+        }
+      : undefined,
+    verification: input.verification
+      ? {
+          ok: input.verification.ok,
+          totalCommands: input.verification.commands.length,
+          passedCommands: input.verification.commands.filter(command => command.ok).length,
+          failedCommands: input.verification.commands.filter(command => !command.ok).length,
+          failedCommandSummary: input.verification.commands
+            .filter(command => !command.ok)
+            .map(command => command.command)
+            .slice(0, 3)
+            .join('; ') || undefined,
+        }
+      : undefined,
+    agentTaskContract: input.agentTaskContract
+      ? {
+          boundaryConfidence: input.agentTaskContract.boundaryConfidence,
+          allowedFileCount: input.agentTaskContract.allowedFiles.length,
+          forbiddenFileCount: input.agentTaskContract.forbiddenFiles.length,
+          validationCommandCount: input.agentTaskContract.validationCommands.length,
+          executionMode: input.agentTaskContract.executionMode,
+        }
+      : undefined,
+  });
+
+  return summarizeRecoveryDecision(decision);
+}
+
+function inferExecutionFailureKind(input: {
+  agentExecutionOutcome?: 'implemented' | 'planned_only';
+  softSystemFailureMessage?: string | null;
+  verification?: VerificationResult;
+}): DocTaskFailureKind | undefined {
+  if (input.agentExecutionOutcome === 'planned_only') {
+    return undefined;
+  }
+  if (input.softSystemFailureMessage) {
+    return 'system_internal';
+  }
+  if (input.verification?.isSystemError) {
+    return 'system_internal';
+  }
+  if (input.verification && !input.verification.ok) {
+    return 'test';
+  }
+  return undefined;
+}
+
+function summarizeRecoveryDecision(decision: RecoveryDecision): RunTaskRecoveryDecisionSummary {
+  return {
+    kind: decision.kind,
+    mode: decision.mode,
+    summary: decision.summary,
+  };
+}
+
+function failureKindToStatus(kind: DocTaskFailureKind): 'failed_config' | 'failed_agent' | 'failed_json_protocol' | 'failed_timeout' | 'failed_test' | 'failed_conflict' | 'failed_system_internal' | 'cancelled' {
+  const map: Record<DocTaskFailureKind, 'failed_config' | 'failed_agent' | 'failed_json_protocol' | 'failed_timeout' | 'failed_test' | 'failed_conflict' | 'failed_system_internal' | 'cancelled'> = {
+    config: 'failed_config',
+    agent: 'failed_agent',
+    json_protocol: 'failed_json_protocol',
+    timeout: 'failed_timeout',
+    test: 'failed_test',
+    conflict: 'failed_conflict',
+    system_internal: 'failed_system_internal',
+    cancelled: 'cancelled',
+    unknown: 'failed_agent',
+  };
+  return map[kind];
 }
 
 function detectValidationPreflightRisk(validationCommands: string[]): RunTaskRiskAssessment | null {
@@ -959,12 +1223,13 @@ export async function runVerificationCommands(
 }
 
 export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
-  const compacted = compactAgentOutput(result.output);
+  const displayOutput = buildUserVisibleSummary(result.output);
   const jsonResult: RunTaskJsonResult = {
     ok: result.success,
     command: result.command,
-    output: compacted.output,
-    outputTruncated: compacted.truncated,
+    output: displayOutput.output,
+    outputTruncated: displayOutput.truncated,
+    displayOutput: displayOutput.output,
   };
   if (result.commandGenerationPath) {
     jsonResult.commandGenerationPath = result.commandGenerationPath;
@@ -994,6 +1259,18 @@ export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
   }
   if (result.usage) {
     jsonResult.usage = result.usage;
+  }
+  if (result.failureKind) {
+    jsonResult.failureKind = result.failureKind;
+  }
+  if (result.unclosedExecution !== undefined) {
+    jsonResult.unclosedExecution = result.unclosedExecution;
+  }
+  if (result.completionSignal) {
+    jsonResult.completionSignal = result.completionSignal;
+  }
+  if (result.recoveryDecision) {
+    jsonResult.recoveryDecision = result.recoveryDecision;
   }
   if (result.error) {
     jsonResult.error = {
@@ -1439,8 +1716,7 @@ export async function runTask(options: {
           timeoutMs: agentCliTimeout,
         },
       });
-      const outputDir = getRunTaskOutputDir();
-      await mkdir(outputDir, { recursive: true });
+      const outputDir = await ensureRunTaskOutputDir();
       const ts = Date.now();
       const redactedStdoutPath = resolve(outputDir, `${taskId}-${ts}.stdout`);
       const redactedStderrPath = resolve(outputDir, `${taskId}-${ts}.stderr`);
@@ -1601,6 +1877,18 @@ export async function runTask(options: {
       if (postExecutionConfirmation) {
         audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'COMPLETED', 'run-task');
         logger.warn(`检测到执行后确认: ${postExecutionConfirmation.reason} (${postExecutionConfirmation.matchedFiles.join(', ')})`);
+        const failureKind = 'agent';
+        const unclosedExecution = isUnclosedExecutionFailure({
+          success: false,
+          gitChanges,
+          verification: undefined,
+        });
+        const recoveryDecision = buildRecoveryDecisionSummary({
+          failureKind,
+          gitChanges,
+          verification: undefined,
+          agentTaskContract: agentTaskContractSummary,
+        });
         return {
           success: false,
           output: combinedOutput,
@@ -1608,6 +1896,7 @@ export async function runTask(options: {
           commandGenerationPath,
           fallbackUsed,
           agentExecutionOutcome: 'implemented',
+          completionSignal: completion.completionSignal,
           riskAssessment: {
             level: 'high',
             ruleName: postExecutionConfirmation.reason,
@@ -1623,6 +1912,9 @@ export async function runTask(options: {
           gitChanges,
           agentTaskContract: agentTaskContractSummary,
           usage: capturedUsage,
+          failureKind,
+          unclosedExecution,
+          recoveryDecision,
         };
       }
       
@@ -1693,6 +1985,7 @@ export async function runTask(options: {
         commandGenerationPath,
         fallbackUsed,
         agentExecutionOutcome,
+        completionSignal: completion.completionSignal,
         error: agentExecutionOutcome === 'planned_only'
           ? { code: 'AGENT_PLANNED_ONLY', message: 'Agent 仅输出计划，未执行实现' }
           : softSystemFailureMessage
@@ -1702,6 +1995,24 @@ export async function runTask(options: {
         agentTaskContract: agentTaskContractSummary,
         verification,
         usage,
+        failureKind: inferExecutionFailureKind({
+          agentExecutionOutcome,
+          softSystemFailureMessage,
+          verification,
+        }),
+        unclosedExecution,
+        recoveryDecision: !finalSuccess
+          ? buildRecoveryDecisionSummary({
+              failureKind: inferExecutionFailureKind({
+                agentExecutionOutcome,
+                softSystemFailureMessage,
+                verification,
+              }),
+              gitChanges,
+              verification,
+              agentTaskContract: agentTaskContractSummary,
+            })
+          : undefined,
       };
     } catch (error) {
       const execError = error as any;
@@ -1744,7 +2055,15 @@ export async function runTask(options: {
       }
       const errUsage = parseTokenUsage(rawErrOutputForUsage || errOutput);
       const errorCode = classifyAgentFailureCode(execError, errOutput);
+      const failureKind = mapErrorCodeToFailureKind(errorCode, undefined)
+        ?? (completionSignal === 'timeout' ? 'timeout' : 'agent');
       const errorMessage = execError?.message || 'Agent 执行失败';
+      const recoveryDecision = buildRecoveryDecisionSummary({
+        failureKind,
+        gitChanges,
+        verification: undefined,
+        agentTaskContract: agentTaskContractSummary,
+      });
       return {
         success: false,
         output: errOutput,
@@ -1752,6 +2071,7 @@ export async function runTask(options: {
         commandGenerationPath,
         fallbackUsed,
         agentExecutionOutcome: unclosedExecution ? 'implemented' : undefined,
+        completionSignal,
         error: {
           code: errorCode,
           message: errorMessage,
@@ -1759,6 +2079,9 @@ export async function runTask(options: {
         gitChanges,
         agentTaskContract: agentTaskContractSummary,
         usage: errUsage,
+        failureKind,
+        unclosedExecution,
+        recoveryDecision,
       };
     }
   }, {

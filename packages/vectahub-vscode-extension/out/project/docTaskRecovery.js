@@ -65,7 +65,7 @@ function buildRecoveryInput(record, currentInstructionHash) {
  */
 function decideRecovery(input) {
     try {
-        return decideRecoveryInner(input);
+        return applyRecoveryHints(decideRecoveryInner(input), input);
     }
     catch {
         return {
@@ -78,6 +78,30 @@ function decideRecovery(input) {
             canReusePreviousCommand: false,
         };
     }
+}
+function applyRecoveryHints(decision, input) {
+    if (decision.kind === 'blocked') {
+        return decision;
+    }
+    const boundary = input.agentTaskContract;
+    const weakBoundary = boundary
+        && (boundary.boundaryConfidence === 'none' || boundary.boundaryConfidence === 'low')
+        && boundary.allowedFileCount === 0;
+    if (!weakBoundary) {
+        return decision;
+    }
+    const hasGitChanges = (input.gitChanges?.changedFileCount ?? 0) > 0;
+    const hintSummary = hasGitChanges
+        ? '当前任务边界偏弱，先审查现有 diff，再看 `--contract-preview`，收窄任务边界或补充允许修改文件范围，然后再决定继续修复。'
+        : '当前任务边界偏弱，先看 `--contract-preview`，收窄任务边界或补充允许修改文件范围，然后再决定是否直接重试。';
+    const hintActions = hasGitChanges
+        ? ['检查当前 diff', '查看 `--contract-preview` 输出', '收窄任务边界或补充允许修改文件范围']
+        : ['查看 `--contract-preview` 输出', '收窄任务边界或补充允许修改文件范围'];
+    return {
+        ...decision,
+        summary: `${decision.summary} ${hintSummary}`.trim(),
+        suggestedActions: Array.from(new Set([...decision.suggestedActions, ...hintActions])),
+    };
 }
 function decideRecoveryWithHashGuard(input) {
     if (input.previousInstructionHash !== undefined && input.currentInstructionHash === undefined) {
@@ -111,7 +135,7 @@ function decideRecoveryInner(input) {
     const { failureKind, gitChanges, verification, confirmationSource } = input;
     const hasGitChanges = (gitChanges?.changedFileCount ?? 0) > 0;
     const hasVerification = verification !== undefined && verification !== null;
-    const unclosedExecution = isUnclosedExecution(input);
+    const unclosedExecution = failureKind === 'timeout' && isUnclosedExecution(input);
     if (confirmationSource === 'preflight') {
         return {
             kind: 'blocked',

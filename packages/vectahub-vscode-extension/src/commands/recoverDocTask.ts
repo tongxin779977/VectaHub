@@ -38,6 +38,7 @@ interface RecoverCliResult {
     ok: boolean;
     command?: string;
     output?: string;
+    displayOutput?: string;
     outputTruncated?: boolean;
     verification?: {
       ok: boolean;

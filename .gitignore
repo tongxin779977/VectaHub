@@ -68,6 +68,8 @@ coverage/
 .cache/
 .parcel-cache/
 .turbo/
+.npm-cache/
+.vscode-test/
 
 # Agent Ephemeral Data
 .gemini/tasks/

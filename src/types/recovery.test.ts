@@ -63,6 +63,24 @@ describe('decideRecovery', () => {
     expect(decision.reason).toBe('timeout-no-changes');
   });
 
+  it('should add contract preview hint for weak boundary timeout without changes', () => {
+    const decision = decideRecovery(makeInput({
+      failureKind: 'timeout',
+      gitChanges: undefined,
+      verification: undefined,
+      agentTaskContract: {
+        boundaryConfidence: 'none',
+        allowedFileCount: 0,
+        forbiddenFileCount: 0,
+        validationCommandCount: 0,
+        executionMode: 'serial',
+      },
+    }));
+    expect(decision.kind).toBe('retry_direct');
+    expect(decision.summary).toContain('--contract-preview');
+    expect(decision.summary).toContain('收窄任务边界');
+  });
+
   it('should return retry_direct for timeout with zero changed files', () => {
     const decision = decideRecovery(makeInput({
       failureKind: 'timeout',
@@ -121,7 +139,25 @@ describe('decideRecovery', () => {
       gitChanges: { changedFileCount: 2, changedFiles: ['x.ts', 'y.ts'] },
     }));
     expect(decision.kind).toBe('suggest_fix');
-    expect(decision.reason).toBe('timeout-with-changes');
+    expect(decision.reason).toBe('unclosed-execution');
+  });
+
+  it('should add diff review hint for weak boundary timeout with changes', () => {
+    const decision = decideRecovery(makeInput({
+      failureKind: 'timeout',
+      gitChanges: { changedFileCount: 1, changedFiles: ['x.ts'] },
+      agentTaskContract: {
+        boundaryConfidence: 'low',
+        allowedFileCount: 0,
+        forbiddenFileCount: 0,
+        validationCommandCount: 0,
+        executionMode: 'serial',
+      },
+    }));
+    expect(decision.kind).toBe('suggest_fix');
+    expect(decision.reason).toBe('unclosed-execution');
+    expect(decision.summary).toContain('审查现有 diff');
+    expect(decision.summary).toContain('--contract-preview');
   });
 
   // ── json_protocol + has changes → suggest_fix ──

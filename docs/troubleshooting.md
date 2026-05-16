@@ -58,6 +58,19 @@ vectahub trace list --json
 | 有 git changes 但 timeout | Agent 可能已落地部分改动，但 CLI 未正常收口。 |
 | verification 缺失 | 不应宣称任务成功，应按失败或未收口执行处理。 |
 
+推荐按 `run-task --json` 的结构化字段区分两类超时：
+
+1. `failureKind='timeout'` 且 `unclosedExecution=false`
+   - 说明本次超时前没有观测到任务新增副作用。
+   - 优先看 `recoveryDecision.kind='retry_direct'`。
+   - 如果同时看到 `agentTaskContract.boundaryConfidence` 为 `none/low` 且 `allowedFiles` 为空，先运行 `--contract-preview`，收窄任务边界或补充文件范围后再重试。
+
+2. `failureKind='timeout'` 且 `unclosedExecution=true`
+   - 说明本次已产生代码改动，但 CLI 未完成验证收口。
+   - 优先检查 `gitChanges` 和当前 diff，不要把它解释成“未执行”。
+   - 再看 `recoveryDecision.kind='suggest_fix'`，决定是否基于现有变更继续修复。
+   - 如果同时是弱边界任务，同样先看 `--contract-preview`，避免在模糊边界下继续扩大改动。
+
 ## Agent CLI 配置失败
 
 先查看 Agent 探测结果：
@@ -132,4 +145,3 @@ vectahub queue list --json
 ```
 
 如果终端和插件看到的数据不同，通常是环境变量或项目路径不同。
-

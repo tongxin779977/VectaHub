@@ -92,7 +92,7 @@ export interface DocTaskRecoveryRecord {
  */
 export function decideRecovery(input: DocTaskRecoveryInput): RecoveryDecision {
   try {
-    return decideRecoveryInner(input);
+    return applyRecoveryHints(decideRecoveryInner(input), input);
   } catch {
     // §14: When the triage function itself fails, degrade to blocked/manual_only.
     return {
@@ -105,6 +105,38 @@ export function decideRecovery(input: DocTaskRecoveryInput): RecoveryDecision {
       canReusePreviousCommand: false,
     };
   }
+}
+
+function applyRecoveryHints(
+  decision: RecoveryDecision,
+  input: DocTaskRecoveryInput,
+): RecoveryDecision {
+  if (decision.kind === 'blocked') {
+    return decision;
+  }
+
+  const boundary = input.agentTaskContract;
+  const weakBoundary = boundary
+    && (boundary.boundaryConfidence === 'none' || boundary.boundaryConfidence === 'low')
+    && boundary.allowedFileCount === 0;
+
+  if (!weakBoundary) {
+    return decision;
+  }
+
+  const hasGitChanges = (input.gitChanges?.changedFileCount ?? 0) > 0;
+  const hintSummary = hasGitChanges
+    ? '当前任务边界偏弱，先审查现有 diff，再看 `--contract-preview`，收窄任务边界或补充允许修改文件范围，然后再决定继续修复。'
+    : '当前任务边界偏弱，先看 `--contract-preview`，收窄任务边界或补充允许修改文件范围，然后再决定是否直接重试。';
+  const hintActions = hasGitChanges
+    ? ['检查当前 diff', '查看 `--contract-preview` 输出', '收窄任务边界或补充允许修改文件范围']
+    : ['查看 `--contract-preview` 输出', '收窄任务边界或补充允许修改文件范围'];
+
+  return {
+    ...decision,
+    summary: `${decision.summary} ${hintSummary}`.trim(),
+    suggestedActions: Array.from(new Set([...decision.suggestedActions, ...hintActions])),
+  };
 }
 
 function decideRecoveryInner(input: DocTaskRecoveryInput): RecoveryDecision {
@@ -130,6 +162,22 @@ function decideRecoveryInner(input: DocTaskRecoveryInput): RecoveryDecision {
   const { failureKind, gitChanges, verification } = input;
   const hasGitChanges = (gitChanges?.changedFileCount ?? 0) > 0;
   const hasVerification = verification !== undefined && verification !== null;
+  const unclosedExecution = failureKind === 'timeout' && hasGitChanges && !hasVerification;
+
+  if (unclosedExecution) {
+    return {
+      kind: 'suggest_fix',
+      mode: 'confirm_required',
+      reason: 'unclosed-execution',
+      summary: '任务存在未收口执行：已有代码修改但未完成验证，需确认后继续修复。',
+      suggestedActions: [
+        '检查已变更文件',
+        '确认后基于当前变更继续修复',
+      ],
+      needsNewTrace: true,
+      canReusePreviousCommand: false,
+    };
+  }
 
   // ── §7.4 必须人工处理类 ──
 

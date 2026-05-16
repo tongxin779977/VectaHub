@@ -22,7 +22,7 @@ function getActualCliPath(): string {
 }
 
 export function getVectaHubHome(): string {
-  return path.join(homedir(), '.vectahub');
+  return process.env.VECTAHUB_HOME || path.join(homedir(), '.vectahub');
 }
 
 export function parseCliPath(cliPath: string): { cmd: string; extraArgs: string[] } {
