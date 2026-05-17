@@ -1,5 +1,9 @@
 # CLI 命令面规格
 
+> Document Status: Current Implementation / Migration Contract
+> Authority: Command-surface index only. Field-level execution semantics are owned by the linked specs and current code.
+> Traceability: See `./implementation-traceability.md` before treating target command fields or subcommands as implemented.
+
 ## 目标
 
 本文档记录当前 CLI 命令面，作为实现、插件调用和测试覆盖的索引。命令细节以 `src/cli-main.ts` 和 `src/commands/` 当前代码为准。
@@ -55,17 +59,20 @@
 - `vectahub tools agents`
 - `vectahub tools agents --json`
 - `vectahub tools agents --json --sync-config`
+- 目标命令面还应包含 `show`、`onboard`、`reprobe`、`disable`、`remove` 等 registry 操作，详见 [工具与安全规则规格](./tools-security-management.md)。
 
 语义：
 
-- 默认返回 Agent CLI 的配置态与运行探测结果。
+- 默认返回 Agent CLI 的迁移期 runtime 状态与运行探测结果；目标状态是统一 dynamic registry。
 - `--json` 输出供插件或其他机器调用消费。
 - `--sync-config` 会在本次扫描后，把探测得到的 `hasPermission` 结果写回 VectaHub 配置。
 - `--sync-config` 当前只自动收敛 `has_permission`，不会自动改写 `enabled`，避免覆盖用户显式禁用。
+- 迁移期旧字段可以保留；`executionMode`、`status`、`issues`、`capabilities`、`constraints` 和 `llmSummary` 是目标字段，调用方接入前必须检查当前 JSON 是否已经提供。
+- `tools agents --json` 是 `Agent Runtime Catalog` 的主要机器接口之一，供 CLI、插件、chat 和 LLM Context Pack 共用。
 
 ### `run-task` 预览与合同语义
 
-`run-task` 的完整执行合同、完成边界、`dry-run` 权威语义、`needs_confirmation` 双来源和 Agent 支持分层，以 [Run-Task 执行合同规格](./run-task-execution-contract.md) 为准。
+`run-task` 的完整执行合同、完成边界、`dry-run` 权威语义、`needs_confirmation` 双来源、Agent execution mode 和 LLM 调用协议边界，以 [Run-Task 执行合同规格](./run-task-execution-contract.md) 为准。
 
 本节只记录 CLI 命令面的入口事实与当前实现可观测行为，不重复定义完整链路。
 
@@ -79,21 +86,33 @@
 - 正常执行分支的 `--json` 在兼容旧字段的前提下，可追加返回 `failureKind`、`unclosedExecution`、`completionSignal`、`recoveryDecision`。
 - 这些新增字段都是可选字段；旧调用方只能依赖已有 `ok`、`error`、`gitChanges`、`verification` 语义，新调用方可优先消费新增结构化字段。
 - 正常执行路径才会继续进入命令生成、安全检查、Agent preflight、Agent 执行、git 变更收集和验证命令执行。
-- Agent 支持分层当前应按执行合同文档理解：
-  - `adapter-backed known agents`：`codex`、`gemini`、`aider`
-  - `descriptor-known but adapter-incomplete agents`：`claude`
-  - `unknown/fallback agents`：其他未知或自定义 CLI
+- Agent 执行模式应按执行合同文档理解：
+  - `native_headless`：可进入 registry-backed renderer。
+  - `mediated_interactive`：必须经由 mediated runner、PTY 和 approval broker。
+  - `manual_only`：只能展示和登记，不得自动执行。
+- 已注册 Agent 的调用协议由 registry-backed renderer 或 mediated runner 决定；LLM 不得为其生成最终 argv。
+- 用户在 `run-task`、chat 或插件选择器中引用未知 Agent 时，目标行为是触发同一条 onboarding / reprobe 管道，再根据 validation 结果继续、询问或阻断。
 - 正常执行路径默认应继承用户当前 Agent CLI 的配置语义，而不是因为 VectaHub 的运行态隔离自动切换 provider、auth 或 model。
 - 如果某个已知 Agent 需要独立可写 home，`run-task` 必须先完成 runtime bootstrap：创建可写运行目录，并从用户默认配置源同步最小必要配置，然后再执行 preflight 和 spawn。
-- 未知或自定义 Agent CLI 在没有明确 descriptor 规则前，不应擅自改写其 home 或配置根；默认保持直接继承用户环境。
+- 未注册或自定义 Agent CLI 在没有明确 registry record 前，不应擅自改写其 home 或配置根；onboarding 期间默认保持直接继承用户环境，除非探测证据证明需要受控 runtime bootstrap。
 - `run-task` 的 preflight 只覆盖 VectaHub 已知的外层 CLI 入口，不覆盖下游 Agent 自身的二级沙箱、approval policy、远程插件同步或本地命令执行权限。
 - 因此即使 `tools agents --json` 报告某个 Agent 为 `ready`，真实任务仍可能在 `spawn` 之后因下游运行时限制失败；这类失败不应被误解为 provider/bootstrap 语义漂移。
 - 如果 Agent 已启动，但输出明确表明“本地命令工具无法启动”“无法读取代码”“未能执行代码修改”或出现 `sandbox-exec: sandbox_apply` 这类下游环境阻塞信号，`run-task` 必须直接按系统类失败收口，不得继续进入 verification。
 - 这种“Agent 已启动但未真正落地改动”的软失败，即使子进程退出码为 `0`、`agentExecutionOutcome=implemented`，也不能被视为成功执行。
 - 验证阶段与 Agent 执行阶段分离；即使 Agent 已启动成功，项目本地验证命令仍可能因环境缺失失败，例如 `vue-tsc` 不存在导致 `npm run type-check` 返回系统类错误。
 - 只有在 Agent 真正完成执行且未命中上述软失败短路条件时，才允许进入 verification。
-- 正常执行路径的 `--json` 输出会通过 `commandGenerationPath` 标记 `adapter` 或 `llm-fallback`，并通过 `fallbackUsed` 标记是否实际使用 fallback 命令；安全拦截等失败结果也保留这些字段用于诊断。
+- 正常执行路径的 `--json` 输出在迁移期仍可能保留 `commandGenerationPath`、`fallbackUsed` 等旧诊断字段。目标语义应收敛到 registry renderer、mediated runner、onboarding fallback 和 manual blocked；安全拦截等失败结果应继续保留结构化失败原因。
 - 审计日志写入失败采用告警降级，不改变命令返回结构；可能看到 `Failed to write audit log: ...` 的 stderr/console 告警。
+
+### LLM 能力上下文命令面
+
+LLM 调用不应依赖手写长 prompt 来熟悉 VectaHub。CLI 命令面必须能支持生成以下结构化上下文：
+
+- `Agent Runtime Catalog`：来自 `tools agents --json` 和统一 Agent registry。
+- `VectaHub Capability Catalog`：描述 `run-task`、`parse-doc`、`tools agents`、`recover-task`、`run-command`、`security test`、`workflow run` 等能力。
+- `LLM Context Pack`：根据当前用户输入、任务合同、候选 Agent 和安全策略生成的短上下文。
+
+这些上下文用于让 LLM 选择能力、选择 Agent、解释阻断或提出 onboarding 问题。它们不得成为执行真相源；执行仍由 CLI 合同、registry、renderer、安全、trace 和 recovery 负责。
 
 #### 当前实现行为与已确认缺口
 

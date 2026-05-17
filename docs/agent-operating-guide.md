@@ -158,6 +158,7 @@ Findings must include file and line references. If there are no findings, state 
 - Do not document an aspirational state as already implemented.
 - If code and docs disagree, identify which one should be changed before editing both.
 - Known gaps must be marked as limitations, hardening backlog, or follow-up work.
+- Cross-module capabilities must be checked against `docs/specs/implementation-traceability.md`; if a capability has no implementation entry point or verification entry point, it must not be described as current behavior.
 
 <!-- 中文注释：文档必须反映真实现状，不能提前宣称已完成。 -->
 

@@ -1,5 +1,9 @@
 # Agent Worker Contract Spec
 
+> Document Status: Current Implementation / Migration Contract
+> Authority: Owns `AgentTaskContract`, prompt input boundaries, document excerpt limits, file scopes, and validation command derivation.
+> Traceability: See `./implementation-traceability.md` for Agent runtime and LLM Context Pack gaps.
+
 ## 1. 任务目标
 
 将文档任务执行中的 Agent 从“读取整份文档并自由发挥”收敛为“执行边界清楚的小任务”。
@@ -42,9 +46,52 @@ P2 不重写 LLM 解析器，不引入数据库，不引入 worktree 隔离。
 - 增加真实批量执行的端到端测试。
 - 为运行态配置 digest 提供更完整的 authoritative 来源。
 
+## 2.2 Agent CLI Runtime Model
+
+Agent CLI support must converge to a single runtime model.
+
+This runtime model extends the existing doc-task contract path. It must not create a parallel Agent truth source outside the registry-backed execution flow.
+
+The intended model is:
+
+- one dynamic Agent registry as the runtime source of truth
+- one generic invocation renderer driven by registry data
+- one execution-mode contract shared by CLI and plugin
+
+Runtime Agent records must define at least:
+
+- identity
+- command entry
+- prompt transport
+- cwd transport
+- non-interactive flags
+- preflight rules
+- runtime bootstrap policy
+- execution mode
+- approval mediation policy
+- capability hints
+- constraints for LLM selection
+- validation status
+
+Execution mode must be one of:
+
+- `native_headless`
+- `mediated_interactive`
+- `manual_only`
+
+The registry may be seeded from built-in defaults during migration, but seeded defaults are not a second runtime truth source.
+
+The LLM-facing view of this runtime model must be derived from the registry. LLM prompt templates must not hard-code separate Agent capability tables, static known-agent lists, or CLI invocation rules.
+
+The derived `Agent Runtime Catalog` should be safe to inject into LLM context and should include only compact fields needed for routing, such as `id`, `displayName`, `executionMode`, `ready`, `capabilities`, `constraints`, `issues`, and `llmSummary`.
+
 ## 3. In Scope
 
 - 新增 Agent 任务输入合同类型。
+- 新增统一 Agent runtime registry 与 registry record 类型。
+- 新增 Agent CLI onboarding / reprobe 合同。
+- 新增 generic invocation renderer。
+- 新增 execution mode 与 approval mediation 合同。
 - 新增文档片段提取函数。
 - 新增文件边界归一化和校验函数。
 - 新增验证命令推导规则。
@@ -61,31 +108,13 @@ P2 不重写 LLM 解析器，不引入数据库，不引入 worktree 隔离。
 - 不做完整 P3 验证闭环执行。
 - 不做 UI 时间线。
 - 不改变 `run-task --json` 现有字段语义。
+- 不要求所有 Agent CLI 原生支持 JSON 输出。
+- 不要求所有 Agent CLI 原生支持 headless 执行。
 - 不要求 LLM 一次性准确推导所有文件边界。
 - 不读取整仓文件树。
 - 不把完整文档内容保存到 task run record。
 
-### 5.4 任务指纹 (Instruction Hash)
-为了精确检测需求变更，每个合同必须包含 `instructionHash`。
-
-**计算公式**：
-`Hash = SHA-256(taskId + label + docExcerpt + toolName + normalizedAllowedFiles + normalizedForbiddenFiles + globalConfigDigest)`
-
-**执行契约 (Mandates)**：
-1.  **因子完整性**：计算 Hash 时必须包含上述所有维度。
-2.  **全局配置敏感性**：`globalConfigDigest` 必须包含当前 LLM Provider 的核心参数（如 Model, Temperature）。
-3.  **比对阶段的因子对称性 (Critical)**：插件在解析阶段比对历史记录时，**必须先执行边界预推导 (Pre-derivation)**，获取当前的 `allowedFiles` 和 `forbiddenFiles`。
-4.  **历史数据失效**：如果旧记录缺失关键 Hash 因子，必须强制将其标记为失效（回滚至 ready），不得使用残缺因子进行降级比对。
-
-当前实现边界：
-- run record 持久化时，CLI 返回的 `agentTaskContract.instructionHash` 是真相源。
-- `run-task --contract-preview` / `--dry-run` 在 `adapter-backed known agents` 上，会使用 `toolName + adapter digest` 直接产出最终 `instructionHash`，且不需要加载 LLM。
-- `run-task --contract-preview` / `--dry-run` 在 `llm-fallback` 工具上，如本地存在可解析的 Provider/Model/Temperature 元数据，也会直接产出最终 `instructionHash`，且不会创建 LLM client。
-- 插件侧不得用 guessed `globalConfigDigest`、文档头部片段或 `docContent.slice(0, 8000)` 生成权威 hash。
-- 如果预览阶段无法从本地配置或环境变量解析出 authoritative `globalConfigDigest`，则预览哈希仍不能替代运行态 authoritative hash。
-- 在插件无法获得与 CLI 等价的 authoritative `globalConfigDigest` 时，恢复 hash guard 应保守阻断，状态刷新应跳过 drift reset，避免误判。
-- 共享纯函数已经落地；完整闭环仍依赖后续更完整的运行态 authoritative digest 来源。
-
+## 5. 合同结构
 
 ### 5.1 类型定义
 
@@ -133,6 +162,28 @@ export interface AgentTaskConcurrencyDecision {
   groups: string[][];
 }
 ```
+
+### 5.4 任务指纹 (Instruction Hash)
+
+为了精确检测需求变更，每个合同必须包含 `instructionHash`。
+
+**计算公式**：
+`Hash = SHA-256(taskId + label + docExcerpt + toolName + normalizedAllowedFiles + normalizedForbiddenFiles + globalConfigDigest)`
+
+**执行契约 (Mandates)**：
+1.  **因子完整性**：计算 Hash 时必须包含上述所有维度。
+2.  **全局配置敏感性**：`globalConfigDigest` 必须包含当前 LLM Provider 的核心参数（如 Model, Temperature）。
+3.  **比对阶段的因子对称性 (Critical)**：插件在解析阶段比对历史记录时，**必须先执行边界预推导 (Pre-derivation)**，获取当前的 `allowedFiles` 和 `forbiddenFiles`。
+4.  **历史数据失效**：如果旧记录缺失关键 Hash 因子，必须强制将其标记为失效（回滚至 ready），不得使用残缺因子进行降级比对。
+
+当前实现边界：
+- run record 持久化时，CLI 返回的 `agentTaskContract.instructionHash` 是真相源。
+- `run-task --contract-preview` / `--dry-run` 在 registry-backed Agent 渲染路径上，应直接使用 Agent runtime definition 产出最终 `instructionHash`，而不是依赖临时猜测。
+- `run-task --contract-preview` / `--dry-run` 在非 Agent fallback 路径上，如本地存在可解析的 Provider/Model/Temperature 元数据，也可直接产出 `instructionHash`，但该哈希不能替代 registry-backed runtime hash。
+- 插件侧不得用 guessed `globalConfigDigest`、文档头部片段或 `docContent.slice(0, 8000)` 生成权威 hash。
+- 如果预览阶段无法从本地配置或环境变量解析出 authoritative `globalConfigDigest`，则预览哈希仍不能替代运行态 authoritative hash。
+- 在插件无法获得与 CLI 等价的 authoritative `globalConfigDigest` 时，恢复 hash guard 应保守阻断，状态刷新应跳过 drift reset，避免误判。
+- 共享纯函数已经落地；完整闭环仍依赖后续更完整的运行态 authoritative digest 来源。
 
 ## 6. 数据边界
 
@@ -342,6 +393,20 @@ build AgentTaskContract
 执行要求
 ```
 
+LLM/Agent prompt 的主输入必须是 `AgentTaskContract`。`docPath` 只能作为补充引用，不能替代 `docExcerpt`、文件边界和验证命令。
+
+当 VectaHub 需要让 LLM 参与任务语义生成时，必须同时注入受限的 `LLM Context Pack`：
+
+```text
+registeredAgentCliContext
+vectaHubCapabilityContext
+taskContractSummary
+safetyPolicySummary
+fallbackAndOnboardingRules
+```
+
+这些上下文只用于帮助 LLM 理解已注册 Agent、VectaHub 命令能力和当前任务边界。LLM 不得用这些上下文生成已注册 Agent 的最终 argv，也不得覆盖 registry-backed renderer、mediated runner、approval broker 或 recovery 合同。
+
 执行要求：
 
 ```text
@@ -350,6 +415,23 @@ build AgentTaskContract
 - 不要修改 forbiddenFiles。
 - 如果必须越界修改，先在输出中说明原因。
 - 完成后运行或说明 validationCommands。
+```
+
+低可信度边界要求：
+
+```text
+- 当 boundaryConfidence 为 none 或 low 时，只允许最小改动。
+- 如果无法在 allowedFiles 内完成，输出阻塞说明并停止。
+- 不要通过读取整份文档或扩大文件范围来弥补合同缺口。
+```
+
+禁止事项：
+
+```text
+- 不把完整文档作为默认 prompt。
+- 不把完整 stdout/stderr、trace、git diff 或 env 注入 prompt。
+- 不把 raw --help 全量输出注入常规任务 prompt。
+- 不让 LLM 根据 Agent 自述文本判断最终成功。
 ```
 
 ### 11.3 JSON 输出兼容
@@ -630,8 +712,9 @@ npm run lint -w packages/vectahub-vscode-extension
 
 现象：
 
-- `run-task` 在正常执行路径会加载 LLM 配置、发现工具 help、调用 LLM 生成 Agent 命令。
-- 即使 Agent CLI 的调用格式固定，也仍经过这条链路。
+- 迁移前，`run-task` 在部分执行路径会加载 LLM 配置、发现工具 help、调用 LLM 生成 Agent 命令。
+- 即使 Agent CLI 的调用格式固定，也可能被旧路径带入这条链路。
+- 这会让 LLM 既承担“理解任务语义”，又承担“猜调用协议”，职责边界不清。
 
 影响：
 
@@ -640,9 +723,10 @@ npm run lint -w packages/vectahub-vscode-extension
 
 处理顺序：
 
-1. 保留当前 LLM 生成路径作为 fallback。
-2. 后续优先为 `codex`、`gemini`、`aider` 保持 adapter-backed 命令模板，并为 `claude` 补齐从 descriptor-known 到 adapter-backed 的执行模板。
-3. 模板命中时跳过 LLM 命令生成，只保留安全检查和 trace。
+1. 将已注册 Agent CLI 收敛到 registry-backed generic renderer 或 mediated runner。
+2. registry-backed 命中时跳过 LLM 命令生成，只保留安全检查、trace 和后续执行治理。
+3. LLM 只消费 `LLM Context Pack`，用于 intent、Agent 选择、能力选择、任务语义生成和 onboarding 辅助。
+4. 未注册 Agent 的 help/LLM 辅助只能进入 onboarding inference，不能直接成为最终执行协议。
 
 ### 21.3 根因三：并发写运行记录会竞争 latest 状态
 
@@ -671,6 +755,7 @@ npm run lint -w packages/vectahub-vscode-extension
 本轮暂不处理：
 
 - Agent CLI 确定性模板。
+- LLM Context Pack 注入。
 - 合同跨进程完整复用。
 - worktree 隔离。
 

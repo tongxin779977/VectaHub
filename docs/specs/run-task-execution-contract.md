@@ -1,5 +1,9 @@
 # Run-Task 执行合同规格
 
+> Document Status: Current Implementation / Migration Contract
+> Authority: Primary source of truth for `run-task` execution semantics.
+> Traceability: See `./implementation-traceability.md` for current implementation evidence, target fields, and hardening gaps.
+
 ## 1. 目标
 
 本文档是 `run-task` 执行语义的单一事实源。
@@ -65,20 +69,38 @@
 - 不允许继续进入 `verification`
 - 默认恢复策略不是 `retry_direct`
 
-### 2.4 Agent 支持分层
+### 2.4 Agent 执行模式
 
-`run-task` 的 Agent 接入必须区分三层：
+`run-task` 的 Agent 接入必须以统一 Agent registry 为事实源，并按 execution mode 区分执行能力：
 
-- `adapter-backed known agents`
-  - 当前实现：`codex`、`gemini`、`aider`、`claude`
-  - 含义：已有 descriptor，且存在内建 adapter，可确定性渲染命令
-- `descriptor-known but adapter-incomplete agents`
-  - 当前实现：无（保留该分层用于后续新增 Agent 迁移期）
-  - 含义：已有 descriptor / preflight 事实，但没有完整内建 adapter，执行路径仍可能落入 `llm-fallback`
-- `unknown/fallback agents`
-  - 含义：没有内建 descriptor，仍走 help/LLM fallback
+- `native_headless`
+  - 该 Agent CLI 支持稳定非交互执行。
+  - 正常执行可进入 registry-backed renderer。
+- `mediated_interactive`
+  - 该 Agent CLI 不能充分原生 headless，但可由 VectaHub 通过 PTY runner 与 approval broker 托管。
+  - 正常执行必须进入 mediated runner，不得伪装成 headless。
+- `manual_only`
+  - 该 Agent CLI 可被发现和登记，但当前不能被 VectaHub 安全自动执行。
+  - `run-task` 必须返回结构化阻断，不得尝试自动 spawn。
 
-文档不得把 `descriptor-known but adapter-incomplete` 写成“已完整 adapter-backed”。
+执行模式是运行时能力决策，不是文档标签。CLI、插件和 LLM Context Pack 都必须使用 registry-derived execution mode。
+
+### 2.5 LLM 与调用协议边界
+
+LLM 可以参与：
+
+- 识别用户意图。
+- 选择 VectaHub capability。
+- 选择已注册 Agent CLI。
+- 从 `AgentTaskContract` 生成任务语义文本。
+- 在 onboarding 置信度不足时提出少量定向问题。
+
+LLM 不得参与：
+
+- 为已注册 Agent CLI 发明命令行 flag。
+- 覆盖 registry 中的 `promptTransport`、`cwdTransport`、`executionMode`、preflight 或 approval policy。
+- 用完整 `--help` 输出替代 registry-backed runtime definition。
+- 根据 Agent 文本输出决定任务最终状态。
 
 ## 3. 输入分支合同
 
@@ -90,6 +112,7 @@
 - 不要求 `--tool`
 - 不创建 LLM client，也不发起 LLM 请求
 - 不做 tool help discovery
+- 不触发 Agent onboarding
 - 不执行 Agent
 - 不做仓库副作用
 
@@ -97,7 +120,7 @@ JSON 语义：
 
 - 保留 `ok`、`command`、`output`、`outputTruncated`、`agentTaskContract`
 - `command` 与 `output` 为空字符串
-- 若传入了 `tool`，实现可返回 `commandGenerationPath` 作为预测执行路径信号；这不表示已经做过 command generation、tool help discovery 或 LLM 调用
+- 若传入了 `tool`，实现可返回 registry-derived 预测信号，例如 `executionMode`、`agentStatus` 或迁移期 `commandGenerationPath`；这不表示已经做过 renderer、tool help discovery、onboarding 或 LLM 调用
 
 ### 3.2 `--dry-run`
 
@@ -107,7 +130,8 @@ JSON 语义：
 - 不执行 Agent
 - 不做仓库副作用
 - 不进入 `verification`
-- 对 `llm-fallback` 工具，可只读取本地 Provider/Model/Temperature 元数据来完成最终 `instructionHash`，但不得创建 LLM client
+- registry-backed Agent 可用 runtime definition 生成预览命令和最终 `instructionHash`
+- 非 Agent fallback 路径可只读取本地 Provider/Model/Temperature 元数据来完成最终 `instructionHash`，但不得创建 LLM client
 
 权威语义以 JSON 输出为准：
 
@@ -121,17 +145,21 @@ JSON 语义：
 - 如果实现与 UX 期望不完全一致，应在对应 UX 文档或 backlog 中说明
 - 非 JSON 预览不属于执行合同真相源
 
-当前实现分层：
+目标执行模式：
 
-- 对 `adapter-backed known agents`，dry-run 可走确定性 adapter 预览
-- 对 `descriptor-known but adapter-incomplete` 与 `unknown/fallback agents`，当前仍可能返回 fallback 预览命令
+- `native_headless` 可走 registry-backed renderer 预览。
+- `mediated_interactive` 可返回 mediated runner 预览，必须明确需要 approval broker。
+- `manual_only` 应返回结构化阻断预览，不得伪造可执行命令。
+- 未注册 Agent 在 dry-run 中不应做无界自动探测；如果需要 onboarding，应由显式 onboarding 或正常执行前置流程处理。
 
 ### 3.3 正常执行
 
 只有正常执行分支允许进入下列阶段：
 
 ```text
-command generation
+agent runtime resolution
+-> onboarding / reprobe when needed
+-> invocation rendering or mediated runner selection
 -> risk assessment
 -> runtime bootstrap
 -> agent preflight
@@ -143,12 +171,29 @@ command generation
 
 ## 4. 正常执行生命周期
 
-### 4.1 命令生成
+### 4.1 Agent 解析与调用渲染
 
-- `adapter-backed known agents` 必须优先走 adapter
-- `descriptor-known but adapter-incomplete agents` 当前实现仍允许落入 `llm-fallback`
-- `unknown/fallback agents` 允许走 help/LLM fallback
-- fallback 结果必须显式标记 `commandGenerationPath='llm-fallback'`
+正常执行必须先解析 Agent runtime definition：
+
+- 已注册 Agent：从统一 registry 读取 runtime record。
+- 未注册但用户明确引用的 Agent：触发 onboarding / reprobe 管道。
+- onboarding 成功：持久化 registry record，并继续原始执行流程。
+- onboarding 置信度不足：进入 targeted questions 或 `manual_only` 阻断。
+- onboarding 失败：返回结构化配置/能力失败，不进入 spawn。
+
+调用渲染规则：
+
+- `native_headless` 必须走 registry-backed renderer。
+- `mediated_interactive` 必须走 mediated runner，不得走普通 headless renderer。
+- `manual_only` 必须 fail closed。
+- LLM 不得为已注册 Agent 生成调用协议。
+- 迁移期如仍保留 `commandGenerationPath`，其目标值应向 `registry-renderer`、`mediated-runner`、`onboarding-fallback`、`manual-blocked` 收敛；旧值 `adapter` / `llm-fallback` 只能作为兼容诊断字段。
+
+fallback 规则：
+
+- 未注册 Agent 的 onboarding 辅助可以使用 LLM 归纳 help 输出，但产物必须进入 registry validation。
+- LLM 不能直接产出最终执行命令绕过 renderer。
+- fallback 结果必须显式标记来源、置信度和阻断原因。
 
 ### 4.2 风险评估
 
@@ -421,20 +466,63 @@ failed_test
 
 - 完整执行链路语义引用本文
 - 只在本文件外补充局部模块约束
-- 不得另起一套 dry-run、完成边界、`needs_confirmation`、Agent 分层或未收口执行定义
+- 不得另起一套 dry-run、完成边界、`needs_confirmation`、Agent execution mode、LLM 调用协议边界或未收口执行定义
 
-## 9. 当前实现与后续 hardening
+## 9. LLM Context Pack 合同
+
+本节描述目标合同和迁移要求。当前实现尚未稳定向所有 `run-task`、chat、NL fallback 和 onboarding 辅助流程注入完整 `LLM Context Pack`；该缺口在 [实现追踪矩阵](./implementation-traceability.md) 中追踪。
+
+目标状态下，`run-task` 可消费 LLM，但 LLM 必须通过 VectaHub 生成的 context pack 理解项目能力。
+
+Context pack 输入来源：
+
+- Agent runtime registry。
+- VectaHub capability catalog。
+- `AgentTaskContract` 摘要。
+- 当前安全策略摘要。
+- 当前调用入口，例如 CLI、chat 或 VS Code。
+
+Context pack 必须包含：
+
+- 当前选定或候选 Agent 的 `executionMode`、`ready`、`status`、`capabilities`、`constraints` 和 `issues`。
+- `run-task`、`tools agents`、`parse-doc`、`recover-task` 等相关 VectaHub capability 的输入合同和副作用等级。
+- 当前任务的 `taskId`、`label`、边界可信度、允许范围、禁止范围和验证命令摘要。
+- fallback/onboarding 规则：未知 Agent 先 onboarding，已注册 Agent 走 renderer 或 mediated runner。
+
+Context pack 禁止包含：
+
+- API key、token、完整 env。
+- 完整 Agent stdout/stderr。
+- 完整 trace。
+- 完整 git diff。
+- 完整文档全文。
+- 完整 prompt 历史。
+- raw `--help` 全量输出，除非是 onboarding 子流程中的受限输入。
+
+LLM 输出约束：
+
+- 可以输出 intent、Agent 选择、VectaHub capability 选择、任务语义或 onboarding 问题。
+- 不能输出已注册 Agent 的最终 argv 作为权威执行协议。
+- 不能把 `manual_only` 改成可执行。
+- 不能把 `mediated_interactive` 改成 headless。
+- 不能把 `ready=false` 当成可执行。
+- 不能根据 Agent 自述文本判断任务成功。
+
+## 10. 当前实现与后续 hardening
 
 已确认事实：
 
 - `--contract-preview` 与 `--dry-run` 已分支化
-- `adapter-backed known agents` 当前为 `codex`、`gemini`、`aider`
-- `claude` 当前已升级为 `adapter-backed known agent`
+- 现有代码中仍存在 `adapter` / `llm-fallback` 等迁移期字段
+- `codex`、`gemini`、`aider`、`claude` 已有内建 descriptor / adapter 基线
 - 完成边界代码已支持 `close`、`exit-stream-drain`、`exit-flush-grace`、`timeout`
 - `timeout + gitChanges + verification 缺失` 已被代码和测试识别为失败且保留副作用摘要
 
 仍需 hardening：
 
+- 将迁移期 `adapter` / `llm-fallback` 诊断字段收敛为 registry renderer / mediated runner / onboarding fallback / manual blocked 语义
+- 将已注册 Agent 的调用协议完全移出 LLM command generation
+- 将 LLM Context Pack 注入 chat、NL fallback、`run-task` 和 onboarding 辅助流程
 - 验证命令高风险确认需完全收敛到统一执行前确认合同
 - 插件侧 trace 仍需补强“已写盘但未收口”的表达能力
 - 文档与实现应继续收敛到同一套完成边界与恢复矩阵

@@ -53,6 +53,7 @@ VectaHub 解决的是 AI 执行失控问题：
 | [发布指南](./release.md) | 当前可确认的 release、build、VSIX 打包和发布前检查入口。 |
 | [Agent 操作规范](./agent-operating-guide.md) | 开发 Agent 执行项目任务时必须遵守的工程规范。 |
 | [路线图](./roadmap.md) | 当前优先级、下一步任务和不建议立即投入的方向。 |
+| [未实现项总表](./unimplemented.md) | 汇总当前尚未完整实现、尚未收口或仍在 hardening 的能力。 |
 | [归档说明](./archive.md) | 旧文档清理原则和仍保留的参考文档。 |
 
 ## 规格入口
@@ -61,6 +62,7 @@ VectaHub 解决的是 AI 执行失控问题：
 |------|------|
 | [架构总览](./architecture.md) | 项目定位、系统边界、模块职责和演进方向。 |
 | [核心合同](./contracts.md) | CLI JSON、任务状态、Agent 合同、Trace、安全、恢复等协议入口。 |
+| [实现追踪矩阵](./specs/implementation-traceability.md) | 把目标能力、权威文档、代码入口、测试入口和已知缺口对应起来。 |
 | [Agent 执行系统](./agent-execution.md) | `VectaHub = Orchestrator` 的执行模型和阶段边界。 |
 | [Run-Task 执行合同](./specs/run-task-execution-contract.md) | `run-task` 的输入分支、完成边界、失败分类、确认语义和恢复入口真相源。 |
 | [规格合同](./specs/agent-worker-contract.md) | Agent 任务边界、片段提取、文件范围和合同摘要规格。 |
@@ -113,3 +115,16 @@ VectaHub 解决的是 AI 执行失控问题：
 当前仓库是 TypeScript CLI + VS Code 插件 + 共享合同包项目。当前事实来源包括 `src/`、`packages/vectahub-vscode-extension/` 和 `packages/doc-task-contract-core/`。
 
 文档中的“已有第一版”表示已有设计或实现记录，但最终状态必须以当前代码、测试和运行结果为准。完成任务前仍需运行相关验证命令。
+
+## 文档状态
+
+维护者应按文档状态判断可执行性：
+
+| 状态 | 含义 |
+|------|------|
+| `Current Implementation` | 描述当前代码已经实现、应能通过测试或命令验证的行为。 |
+| `Target Design` | 描述目标架构或产品方向，不能当作当前可用能力。 |
+| `Migration Contract` | 同时描述当前兼容字段和目标合同，必须明确迁移边界。 |
+| `Historical Reference` | 仅保留历史背景，不作为实现事实源。 |
+
+跨模块能力必须能在 [实现追踪矩阵](./specs/implementation-traceability.md) 中找到对应行。没有代码入口或测试入口的能力，不得在用户文档中写成已上线能力。

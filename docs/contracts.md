@@ -2,6 +2,10 @@
 
 本文档是合同入口，不复制所有字段细节。实现前应读取对应规格文档和当前源码，以代码和测试结果确认最终状态。
 
+> Document Status: Current Implementation / Migration Contract
+> Authority: Contract index only. Field-level behavior is owned by the linked spec files.
+> Traceability: See `docs/specs/implementation-traceability.md` before treating a cross-module target as implemented.
+
 ## 合同边界
 
 VectaHub 的关键合同如下：
@@ -19,6 +23,7 @@ VectaHub 的关键合同如下：
 | Tools / Security Rules | 管理 CLI 工具、命令规则和安全规则。 | [工具与安全规则规格](./specs/tools-security-management.md) |
 | Templates / Scheduling | 管理 workflow 生成、模板和调度。 | [生成、模板与调度规格](./specs/templates-generation-scheduling.md) |
 | Local Service / Import Export | 管理本地服务、daemon 和数据迁移。 | [服务与导入导出规格](./specs/service-import-export.md) |
+| Implementation Traceability | 关联目标能力、权威文档、代码入口、测试入口和已知缺口。 | [实现追踪矩阵](./specs/implementation-traceability.md) |
 
 ## CLI JSON 合同
 
