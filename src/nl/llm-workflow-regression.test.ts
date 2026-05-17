@@ -212,7 +212,7 @@ describe('LLM Workflow Regression Tests', () => {
   });
 
   describe('5. LLM with no tool call and no workflow must fail', () => {
-    it('should accept when LLM returns intent with empty workflow steps (fallback task generated)', async () => {
+    it('should fail fast when LLM returns intent with empty workflow steps', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -232,12 +232,7 @@ describe('LLM Workflow Regression Tests', () => {
       const processor = createNLProcessor({ llmConfig: mockLLMConfig });
       const context: NLContext = { input: 'commit changes', sessionId: 'test' };
 
-      // Implementation generates a fallback task when workflow has no steps
-      const result = await processor.parse(context);
-      expect(result).toBeDefined();
-      expect(result.success).toBe(true);
-      expect(result.taskList).toBeDefined();
-      expect(result.taskList!.tasks.length).toBeGreaterThan(0);
+      await expect(processor.parse(context)).rejects.toThrow('Workflow must contain at least one step');
 
       vi.restoreAllMocks();
     });

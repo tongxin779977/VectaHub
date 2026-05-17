@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { createNLProcessor } from './pipeline.js';
 import { LLMClient } from '../llm.js';
+import YAML from 'yaml';
 
 const mockLLMConfig = {
   apiKey: 'test-key',
@@ -132,6 +133,43 @@ describe('NLProcessor', () => {
 
       expect(command?.cli).toBe('git');
       expect(command?.args).toEqual(['commit', '-m', 'fix bug']);
+    });
+
+    it('should fail fast when workflow has empty steps', async () => {
+      vi.spyOn(LLMClient.prototype, 'complete').mockResolvedValue({
+        intent: 'RUN_SCRIPT',
+        confidence: 0.8,
+        params: {},
+        workflow: {
+          name: 'empty-workflow',
+          steps: [],
+        },
+      } as any);
+
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig });
+      await expect(processor.parse({ input: 'run script' })).rejects.toThrow(
+        'Workflow must contain at least one step'
+      );
+    });
+
+    it('should fail fast when workflow YAML is invalid', async () => {
+      vi.spyOn(LLMClient.prototype, 'complete').mockResolvedValue({
+        intent: 'RUN_SCRIPT',
+        confidence: 0.8,
+        params: {},
+        workflow: {
+          name: 'broken-yaml',
+          steps: [{ cli: 'git status' }],
+        },
+      } as any);
+      vi.spyOn(YAML, 'parseAllDocuments').mockImplementation(() => {
+        throw new Error('bad yaml');
+      });
+
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig });
+      await expect(processor.parse({ input: 'run script' })).rejects.toThrow(
+        'Invalid workflow YAML'
+      );
     });
   });
 });

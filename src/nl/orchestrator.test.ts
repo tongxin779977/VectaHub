@@ -52,6 +52,7 @@ describe('orchestrateIntent', () => {
           label: 'run',
           type: 'command',
           command: { cli: 'git', args: ['status'] },
+          outputVar: 'gitStatus',
         }],
         userReport: { summaryTemplate: 'ok' },
       },
@@ -63,6 +64,7 @@ describe('orchestrateIntent', () => {
     expect(result.steps).toHaveLength(1);
     expect(result.steps[0].cli).toBe('git');
     expect(result.steps[0].args).toEqual(['status']);
+    expect(result.steps[0].outputVar).toBe('gitStatus');
   });
 
   it('preview route keeps plan but returns no executable steps', async () => {
@@ -107,6 +109,101 @@ describe('orchestrateIntent', () => {
     expect(parseMock).not.toHaveBeenCalled();
   });
 
+  it('processInput uses capability-first and does not require llmConfig for auto route', async () => {
+    routeMock.mockReturnValueOnce({
+      route: 'auto',
+      matchedCapability: 'mock-cap',
+      score: 0.9,
+      reason: 'matched',
+      plan: {
+        id: 'plan_input_auto',
+        label: 'auto plan',
+        capabilityId: 'mock-cap',
+        goal: { confidence: 0.9, domains: [], action: 'run', scope: 'project', successCriteria: [], constraints: [], evidence: {}, needsClarification: false },
+        steps: [{
+          id: 'cmd_1',
+          label: 'run',
+          type: 'command',
+          command: { cli: 'git', args: ['status'] },
+          outputVar: 'gitStatus',
+        }],
+        userReport: { summaryTemplate: 'ok' },
+      },
+    });
+
+    const result = await processInput('check status');
+    expect(result.success).toBe(true);
+    expect(result.taskList?.tasks.length).toBeGreaterThan(0);
+    const commands = result.taskList?.tasks[0]?.commands ?? [];
+    expect(commands[0]?.outputVar).toBe('gitStatus');
+    expect(parseMock).not.toHaveBeenCalled();
+  });
+
+  it('processInput uses capability-first and does not require llmConfig for clarify route', async () => {
+    routeMock.mockReturnValueOnce({
+      route: 'clarify',
+      matchedCapability: 'mock-clarify',
+      score: 0.4,
+      reason: 'need clarification',
+      plan: null,
+    });
+
+    const result = await processInput('do something ambiguous');
+    expect(result.success).toBe(true);
+    expect(result.taskList?.tasks).toHaveLength(0);
+    expect(parseMock).not.toHaveBeenCalled();
+  });
+
+  it('processInput requires llmConfig only when entering fallback', async () => {
+    routeMock.mockReturnValueOnce({
+      route: 'fallback',
+      matchedCapability: undefined,
+      score: 0.1,
+      reason: 'no capability',
+      plan: null,
+    });
+
+    await expect(processInput('unknown intent')).rejects.toThrow(
+      'LLM config required for fallback processing'
+    );
+  });
+
+  it('processInput capability plan preserves outputVar/runId binding chain', async () => {
+    routeMock.mockReturnValueOnce({
+      route: 'auto',
+      matchedCapability: 'github-actions-repair',
+      score: 0.93,
+      reason: 'matched',
+      plan: {
+        id: 'plan_gh_repair',
+        label: 'repair actions',
+        capabilityId: 'github-actions-repair',
+        goal: { confidence: 0.93, domains: ['github-actions'], action: 'repair', scope: 'all', successCriteria: ['ci-green'], constraints: [], evidence: {}, needsClarification: false },
+        steps: [
+          {
+            id: 'discover-run-id',
+            label: 'discover',
+            type: 'command',
+            command: { cli: 'gh', args: ['run', 'list'] },
+            outputVar: 'runId',
+          },
+          {
+            id: 'fetch-logs',
+            label: 'logs',
+            type: 'command',
+            command: { cli: 'gh', args: ['run', 'view', '${runId}', '--log-failed'] },
+          },
+        ],
+        userReport: { summaryTemplate: 'ok' },
+      },
+    });
+
+    const result = await processInput('repair github actions');
+    const commands = result.taskList?.tasks[0]?.commands ?? [];
+    expect(commands[0]?.outputVar).toBe('runId');
+    expect(commands[1]?.args).toContain('${runId}');
+  });
+
   it('fallback route enters LLM pipeline', async () => {
     routeMock
       .mockReturnValueOnce({
@@ -139,7 +236,7 @@ describe('orchestrateIntent', () => {
           type: 'QUERY_EXEC',
           description: 'llm step',
           status: 'PENDING',
-          commands: [{ cli: 'git', args: ['status'] }],
+          commands: [{ cli: 'git', args: ['status'], outputVar: 'gitStatus' }],
           dependencies: [],
         }],
         warnings: [],
@@ -152,6 +249,7 @@ describe('orchestrateIntent', () => {
     expect(result.steps).toHaveLength(1);
     expect(result.steps[0].cli).toBe('git');
     expect(result.steps[0].args).toEqual(['status']);
+    expect(result.steps[0].outputVar).toBe('gitStatus');
   });
 
   it('routes capability plan and returns executable steps', async () => {

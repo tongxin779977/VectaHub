@@ -18,10 +18,6 @@ export async function processInput(
   const splitter = createIntentSplitter();
   const splitResult = await splitter.split(input);
 
-  if (!llmConfig) {
-    throw new Error('LLM config required for semantic intent recognition. Configure llmConfig to enable LLM-based processing.');
-  }
-
   const clauses = splitResult.clauses?.map(clause => clause.text.trim()).filter(Boolean) ?? [];
   if (splitResult.isMultiIntent && clauses.length > 1) {
     return handleMultiIntent(clauses, llmConfig);
@@ -40,14 +36,29 @@ export async function processInput(
     return capabilityNoTaskNLResult(normalizedInput, routeResult, 'clarification required before execution');
   }
 
-  const processor = createNLProcessor({ llmConfig });
+  const processor = createNLProcessor({ llmConfig: requireLLMConfigForFallback(llmConfig) });
   return processor.parse({ input: normalizedInput });
+}
+
+function requireLLMConfigForFallback(llmConfig?: LLMConfig): LLMConfig {
+  if (!llmConfig) {
+    throw new Error('LLM config required for fallback processing. Configure llmConfig when capability routing returns fallback.');
+  }
+  return llmConfig;
 }
 
 async function handleMultiIntent(
   clauses: string[],
-  llmConfig: LLMConfig,
+  llmConfig?: LLMConfig,
 ): Promise<NLResult> {
+  let fallbackProcessor: ReturnType<typeof createNLProcessor> | null = null;
+  const getFallbackProcessor = (): ReturnType<typeof createNLProcessor> => {
+    if (!fallbackProcessor) {
+      fallbackProcessor = createNLProcessor({ llmConfig: requireLLMConfigForFallback(llmConfig) });
+    }
+    return fallbackProcessor;
+  };
+
   const clauseResults = await Promise.all(clauses.map(async clause => {
     const context = buildProjectContext(clause);
     const routeResult = routeCapability(clause, context);
@@ -61,8 +72,7 @@ async function handleMultiIntent(
       return capabilityNoTaskNLResult(clause, routeResult, 'clarification required before execution');
     }
 
-    const processor = createNLProcessor({ llmConfig });
-    return processor.parse({ input: clause });
+    return getFallbackProcessor().parse({ input: clause });
   }));
 
   const hasNonExecutableClause = clauseResults.some(result => mapTaskListToSteps(result.taskList).length === 0);
@@ -116,6 +126,7 @@ export interface OrchestrateStep {
   cli: string;
   args: string[];
   type: StepType;
+  outputVar?: string;
 }
 
 export interface OrchestrateResult {
@@ -159,6 +170,7 @@ function mapTaskListToSteps(taskList: TaskList | undefined): OrchestrateStep[] {
         cli,
         args: command.args ?? [],
         type: 'exec',
+        outputVar: command.outputVar,
       });
     }
   }
@@ -168,14 +180,18 @@ function mapTaskListToSteps(taskList: TaskList | undefined): OrchestrateStep[] {
 
 function mapPlanToSteps(plan: ExecutionPlan): OrchestrateStep[] {
   const planStepMap = new Map(plan.steps.map(step => [step.id, step]));
-  return executionPlanToSteps(plan).map((step, index) => ({
-    id: step.id,
-    description: planStepMap.get(step.id)?.label ?? `Step ${index + 1}`,
-    status: 'PENDING',
-    cli: step.cli ?? '',
-    args: step.args ?? [],
-    type: toOrchestrateType(step.type),
-  }));
+  return executionPlanToSteps(plan).map((step, index) => {
+    const sourceStep = planStepMap.get(step.id);
+    return {
+      id: step.id,
+      description: sourceStep?.label ?? `Step ${index + 1}`,
+      status: 'PENDING',
+      cli: step.cli ?? '',
+      args: step.args ?? [],
+      type: toOrchestrateType(step.type),
+      outputVar: sourceStep?.outputVar,
+    };
+  });
 }
 
 function buildProjectContext(input: string, options?: { cwd?: string }): ProjectContext {
@@ -226,10 +242,13 @@ function capabilityPlanToNLResult(
         type: 'CODE_TRANSFORM',
         description: plan.label,
         status: 'PENDING',
-        commands: executionPlanToSteps(plan).map(step => ({
-          cli: step.cli ?? '',
-          args: step.args ?? [],
-        })).filter(command => command.cli.trim().length > 0),
+        commands: executionPlanToSteps(plan)
+          .map(step => ({
+            cli: step.cli ?? '',
+            args: step.args ?? [],
+            outputVar: step.outputVar,
+          }))
+          .filter(command => command.cli.trim().length > 0),
         dependencies: [],
       }],
       warnings: [],

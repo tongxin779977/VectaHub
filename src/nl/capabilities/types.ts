@@ -18,6 +18,7 @@ export interface ExecutionPlanStep {
   type: 'workflow' | 'command' | 'internal';
   command?: { cli: string; args: string[] };
   workflowFile?: string;
+  outputVar?: string;
   internalOutput?: boolean;
 }
 

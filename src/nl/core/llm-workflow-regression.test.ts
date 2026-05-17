@@ -261,7 +261,7 @@ describe('LLM Workflow Regression', () => {
   // ── Goal 5: No tool call + no workflow must fail ─────────────────────────
 
   describe('Goal 5: LLM no tool call + no workflow must fail', () => {
-    it('should return success when LLM recognizes intent but no tool_calls (intent-only path)', async () => {
+    it('should fail fast when LLM recognizes intent but workflow steps are empty', async () => {
       const { createNLProcessor } = await import('./pipeline.js');
       setMock({
         intent: 'QUERY_INFO',
@@ -270,11 +270,9 @@ describe('LLM Workflow Regression', () => {
       });
       const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG });
 
-      const result = await processor.parse({ input: 'what is this project?' });
-
-      expect(result.success).toBe(true);
-      expect(result.intent).toBe('QUERY_INFO');
-      expect(result.workflowYAML).toBe('steps: []\n');
+      await expect(
+        processor.parse({ input: 'what is this project?' })
+      ).rejects.toThrow('Workflow must contain at least one step');
     });
 
     it('should throw when LLM returns UNKNOWN with no workflow steps', async () => {

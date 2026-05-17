@@ -25,9 +25,29 @@ describe('plan-adapter', () => {
       expect(cmdStep).toBeDefined();
       expect(cmdStep!.args).toContain('run');
     });
+
+    it('github-actions-repair 执行链包含 diagnose/repair/verify/report', () => {
+      const goal = parseGoal('修复 git 上所有 actions 错误');
+      const result = router.route(goal);
+      const executableIds = executionPlanToSteps(result.plan!).map(step => step.id);
+      expect(executableIds).toContain('diagnose');
+      expect(executableIds).toContain('repair');
+      expect(executableIds).toContain('verify');
+      expect(executableIds).toContain('report');
+    });
+
+    it('fetch-logs 使用 discover-run-id 绑定的 ${runId}', () => {
+      const goal = parseGoal('修复 git 上所有 actions 错误');
+      const result = router.route(goal);
+      const plan = result.plan!;
+      const discover = plan.steps.find(step => step.id === 'discover-run-id');
+      const fetchLogs = plan.steps.find(step => step.id === 'fetch-logs');
+      expect(discover?.outputVar).toBe('runId');
+      expect(fetchLogs?.command?.args).toContain('${runId}');
+    });
   });
 
-  describe('7.1 internal step 不转 echo', () => {
+  describe('7.1 github-actions-repair 执行步骤保持真实命令', () => {
     it('executionPlanToSteps 不包含 echo [internal] 伪执行', () => {
       const goal = parseGoal('修复 git 上所有 actions 错误');
       const result = router.route(goal);
@@ -35,19 +55,25 @@ describe('plan-adapter', () => {
       expect(steps.some(s => s.cli === 'echo' && s.args?.some(a => String(a).includes('[internal]')))).toBe(false);
     });
 
-    it('internal steps 应被 getInternalSteps 正确识别', () => {
+    it('internal steps 应为空（改为真实 command 执行）', () => {
       const goal = parseGoal('修复 git 上所有 actions 错误');
       const result = router.route(goal);
       const internals = getInternalSteps(result.plan!);
-      expect(internals.length).toBeGreaterThan(0);
-      expect(internals.every(s => s.type === 'internal')).toBe(true);
+      expect(internals).toHaveLength(0);
     });
 
-    it('executable steps 不包含 internal type', () => {
+    it('executable steps 覆盖完整链路', () => {
       const goal = parseGoal('修复 git 上所有 actions 错误');
       const result = router.route(goal);
       const execs = getExecutableSteps(result.plan!);
-      expect(execs.every(s => s.type !== 'internal')).toBe(true);
+      expect(execs.map(s => s.id)).toEqual([
+        'discover-run-id',
+        'fetch-logs',
+        'diagnose',
+        'repair',
+        'verify',
+        'report',
+      ]);
     });
   });
 
@@ -60,6 +86,16 @@ describe('plan-adapter', () => {
       expect(taskList.tasks.length).toBeGreaterThan(0);
       expect(taskList.tasks[0].type).toBe('CODE_TRANSFORM');
       expect(taskList.tasks[0].status).toBe('PENDING');
+    });
+
+    it('保留 command 级 outputVar 绑定', () => {
+      const goal = parseGoal('修复 git 上所有 actions 错误');
+      const result = router.route(goal);
+      const taskList = executionPlanToTaskList(result.plan!);
+      const commands = taskList.tasks[0]?.commands ?? [];
+      const discoverCommand = commands.find(command => command.outputVar === 'runId');
+      expect(discoverCommand).toBeDefined();
+      expect(commands.some(command => command.args.includes('${runId}'))).toBe(true);
     });
   });
 
@@ -108,11 +144,11 @@ describe('user-report', () => {
       const goal = parseGoal('修复 git 上所有 actions 错误');
       const result = router.route(goal);
       const text = formatDryRunText(result.plan!);
-      expect(text).toContain('发现失败的 GitHub Actions');
+      expect(text).toContain('发现最新失败的 GitHub Actions Run ID');
       expect(text).toContain('获取失败日志');
-      expect(text).toContain('分析失败原因');
-      expect(text).toContain('生成修复计划');
-      expect(text).toContain('执行验证');
+      expect(text).toContain('收集失败 Run 诊断信息');
+      expect(text).toContain('重试失败作业');
+      expect(text).toContain('验证重试结果');
       expect(text).toContain('输出修复报告');
     });
 
@@ -131,13 +167,13 @@ describe('user-report', () => {
       const goal = parseGoal('修复 git 上所有 actions 错误');
       const result = router.route(goal);
       const fakeResults = [
-        { stepId: 'discover', status: 'COMPLETED' as const, output: ['run/1234', 'run/5678'], duration: 100 },
+        { stepId: 'discover-run-id', status: 'COMPLETED' as const, output: ['123456789'], duration: 100 },
         { stepId: 'fetch-logs', status: 'COMPLETED' as const, output: ['log line 1', 'log line 2'], duration: 100 },
         { stepId: 'diagnose', status: 'COMPLETED' as const, output: ['diagnostic info'], duration: 100 },
         { stepId: 'report', status: 'COMPLETED' as const, output: ['report summary'], duration: 100 },
       ];
       const text = formatExecutionResultText(result.plan!, fakeResults);
-      expect(text).not.toContain('run/1234');
+      expect(text).not.toContain('123456789');
       expect(text).not.toContain('log line 1');
       expect(text).not.toContain('diagnostic info');
       expect(text).toContain('report summary');

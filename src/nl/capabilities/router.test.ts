@@ -66,8 +66,8 @@ describe('createCapabilityRouter', () => {
       const stepLabels = plan.steps.map(s => s.label);
       expect(stepLabels.some(l => l.includes('discover') || l.includes('发现'))).toBe(true);
       expect(stepLabels.some(l => l.includes('fetch') || l.includes('获取'))).toBe(true);
-      expect(stepLabels.some(l => l.includes('diagnos') || l.includes('分析'))).toBe(true);
-      expect(stepLabels.some(l => l.includes('repair') || l.includes('修复') || l.includes('生成'))).toBe(true);
+      expect(stepLabels.some(l => l.includes('diagnos') || l.includes('分析') || l.includes('诊断'))).toBe(true);
+      expect(stepLabels.some(l => l.includes('repair') || l.includes('修复') || l.includes('重试'))).toBe(true);
       expect(stepLabels.some(l => l.includes('report') || l.includes('报告'))).toBe(true);
     });
 
@@ -79,10 +79,10 @@ describe('createCapabilityRouter', () => {
   });
 
   describe('模糊输入回退', () => {
-    it('needsClarification 的 goal 回退', () => {
+    it('needsClarification 的 goal 进入 clarify', () => {
       const goal = parseGoal('搞一下');
       const result = router.route(goal);
-      expect(result.route).toBe('fallback');
+      expect(result.route).toBe('clarify');
     });
   });
 

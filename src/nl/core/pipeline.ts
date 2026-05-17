@@ -116,107 +116,71 @@ async function executeLLMToolCalling(
 
 
 function createTaskListFromWorkflow(workflowYAML: string, userInput: string): NLResult['taskList'] {
-  try {
-    let workflow: {
+  let workflow: {
+    name?: string;
+    description?: string;
+    steps?: Array<{
+      id?: string;
       name?: string;
-      description?: string;
-      steps?: Array<{
-        id?: string;
-        name?: string;
-        type?: string;
-        cli?: string;
-        exec?: string;
-        command?: string;
-        args?: string[];
-      }>;
-    };
+      type?: string;
+      cli?: string;
+      exec?: string;
+      command?: string;
+      args?: string[];
+    }>;
+  };
 
-    try {
-      const documents = YAML.parseAllDocuments(workflowYAML);
-      if (documents.length > 0) {
-        workflow = documents[0].toJSON() as typeof workflow;
-      } else {
-        workflow = YAML.parse(workflowYAML) as typeof workflow;
-      }
-    } catch {
+  try {
+    const documents = YAML.parseAllDocuments(workflowYAML);
+    if (documents.length > 0) {
+      workflow = documents[0].toJSON() as typeof workflow;
+    } else {
       workflow = YAML.parse(workflowYAML) as typeof workflow;
     }
-
-    const tasks = workflow.steps
-      ? workflow.steps
-          .map((step, index) => {
-            const commandText = step.cli ?? step.exec ?? step.command;
-            if (!commandText) return null;
-
-            const [cli, ...splitArgs] = splitPosixArgs(commandText);
-            const args = step.args ?? splitArgs;
-
-            return {
-              id: step.id || `task_${index + 1}`,
-              type: 'QUERY_EXEC' as const,
-              description: step.id || step.name || `Step ${index + 1}`,
-              status: 'PENDING' as const,
-              commands: [{
-                cli,
-                args,
-              }],
-              dependencies: [],
-            };
-          })
-          .filter((task): task is NonNullable<typeof task> => task !== null)
-      : [];
-
-    if (tasks.length === 0) {
-      return {
-        version: '1.0',
-        generatedAt: new Date().toISOString(),
-        originalInput: userInput,
-        intent: 'WORKFLOW_GENERATE' as IntentName,
-        confidence: 1.0,
-        entities: { FILE_PATH: [], CLI_TOOL: [], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: [], HOST: [], PORT: [], OWNER: [], MODE: [], FILE1: [], FILE2: [] },
-        tasks: [
-          {
-            id: 'task_1',
-            type: 'QUERY_EXEC' as const,
-            description: userInput,
-            status: 'PENDING' as const,
-            commands: [{ cli: 'echo', args: ['Workflow generated from YAML'] }],
-            dependencies: [],
-          }
-        ],
-        warnings: [],
-      };
-    }
-
-    return {
-      version: '1.0',
-      generatedAt: new Date().toISOString(),
-      originalInput: userInput,
-      intent: 'WORKFLOW_GENERATE' as IntentName,
-      confidence: 1.0,
-      entities: { FILE_PATH: [], CLI_TOOL: [], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: [], HOST: [], PORT: [], OWNER: [], MODE: [], FILE1: [], FILE2: [] },
-      tasks,
-      warnings: [],
-    };
-  } catch {
-    return {
-      version: '1.0',
-      generatedAt: new Date().toISOString(),
-      originalInput: userInput,
-      intent: 'WORKFLOW_GENERATE' as IntentName,
-      confidence: 1.0,
-      entities: { FILE_PATH: [], CLI_TOOL: [], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: [], HOST: [], PORT: [], OWNER: [], MODE: [], FILE1: [], FILE2: [] },
-      tasks: [
-        {
-          id: 'task_1',
-          type: 'QUERY_EXEC' as const,
-          description: userInput,
-          status: 'PENDING' as const,
-          commands: [{ cli: 'echo', args: ['Workflow generated from YAML'] }],
-          dependencies: [],
-        }
-      ],
-      warnings: [],
-    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid workflow YAML: ${message}`);
   }
+
+  if (!workflow || !Array.isArray(workflow.steps) || workflow.steps.length === 0) {
+    throw new Error('Workflow must contain at least one step');
+  }
+
+  const tasks = workflow.steps
+    .map((step, index) => {
+      const commandText = step.cli ?? step.exec ?? step.command;
+      if (!commandText) return null;
+
+      const [cli, ...splitArgs] = splitPosixArgs(commandText);
+      if (!cli) return null;
+      const args = step.args ?? splitArgs;
+
+      return {
+        id: step.id || `task_${index + 1}`,
+        type: 'QUERY_EXEC' as const,
+        description: step.id || step.name || `Step ${index + 1}`,
+        status: 'PENDING' as const,
+        commands: [{
+          cli,
+          args,
+        }],
+        dependencies: [],
+      };
+    })
+    .filter((task): task is NonNullable<typeof task> => task !== null);
+
+  if (tasks.length === 0) {
+    throw new Error('Workflow contains no executable command steps');
+  }
+
+  return {
+    version: '1.0',
+    generatedAt: new Date().toISOString(),
+    originalInput: userInput,
+    intent: 'WORKFLOW_GENERATE' as IntentName,
+    confidence: 1.0,
+    entities: { FILE_PATH: [], CLI_TOOL: [], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: [], HOST: [], PORT: [], OWNER: [], MODE: [], FILE1: [], FILE2: [] },
+    tasks,
+    warnings: [],
+  };
 }

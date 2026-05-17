@@ -73,7 +73,7 @@ export interface Task {
   type: TaskType;
   description: string;
   status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
-  commands: { cli: string; args: string[] }[];
+  commands: { cli: string; args: string[]; outputVar?: string }[];
   dependencies: string[];
   estimatedDuration?: number;
 }
