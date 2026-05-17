@@ -70,6 +70,7 @@ export interface StepRecord {
   endAt?: Date;
   output?: unknown[];
   error?: string;
+  exitCode?: number;
   iterations?: number;
   timing?: StepTiming;
 }

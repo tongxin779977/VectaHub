@@ -1,6 +1,14 @@
 import type { ExecutionRecord } from '../types/index.js';
 
-export type ExecutionState = string;
+export type ExecutionState =
+  | 'IDLE'
+  | 'RUNNING'
+  | 'PAUSING'
+  | 'PAUSED'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'ABORTING'
+  | 'ABORTED';
 
 export interface ExecutionStateManager {
   currentExecution: ExecutionRecord | undefined;
@@ -12,6 +20,17 @@ export interface ExecutionStateManager {
   setState(newState: ExecutionState): void;
   reset(): void;
 }
+
+const ALLOWED_TRANSITIONS: Record<ExecutionState, readonly ExecutionState[]> = {
+  IDLE: ['RUNNING'],
+  RUNNING: ['PAUSING', 'FAILED', 'COMPLETED', 'ABORTING'],
+  PAUSING: ['PAUSED', 'ABORTING', 'FAILED'],
+  PAUSED: ['RUNNING', 'ABORTING', 'FAILED'],
+  COMPLETED: ['RUNNING'],
+  FAILED: ['RUNNING'],
+  ABORTING: ['ABORTED', 'FAILED'],
+  ABORTED: ['RUNNING'],
+};
 
 export function createExecutionStateManager(): ExecutionStateManager {
   let currentExecution: ExecutionRecord | undefined;
@@ -35,10 +54,17 @@ export function createExecutionStateManager(): ExecutionStateManager {
     set completionResolver(v) { completionResolver = v; },
 
     setState(newState: ExecutionState): void {
+      if (newState !== state) {
+        const allowed = ALLOWED_TRANSITIONS[state];
+        if (!allowed.includes(newState)) {
+          throw new Error(`Invalid execution state transition: ${state} -> ${newState}`);
+        }
+      }
       state = newState;
       if (currentExecution) {
         switch (newState) {
           case 'RUNNING':
+          case 'PAUSING':
             currentExecution.status = 'RUNNING';
             break;
           case 'PAUSED':

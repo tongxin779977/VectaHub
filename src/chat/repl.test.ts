@@ -359,6 +359,74 @@ describe('Workflow Execution Modes', () => {
     expect(result.type).toBe('text');
     expect(result.content).toContain('💡 输入 `执行工作流` 或 `/execute` 来运行。');
   });
+
+  it('should preserve for_each workflow structure when generating workflow', async () => {
+    mockNlProcessor.parse.mockResolvedValueOnce({
+      intent: 'test-intent',
+      confidence: 0.8,
+      workflowYAML: [
+        'steps:',
+        '  - type: for_each',
+        '    items: "a\\nb"',
+        '    body:',
+        '      - type: exec',
+        '        cli: echo',
+        '        args: ["${item}"]',
+      ].join('\n'),
+      taskList: {
+        intent: 'test-intent',
+        tasks: [{ commands: [{ cli: 'echo', args: ['hello'] }] }],
+      },
+    });
+
+    const deps = createMockDeps({
+      config: { ...mockChatConfig, executeMode: 'manual' },
+      workflowEngine: mockWorkflowEngine,
+      nlProcessor: mockNlProcessor,
+    });
+    const repl = createRepl(deps);
+    const result = await repl.processInput('some input');
+
+    expect(mockWorkflowEngine.createWorkflow).toHaveBeenCalledWith(
+      expect.any(String),
+      [
+        expect.objectContaining({
+          type: 'for_each',
+          items: 'a\nb',
+          body: [expect.objectContaining({ type: 'exec', cli: 'echo', args: ['${item}'] })],
+        }),
+      ]
+    );
+    expect(result.type).toBe('text');
+  });
+
+  it('should fail instead of generating echo fallback for invalid exec workflow step', async () => {
+    mockNlProcessor.parse.mockResolvedValueOnce({
+      intent: 'test-intent',
+      confidence: 0.8,
+      workflowYAML: [
+        'steps:',
+        '  - type: exec',
+        '    args: ["hello"]',
+      ].join('\n'),
+      taskList: {
+        intent: 'test-intent',
+        tasks: [{ commands: [{ cli: 'echo', args: ['hello'] }] }],
+      },
+    });
+
+    const deps = createMockDeps({
+      config: { ...mockChatConfig, executeMode: 'manual' },
+      workflowEngine: mockWorkflowEngine,
+      nlProcessor: mockNlProcessor,
+    });
+    const repl = createRepl(deps);
+    const result = await repl.processInput('some input');
+
+    expect(mockWorkflowEngine.createWorkflow).not.toHaveBeenCalled();
+    expect(result.type).toBe('error');
+    expect(result.content).toContain('missing cli');
+  });
 });
 
 describe('Command Bridge functionality', () => {
@@ -429,4 +497,3 @@ describe('Command Bridge functionality', () => {
     expect(result.content).toContain('VectaHub command failed: Command bridge failed');
   });
 });
-

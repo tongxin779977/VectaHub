@@ -48,12 +48,16 @@ export const createOpenCliHandler = (deps: {
       const outputs = result.stdout ? [result.stdout] : [];
       const storageKey = (step as any).outputVar || step.id;
       context.previousOutputs[storageKey] = outputs;
+      if (storageKey !== step.id) {
+        context.previousOutputs[step.id] = outputs;
+      }
 
       return {
         stepId: step.id,
         status: result.success ? 'COMPLETED' : 'FAILED',
         output: outputs,
         error: result.success ? undefined : result.stderr,
+        exitCode: result.exitCode,
         duration: Date.now() - startTime,
         sandboxed: options.useSandbox && deps.sandboxManager ? true : undefined,
       };

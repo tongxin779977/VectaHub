@@ -11,6 +11,118 @@ import { createUIRenderer } from './ui-renderer.js';
 import { createCommandManager, type CommandManager } from './command-manager.js';
 import type { Workflow, Step } from '../types/index.js';
 
+interface ParsedWorkflowStep {
+  id?: string;
+  type?: string;
+  cli?: string;
+  command?: string;
+  args?: unknown[];
+  body?: ParsedWorkflowStep[];
+  condition?: unknown;
+  items?: unknown;
+  outputVar?: unknown;
+}
+
+function normalizeOutputVar(outputVar: unknown): string | undefined {
+  if (typeof outputVar !== 'string') {
+    return undefined;
+  }
+
+  const trimmedOutputVar = outputVar.trim();
+  return trimmedOutputVar.length > 0 ? trimmedOutputVar : undefined;
+}
+
+function toStringArgs(args: unknown): string[] {
+  if (!Array.isArray(args)) {
+    return [];
+  }
+
+  return args.map(arg => String(arg));
+}
+
+function mapWorkflowStep(step: ParsedWorkflowStep, fallbackId: string): Step {
+  const id = step.id?.trim() || fallbackId;
+  const outputVar = normalizeOutputVar(step.outputVar);
+  const type = step.type ?? 'exec';
+
+  switch (type) {
+    case 'exec': {
+      const cli = typeof step.cli === 'string'
+        ? step.cli
+        : typeof step.command === 'string'
+          ? step.command
+          : undefined;
+
+      if (!cli?.trim()) {
+        throw new Error(`Workflow exec step "${id}" is missing cli`);
+      }
+
+      return {
+        id,
+        type: 'exec',
+        cli,
+        args: toStringArgs(step.args),
+        outputVar,
+      };
+    }
+    case 'for_each': {
+      if (typeof step.items !== 'string' || step.items.trim().length === 0) {
+        throw new Error(`Workflow for_each step "${id}" is missing items`);
+      }
+      if (!Array.isArray(step.body) || step.body.length === 0) {
+        throw new Error(`Workflow for_each step "${id}" is missing body`);
+      }
+
+      return {
+        id,
+        type: 'for_each',
+        items: step.items,
+        body: step.body.map((bodyStep, index) => mapWorkflowStep(bodyStep, `${id}_body_${index + 1}`)),
+        outputVar,
+      };
+    }
+    case 'if': {
+      if (typeof step.condition !== 'string' || step.condition.trim().length === 0) {
+        throw new Error(`Workflow if step "${id}" is missing condition`);
+      }
+      if (!Array.isArray(step.body) || step.body.length === 0) {
+        throw new Error(`Workflow if step "${id}" is missing body`);
+      }
+
+      return {
+        id,
+        type: 'if',
+        condition: step.condition,
+        body: step.body.map((bodyStep, index) => mapWorkflowStep(bodyStep, `${id}_body_${index + 1}`)),
+        outputVar,
+      };
+    }
+    case 'parallel': {
+      if (!Array.isArray(step.body) || step.body.length === 0) {
+        throw new Error(`Workflow parallel step "${id}" is missing body`);
+      }
+
+      return {
+        id,
+        type: 'parallel',
+        body: step.body.map((bodyStep, index) => mapWorkflowStep(bodyStep, `${id}_body_${index + 1}`)),
+        outputVar,
+      };
+    }
+    default:
+      throw new Error(`Unsupported workflow step type: ${type}`);
+  }
+}
+
+function parseWorkflowSteps(workflowYAML: string): Step[] {
+  const parsedYaml = YAML.parse(workflowYAML) as { steps?: ParsedWorkflowStep[] } | null;
+  if (!parsedYaml || !Array.isArray(parsedYaml.steps)) {
+    throw new Error('Workflow YAML must contain a steps array');
+  }
+
+  return parsedYaml.steps.map((step, index) => mapWorkflowStep(step, `step_${index + 1}`));
+}
+
 export function createREPL(
   deps: ReplDeps,
   sessionId: string,
@@ -200,14 +312,7 @@ export function createREPL(
     if (!nlResult.workflowYAML) return { type: 'error', content: '❌ 工作流 YAML 为空。' };
 
     try {
-      const parsedYaml = YAML.parse(nlResult.workflowYAML);
-      const steps: Step[] = (parsedYaml.steps ?? []).map((s: any, i: number) => ({
-        id: `step_${i + 1}`,
-        type: 'exec' as const,
-        cli: s.cli ?? s.command ?? 'echo',
-        args: s.args ?? [],
-      }));
-
+      const steps = parseWorkflowSteps(nlResult.workflowYAML);
       const workflow = await workflowEngine.createWorkflow(`chat_${Date.now()}`, steps);
       const extractedParams = paramExtractor?.extract(rawInput) ?? {};
       const combinedParams = {

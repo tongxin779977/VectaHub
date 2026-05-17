@@ -1,5 +1,6 @@
 import type { Step, SandboxMode, ExecutionStatus } from '../../types/index.js';
 import type { RoleName } from '../../security-protocol/rbac.js';
+import type { ExpressionData } from '../expression-engine.js';
 
 export interface ExecutorOptions {
   mode: SandboxMode;
@@ -15,6 +16,7 @@ export interface ExecutionContext {
   variables: Record<string, string[]>;
   previousOutputs: Record<string, string[]>;
   executionId?: string;
+  expressionData?: ExpressionData;
 }
 
 export interface ExecutionResult {
@@ -22,6 +24,7 @@ export interface ExecutionResult {
   status: ExecutionStatus;
   output?: string[];
   error?: string;
+  exitCode?: number;
   duration?: number;
   iterations?: number;
   sandboxed?: boolean;

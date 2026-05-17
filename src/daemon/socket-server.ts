@@ -8,7 +8,7 @@ import type { SandboxMode } from '../types/index.js';
 import { audit, getCurrentSessionId, AuditEventType } from '../utils/audit.js';
 import { createSkillExecutor } from '../skills/executor.js';
 import { processInput } from '../nl/orchestrator.js';
-import type { LLMConfig } from '../nl/llm.js';
+import { createLLMConfig } from '../nl/llm.js';
 
 export interface Task {
   id: string;
@@ -30,11 +30,14 @@ const DEFAULT_CONFIG: SocketServerConfig = {
   sandboxMode: 'RELAXED',
 };
 
+const VALID_SANDBOX_MODES: ReadonlySet<SandboxMode> = new Set(['STRICT', 'RELAXED', 'CONSENSUS']);
+
 export class SocketServer {
   private server: Server | null = null;
   private config: SocketServerConfig;
   private sandbox: SandboxManager;
   private tasks: Map<string, Task> = new Map();
+  private socketBuffers: WeakMap<Socket, string> = new WeakMap();
   private executor = createSkillExecutor();
 
   constructor(config: SocketServerConfig = {}) {
@@ -50,8 +53,15 @@ export class SocketServer {
     const sessionId = getCurrentSessionId();
 
     try {
-      const result = await processInput(input);
+      const result = await processInput(input, createLLMConfig() ?? undefined);
       audit.intentMatch(result.intent ?? 'UNKNOWN', result.confidence, result.params as Record<string, unknown> ?? {}, sessionId);
+
+      const tasks = result.taskList?.tasks ?? [];
+      if (tasks.length === 0) {
+        const warnings = result.taskList?.warnings?.filter(Boolean) ?? [];
+        const reason = warnings[0] ?? result.metadata.fallbackReason ?? 'No executable plan generated';
+        return `No executable plan: ${reason}`;
+      }
 
       const intentLine = `Intent: ${result.intent ?? 'UNKNOWN'} (confidence: ${result.confidence.toFixed(2)})`;
       return `${intentLine}\nExecution delegated to Skill System.`;
@@ -105,14 +115,25 @@ export class SocketServer {
   }
 
   private handleSocketData(socket: Socket, data: Buffer): void {
-    const messageStr = data.toString().trim();
-    if (!messageStr) return;
+    const incomingData = data.toString();
+    const pendingBuffer = this.socketBuffers.get(socket) ?? '';
+    const mergedBuffer = pendingBuffer + incomingData;
+    const frames = mergedBuffer.split('\n');
+    const incompleteFrame = frames.pop() ?? '';
 
-    try {
-      const message = JSON.parse(messageStr);
-      this.handleMessage(socket, message);
-    } catch (err) {
-      socket.write(JSON.stringify({ type: 'error', message: 'Invalid JSON' }) + '\n');
+    this.socketBuffers.set(socket, incompleteFrame);
+
+    for (const frame of frames) {
+      const messageStr = frame.trim();
+      if (!messageStr) {
+        continue;
+      }
+      try {
+        const message = JSON.parse(messageStr);
+        void this.handleMessage(socket, message);
+      } catch (err) {
+        socket.write(JSON.stringify({ type: 'error', message: 'Invalid JSON' }) + '\n');
+      }
     }
   }
 
@@ -156,11 +177,16 @@ export class SocketServer {
         break;
       }
       case 'setMode': {
-        const mode = message.mode as SandboxMode;
+        const mode = String(message.mode ?? '');
+        if (!VALID_SANDBOX_MODES.has(mode as SandboxMode)) {
+          socket.write(JSON.stringify({ type: 'error', message: 'Invalid mode. Use: STRICT | RELAXED | CONSENSUS' }) + '\n');
+          break;
+        }
+        const validatedMode = mode as SandboxMode;
         const oldMode = this.sandbox.getConfig().mode;
-        this.sandbox.setMode(mode);
-        audit.configChange('Sandbox', 'mode', oldMode, mode, sessionId);
-        socket.write(JSON.stringify({ type: 'modeChanged', mode }) + '\n');
+        this.sandbox.setMode(validatedMode);
+        audit.configChange('Sandbox', 'mode', oldMode, validatedMode, sessionId);
+        socket.write(JSON.stringify({ type: 'modeChanged', mode: validatedMode }) + '\n');
         break;
       }
       default:
@@ -216,4 +242,3 @@ export async function createClientConnection(socketPath: string): Promise<Socket
     socket.on('error', reject);
   });
 }
-

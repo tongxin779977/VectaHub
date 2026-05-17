@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createExecutor, type Executor } from './executor.js';
+import { contextManager } from './context-manager.js';
 import type { Step } from '../types/index.js';
 
 describe('Executor', () => {
@@ -7,6 +8,7 @@ describe('Executor', () => {
 
   beforeEach(() => {
     executor = createExecutor();
+    contextManager.clear();
   });
 
   it('should execute a simple command', async () => {
@@ -200,6 +202,25 @@ describe('Executor', () => {
       expect(result.status).toBe('COMPLETED');
     });
 
+    it('should evaluate legacy variable conditions through execution context data', async () => {
+      const executionId = 'if-vars-exec';
+      contextManager.createContext('wf-1', executionId, 'session-1', { debug: 'true' });
+
+      const step: Step = {
+        id: 'cond',
+        type: 'if',
+        condition: 'debug == true',
+        body: [
+          { id: 'then', type: 'exec', cli: 'echo', args: ['matched'] },
+        ],
+      };
+      const context = contextManager.toExecutorContext(executionId);
+      const result = await executor.execute(step, { mode: 'RELAXED' }, context);
+
+      expect(result.status).toBe('COMPLETED');
+      expect(result.output?.[0]?.trim()).toBe('matched');
+    });
+
     it('should skip body when condition does not match', async () => {
       const step: Step = {
         id: 'cond',
@@ -216,7 +237,30 @@ describe('Executor', () => {
       expect(result.output).toEqual([]);
     });
 
-    it('should evaluate exitCode condition with empty outputs', async () => {
+    it('should resolve simple legacy placeholders against previous outputs before variables', async () => {
+      const step: Step = {
+        id: 'cond',
+        type: 'if',
+        condition: '${artifact} == artifact-value',
+        body: [
+          { id: 'then', type: 'exec', cli: 'echo', args: ['matched'] },
+        ],
+      };
+      const context = {
+        variables: { artifact: ['variable-value'] },
+        previousOutputs: { artifact: ['artifact-value'] },
+      };
+      const result = await executor.execute(step, { mode: 'RELAXED' }, context);
+
+      expect(result.status).toBe('COMPLETED');
+      expect(result.output?.[0]?.trim()).toBe('matched');
+    });
+
+    it('should evaluate exitCode conditions through expression contract when execution context is available', async () => {
+      const executionId = 'if-exit-code-exec';
+      contextManager.createContext('wf-1', executionId, 'session-1');
+      contextManager.setStepOutput(executionId, 'buildStep', 'done', { exitCode: 0 });
+
       const step: Step = {
         id: 'cond',
         type: 'if',
@@ -225,13 +269,11 @@ describe('Executor', () => {
           { id: 'then', type: 'exec', cli: 'echo', args: ['ok'] },
         ],
       };
-      const context = {
-        variables: {},
-        previousOutputs: { buildStep: [] },
-      };
+      const context = contextManager.toExecutorContext(executionId);
       const result = await executor.execute(step, { mode: 'RELAXED' }, context);
 
       expect(result.status).toBe('COMPLETED');
+      expect(result.output?.[0]?.trim()).toBe('ok');
     });
 
     it('should fail when body step fails', async () => {
@@ -263,6 +305,23 @@ describe('Executor', () => {
 
       expect(result.status).toBe('COMPLETED');
       expect(result.output).toEqual([]);
+    });
+
+    it('should expose outputVar to later steps inside the same body', async () => {
+      const step: Step = {
+        id: 'cond',
+        type: 'if',
+        condition: 'debug == true',
+        body: [
+          { id: 'produce', type: 'exec', cli: 'echo', args: ['artifact-value'], outputVar: 'artifact' },
+          { id: 'consume', type: 'exec', cli: 'echo', args: ['${artifact}'] },
+        ],
+      };
+      const context = { variables: { debug: ['true'] }, previousOutputs: {} };
+      const result = await executor.execute(step, { mode: 'RELAXED' }, context);
+
+      expect(result.status).toBe('COMPLETED');
+      expect(result.output?.some(line => line.includes('${artifact}'))).toBe(false);
     });
   });
 

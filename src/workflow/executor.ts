@@ -4,8 +4,6 @@ import { createDetector, type Detector } from '../sandbox/detector.js';
 import { createSemanticDetector, type SemanticDetector } from '../sandbox/semantic-detector.js';
 import { createSandboxManager, type SandboxManager } from '../sandbox/sandbox.js';
 import { interpolateString, interpolateStep } from './interpolation.js';
-import { evaluateExpression } from './expression-engine.js';
-import { contextManager } from './context-manager.js';
 import { audit, getCurrentSessionId } from '../utils/audit.js';
 import { createRBACManager, type RoleName } from '../security-protocol/rbac.js';
 import { getCliToolRegistry } from '../cli-tools/index.js';
@@ -129,56 +127,6 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
       stderr: result.stderr,
       duration: result.duration,
     };
-  }
-
-  function evaluateCondition(condition: string, context: ExecutionContext): boolean {
-    const simpleEqMatch = condition.match(/^(\w+)\s*==\s*(.+)$/);
-    if (simpleEqMatch) {
-      const [, varName, expectedValue] = simpleEqMatch;
-      const actualValue = context.variables[varName]?.[0];
-      return actualValue?.trim() === expectedValue.trim();
-    }
-
-    let data: any;
-
-    if (context.executionId) {
-      try {
-        data = contextManager.getExpressionData(context.executionId);
-      } catch (e) {
-        // Fallback to building data from context
-      }
-    }
-
-    if (!data) {
-      // Build basic expression data from context if no execution manager is available
-      data = {
-        steps: {},
-        env: { ...process.env, ...context.variables.env?.[0] ? JSON.parse(context.variables.env[0]) : {} },
-        vars: {},
-        config: {}
-      };
-
-      // Map context variables to data.vars
-      for (const [key, values] of Object.entries(context.variables)) {
-        data.vars[key] = values.length === 1 ? values[0] : values;
-      }
-
-      // Map previous outputs to data.steps
-      for (const [stepId, outputs] of Object.entries(context.previousOutputs)) {
-        data.steps[stepId] = {
-          output: outputs,
-          stdout: outputs.join('\n'),
-          exitCode: outputs.length > 0 ? 0 : 1 // Heuristic fallback
-        };
-      }
-    }
-
-    try {
-      return !!evaluateExpression(condition, data);
-    } catch (e) {
-      console.error(`Expression evaluation failed for condition: "${condition}"`, e);
-      return false;
-    }
   }
 
   async function handleOpenCli(step: Step, options: ExecutorOptions, context: ExecutionContext, _executeStep: ExecuteStepFn, startTime: number): Promise<ExecutionResult> {
@@ -312,34 +260,6 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
       status: 'COMPLETED',
       output: outputs,
       iterations: items.length,
-      duration: Date.now() - startTime,
-    };
-  }
-
-  async function handleIf(step: Step, options: ExecutorOptions, context: ExecutionContext, executeStep: ExecuteStepFn, startTime: number): Promise<ExecutionResult> {
-    const condition = interpolateString(step.condition || '', context);
-    const conditionMet = evaluateCondition(condition, context);
-    const outputs: string[] = [];
-
-    if (conditionMet && step.body) {
-      for (const bodyStep of step.body) {
-        const result = await executeStep(bodyStep, options, context);
-        if (result.output) outputs.push(...result.output);
-        if (result.status === 'FAILED') {
-          return {
-            stepId: step.id,
-            status: 'FAILED',
-            output: outputs,
-            duration: Date.now() - startTime,
-          };
-        }
-      }
-    }
-
-    return {
-      stepId: step.id,
-      status: 'COMPLETED',
-      output: outputs,
       duration: Date.now() - startTime,
     };
   }

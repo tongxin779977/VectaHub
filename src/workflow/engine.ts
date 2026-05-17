@@ -3,7 +3,7 @@ import { createExecutor, type Executor, type ExecutorOptions } from './executor.
 import { createStorage, type Storage } from './storage.js';
 import { interpolateStep, type InterpolationContext } from './interpolation.js';
 import { createExecutionStateManager, type ExecutionStateManager } from './state-manager.js';
-import { createContextManager, type ContextManager, type ExecutorContext } from './context-manager.js';
+import { contextManager as sharedContextManager, type ContextManager, type ExecutorContext } from './context-manager.js';
 import { topologicalSort, validateDependencies } from './dag.js';
 import { audit } from '../utils/audit.js';
 import { createRetryManager } from '../skills/iterative-refinement/retry-manager.js';
@@ -30,7 +30,7 @@ export interface ExecuteOptions {
   mode?: 'strict' | 'relaxed' | 'consensus';
   retry?: RetryOptions;
   onProgress?: (info: ProgressInfo) => void;
-  initialVariables?: Record<string, unknown>; // Add this line
+  initialVariables?: Record<string, unknown>;
 }
 
 export interface WorkflowEngine {
@@ -49,7 +49,7 @@ export interface WorkflowEngine {
   waitForCompletion(): Promise<ExecutionRecord>;
   loadWorkflows(): Promise<void>;
   getExecution(id: string): Promise<ExecutionRecord | undefined>;
-resumeFromFailure(executionId: string, stepIndex?: number, options?: ExecuteOptions): Promise<ExecutionRecord>;
+  resumeFromFailure(executionId: string, stepIndex?: number, options?: ExecuteOptions): Promise<ExecutionRecord>;
 }
 
 let workflowCounter = 0;
@@ -61,7 +61,7 @@ interface RunLoopOptions {
   contextManager: ContextManager;
   initialVariables?: Record<string, unknown>;
   initialSteps?: StepRecord[];
-  seedOutputs?: Array<{ stepKey: string; output: unknown[] }>;
+  seedOutputs?: Array<{ stepId: string; outputVar?: string; output: unknown[]; exitCode?: number }>;
   satisfiedDependencyIds?: string[];
   initialWarnings?: string[];
   sessionId?: string;
@@ -73,6 +73,7 @@ function toInterpolationContext(executorCtx: ExecutorContext, executionId?: stri
     variables: executorCtx.variables,
     previousOutputs: executorCtx.previousOutputs,
     executionId,
+    expressionData: executorCtx.expressionData,
   };
 }
 
@@ -95,6 +96,7 @@ async function runExecutionLoop(
     sessionId = 'unknown',
     onProgress,
   } = options;
+  const isDryRun = Boolean(executorOptions.dryRun);
 
   const newExecutionId = generateId();
   const startedAt = new Date();
@@ -103,16 +105,20 @@ async function runExecutionLoop(
     workflow.id,
     newExecutionId,
     sessionId,
-    initialVariables || {}
+    initialVariables || {},
+    process.cwd(),
+    { auditEnabled: !isDryRun }
   );
 
   for (const seededOutput of seedOutputs || []) {
-    contextManager.setStepOutput(newExecutionId, seededOutput.stepKey, seededOutput.output, {
+    contextManager.setStepOutput(newExecutionId, seededOutput.stepId, seededOutput.output, {
       stdout: seededOutput.output.map(value => String(value)).join('\n'),
+      exitCode: seededOutput.exitCode,
+      outputVar: seededOutput.outputVar,
     });
   }
 
-  sm.currentExecution = {
+  const currentExecution: ExecutionRecord = {
     executionId: newExecutionId,
     workflowId: workflow.id,
     workflowName: workflow.name,
@@ -123,29 +129,35 @@ async function runExecutionLoop(
     warnings: [...(initialWarnings || [])],
     logs: [],
   };
+  sm.currentExecution = currentExecution;
 
   sm.setState('RUNNING');
+  const isAbortState = (): boolean => sm.state === 'ABORTING' || sm.state === 'ABORTED';
 
-  audit.workflowStart(workflow.id, workflow.name, sessionId, {
-    stepCount: steps.length,
-    mode: workflow.mode,
-  });
+  if (!isDryRun) {
+    audit.workflowStart(workflow.id, workflow.name, sessionId, {
+      stepCount: steps.length,
+      mode: workflow.mode,
+    });
+  }
 
   const finalizeExecution = async (): Promise<void> => {
-    sm.currentExecution.endedAt = new Date();
-    sm.currentExecution.duration = sm.currentExecution.endedAt.getTime() - startedAt.getTime();
+    currentExecution.endedAt = new Date();
+    currentExecution.duration = currentExecution.endedAt.getTime() - startedAt.getTime();
 
-    await storage.save(sm.currentExecution);
+    if (!isDryRun) {
+      await storage.save(currentExecution);
 
-    audit.workflowEnd(
-      workflow.id,
-      sm.currentExecution.status,
-      sm.currentExecution.duration || 0,
-      sessionId
-    );
+      audit.workflowEnd(
+        workflow.id,
+        currentExecution.status,
+        currentExecution.duration || 0,
+        sessionId
+      );
+    }
 
     if (sm.completionResolver) {
-      sm.completionResolver(sm.currentExecution);
+      sm.completionResolver(currentExecution);
       sm.completionResolver = null;
       sm.completionPromise = null;
     }
@@ -160,7 +172,7 @@ async function runExecutionLoop(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     sm.setState('FAILED');
-    sm.currentExecution.warnings.push(`Workflow validation failed: ${message}`);
+    currentExecution.warnings.push(`Workflow validation failed: ${message}`);
     await finalizeExecution();
     throw error;
   }
@@ -179,8 +191,8 @@ async function runExecutionLoop(
       });
     }
 
-    if (sm.state === 'ABORTING' || sm.state === 'ABORTED') {
-      sm.currentExecution.warnings.push(`Workflow aborted at step ${i + 1}`);
+    if (isAbortState()) {
+      currentExecution.warnings.push(`Workflow aborted at step ${i + 1}`);
       break;
     }
 
@@ -192,8 +204,8 @@ async function runExecutionLoop(
       });
       sm.pauseResolver = null;
 
-      if (sm.state === 'ABORTING' || sm.state === 'ABORTED') {
-        sm.currentExecution.warnings.push(`Workflow aborted at step ${i + 1}`);
+      if (isAbortState()) {
+        currentExecution.warnings.push(`Workflow aborted at step ${i + 1}`);
         loopAborted = true;
         break;
       }
@@ -206,32 +218,43 @@ async function runExecutionLoop(
       const executorContext = contextManager.toExecutorContext(newExecutionId);
       const interpolatedStep = interpolateStep(step, toInterpolationContext(executorContext, newExecutionId));
       const result = await executor.execute(interpolatedStep, executorOptions, executorContext);
+      const abortedAfterExecution = isAbortState();
+      const stepStatus = abortedAfterExecution ? 'ABORTED' : result.status;
 
       const stepRecord: StepRecord = {
         stepId: step.id,
-        status: result.status as ExecutionStatus,
+        status: stepStatus as ExecutionStatus,
         startAt: new Date(startedAt.getTime() + (result.duration || 0)),
         endAt: new Date(),
         output: result.output,
         error: result.error,
+        exitCode: result.exitCode,
         iterations: result.iterations,
       };
 
-      sm.currentExecution.steps.push(stepRecord);
+      currentExecution.steps.push(stepRecord);
 
-      audit.workflowStep(
-        step.id,
-        step.cli || '',
-        step.args || [],
-        sessionId,
-        { status: result.status, iterations: result.iterations }
-      );
+      if (!isDryRun) {
+        audit.workflowStep(
+          step.id,
+          step.cli || '',
+          step.args || [],
+          sessionId,
+          { status: result.status, iterations: result.iterations }
+        );
+      }
 
-      const storageKey = (step as unknown as Record<string, unknown>).outputVar as string || step.id;
       if (result.output) {
-        contextManager.setStepOutput(newExecutionId, storageKey, result.output, {
+        contextManager.setStepOutput(newExecutionId, step.id, result.output, {
           stdout: result.output.join('\n'),
+          exitCode: result.exitCode,
+          outputVar: step.outputVar,
         });
+      }
+
+      if (abortedAfterExecution) {
+        currentExecution.warnings.push(`Workflow aborted at step ${i + 1}`);
+        break;
       }
 
       if (result.status === 'FAILED') {
@@ -245,7 +268,7 @@ async function runExecutionLoop(
           });
         }
         sm.setState('FAILED');
-        sm.currentExecution.warnings.push(`Step ${i + 1} failed: ${result.error}`);
+        currentExecution.warnings.push(`Step ${i + 1} failed: ${result.error}`);
         break;
       }
 
@@ -259,12 +282,16 @@ async function runExecutionLoop(
         });
       }
     } catch (error) {
+      if (isAbortState()) {
+        currentExecution.warnings.push(`Workflow aborted at step ${i + 1}`);
+        break;
+      }
       const stepRecord: StepRecord = {
         stepId: step.id,
         status: 'FAILED',
         error: error instanceof Error ? error.message : String(error),
       };
-      sm.currentExecution.steps.push(stepRecord);
+      currentExecution.steps.push(stepRecord);
       if (onProgress) {
         onProgress({
           currentStep: i + 1,
@@ -284,7 +311,7 @@ async function runExecutionLoop(
   }
 
   await finalizeExecution();
-  return sm.currentExecution;
+  return currentExecution;
 }
 
 export function createWorkflowEngine(): WorkflowEngine {
@@ -292,7 +319,7 @@ export function createWorkflowEngine(): WorkflowEngine {
   const executor = createExecutor();
   const storage = createStorage();
   const sm = createExecutionStateManager();
-  const contextManager = createContextManager();
+  const contextManager: ContextManager = sharedContextManager;
 
   function buildExecutorOptions(
     workflow: Workflow,
@@ -307,17 +334,45 @@ export function createWorkflowEngine(): WorkflowEngine {
     };
   }
 
+  function resolveInitialVariables(
+    options: ExecuteOptions = {},
+    legacyInitialVariables?: Record<string, unknown>
+  ): Record<string, unknown> | undefined {
+    if (options.initialVariables !== undefined && legacyInitialVariables !== undefined) {
+      throw new Error('initialVariables cannot be provided in both options and legacy argument');
+    }
+    return options.initialVariables ?? legacyInitialVariables;
+  }
+
+  async function resolveWorkflow(id: string): Promise<Workflow | undefined> {
+    const systemWorkflow = SYSTEM_WORKFLOWS[id];
+    if (systemWorkflow) {
+      return systemWorkflow;
+    }
+
+    const inMemoryWorkflow = workflows.get(id);
+    if (inMemoryWorkflow) {
+      return inMemoryWorkflow;
+    }
+
+    const storedWorkflow = await storage.getWorkflow(id);
+    if (storedWorkflow) {
+      workflows.set(storedWorkflow.id, storedWorkflow);
+    }
+    return storedWorkflow;
+  }
+
   async function executeWorkflowInternal(
     workflow: Workflow,
     options: ExecuteOptions = {},
-    initialVariables?: Record<string, unknown> // Add initialVariables parameter
+    initialVariables?: Record<string, unknown>
   ): Promise<ExecutionRecord> {
     return runExecutionLoop(sm, executor, storage, {
       workflow,
       steps: workflow.steps,
       executorOptions: buildExecutorOptions(workflow, options),
       contextManager,
-      initialVariables, // Pass initialVariables
+      initialVariables,
       onProgress: options.onProgress,
     });
   }
@@ -353,7 +408,7 @@ export function createWorkflowEngine(): WorkflowEngine {
     },
 
     async getWorkflow(id: string): Promise<Workflow | undefined> {
-      return SYSTEM_WORKFLOWS[id] || workflows.get(id);
+      return resolveWorkflow(id);
     },
 
     async getSystemWorkflow(id: string): Promise<Workflow | undefined> {
@@ -367,8 +422,9 @@ export function createWorkflowEngine(): WorkflowEngine {
     async execute(
       workflow: Workflow,
       options: ExecuteOptions = {},
-      initialVariables?: Record<string, unknown> // Add initialVariables
+      initialVariables?: Record<string, unknown>
     ): Promise<ExecutionRecord> {
+      const normalizedInitialVariables = resolveInitialVariables(options, initialVariables);
       const retryMgr = createRetryManager({
         maxAttempts: options.retry?.maxAttempts || 1,
         backoffMultiplier: options.retry?.backoffMultiplier || 2,
@@ -376,7 +432,7 @@ export function createWorkflowEngine(): WorkflowEngine {
       });
 
       const executeOnce = async () => {
-        return executeWorkflowInternal(workflow, options, initialVariables); // Pass initialVariables
+        return executeWorkflowInternal(workflow, options, normalizedInitialVariables);
       };
 
       const result = await retryMgr.executeWithRetry(executeOnce);
@@ -402,12 +458,17 @@ export function createWorkflowEngine(): WorkflowEngine {
     },
 
     executeAsync(workflow: Workflow, options: ExecuteOptions = {}): void {
+      const normalizedInitialVariables = resolveInitialVariables(options);
       sm.completionPromise = new Promise((resolve) => {
         sm.completionResolver = resolve;
       });
-      executeWorkflowInternal(workflow, options).then((record) => {
+      executeWorkflowInternal(workflow, options, normalizedInitialVariables).then((record) => {
         if (sm.completionResolver) {
           sm.completionResolver(record);
+        }
+      }).catch(() => {
+        if (sm.currentExecution && sm.completionResolver) {
+          sm.completionResolver(sm.currentExecution);
         }
       });
     },
@@ -445,12 +506,6 @@ export function createWorkflowEngine(): WorkflowEngine {
       executor.killCurrentProcess();
 
       (sm.pauseResolver as (() => void) | null)?.();
-
-      if (sm.currentExecution) {
-        sm.currentExecution.status = 'FAILED';
-        sm.currentExecution.endedAt = new Date();
-      }
-
       sm.setState('ABORTED');
       return true;
     },
@@ -460,20 +515,22 @@ export function createWorkflowEngine(): WorkflowEngine {
     },
 
     waitForCompletion(): Promise<ExecutionRecord> {
-      if (sm.state === 'IDLE' || sm.state === 'COMPLETED' || sm.state === 'FAILED' || sm.state === 'ABORTED') {
-        if (sm.currentExecution) {
-          return Promise.resolve(sm.currentExecution);
-        }
-        return Promise.reject(new Error('No execution in progress'));
+      if (sm.completionPromise) {
+        return sm.completionPromise;
       }
 
-      if (!sm.completionPromise) {
+      if (sm.currentExecution) {
+        const terminalStatuses: ExecutionStatus[] = ['COMPLETED', 'FAILED', 'ABORTED'];
+        if (terminalStatuses.includes(sm.currentExecution.status)) {
+          return Promise.resolve(sm.currentExecution);
+        }
         sm.completionPromise = new Promise((resolve) => {
           sm.completionResolver = resolve;
         });
+        return sm.completionPromise;
       }
 
-      return sm.completionPromise;
+      return Promise.reject(new Error('No execution in progress'));
     },
 
     async getExecution(id: string): Promise<ExecutionRecord | undefined> {
@@ -486,7 +543,7 @@ export function createWorkflowEngine(): WorkflowEngine {
         throw new Error(`Execution ${executionId} not found`);
       }
 
-      const workflow = workflows.get(previousExecution.workflowId);
+      const workflow = await resolveWorkflow(previousExecution.workflowId);
       if (!workflow) {
         throw new Error(`Workflow ${previousExecution.workflowId} not found`);
       }
@@ -529,14 +586,22 @@ export function createWorkflowEngine(): WorkflowEngine {
         .filter((stepRecord): stepRecord is StepRecord => Boolean(stepRecord));
 
       const initialVariables: Record<string, unknown> = {};
-      const seedOutputs: Array<{ stepKey: string; output: unknown[] }> = [];
+      const seedOutputs: Array<{ stepId: string; outputVar?: string; output: unknown[]; exitCode?: number }> = [];
       for (const stepRecord of preservedSteps) {
-        if (stepRecord.status === 'COMPLETED' && stepRecord.output) {
+        if (stepRecord.status === 'COMPLETED' && (stepRecord.output || stepRecord.exitCode !== undefined)) {
           const workflowStep = sortedWorkflowSteps.find(step => step.id === stepRecord.stepId);
-          const storageKey = (workflowStep as unknown as Record<string, unknown> | undefined)?.outputVar as string | undefined
-            ?? stepRecord.stepId;
-          initialVariables[storageKey] = stepRecord.output;
-          seedOutputs.push({ stepKey: storageKey, output: stepRecord.output });
+          const outputVar = workflowStep?.outputVar;
+          const output = stepRecord.output || [];
+          if (outputVar) {
+            initialVariables[outputVar] = output;
+          }
+          initialVariables[stepRecord.stepId] = output;
+          seedOutputs.push({
+            stepId: stepRecord.stepId,
+            outputVar,
+            output,
+            exitCode: stepRecord.exitCode,
+          });
         }
       }
 

@@ -20,14 +20,15 @@ const PATH_PATTERNS: { pattern: RegExp; key: string }[] = [
 export function createParamExtractor(): ParamExtractor {
   return {
     extract(input: string): ExtractedParams {
-      if (!input.trim()) return {};
+      const trimmedInput = input.trim();
+      if (!trimmedInput) return {};
 
       const params: ExtractedParams = {};
-      const lower = input.toLowerCase();
+      const lower = trimmedInput.toLowerCase();
 
       // 仅保留最基础且高频的正则匹配作为兜底
       for (const { pattern, key } of PATH_PATTERNS) {
-        const match = lower.match(pattern);
+        const match = input.match(pattern);
         if (match) {
           params[key] = match[1];
           break;

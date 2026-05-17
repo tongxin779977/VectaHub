@@ -20,6 +20,11 @@ describe('ParamExtractor', () => {
       expect(result.path).toBe('./src/utils');
     });
 
+    it('preserves path case for explicit path', () => {
+      const result = extractor.extract('查找 ./Src/Utils 文件');
+      expect(result.path).toBe('./Src/Utils');
+    });
+
     it('extracts home path', () => {
       const result = extractor.extract('查看 ~/projects');
       expect(result.path).toBe('~/projects');

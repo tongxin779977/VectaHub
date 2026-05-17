@@ -272,6 +272,16 @@ describe('ContextManager', () => {
       expect(result.previousOutputs['step-2']).toEqual(['single-result']);
     });
 
+    it('should expose both step id and outputVar aliases for step outputs', () => {
+      manager.createContext('wf-1', 'exec-1', 'sess-1');
+      manager.setStepOutput('exec-1', 'step-1', ['payload'], { outputVar: 'artifact' });
+
+      const result = manager.toExecutorContext('exec-1');
+
+      expect(result.previousOutputs['step-1']).toEqual(['payload']);
+      expect(result.previousOutputs['artifact']).toEqual(['payload']);
+    });
+
     it('should use stdout for previousOutputs when available', () => {
       manager.createContext('wf-1', 'exec-1', 'sess-1');
       manager.setStepOutput('exec-1', 'step-1', 'result', { stdout: 'line1\nline2\nline3' });
@@ -292,6 +302,19 @@ describe('ContextManager', () => {
       expect(result.variables['nullVal']).toEqual([]);
       expect(result.variables['undefinedVal']).toEqual([]);
       expect(result.previousOutputs['empty-step']).toEqual([]);
+    });
+  });
+
+  describe('expression data', () => {
+    it('should mirror outputVar aliases in expression steps', () => {
+      manager.createContext('wf-1', 'exec-1', 'sess-1');
+      manager.setStepOutput('exec-1', 'step-1', ['payload'], { outputVar: 'artifact', exitCode: 0 });
+
+      const expressionData = manager.getExpressionData('exec-1');
+
+      expect(expressionData.steps['step-1']?.output).toEqual(['payload']);
+      expect(expressionData.steps['artifact']?.output).toEqual(['payload']);
+      expect(expressionData.steps['artifact']?.exitCode).toBe(0);
     });
   });
 });

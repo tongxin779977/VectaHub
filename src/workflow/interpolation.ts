@@ -1,11 +1,12 @@
 import type { Step } from '../types/index.js';
-import { evaluateExpression } from './expression-engine.js';
+import { evaluateExpression, type ExpressionData } from './expression-engine.js';
 import { contextManager } from './context-manager.js';
 
 export interface InterpolationContext {
   variables: Record<string, string[]>;
   previousOutputs: Record<string, string[]>;
   executionId?: string;
+  expressionData?: ExpressionData;
 }
 
 const VAR_REGEX = /\$\{([^}]+)\}/g;
@@ -61,10 +62,11 @@ export function interpolateString(
     }
 
     // 2. Try complex expression evaluation if executionId is available
-    if (context.executionId) {
+    const expressionData = context.expressionData
+      ?? (context.executionId ? contextManager.getExpressionData(context.executionId) : undefined);
+    if (expressionData) {
       try {
-        const data = contextManager.getExpressionData(context.executionId);
-        const result = evaluateExpression(expression, data);
+        const result = evaluateExpression(expression, expressionData);
         if (result !== undefined && result !== null) {
           return String(result);
         }

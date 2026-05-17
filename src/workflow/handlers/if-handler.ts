@@ -1,34 +1,147 @@
 import type { Step } from '../../types/index.js';
 import type { StepHandler, ExecutorOptions, ExecutionContext, ExecuteStepFn, ExecutionResult } from './types.js';
-import { interpolateString } from '../interpolation.js';
-import { evaluateExpression } from '../expression-engine.js';
-import { contextManager } from '../context-manager.js';
+import { evaluateExpression, type ExpressionData } from '../expression-engine.js';
 
-function evaluateCondition(condition: string, context: ExecutionContext): boolean {
-  if (context.executionId) {
-    try {
-      const data = contextManager.getExpressionData(context.executionId);
-      return !!evaluateExpression(condition, data);
-    } catch (e) {
-      // Fallback
+const RESERVED_CONDITION_ROOTS = new Set(['steps', 'vars', 'env', 'config', 'true', 'false', 'null']);
+
+function coerceExpressionValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    const coerced = value.map(coerceExpressionValue);
+    return coerced.length === 1 ? coerced[0] : coerced;
+  }
+
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed === 'true') {
+    return true;
+  }
+  if (trimmed === 'false') {
+    return false;
+  }
+  if (trimmed === 'null') {
+    return null;
+  }
+  if (trimmed !== '' && !Number.isNaN(Number(trimmed))) {
+    return Number(trimmed);
+  }
+
+  return value;
+}
+
+function normalizeExpressionData(data: ExpressionData): ExpressionData {
+  const steps = Object.fromEntries(
+    Object.entries(data.steps).map(([stepId, stepData]) => [
+      stepId,
+      {
+        ...stepData,
+        output: coerceExpressionValue(stepData.output),
+      },
+    ])
+  );
+
+  const vars = Object.fromEntries(
+    Object.entries(data.vars).map(([name, value]) => [name, coerceExpressionValue(value)])
+  );
+
+  return {
+    ...data,
+    steps,
+    vars,
+  };
+}
+
+function buildExpressionData(context: ExecutionContext): ExpressionData {
+  const steps: ExpressionData['steps'] = {};
+  for (const [stepId, outputs] of Object.entries(context.previousOutputs)) {
+    steps[stepId] = {
+      output: coerceExpressionValue(outputs),
+      stdout: outputs.join('\n'),
+    };
+  }
+
+  const vars: ExpressionData['vars'] = {};
+  for (const [key, values] of Object.entries(context.variables)) {
+    vars[key] = coerceExpressionValue(values);
+  }
+
+  return {
+    steps,
+    env: { ...process.env } as Record<string, string>,
+    vars,
+    config: {},
+  };
+}
+
+function resolveLegacyRoot(expression: string, context: ExecutionContext): 'steps' | 'vars' {
+  const root = expression.split('.', 1)[0];
+  if (root in context.previousOutputs) {
+    return 'steps';
+  }
+  if (root in context.variables) {
+    return 'vars';
+  }
+  return 'steps';
+}
+
+function normalizeLegacyPlaceholder(expression: string, context: ExecutionContext): string {
+  const trimmed = expression.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  if (/^(steps|vars|env|config)\./.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (/^[A-Za-z_]\w*$/.test(trimmed)) {
+    if (trimmed in context.previousOutputs) {
+      return `steps.${trimmed}.output`;
     }
+    return `vars.${trimmed}`;
   }
 
-  const exitCodeMatch = condition.match(/\$\{(\w+)\.exitCode\}\s*==\s*0/);
-  if (exitCodeMatch) {
-    const stepId = exitCodeMatch[1];
-    const outputs = context.previousOutputs[stepId];
-    return outputs !== undefined; // In dry-run we assume success for condition tests
+  if (/^[A-Za-z_]\w*(\.[A-Za-z_]\w*)+$/.test(trimmed)) {
+    return `${resolveLegacyRoot(trimmed, context)}.${trimmed}`;
   }
 
-  const eqMatch = condition.match(/(\w+)\s*==\s*(.+)/);
-  if (eqMatch) {
-    const [, varName, expectedValue] = eqMatch;
-    const actualValue = context.variables[varName]?.[0];
-    return actualValue?.trim() === expectedValue.trim();
-  }
+  return normalizeLegacyCondition(trimmed, context);
+}
 
-  return false;
+function normalizeLegacyCondition(condition: string, context: ExecutionContext): string {
+  const normalizedPlaceholders = condition.replace(/\$\{([^}]+)\}/g, (_, expression: string) =>
+    normalizeLegacyPlaceholder(expression, context)
+  );
+
+  const normalizedIdentifiers = normalizedPlaceholders.replace(
+    /\b([A-Za-z_]\w*)\b(?=\s*(?:==|!=|>|<|>=|<=))/g,
+    (identifier: string, _: string, offset: number, source: string) => {
+      const previousCharacter = offset > 0 ? source[offset - 1] : '';
+      if (previousCharacter === '.' || RESERVED_CONDITION_ROOTS.has(identifier)) {
+        return identifier;
+      }
+      return `vars.${identifier}`;
+    }
+  );
+
+  return normalizedIdentifiers.replace(
+    /((?:steps|vars|env|config)\.[A-Za-z_][\w.]*)\s*(==|!=)\s*([A-Za-z_][\w-]*)/g,
+    (match: string, left: string, operator: string, right: string) => {
+      if (right === 'true' || right === 'false' || right === 'null' || !Number.isNaN(Number(right))) {
+        return match;
+      }
+      return `${left} ${operator} "${right}"`;
+    }
+  );
+}
+
+export function evaluateCondition(condition: string, context: ExecutionContext): boolean {
+  const data = context.expressionData ?? buildExpressionData(context);
+  const normalizedCondition = normalizeLegacyCondition(condition, context);
+
+  return Boolean(evaluateExpression(normalizedCondition, normalizeExpressionData(data)));
 }
 
 export const handleIf: StepHandler = async (
@@ -38,8 +151,7 @@ export const handleIf: StepHandler = async (
   executeStep: ExecuteStepFn,
   startTime: number
 ): Promise<ExecutionResult> => {
-  const condition = interpolateString(step.condition || '', context);
-  const conditionMet = evaluateCondition(condition, context);
+  const conditionMet = evaluateCondition(step.condition || '', context);
   const outputs: string[] = [];
 
   if (conditionMet && step.body) {

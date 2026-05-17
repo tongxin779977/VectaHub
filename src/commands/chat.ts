@@ -1,7 +1,7 @@
 import { Command } from 'commander';
+import { createLLMConfig } from '../nl/llm.js';
 import { initializeRouter, processInput } from '../nl/orchestrator.js';
 import { INTENT_TEMPLATES } from '../nl/templates/index.js';
-import type { LLMConfig } from '../nl/llm.js';
 
 export const chatCmd = new Command('chat')
   .description('Interactive NL mode with intent splitting and routing')
@@ -21,12 +21,7 @@ export const chatCmd = new Command('chat')
 
     initializeRouter(intentEntries);
 
-    const llmConfig: LLMConfig = {
-      provider: (process.env.LLM_PROVIDER as LLMConfig['provider']) ?? 'openai',
-      model: process.env.LLM_MODEL ?? 'gpt-4o-mini',
-      apiKey: process.env.LLM_API_KEY,
-      baseUrl: process.env.LLM_BASE_URL,
-    };
+    const llmConfig = createLLMConfig() ?? undefined;
 
     console.log('VectaHub NL Chat Mode');
     console.log('Type your request or "exit" to quit.');
