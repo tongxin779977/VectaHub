@@ -83,7 +83,7 @@ packages/vectahub-vscode-extension/       VS Code 插件
 对 `run-task` 而言，当前代码中的预览边界更具体：
 
 - `run-task --dry-run` 会先构建任务边界合同摘要，再返回一条本地预览命令。
-- 该分支在返回前不会加载 LLM 配置，不会发现外部工具 help，也不会执行 Agent。
+- 该分支在返回前不会创建 LLM client，不会发现外部工具 help，也不会执行 Agent；对 `llm-fallback` 工具，只允许读取本地 Provider/Model/Temperature 元数据来完成合同哈希。
 - `run-task --contract-preview` 比 `--dry-run` 更早返回，只暴露合同摘要，不要求 `--tool`。
 - 预览模式返回的重点是结构化边界，不是完整文档回显；长文档内容不应原样泄漏到预览命令文本。
 

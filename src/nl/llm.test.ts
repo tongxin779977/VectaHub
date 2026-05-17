@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { LLMClient, createLLMConfig, createLLMEnhancedParser, LLMTool, LLMToolCall } from './llm.js';
+import { LLMClient, createLLMConfig, createLLMConfigDigestSource, createLLMEnhancedParser, LLMTool, LLMToolCall } from './llm.js';
 import { loadConfig } from '../setup/first-run-wizard.js';
 
 vi.mock('../setup/first-run-wizard.js', () => ({
@@ -161,6 +161,68 @@ describe('LLM Client', () => {
       expect(config?.provider).toBe('ollama');
       expect(config?.baseUrl).toBe('http://localhost:11434/v1');
       expect(config?.model).toBe('llama3');
+    });
+  });
+
+  describe('createLLMConfigDigestSource', () => {
+    it('returns digest metadata from config file without requiring API key', () => {
+      const originalTemperature = process.env.VECTAHUB_LLM_TEMPERATURE;
+      process.env.VECTAHUB_LLM_TEMPERATURE = '0.3';
+      mockedLoadConfig.mockReturnValue({
+        ai_providers: {
+          vectahub_llm: {
+            provider: 'openai',
+            model: 'custom-model',
+            enabled: true,
+          },
+        },
+      } as any);
+
+      const source = createLLMConfigDigestSource();
+      expect(source).toEqual({
+        provider: 'openai',
+        model: 'custom-model',
+        temperature: 0.3,
+      });
+
+      process.env.VECTAHUB_LLM_TEMPERATURE = originalTemperature as string;
+    });
+
+    it('returns null when no explicit config signal exists', () => {
+      const originalProvider = process.env.VECTAHUB_LLM_PROVIDER;
+      const originalModel = process.env.VECTAHUB_LLM_MODEL;
+      const originalBaseUrl = process.env.VECTAHUB_LLM_BASE_URL;
+      const originalOpenAI = process.env.OPENAI_API_KEY;
+      const originalAnthropic = process.env.ANTHROPIC_API_KEY;
+      const originalGroq = process.env.GROQ_API_KEY;
+      const originalOllama = process.env.OLLAMA_API_KEY;
+
+      delete process.env.VECTAHUB_LLM_PROVIDER;
+      delete process.env.VECTAHUB_LLM_MODEL;
+      delete process.env.VECTAHUB_LLM_BASE_URL;
+      delete process.env.OPENAI_API_KEY;
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.GROQ_API_KEY;
+      delete process.env.OLLAMA_API_KEY;
+
+      mockedLoadConfig.mockReturnValue({
+        ai_providers: {
+          vectahub_llm: {
+            provider: '',
+            enabled: false,
+          },
+        },
+      } as any);
+
+      expect(createLLMConfigDigestSource()).toBeNull();
+
+      process.env.VECTAHUB_LLM_PROVIDER = originalProvider as string;
+      process.env.VECTAHUB_LLM_MODEL = originalModel as string;
+      process.env.VECTAHUB_LLM_BASE_URL = originalBaseUrl as string;
+      process.env.OPENAI_API_KEY = originalOpenAI as string;
+      process.env.ANTHROPIC_API_KEY = originalAnthropic as string;
+      process.env.GROQ_API_KEY = originalGroq as string;
+      process.env.OLLAMA_API_KEY = originalOllama as string;
     });
   });
 

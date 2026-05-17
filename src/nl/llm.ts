@@ -58,6 +58,136 @@ export interface LLMResponse {
 }
 
 const INTENT_LIST = getAllIntentNames();
+const SUPPORTED_LLM_PROVIDERS = ['openai', 'anthropic', 'ollama', 'groq'] as const;
+const DEFAULT_LLM_TEMPERATURE = 0.1;
+
+interface ResolvedLLMConfigSource {
+  provider: LLMConfig['provider'];
+  apiKey?: string;
+  baseUrl?: string;
+  model: string;
+  timeout?: number;
+}
+
+function normalizeLLMProvider(provider: string | undefined): LLMConfig['provider'] | null {
+  const normalized = provider?.toLowerCase();
+  if (!normalized) return null;
+  return (SUPPORTED_LLM_PROVIDERS as readonly string[]).includes(normalized)
+    ? normalized as LLMConfig['provider']
+    : null;
+}
+
+function getConfiguredLLMTemperature(): number {
+  const raw = process.env.VECTAHUB_LLM_TEMPERATURE;
+  const parsed = raw !== undefined ? Number.parseFloat(raw) : DEFAULT_LLM_TEMPERATURE;
+  return Number.isFinite(parsed) ? parsed : DEFAULT_LLM_TEMPERATURE;
+}
+
+function resolveConfigFileLLMSource(): ResolvedLLMConfigSource | null {
+  const config = loadConfig();
+  const llmConfig = config.ai_providers?.vectahub_llm;
+
+  if (!llmConfig?.enabled) return null;
+  const provider = normalizeLLMProvider(llmConfig.provider);
+  if (!provider) return null;
+
+  let apiKey = llmConfig.apiKey;
+  let baseUrl = llmConfig.baseUrl;
+
+  if (!apiKey) {
+    if (provider === 'openai') {
+      apiKey = process.env.OPENAI_API_KEY;
+    } else if (provider === 'anthropic') {
+      apiKey = process.env.ANTHROPIC_API_KEY;
+    } else if (provider === 'groq') {
+      apiKey = process.env.GROQ_API_KEY;
+    } else if (provider === 'ollama') {
+      apiKey = process.env.OLLAMA_API_KEY;
+    }
+  }
+
+  if (!baseUrl) {
+    if (provider === 'groq') {
+      baseUrl = 'https://api.groq.com/openai/v1';
+    } else if (provider === 'ollama') {
+      baseUrl = 'http://localhost:11434/v1';
+    } else if (provider === 'openai') {
+      baseUrl = 'https://api.openai.com/v1';
+    }
+  } else if (provider === 'openai' && !baseUrl.endsWith('/v1')) {
+    // 如果配置了自定义 baseUrl（如 DeepSeek），确保它以 /v1 结尾
+    baseUrl = baseUrl.replace(/\/?$/, '/v1');
+  }
+
+  return {
+    provider,
+    apiKey,
+    baseUrl,
+    model: llmConfig.model || getDefaultModel(provider),
+    timeout: llmConfig.timeout_ms,
+  };
+}
+
+function resolveEnvLLMSource(): ResolvedLLMConfigSource | null {
+  const explicitProvider = process.env.VECTAHUB_LLM_PROVIDER;
+  const normalizedExplicitProvider = normalizeLLMProvider(explicitProvider);
+  if (explicitProvider && !normalizedExplicitProvider) return null;
+
+  const hasEnvSignal = Boolean(
+    explicitProvider
+    || process.env.VECTAHUB_LLM_MODEL
+    || process.env.VECTAHUB_LLM_BASE_URL
+    || process.env.OPENAI_API_KEY,
+  );
+  if (!hasEnvSignal) return null;
+
+  const provider = normalizedExplicitProvider || 'openai';
+  const model = process.env.VECTAHUB_LLM_MODEL || getDefaultModel(provider);
+  let baseUrl = process.env.VECTAHUB_LLM_BASE_URL;
+  let apiKey: string | undefined;
+
+  if (provider === 'openai') {
+    apiKey = process.env.OPENAI_API_KEY;
+    if (!baseUrl) baseUrl = 'https://api.openai.com/v1';
+  } else if (provider === 'anthropic') {
+    apiKey = process.env.ANTHROPIC_API_KEY;
+  } else if (provider === 'groq') {
+    apiKey = process.env.GROQ_API_KEY;
+    if (!baseUrl) baseUrl = 'https://api.groq.com/openai/v1';
+  } else if (provider === 'ollama') {
+    apiKey = process.env.OLLAMA_API_KEY;
+    if (!baseUrl) baseUrl = 'http://localhost:11434/v1';
+  }
+
+  return {
+    provider,
+    model,
+    baseUrl,
+    apiKey,
+  };
+}
+
+function resolveLLMConfigSource(): ResolvedLLMConfigSource | null {
+  try {
+    return resolveConfigFileLLMSource() || resolveEnvLLMSource();
+  } catch {
+    return resolveEnvLLMSource();
+  }
+}
+
+export function createLLMConfigDigestSource(): {
+  provider: LLMConfig['provider'];
+  model: string;
+  temperature: number;
+} | null {
+  const source = resolveLLMConfigSource();
+  if (!source) return null;
+  return {
+    provider: source.provider,
+    model: source.model,
+    temperature: getConfiguredLLMTemperature(),
+  };
+}
 
 export class LLMClient {
   private config: LLMConfig;
@@ -494,90 +624,15 @@ export function createLLMEnhancedParser(config: LLMConfig): NLParserWithLLM {
 }
 
 export function createLLMConfig(): LLMConfig | null {
-  // 优先从配置文件读取
-  try {
-    const config = loadConfig();
-    const llmConfig = config.ai_providers?.vectahub_llm;
-    
-    if (llmConfig?.enabled && llmConfig.provider) {
-      const supportedProviders = ['openai', 'anthropic', 'ollama', 'groq'];
-      const provider = llmConfig.provider.toLowerCase();
-      
-      if (supportedProviders.includes(provider)) {
-        let apiKey = llmConfig.apiKey;
-        let baseUrl = llmConfig.baseUrl;
-        
-        if (!apiKey) {
-          if (provider === 'openai') {
-            apiKey = process.env.OPENAI_API_KEY;
-          } else if (provider === 'anthropic') {
-            apiKey = process.env.ANTHROPIC_API_KEY;
-          } else if (provider === 'groq') {
-            apiKey = process.env.GROQ_API_KEY;
-          } else if (provider === 'ollama') {
-            apiKey = process.env.OLLAMA_API_KEY;
-          }
-        }
-        
-        if (!baseUrl) {
-          if (provider === 'groq') {
-            baseUrl = 'https://api.groq.com/openai/v1';
-          } else if (provider === 'ollama') {
-            baseUrl = 'http://localhost:11434/v1';
-          } else if (provider === 'openai') {
-            baseUrl = 'https://api.openai.com/v1';
-          }
-        } else if (provider === 'openai' && !baseUrl.endsWith('/v1')) {
-          // 如果配置了自定义 baseUrl（如 DeepSeek），确保它以 /v1 结尾
-          baseUrl = baseUrl.replace(/\/?$/, '/v1');
-        }
-        
-        if ((provider === 'openai' || provider === 'groq' || provider === 'anthropic') && !apiKey) {
-          // 需要 API key 但没有找到
-        } else {
-          const result = {
-            provider: provider as any,
-            apiKey,
-            baseUrl,
-            model: llmConfig.model || getDefaultModel(provider),
-            timeout: llmConfig.timeout_ms,
-          };
-          return result;
-        }
-      }
-    }
-  } catch {
-    // 配置文件读取失败，回退到环境变量
+  const resolved = resolveLLMConfigSource();
+  if (!resolved) {
+    return null;
   }
-
-  const provider = process.env.VECTAHUB_LLM_PROVIDER as LLMConfig['provider'] || 'openai';
-  const model = process.env.VECTAHUB_LLM_MODEL || getDefaultModel(provider);
-  let baseUrl = process.env.VECTAHUB_LLM_BASE_URL;
-  let apiKey: string | undefined;
-
-  if (provider === 'openai') {
-    apiKey = process.env.OPENAI_API_KEY;
-    if (!baseUrl) baseUrl = 'https://api.openai.com/v1';
-  } else if (provider === 'anthropic') {
-    apiKey = process.env.ANTHROPIC_API_KEY;
-  } else if (provider === 'groq') {
-    apiKey = process.env.GROQ_API_KEY;
-    if (!baseUrl) baseUrl = 'https://api.groq.com/openai/v1';
-  } else if (provider === 'ollama') {
-    apiKey = process.env.OLLAMA_API_KEY;
-    if (!baseUrl) baseUrl = 'http://localhost:11434/v1';
-  }
-
-  if ((provider === 'openai' || provider === 'groq' || provider === 'anthropic') && !apiKey) {
+  if ((resolved.provider === 'openai' || resolved.provider === 'groq' || resolved.provider === 'anthropic') && !resolved.apiKey) {
     return null;
   }
 
-  return {
-    provider,
-    model,
-    baseUrl,
-    apiKey,
-  };
+  return resolved;
 }
 
 function getDefaultModel(provider: string): string {

@@ -23,9 +23,10 @@ export function computeInstructionHash(input) {
 }
 
 export function buildGlobalConfigDigest(input) {
+  const provider = (input.provider || '').trim() || 'unknown';
   const model = (input.model || '').trim() || 'unknown';
   const temperature = Number.isFinite(input.temperature) ? String(input.temperature) : 'default';
-  return `model=${model};temperature=${temperature}`;
+  return `provider=${provider};model=${model};temperature=${temperature}`;
 }
 
 export async function deriveDocExcerptFromText(text, input) {

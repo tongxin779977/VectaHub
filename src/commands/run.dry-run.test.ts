@@ -153,4 +153,68 @@ describe('run command dry-run first run behavior', () => {
     expect(executeWorkflow).not.toHaveBeenCalled();
     expect(process.exit).toHaveBeenCalledWith(0);
   });
+
+  it('creates an ephemeral workflow by default for natural language execution', async () => {
+    createWorkflow.mockResolvedValue({
+      id: 'wf_ephemeral',
+      name: 'ephemeral workflow',
+      steps: [{ id: 'step_1', type: 'exec', cli: 'git', args: ['status'] }],
+      createdAt: new Date(),
+    });
+    executeWorkflow.mockResolvedValue({
+      executionId: 'exec_1',
+      workflowId: 'wf_ephemeral',
+      workflowName: 'ephemeral workflow',
+      status: 'COMPLETED',
+      mode: 'relaxed',
+      startedAt: new Date(),
+      endedAt: new Date(),
+      duration: 1,
+      steps: [],
+      warnings: [],
+      logs: [],
+    });
+
+    const { runCmd } = await import('./run.js');
+
+    await runCmd.parseAsync(['node', 'test', '查看 git 状态']);
+
+    expect(createWorkflow).toHaveBeenCalledWith(
+      expect.stringMatching(/^intent_/),
+      expect.any(Array),
+      { persist: false }
+    );
+  });
+
+  it('persists workflow only when save flag is provided', async () => {
+    createWorkflow.mockResolvedValue({
+      id: 'wf_saved',
+      name: 'saved workflow',
+      steps: [{ id: 'step_1', type: 'exec', cli: 'git', args: ['status'] }],
+      createdAt: new Date(),
+    });
+    executeWorkflow.mockResolvedValue({
+      executionId: 'exec_2',
+      workflowId: 'wf_saved',
+      workflowName: 'saved workflow',
+      status: 'COMPLETED',
+      mode: 'relaxed',
+      startedAt: new Date(),
+      endedAt: new Date(),
+      duration: 1,
+      steps: [],
+      warnings: [],
+      logs: [],
+    });
+
+    const { runCmd } = await import('./run.js');
+
+    await runCmd.parseAsync(['node', 'test', '--save', '查看 git 状态']);
+
+    expect(createWorkflow).toHaveBeenCalledWith(
+      expect.stringMatching(/^intent_/),
+      expect.any(Array),
+      { persist: true }
+    );
+  });
 });

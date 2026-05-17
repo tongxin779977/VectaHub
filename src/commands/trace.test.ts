@@ -121,4 +121,29 @@ describe('trace command', () => {
     expect(payload).toContain('"traceId": "tr-legacy-show"');
     expect(payload).toContain('"spanId": "sp-legacy-2"');
   });
+
+  it('shows specified trace even when the file is older than the recent list window', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-16T00:30:00.000+14:00'));
+
+    const traceDir = join(tempHome, 'logs', 'traces');
+    mkdirSync(traceDir, { recursive: true });
+    writeFileSync(join(traceDir, '2026-03-01.jsonl'), JSON.stringify({
+      traceId: 'tr-older-show',
+      spanId: 'sp-older-1',
+      name: 'cli.run-task',
+      source: 'cli',
+      status: 'completed',
+      startTime: '2026-03-01T10:00:00.000Z',
+      endTime: '2026-03-01T10:00:01.000Z',
+      durationMs: 1000,
+    }) + '\n');
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await traceCmd.parseAsync(['show', 'tr-older-show', '--json'], { from: 'user' });
+
+    const payload = String(logSpy.mock.calls[0]?.[0] ?? '');
+    expect(payload).toContain('"traceId": "tr-older-show"');
+    expect(payload).toContain('"spanId": "sp-older-1"');
+  });
 });

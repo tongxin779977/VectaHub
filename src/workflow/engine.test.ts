@@ -100,6 +100,25 @@ describe('WorkflowEngine', () => {
     expect(workflow.steps.length).toBe(1);
   });
 
+  it('should not persist workflow by default when creating it', async () => {
+    await engine.createWorkflow('ephemeral-workflow', [
+      { id: 'step1', type: 'exec', cli: 'echo', args: ['hello'] },
+    ]);
+
+    expect(mockSaveWorkflow).not.toHaveBeenCalled();
+  });
+
+  it('should persist workflow only when explicitly requested', async () => {
+    const workflow = await engine.createWorkflow(
+      'persisted-workflow',
+      [{ id: 'step1', type: 'exec', cli: 'echo', args: ['hello'] }],
+      { persist: true }
+    );
+
+    expect(mockSaveWorkflow).toHaveBeenCalledTimes(1);
+    expect(mockSaveWorkflow).toHaveBeenCalledWith(workflow);
+  });
+
   it('should add a step to a workflow', async () => {
     const steps: Step[] = [{ id: 'step1', type: 'exec', cli: 'echo', args: ['hello'] }];
     const workflow = await engine.createWorkflow('test-workflow', steps);

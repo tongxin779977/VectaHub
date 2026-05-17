@@ -55,17 +55,20 @@ async function readSpans(options?: {
   traceId?: string;
   maxDays?: number;
   maxSpans?: number;
+  scanAllFiles?: boolean;
 }): Promise<TraceSpanRecord[]> {
   const dir = getVectaHubPath('logs', 'traces');
   let files: string[];
   const maxDays = options?.maxDays ?? 14;
-  const recentDateSet = new Set<string>([
-    ...buildRecentUtcDateSet(maxDays),
-    ...buildRecentLocalDateSet(maxDays),
-  ]);
+  const recentDateSet = options?.scanAllFiles
+    ? null
+    : new Set<string>([
+      ...buildRecentUtcDateSet(maxDays),
+      ...buildRecentLocalDateSet(maxDays),
+    ]);
   try {
     files = readdirSync(dir)
-      .filter((f) => f.endsWith('.jsonl') && isFileWithinRecentDays(f, recentDateSet))
+      .filter((f) => f.endsWith('.jsonl') && (!recentDateSet || isFileWithinRecentDays(f, recentDateSet)))
       .sort()
       .reverse();
   } catch {
@@ -169,7 +172,7 @@ const showCmd = new Command('show')
   .argument('<traceId>', 'trace id')
   .option('--json', '以 JSON 格式输出')
   .action(async (traceId: string, options: { json?: boolean }) => {
-    const spans = (await readSpans({ traceId, maxDays: 14, maxSpans: 5000 })).sort(
+    const spans = (await readSpans({ traceId, maxDays: 14, maxSpans: 5000, scanAllFiles: true })).sort(
       (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
     );
 

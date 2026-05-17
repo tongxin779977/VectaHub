@@ -8,12 +8,12 @@ import { tmpdir } from 'node:os';
 import { Transform } from 'node:stream';
 import { getLogger } from '../utils/logger.js';
 import { assessCommandRisk } from '../security-protocol/engine.js';
-import { createLLMConfig, LLMClient } from '../nl/llm.js';
+import { createLLMConfig, createLLMConfigDigestSource, LLMClient } from '../nl/llm.js';
 import { AGENT_CMD_GENERATOR_ID } from '../nl/prompt-manager.js';
 import { getToolCacheManager } from '../cli-tools/discovery/cache-manager.js';
 import { getSecurityManager } from '../security-protocol/manager.js';
 import { audit } from '../infrastructure/audit/index.js';
-import { createChildEnv, getTraceContextFromEnv, startSpan, withSpan } from '../infrastructure/trace/index.js';
+import { createChildEnv, getTraceContextFromEnv, startSpan, withSpan, type SpanHandle } from '../infrastructure/trace/index.js';
 import { deriveAgentTaskBoundary, deriveDocExcerpt, computeInstructionHash } from './agent-task-contract.js';
 import { buildGlobalConfigDigest } from '@vectahub/doc-task-contract-core';
 import type { AgentTaskContract } from '../types/doc-task.js';
@@ -219,6 +219,27 @@ export interface RunTaskRecoveryDecisionSummary {
   kind: RecoveryDecisionKind;
   mode: RecoveryDecisionMode;
   summary: string;
+}
+
+interface RunTaskTraceCloseout {
+  rootSpan: SpanHandle;
+  traceContext: { traceId: string; source: 'cli' };
+  baseAttributes: Record<string, unknown>;
+}
+
+const RUN_TASK_TRACE_CLOSEOUT = Symbol('runTaskTraceCloseout');
+
+function attachRunTaskTraceCloseout<T extends object>(target: T, closeout: RunTaskTraceCloseout): T {
+  Object.defineProperty(target, RUN_TASK_TRACE_CLOSEOUT, {
+    value: closeout,
+    enumerable: false,
+    configurable: true,
+  });
+  return target;
+}
+
+function getRunTaskTraceCloseout(target: object): RunTaskTraceCloseout | undefined {
+  return (target as { [RUN_TASK_TRACE_CLOSEOUT]?: RunTaskTraceCloseout })[RUN_TASK_TRACE_CLOSEOUT];
 }
 
 export interface AgentTaskContractSummary {
@@ -569,6 +590,8 @@ async function buildAgentTaskContract(input: {
   label: string;
   docPath?: string;
   projectRoot: string;
+  tool?: string;
+  globalConfigDigest?: string;
 }): Promise<AgentTaskContract & { summary: AgentTaskContractSummary }> {
   let docExcerpt = '';
   let docExcerptTruncated = false;
@@ -603,9 +626,10 @@ async function buildAgentTaskContract(input: {
     input.taskId,
     input.label,
     docExcerpt,
-    undefined, // tool is not available at contract build time
+    input.tool,
     boundary.allowedFiles,
     boundary.forbiddenFiles,
+    input.globalConfigDigest,
   );
   const contract: AgentTaskContract = {
     taskId: input.taskId,
@@ -630,6 +654,7 @@ async function buildAgentTaskContract(input: {
     docExcerptTruncated,
     excerptStrategy,
     instructionHash: contract.instructionHash,
+    globalConfigDigest: input.globalConfigDigest,
   };
 
   return { ...contract, summary };
@@ -1287,14 +1312,31 @@ export async function runTask(options: {
   doc?: string;
   dryRun?: boolean;
   contractPreview?: boolean;
+  deferTraceCloseout?: boolean;
 }): Promise<RunTaskResult> {
   const { taskId, taskLabel, doc, dryRun, contractPreview } = options;
   const tool = options.tool || '';
+  const deferTraceCloseout = options.deferTraceCloseout === true;
   const baseAttributes = { taskId, tool, dryRun: Boolean(dryRun), contractPreview: Boolean(contractPreview) };
   const incomingContext = getTraceContextFromEnv();
+  const knownAgentDescriptor = tool ? getAgentDescriptorById(tool) : null;
+  const knownAgentAdapter = tool ? getAgentAdapterById(tool) : null;
+  const llmConfigDigestSource = tool && (!knownAgentDescriptor || !knownAgentAdapter)
+    ? createLLMConfigDigestSource()
+    : null;
+  const precomputedGlobalConfigDigest = knownAgentDescriptor && knownAgentAdapter
+    ? `adapter=${knownAgentDescriptor.id}`
+    : llmConfigDigestSource
+      ? buildGlobalConfigDigest(llmConfigDigestSource)
+    : undefined;
+  const rootSpan = startSpan('cli.run-task', {
+    context: incomingContext || undefined,
+    source: 'cli',
+    attributes: baseAttributes,
+  });
+  const traceContext = { traceId: rootSpan.traceId, source: 'cli' as const };
 
-  return withSpan('cli.run-task', async (rootSpan) => {
-    const traceContext = { traceId: rootSpan.traceId, source: 'cli' as const };
+  const execute = async (): Promise<RunTaskResult> => {
     const docPath = doc ? resolve(doc) : '(未指定文档)';
     const label = taskLabel || `任务 ${taskId}`;
     const contractSpan = startSpan('cli.run-task.buildAgentTaskContract', {
@@ -1310,6 +1352,8 @@ export async function runTask(options: {
         label,
         docPath: doc ? docPath : undefined,
         projectRoot: process.cwd(),
+        tool: tool || undefined,
+        globalConfigDigest: precomputedGlobalConfigDigest,
       });
     } catch (error) {
       await contractSpan.fail(error);
@@ -1326,11 +1370,16 @@ export async function runTask(options: {
     });
 
     if (contractPreview) {
+      const previewCommandGenerationPath = tool
+        ? knownAgentDescriptor && knownAgentAdapter
+          ? 'adapter'
+          : 'llm-fallback'
+        : undefined;
       return {
         success: true,
         output: '',
         command: '',
-        commandGenerationPath: undefined,
+        commandGenerationPath: previewCommandGenerationPath,
         fallbackUsed: false,
         agentTaskContract: agentTaskContractSummary,
       };
@@ -1339,8 +1388,6 @@ export async function runTask(options: {
     if (!tool) {
       throw new Error('缺少 Agent CLI 工具名称，请传入 --tool <name>');
     }
-    const knownAgentDescriptor = getAgentDescriptorById(tool);
-    const knownAgentAdapter = getAgentAdapterById(tool);
 
     if (dryRun) {
       const dryRunPrompt = buildDryRunPrompt(taskId, label, agentTaskContractSummary);
@@ -1409,6 +1456,7 @@ export async function runTask(options: {
       const llmTemperatureRaw = process.env.VECTAHUB_LLM_TEMPERATURE;
       const llmTemperature = llmTemperatureRaw !== undefined ? Number.parseFloat(llmTemperatureRaw) : 0.1;
       const globalConfigDigest = buildGlobalConfigDigest({
+        provider: llmConfig.provider,
         model: llmConfig.model,
         temperature: Number.isFinite(llmTemperature) ? llmTemperature : 0.1,
       });
@@ -1806,6 +1854,8 @@ export async function runTask(options: {
             code: normalizedCode,
             signal,
             completionSignal,
+            stdout: redactedStdout,
+            stderr: redactedStderr,
           }));
         };
 
@@ -1840,7 +1890,20 @@ export async function runTask(options: {
         };
         const onClose = (code: number | null, signal: NodeJS.Signals | null) => {
           closeObserved = true;
-          settleWithExit(code, signal, 'close');
+          streamDrainPromise
+            .then(() => {
+              if (settled) return;
+              settleWithExit(code, signal, 'close');
+            })
+            .catch(onErr);
+
+          if (exitFlushTimer) {
+            clearTimeout(exitFlushTimer);
+          }
+          exitFlushTimer = setTimeout(() => {
+            if (settled) return;
+            settleWithExit(code, signal, 'close');
+          }, agentExitFlushGraceMs);
         };
 
         streamDrainPromise.catch(onErr);
@@ -2085,11 +2148,33 @@ export async function runTask(options: {
         recoveryDecision,
       };
     }
-  }, {
-    context: incomingContext || undefined,
-    source: 'cli',
-    attributes: baseAttributes,
-  });
+  };
+
+  try {
+    const result = await execute();
+    if (deferTraceCloseout) {
+      return attachRunTaskTraceCloseout(result, {
+        rootSpan,
+        traceContext,
+        baseAttributes,
+      });
+    }
+    await rootSpan.end();
+    return result;
+  } catch (error) {
+    if (deferTraceCloseout) {
+      const tracedError = typeof error === 'object' && error !== null
+        ? error
+        : new Error(String(error));
+      throw attachRunTaskTraceCloseout(tracedError, {
+        rootSpan,
+        traceContext,
+        baseAttributes,
+      });
+    }
+    await rootSpan.fail(error);
+    throw error;
+  }
 }
 
 export const runTaskCmd = new Command('run-task')
@@ -2110,11 +2195,39 @@ export const runTaskCmd = new Command('run-task')
     contractPreview?: boolean;
     json?: boolean;
   }) => {
+    let deferredTraceCloseout: RunTaskTraceCloseout | undefined;
     try {
-      const result = await runTask(options);
+      const result = await runTask({
+        ...options,
+        deferTraceCloseout: Boolean(options.json),
+      });
+      deferredTraceCloseout = getRunTaskTraceCloseout(result);
 
       if (options.json) {
-        console.log(JSON.stringify(formatRunTaskJson(result), null, 2));
+        const jsonOutput = formatRunTaskJson(result);
+        if (!deferredTraceCloseout) {
+          console.log(JSON.stringify(jsonOutput, null, 2));
+        } else {
+          const traceCloseout = deferredTraceCloseout;
+          const formatJsonSpan = startSpan('cli.run-task.formatJson', {
+            context: traceCloseout.traceContext,
+            parentSpanId: traceCloseout.rootSpan.spanId,
+            source: 'cli',
+            attributes: traceCloseout.baseAttributes,
+          });
+          try {
+            const rendered = JSON.stringify(jsonOutput, null, 2);
+            console.log(rendered);
+            await formatJsonSpan.end({ outputLength: rendered.length });
+            await traceCloseout.rootSpan.end();
+            deferredTraceCloseout = undefined;
+          } catch (error) {
+            await formatJsonSpan.fail(error);
+            await traceCloseout.rootSpan.fail(error);
+            deferredTraceCloseout = undefined;
+            throw error;
+          }
+        }
       } else if (!result.success) {
         console.log(result.output);
         process.exit(1);
@@ -2122,10 +2235,40 @@ export const runTaskCmd = new Command('run-task')
         console.log(result.output);
       }
     } catch (error) {
+      if (!deferredTraceCloseout && typeof error === 'object' && error !== null) {
+        deferredTraceCloseout = getRunTaskTraceCloseout(error);
+      }
       const message = error instanceof Error ? error.message : String(error);
       if (options.json) {
-        console.log(JSON.stringify({ ok: false, error: { code: 'CLI_ERROR', message } }, null, 2));
+        const errorJson = { ok: false, error: { code: 'CLI_ERROR', message } };
+        if (!deferredTraceCloseout) {
+          console.log(JSON.stringify(errorJson, null, 2));
+        } else {
+          const traceCloseout = deferredTraceCloseout;
+          const formatJsonSpan = startSpan('cli.run-task.formatJson', {
+            context: traceCloseout.traceContext,
+            parentSpanId: traceCloseout.rootSpan.spanId,
+            source: 'cli',
+            attributes: traceCloseout.baseAttributes,
+          });
+          try {
+            const rendered = JSON.stringify(errorJson, null, 2);
+            console.log(rendered);
+            await formatJsonSpan.end({ outputLength: rendered.length });
+            await traceCloseout.rootSpan.fail(error);
+            deferredTraceCloseout = undefined;
+          } catch (formatError) {
+            await formatJsonSpan.fail(formatError);
+            await traceCloseout.rootSpan.fail(formatError);
+            deferredTraceCloseout = undefined;
+            throw formatError;
+          }
+        }
       } else {
+        if (deferredTraceCloseout) {
+          await deferredTraceCloseout.rootSpan.fail(error);
+          deferredTraceCloseout = undefined;
+        }
         logger.error(`执行失败: ${message}`);
       }
       process.exit(1);

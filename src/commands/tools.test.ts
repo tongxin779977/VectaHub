@@ -35,19 +35,32 @@ vi.mock('../setup/first-run-wizard.js', () => ({
 }));
 
 vi.mock('../setup/cli-scanner.js', () => ({
-  scanSingleTool: vi.fn(async () => ({
-    name: 'codex',
-    installed: true,
-    version: '1.2.3',
-    hasPermission: true,
-    invocable: true,
-    ready: false,
-  })),
+  scanSingleTool: vi.fn(async (name: string) => {
+    if (name === 'codex') {
+      return {
+        name: 'codex',
+        installed: true,
+        version: '1.2.3',
+        hasPermission: true,
+        invocable: true,
+        ready: false,
+      };
+    }
+    return {
+      name,
+      installed: false,
+      version: undefined,
+      hasPermission: true,
+      invocable: false,
+      ready: false,
+    };
+  }),
   syncCLIToolPermissionState: vi.fn(),
 }));
 
 const { toolsCmd } = await import('./tools.js');
 const cliScannerModule = await import('../setup/cli-scanner.js');
+const setupModule = await import('../setup/first-run-wizard.js');
 
 describe('tools agents --json', () => {
   const mockLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -63,8 +76,30 @@ describe('tools agents --json', () => {
 
     const parsed = JSON.parse(output);
     expect(parsed.ok).toBe(true);
-    expect(parsed.agents).toHaveLength(1);
-    expect(parsed.agents[0]).toMatchObject({
+    expect(parsed.agents).toHaveLength(4);
+    expect(parsed.agents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: 'codex',
+        installed: true,
+        invocable: true,
+        ready: false,
+      }),
+    ]));
+    expect(parsed.agents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: 'gemini',
+        installed: false,
+      }),
+      expect.objectContaining({
+        name: 'claude',
+        installed: false,
+      }),
+      expect.objectContaining({
+        name: 'aider',
+        installed: false,
+      }),
+    ]));
+    expect(parsed.agents.find((agent: any) => agent.name === 'codex')).toMatchObject({
       name: 'codex',
       installed: true,
       invocable: true,
@@ -78,7 +113,7 @@ describe('tools agents --json', () => {
     await toolsCmd.parseAsync(['node', 'test', 'agents', '--json', '--sync-config']);
 
     expect(syncSpy).toHaveBeenCalledTimes(1);
-    expect(syncSpy.mock.calls[0]?.[0]).toEqual([
+    expect(syncSpy.mock.calls[0]?.[0]).toEqual(expect.arrayContaining([
       expect.objectContaining({
         name: 'codex',
         installed: true,
@@ -86,7 +121,31 @@ describe('tools agents --json', () => {
         invocable: true,
         ready: false,
       }),
-    ]);
+    ]));
+  });
+
+  it('should still list known agents when external_cli config is empty', async () => {
+    vi.mocked(setupModule.loadConfig).mockReturnValueOnce({
+      external_cli: {},
+    } as any);
+
+    await toolsCmd.parseAsync(['node', 'test', 'agents', '--json']);
+
+    const output = mockLog.mock.calls[0]?.[0];
+    expect(typeof output).toBe('string');
+
+    const parsed = JSON.parse(output);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.agents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: 'codex',
+        installed: true,
+        invocable: true,
+        ready: false,
+        configured_enabled: true,
+        has_permission: true,
+      }),
+    ]));
   });
 
   afterAll(() => {

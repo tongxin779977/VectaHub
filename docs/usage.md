@@ -18,6 +18,12 @@ vectahub version --json
 vectahub run "查看 Git 状态"
 ```
 
+默认会直接执行临时 workflow，不会自动保存到工作流库。需要复用时再显式加 `--save`：
+
+```bash
+vectahub run --save "查看 Git 状态"
+```
+
 从 YAML 或 JSON 文件执行工作流：
 
 ```bash
@@ -172,4 +178,3 @@ vectahub import ./backup --dry-run
 ```
 
 配置和数据目录说明见 [配置手册](./configuration.md)。
-

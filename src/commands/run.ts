@@ -251,13 +251,13 @@ export const runCmd = new Command('run')
 
         workflow = await (await getWorkflowEngine()).createWorkflow(
           `intent_${Date.now()}`,
-          orchestrateSteps
+          orchestrateSteps,
+          { persist: options.save === true }
         );
 
         getLogger().info(`创建工作流，包含 ${orchestrateSteps.length} 个步骤`);
 
         if (options.save) {
-          await getStorage().saveWorkflow(workflow);
           getLogger().info('工作流已保存');
         }
       } else {

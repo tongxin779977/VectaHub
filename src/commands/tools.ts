@@ -12,6 +12,7 @@ import {
 import { npmTool } from '../cli-tools/tools/npm.js';
 import { loadConfig as loadSetupConfig } from '../setup/first-run-wizard.js';
 import { scanSingleTool, syncCLIToolPermissionState } from '../setup/cli-scanner.js';
+import { getBuiltInAgentDescriptors } from './agent-cli-adapter.js';
 
 export const toolsCmd = new Command('tools')
   .description('CLI tools management commands');
@@ -305,7 +306,8 @@ toolsCmd
   .action(async (options) => {
     const appConfig = loadSetupConfig();
     const externalCli = appConfig.external_cli || {};
-    const names = Object.keys(externalCli);
+    const knownNames = getBuiltInAgentDescriptors().map((descriptor) => descriptor.id);
+    const names = Array.from(new Set([...knownNames, ...Object.keys(externalCli)]));
 
     const detectedTools = await Promise.all(names.map(async (name) => {
       const detected = await scanSingleTool(name);
@@ -321,7 +323,7 @@ toolsCmd
     }
 
     const agents = detectedTools.map(({ name, detected }) => {
-      const cfg = externalCli[name] || { enabled: false, has_permission: false };
+      const cfg = externalCli[name] || { enabled: true, has_permission: true };
       return detected ? {
         name,
         installed: detected.installed,

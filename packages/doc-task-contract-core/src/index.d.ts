@@ -9,6 +9,7 @@ export interface ComputeInstructionHashInput {
 }
 
 export interface BuildGlobalConfigDigestInput {
+  provider?: string;
   model?: string;
   temperature?: number;
 }

@@ -420,6 +420,11 @@ export class SecurityProtocolManager {
       lastUpdated: new Date().toISOString(),
       rules: getDefaultRules()
     };
+    this.config.rules = {
+      enabled: [],
+      disabled: [],
+    };
+    this.saveConfig();
     this.saveDatabase();
   }
 }

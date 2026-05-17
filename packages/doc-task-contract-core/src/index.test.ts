@@ -48,8 +48,50 @@ describe('doc-task-contract-core', () => {
   });
 
   it('digest 构造稳定', () => {
-    expect(buildGlobalConfigDigest({ model: 'test', temperature: 0.1 })).toBe('model=test;temperature=0.1');
-    expect(buildGlobalConfigDigest({})).toBe('model=unknown;temperature=default');
+    expect(buildGlobalConfigDigest({ provider: 'openai', model: 'test', temperature: 0.1 })).toBe('provider=openai;model=test;temperature=0.1');
+    expect(buildGlobalConfigDigest({})).toBe('provider=unknown;model=unknown;temperature=default');
+  });
+
+  it('instructionHash 应对 provider 变化敏感', () => {
+    const common = {
+      taskId: 'P2-1',
+      label: '收敛合同',
+      docExcerpt: 'excerpt',
+      tool: 'codex',
+      allowedFiles: ['src/a.ts'],
+      forbiddenFiles: ['.env'],
+      model: 'test',
+      temperature: 0.1,
+    };
+
+    const hashOpenAI = computeInstructionHash({
+      taskId: common.taskId,
+      label: common.label,
+      docExcerpt: common.docExcerpt,
+      tool: common.tool,
+      allowedFiles: common.allowedFiles,
+      forbiddenFiles: common.forbiddenFiles,
+      globalConfigDigest: buildGlobalConfigDigest({
+        provider: 'openai',
+        model: common.model,
+        temperature: common.temperature,
+      }),
+    });
+    const hashAnthropic = computeInstructionHash({
+      taskId: common.taskId,
+      label: common.label,
+      docExcerpt: common.docExcerpt,
+      tool: common.tool,
+      allowedFiles: common.allowedFiles,
+      forbiddenFiles: common.forbiddenFiles,
+      globalConfigDigest: buildGlobalConfigDigest({
+        provider: 'anthropic',
+        model: common.model,
+        temperature: common.temperature,
+      }),
+    });
+
+    expect(hashOpenAI).not.toBe(hashAnthropic);
   });
 
   it('路径和验证命令推导稳定', () => {

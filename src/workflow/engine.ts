@@ -33,8 +33,12 @@ export interface ExecuteOptions {
   initialVariables?: Record<string, unknown>;
 }
 
+export interface CreateWorkflowOptions {
+  persist?: boolean;
+}
+
 export interface WorkflowEngine {
-  createWorkflow(name: string, steps: Step[]): Promise<Workflow>;
+  createWorkflow(name: string, steps: Step[], options?: CreateWorkflowOptions): Promise<Workflow>;
   addStep(workflowId: string, step: Step): Promise<void>;
   removeStep(workflowId: string, stepId: string): Promise<void>;
   getWorkflow(id: string): Promise<Workflow | undefined>;
@@ -378,7 +382,11 @@ export function createWorkflowEngine(): WorkflowEngine {
   }
 
   return {
-    async createWorkflow(name: string, steps: Step[]): Promise<Workflow> {
+    async createWorkflow(
+      name: string,
+      steps: Step[],
+      options: CreateWorkflowOptions = {}
+    ): Promise<Workflow> {
       const workflow: Workflow = {
         id: `wf_${++workflowCounter}`,
         name,
@@ -387,7 +395,9 @@ export function createWorkflowEngine(): WorkflowEngine {
         createdAt: new Date(),
       };
       workflows.set(workflow.id, workflow);
-      await storage.saveWorkflow(workflow);
+      if (options.persist === true) {
+        await storage.saveWorkflow(workflow);
+      }
       return workflow;
     },
 

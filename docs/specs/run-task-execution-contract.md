@@ -88,7 +88,7 @@
 
 - 只构建 `agentTaskContract` 摘要并立即返回
 - 不要求 `--tool`
-- 不加载 LLM
+- 不创建 LLM client，也不发起 LLM 请求
 - 不做 tool help discovery
 - 不执行 Agent
 - 不做仓库副作用
@@ -97,6 +97,7 @@ JSON 语义：
 
 - 保留 `ok`、`command`、`output`、`outputTruncated`、`agentTaskContract`
 - `command` 与 `output` 为空字符串
+- 若传入了 `tool`，实现可返回 `commandGenerationPath` 作为预测执行路径信号；这不表示已经做过 command generation、tool help discovery 或 LLM 调用
 
 ### 3.2 `--dry-run`
 
@@ -106,6 +107,7 @@ JSON 语义：
 - 不执行 Agent
 - 不做仓库副作用
 - 不进入 `verification`
+- 对 `llm-fallback` 工具，可只读取本地 Provider/Model/Temperature 元数据来完成最终 `instructionHash`，但不得创建 LLM client
 
 权威语义以 JSON 输出为准：
 

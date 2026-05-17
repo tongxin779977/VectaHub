@@ -79,7 +79,10 @@ P2 不重写 LLM 解析器，不引入数据库，不引入 worktree 隔离。
 
 当前实现边界：
 - run record 持久化时，CLI 返回的 `agentTaskContract.instructionHash` 是真相源。
+- `run-task --contract-preview` / `--dry-run` 在 `adapter-backed known agents` 上，会使用 `toolName + adapter digest` 直接产出最终 `instructionHash`，且不需要加载 LLM。
+- `run-task --contract-preview` / `--dry-run` 在 `llm-fallback` 工具上，如本地存在可解析的 Provider/Model/Temperature 元数据，也会直接产出最终 `instructionHash`，且不会创建 LLM client。
 - 插件侧不得用 guessed `globalConfigDigest`、文档头部片段或 `docContent.slice(0, 8000)` 生成权威 hash。
+- 如果预览阶段无法从本地配置或环境变量解析出 authoritative `globalConfigDigest`，则预览哈希仍不能替代运行态 authoritative hash。
 - 在插件无法获得与 CLI 等价的 authoritative `globalConfigDigest` 时，恢复 hash guard 应保守阻断，状态刷新应跳过 drift reset，避免误判。
 - 共享纯函数已经落地；完整闭环仍依赖后续更完整的运行态 authoritative digest 来源。
 

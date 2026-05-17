@@ -16,6 +16,7 @@ vi.mock('node:child_process', async (importOriginal) => {
 
 vi.mock('../nl/llm.js', () => ({
   createLLMConfig: vi.fn(() => ({ provider: 'openai', model: 'test', apiKey: 'test', baseUrl: 'http://localhost' })),
+  createLLMConfigDigestSource: vi.fn(() => ({ provider: 'openai', model: 'test', temperature: 0.1 })),
   LLMClient: class MockLLMClient {
     async completeRaw() {
       return '{"command": "aider", "args": ["--message", "test"], "explanation": "test command"}';
@@ -89,7 +90,7 @@ vi.mock('../utils/logger.js', () => ({
 }));
 
 import { runTask, collectGitChanges, formatRunTaskJson, runVerificationCommands, splitCommandArgs, buildDefaultPrompt, type RunTaskResult } from './run-task.js';
-import { createLLMConfig } from '../nl/llm.js';
+import { createLLMConfig, createLLMConfigDigestSource } from '../nl/llm.js';
 import { execFile, spawn } from 'node:child_process';
 import type { AgentTaskContract } from '../types/doc-task.js';
 import { getAgentDescriptorById } from './agent-cli-adapter.js';
@@ -244,6 +245,145 @@ describe('runTask', () => {
       expect(createLLMConfig).not.toHaveBeenCalled();
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should finalize contract preview hash for adapter-backed known tool without loading LLM', async () => {
+    const llmModule = await import('../nl/llm.js');
+    const llmSpy = vi.spyOn(llmModule, 'createLLMConfig');
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'P2-4A',
+        taskLabel: '合同预览 codex',
+        doc: '/path/to/doc.md',
+        contractPreview: true,
+      });
+      const json = formatRunTaskJson(result);
+
+      expect(result.success).toBe(true);
+      expect(result.commandGenerationPath).toBe('adapter');
+      expect(result.agentTaskContract?.globalConfigDigest).toBe('adapter=codex');
+      expect(result.agentTaskContract?.instructionHash).toBe(computeInstructionHash(
+        'P2-4A',
+        '合同预览 codex',
+        '',
+        'codex',
+        result.agentTaskContract?.allowedFiles,
+        result.agentTaskContract?.forbiddenFiles,
+        'adapter=codex',
+      ));
+      expect(json.commandGenerationPath).toBe('adapter');
+      expect(createLLMConfig).not.toHaveBeenCalled();
+    } finally {
+      llmSpy.mockRestore();
+    }
+  });
+
+  it('should finalize llm-fallback contract-preview hash from local config metadata without loading runnable LLM config', async () => {
+    const llmModule = await import('../nl/llm.js');
+    const llmSpy = vi.spyOn(llmModule, 'createLLMConfig');
+    const digestSpy = vi.spyOn(llmModule, 'createLLMConfigDigestSource');
+
+    try {
+      const result = await runTask({
+        tool: 'unknown-cli',
+        taskId: 'P2-4B-Preview',
+        taskLabel: '合同预览 fallback',
+        doc: '/path/to/doc.md',
+        contractPreview: true,
+      });
+      const json = formatRunTaskJson(result);
+
+      const expectedDigest = 'provider=openai;model=test;temperature=0.1';
+      expect(result.success).toBe(true);
+      expect(result.commandGenerationPath).toBe('llm-fallback');
+      expect(result.agentTaskContract?.globalConfigDigest).toBe(expectedDigest);
+      expect(result.agentTaskContract?.instructionHash).toBe(computeInstructionHash(
+        'P2-4B-Preview',
+        '合同预览 fallback',
+        '',
+        'unknown-cli',
+        result.agentTaskContract?.allowedFiles,
+        result.agentTaskContract?.forbiddenFiles,
+        expectedDigest,
+      ));
+      expect(json.commandGenerationPath).toBe('llm-fallback');
+      expect(createLLMConfig).not.toHaveBeenCalled();
+      expect(createLLMConfigDigestSource).toHaveBeenCalled();
+      expect(digestSpy).toHaveBeenCalled();
+    } finally {
+      llmSpy.mockRestore();
+      digestSpy.mockRestore();
+    }
+  });
+
+  it('should keep contract-preview deterministic when llm-fallback digest source is unavailable', async () => {
+    const llmModule = await import('../nl/llm.js');
+    const llmSpy = vi.spyOn(llmModule, 'createLLMConfig');
+    vi.mocked(createLLMConfigDigestSource).mockReturnValueOnce(null);
+
+    try {
+      const result = await runTask({
+        tool: 'unknown-cli',
+        taskId: 'P2-4B-Preview-NoDigest',
+        taskLabel: '合同预览 fallback no digest',
+        doc: '/path/to/doc.md',
+        contractPreview: true,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.commandGenerationPath).toBe('llm-fallback');
+      expect(result.agentTaskContract?.globalConfigDigest).toBeUndefined();
+      expect(result.agentTaskContract?.instructionHash).toBe(computeInstructionHash(
+        'P2-4B-Preview-NoDigest',
+        '合同预览 fallback no digest',
+        '',
+        'unknown-cli',
+        result.agentTaskContract?.allowedFiles,
+        result.agentTaskContract?.forbiddenFiles,
+        undefined,
+      ));
+      expect(createLLMConfig).not.toHaveBeenCalled();
+    } finally {
+      llmSpy.mockRestore();
+    }
+  });
+
+  it('should finalize llm-fallback dry-run hash from local config metadata without loading runnable LLM config', async () => {
+    const llmModule = await import('../nl/llm.js');
+    const llmSpy = vi.spyOn(llmModule, 'createLLMConfig');
+    const digestSpy = vi.spyOn(llmModule, 'createLLMConfigDigestSource');
+
+    try {
+      const result = await runTask({
+        tool: 'unknown-cli',
+        taskId: 'P2-4B',
+        taskLabel: '合同预览 fallback',
+        doc: '/path/to/doc.md',
+        dryRun: true,
+      });
+
+      const expectedDigest = 'provider=openai;model=test;temperature=0.1';
+      expect(result.success).toBe(true);
+      expect(result.commandGenerationPath).toBe('llm-fallback');
+      expect(result.agentTaskContract?.globalConfigDigest).toBe(expectedDigest);
+      expect(result.agentTaskContract?.instructionHash).toBe(computeInstructionHash(
+        'P2-4B',
+        '合同预览 fallback',
+        '',
+        'unknown-cli',
+        result.agentTaskContract?.allowedFiles,
+        result.agentTaskContract?.forbiddenFiles,
+        expectedDigest,
+      ));
+      expect(createLLMConfig).not.toHaveBeenCalled();
+      expect(createLLMConfigDigestSource).toHaveBeenCalled();
+      expect(digestSpy).toHaveBeenCalled();
+    } finally {
+      llmSpy.mockRestore();
+      digestSpy.mockRestore();
     }
   });
 
@@ -720,6 +860,16 @@ describe('runTask', () => {
       expect(result.command).toContain('--sandbox workspace-write');
       expect(result.commandGenerationPath).toBe('adapter');
       expect(result.fallbackUsed).toBe(false);
+      expect(result.agentTaskContract?.globalConfigDigest).toBe('adapter=codex');
+      expect(result.agentTaskContract?.instructionHash).toBe(computeInstructionHash(
+        'P2-7',
+        'adapter path codex',
+        '',
+        'codex',
+        result.agentTaskContract?.allowedFiles,
+        result.agentTaskContract?.forbiddenFiles,
+        'adapter=codex',
+      ));
       expect(llmSpy).not.toHaveBeenCalled();
       expect(toolCacheManager.discoverToolHelp).not.toHaveBeenCalled();
     } finally {
@@ -1575,8 +1725,12 @@ describe('runTask', () => {
       expect(result.commandGenerationPath).toBe('llm-fallback');
       expect(capturedVars).toBeDefined();
       const contractPayload = JSON.parse(capturedVars!.agentTaskContract) as { instructionHash: string };
-      const summaryPayload = JSON.parse(capturedVars!.agentTaskContractSummary) as { instructionHash: string };
+      const summaryPayload = JSON.parse(capturedVars!.agentTaskContractSummary) as {
+        instructionHash: string;
+        globalConfigDigest?: string;
+      };
       expect(contractPayload.instructionHash).toBe(summaryPayload.instructionHash);
+      expect(summaryPayload.globalConfigDigest).toContain('provider=openai;');
       const initialHash = computeInstructionHash(
         'P2-11H',
         'llm hash consistency',
