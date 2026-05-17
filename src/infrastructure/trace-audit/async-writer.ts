@@ -3,7 +3,6 @@
  * Async Log Writer - Implements buffering and async flush mechanism
  */
 
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import { existsSync, mkdirSync, appendFileSync } from 'node:fs';
 import { getLogger } from '../../utils/logger.js';
@@ -119,9 +118,10 @@ export class AsyncLogWriter {
     }
 
     this.isFlushing = true;
+    let itemsToFlush: WriteQueueItem[] = [];
 
     try {
-      const itemsToFlush = [...this.queue];
+      itemsToFlush = [...this.queue];
       this.queue = [];
 
       const logFile = this.getLogFilePath();
@@ -137,13 +137,11 @@ export class AsyncLogWriter {
     } catch (error) {
       const err = error as Error;
       logger.error('刷盘失败: ' + err.message);
-      
-      // 将失败的数据重新放回队列头部
-      const failedItems = this.queue;
-      this.queue = [...failedItems, ...this.queue];
-      
-      // 通知所有等待的写入操作失败
-      failedItems.forEach((item) => item.reject(err));
+
+      // 将失败的数据重新放回队列头部，保证不丢当前批次
+      this.queue = [...itemsToFlush, ...this.queue];
+
+      throw err;
     } finally {
       this.isFlushing = false;
     }
@@ -171,9 +169,6 @@ export class AsyncLogWriter {
 
   /** 销毁写入器 */
   async destroy(): Promise<void> {
-    this.isDestroyed = true;
-    AsyncLogWriter.activeWriters.delete(this);
-    
     if (this.flushTimer) {
       clearInterval(this.flushTimer);
       this.flushTimer = null;
@@ -181,6 +176,9 @@ export class AsyncLogWriter {
 
     // 刷盘剩余数据
     await this.flush();
+
+    this.isDestroyed = true;
+    AsyncLogWriter.activeWriters.delete(this);
   }
 }
 

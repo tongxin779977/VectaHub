@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { createNLProcessor } from './pipeline.js';
+import { LLMClient } from '../llm.js';
 
 const mockLLMConfig = {
   apiKey: 'test-key',
@@ -10,6 +11,10 @@ const mockLLMConfig = {
 };
 
 describe('NLProcessor', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   describe('createNLProcessor', () => {
     it('should throw if llmConfig is missing', () => {
       expect(() => createNLProcessor({ llmConfig: null as any })).toThrow();
@@ -81,6 +86,52 @@ describe('NLProcessor', () => {
     it('should throw when LLM call fails', async () => {
       const processor = createNLProcessor({ llmConfig: mockLLMConfig });
       await expect(processor.parse({ input: 'test input' })).rejects.toThrow();
+    });
+
+    it('should preserve quoted args when parsing workflow command text', async () => {
+      vi.spyOn(LLMClient.prototype, 'complete').mockResolvedValue({
+        intent: 'RUN_SCRIPT',
+        confidence: 0.9,
+        params: {},
+        workflow: {
+          name: 'quoted-args',
+          steps: [{
+            type: 'exec',
+            cli: 'git commit -m "fix bug with spaces"',
+          }],
+        },
+      } as any);
+
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig });
+      const result = await processor.parse({ input: 'commit with message' });
+      const command = result.taskList?.tasks[0]?.commands[0];
+
+      expect(command?.cli).toBe('git');
+      expect(command?.args).toEqual(['commit', '-m', 'fix bug with spaces']);
+    });
+
+    it('should preserve cli subcommand from tool_call through taskList', async () => {
+      vi.spyOn(LLMClient.prototype, 'complete').mockResolvedValue({
+        intent: 'UNKNOWN',
+        confidence: 0.92,
+        params: {},
+        workflow: { name: '', steps: [] },
+        tool_calls: [{
+          id: 'call_git_commit',
+          type: 'function',
+          function: {
+            name: 'cli_git_commit',
+            arguments: JSON.stringify({ args: '-m "fix bug"' }),
+          },
+        }],
+      } as any);
+
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig });
+      const result = await processor.parse({ input: 'commit changes' });
+      const command = result.taskList?.tasks[0]?.commands[0];
+
+      expect(command?.cli).toBe('git');
+      expect(command?.args).toEqual(['commit', '-m', 'fix bug']);
     });
   });
 });

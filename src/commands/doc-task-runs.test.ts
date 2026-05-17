@@ -123,4 +123,18 @@ describe('doc-task-runs command', () => {
     expect(listWhenDirMissing.runs).toEqual([]);
     expect(listWhenDirMissing.hasMore).toBe(false);
   });
+
+  it('uses UTC date window to include newest UTC-named file around local-date rollover', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-05-16T00:30:00.000+14:00'));
+      const storeDir = createStore(tempHome, projectRoot);
+      writeFileSync(join(storeDir, 'runs-2026-05-15.jsonl'), JSON.stringify({ runId: 'run-utc-latest', status: 'success' }));
+
+      const result = listRecentRuns({ project: projectRoot });
+      expect(result.runs.map(r => r.runId)).toContain('run-utc-latest');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

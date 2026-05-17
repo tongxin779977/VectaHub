@@ -2,6 +2,7 @@ import type { NLProcessor, NLContext, NLResult } from './types.js';
 import type { IntentName } from '../../types/index.js';
 import YAML from 'yaml';
 import { getLogger } from '../../utils/logger.js';
+import { splitPosixArgs } from '../../utils/shell.js';
 import { LLMClient, createLLMConfig, type LLMConfig } from '../llm.js';
 import { buildAllTools, convertToolCallToSteps } from '../tool-calling.js';
 import { createSemanticDetector } from '../../sandbox/semantic-detector.js';
@@ -147,7 +148,7 @@ function createTaskListFromWorkflow(workflowYAML: string, userInput: string): NL
             const commandText = step.cli ?? step.exec ?? step.command;
             if (!commandText) return null;
 
-            const [cli, ...splitArgs] = commandText.split(/\s+/).filter(Boolean);
+            const [cli, ...splitArgs] = splitPosixArgs(commandText);
             const args = step.args ?? splitArgs;
 
             return {

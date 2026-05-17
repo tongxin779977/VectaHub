@@ -565,7 +565,8 @@ describe('LLM Workflow Regression Tests', () => {
       const result = convertToolCallToSteps(toolCall);
 
       expect(result).not.toBeNull();
-      expect(result!.steps[0].cli).toBe('npm install');
+      expect(result!.steps[0].cli).toBe('npm');
+      expect(result!.steps[0].args).toEqual(['install', '--save', 'lodash']);
     });
 
     it('should handle doctor intent', () => {

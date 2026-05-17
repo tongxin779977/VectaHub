@@ -15,6 +15,7 @@ import { getSecurityManager } from '../security-protocol/manager.js';
 import { audit } from '../infrastructure/audit/index.js';
 import { createChildEnv, getTraceContextFromEnv, startSpan, withSpan } from '../infrastructure/trace/index.js';
 import { deriveAgentTaskBoundary, deriveDocExcerpt, computeInstructionHash } from './agent-task-contract.js';
+import { buildGlobalConfigDigest } from '@vectahub/doc-task-contract-core';
 import type { AgentTaskContract } from '../types/doc-task.js';
 import { splitPosixArgs } from '../utils/shell.js';
 import { createRedactor } from '../security-protocol/redactor.js';
@@ -195,10 +196,6 @@ export interface RunTaskJsonResult {
   commandGenerationPath?: 'adapter' | 'llm-fallback';
   fallbackUsed?: boolean;
   agentExecutionOutcome?: 'implemented' | 'planned_only';
-  error?: string | {
-    code: string;
-    message: string;
-  };
   agentTaskContract?: AgentTaskContractSummary;
   gitChanges?: {
     shortStat: string;
@@ -212,6 +209,10 @@ export interface RunTaskJsonResult {
   unclosedExecution?: boolean;
   completionSignal?: SpawnCompletionSignal;
   recoveryDecision?: RunTaskRecoveryDecisionSummary;
+  error?: string | {
+    code: string;
+    message: string;
+  };
 }
 
 export interface RunTaskRecoveryDecisionSummary {
@@ -230,12 +231,6 @@ export interface AgentTaskContractSummary {
   excerptStrategy: 'task-heading' | 'task-id-window' | 'label-window' | 'head-fallback' | 'none';
   instructionHash: string;
   globalConfigDigest?: string;
-}
-
-function buildGlobalConfigDigest(input: { model?: string; temperature?: number }): string {
-  const model = (input.model || '').trim() || 'unknown';
-  const temperature = Number.isFinite(input.temperature) ? String(input.temperature) : 'default';
-  return `model=${model};temperature=${temperature}`;
 }
 
 export interface VerificationCommandResult {
@@ -604,9 +599,18 @@ async function buildAgentTaskContract(input: {
   const executionMode: AgentTaskContract['executionMode'] = boundary.parallelEligible
     ? 'parallel-eligible'
     : 'serial';
+  const instructionHash = computeInstructionHash(
+    input.taskId,
+    input.label,
+    docExcerpt,
+    undefined, // tool is not available at contract build time
+    boundary.allowedFiles,
+    boundary.forbiddenFiles,
+  );
   const contract: AgentTaskContract = {
     taskId: input.taskId,
     label: input.label,
+    instructionHash,
     docPath: input.docPath,
     docExcerpt,
     allowedFiles: boundary.allowedFiles,
@@ -625,12 +629,7 @@ async function buildAgentTaskContract(input: {
     executionMode: contract.executionMode,
     docExcerptTruncated,
     excerptStrategy,
-    instructionHash: computeInstructionHash(
-      input.taskId, input.label, docExcerpt,
-      undefined, // tool is not available at contract build time
-      boundary.allowedFiles,
-      boundary.forbiddenFiles,
-    ),
+    instructionHash: contract.instructionHash,
   };
 
   return { ...contract, summary };
@@ -1231,6 +1230,12 @@ export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
     outputTruncated: displayOutput.truncated,
     displayOutput: displayOutput.output,
   };
+  if (result.error) {
+    jsonResult.error = {
+      code: result.error.code,
+      message: result.error.message,
+    };
+  }
   if (result.commandGenerationPath) {
     jsonResult.commandGenerationPath = result.commandGenerationPath;
   }
@@ -1240,7 +1245,6 @@ export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
   if (result.agentExecutionOutcome) {
     jsonResult.agentExecutionOutcome = result.agentExecutionOutcome;
   }
-
   if (result.gitChanges) {
     jsonResult.gitChanges = {
       shortStat: result.gitChanges.shortStat,
@@ -1271,12 +1275,6 @@ export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
   }
   if (result.recoveryDecision) {
     jsonResult.recoveryDecision = result.recoveryDecision;
-  }
-  if (result.error) {
-    jsonResult.error = {
-      code: result.error.code,
-      message: result.error.message,
-    };
   }
 
   return jsonResult;
@@ -1318,7 +1316,6 @@ export async function runTask(options: {
       throw error;
     }
     const agentTaskContractSummary = agentTaskContract.summary;
-    const { summary: _summary, ...agentTaskContractForPrompt } = agentTaskContract;
     await contractSpan.end({
       contractBoundaryConfidence: agentTaskContractSummary.boundaryConfidence,
       contractAllowedFileCount: agentTaskContractSummary.allowedFiles.length,
@@ -1391,7 +1388,7 @@ export async function runTask(options: {
       };
       const globalConfigDigest = `adapter=${knownAgentDescriptor.id}`;
       agentTaskContractSummary.globalConfigDigest = globalConfigDigest;
-      agentTaskContractSummary.instructionHash = computeInstructionHash(
+      agentTaskContract.instructionHash = computeInstructionHash(
         taskId,
         label,
         agentTaskContract.docExcerpt || '',
@@ -1400,6 +1397,7 @@ export async function runTask(options: {
         agentTaskContract.forbiddenFiles,
         globalConfigDigest,
       );
+      agentTaskContractSummary.instructionHash = agentTaskContract.instructionHash;
     } else {
       const llmConfig = await withSpan('cli.run-task.loadLlmConfig', async () => {
         const config = createLLMConfig();
@@ -1415,7 +1413,7 @@ export async function runTask(options: {
         temperature: Number.isFinite(llmTemperature) ? llmTemperature : 0.1,
       });
       agentTaskContractSummary.globalConfigDigest = globalConfigDigest;
-      agentTaskContractSummary.instructionHash = computeInstructionHash(
+      agentTaskContract.instructionHash = computeInstructionHash(
         taskId,
         label,
         agentTaskContract.docExcerpt || '',
@@ -1424,6 +1422,7 @@ export async function runTask(options: {
         agentTaskContract.forbiddenFiles,
         globalConfigDigest,
       );
+      agentTaskContractSummary.instructionHash = agentTaskContract.instructionHash;
 
       const cacheManager = getToolCacheManager();
       const discoverSpan = startSpan('cli.run-task.discoverToolHelp', {
@@ -1450,9 +1449,10 @@ export async function runTask(options: {
           commandGenerationPath,
         },
       });
-      let rawOutput = '';
+      const { summary: _summary, ...agentTaskContractForPrompt } = agentTaskContract;
+      let rawOutput: string;
       try {
-        rawOutput = await client.completeRaw(AGENT_CMD_GENERATOR_ID, `任务 ${taskId}: ${label}，请基于工具用法和任务边界合同生成执行命令。`, {
+        const llmOutput = await client.completeRaw(AGENT_CMD_GENERATOR_ID, `任务 ${taskId}: ${label}，请基于工具用法和任务边界合同生成执行命令。`, {
           toolName: tool,
           helpOutput: cacheEntry.helpOutput,
           taskId,
@@ -1461,6 +1461,7 @@ export async function runTask(options: {
           agentTaskContract: JSON.stringify(agentTaskContractForPrompt),
           agentTaskContractSummary: JSON.stringify(agentTaskContractSummary),
         });
+        rawOutput = llmOutput;
       } catch (error) {
         await generateSpan.fail(error, { fallbackUsed: false, command: '' });
         throw error;

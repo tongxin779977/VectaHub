@@ -52,4 +52,23 @@ describe('ParallelExecutor', () => {
     const result = await executor.execute(steps);
     expect(result.success).toBe(false);
   });
+
+  it('should fail fast on missing dependency target', async () => {
+    const executor = createParallelExecutor({ maxWorkers: 2 });
+    const steps: Step[] = [
+      { id: 'step1', type: 'exec', cli: 'echo', args: ['hello'], dependsOn: ['missing'] },
+    ];
+
+    await expect(executor.execute(steps)).rejects.toThrow('Missing dependency target');
+  });
+
+  it('should fail fast on cyclic dependencies', async () => {
+    const executor = createParallelExecutor({ maxWorkers: 2 });
+    const steps: Step[] = [
+      { id: 'step1', type: 'exec', cli: 'echo', args: ['1'], dependsOn: ['step2'] },
+      { id: 'step2', type: 'exec', cli: 'echo', args: ['2'], dependsOn: ['step1'] },
+    ];
+
+    await expect(executor.execute(steps)).rejects.toThrow('Cyclic dependency');
+  });
 });

@@ -96,6 +96,26 @@ describe('CLI Module', () => {
 
     expect(normalizeStderr(result.stderr)).toBe('');
     expect(result.code).toBe(0);
+    expect(result.stdout).toContain('status');
+    expect(result.stdout).toContain('validate');
+  });
+
+  it('should execute a dev subcommand without duplicate registration error', async () => {
+    const result = await runCli(['dev', 'validate']);
+
+    const normalizedStderr = normalizeStderr(result.stderr);
+    expect(normalizedStderr).not.toContain("cannot add command 'dev' as already have command 'dev'");
+    expect(normalizedStderr).not.toContain('加载命令 dev 失败');
+    expect(result.stdout).toContain('Validating module interfaces');
+  });
+
+  it('should display real subcommands for lazy trace help', async () => {
+    const result = await runCli(['trace', '--help']);
+
+    expect(normalizeStderr(result.stderr)).toBe('');
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('list');
+    expect(result.stdout).toContain('show');
   });
 
   it('should have core commands registered on --help', async () => {

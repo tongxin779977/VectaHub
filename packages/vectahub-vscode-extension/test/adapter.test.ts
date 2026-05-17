@@ -68,27 +68,49 @@ describe('parseCliJsonOutput', () => {
   });
 });
 
-describe('run-task display output compatibility', () => {
-  it('should preserve new displayOutput field from CLI JSON', () => {
-    const result = parseCliJsonOutput<{ ok: boolean; output: string; displayOutput?: string }>(
-      '{"ok":true,"output":"legacy output","displayOutput":"clean summary"}'
+describe('run-task diagnostics compatibility', () => {
+  it('should preserve diagnostics field from CLI JSON', () => {
+    const result = parseCliJsonOutput<{ ok: boolean; output: string; diagnostics?: { failureKind?: string } }>(
+      '{"ok":true,"output":"clean summary","diagnostics":{"failureKind":"timeout"}}'
     );
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.data.displayOutput).toBe('clean summary');
-      expect(result.data.output).toBe('legacy output');
+      expect(result.data.output).toBe('clean summary');
+      expect(result.data.diagnostics?.failureKind).toBe('timeout');
     }
   });
 
-  it('should keep failure semantics parsing unchanged when displayOutput exists', () => {
+  it('should keep failure semantics parsing unchanged when diagnostics exists', () => {
     const semantics = resolveRunTaskExecutionSemantics({
       ok: false,
       data: {
-        failureKind: 'timeout',
+        diagnostics: {
+          failureKind: 'timeout',
+          unclosedExecution: true,
+          gitChanges: { changedFiles: ['src/a.ts'] },
+          verification: undefined,
+        },
+      },
+    });
+    const failureKind = resolveRunTaskFailureKind({
+      data: {
+        diagnostics: {
+          failureKind: 'timeout',
+        },
+      },
+    });
+
+    expect(semantics.unclosedExecution).toBe(true);
+    expect(failureKind).toBe('timeout');
+  });
+
+  it('should keep fallback compatibility for legacy top-level fields', () => {
+    const semantics = resolveRunTaskExecutionSemantics({
+      ok: false,
+      data: {
         unclosedExecution: true,
         gitChanges: { changedFiles: ['src/a.ts'] },
-        verification: undefined,
       },
     });
     const failureKind = resolveRunTaskFailureKind({

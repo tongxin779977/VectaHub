@@ -4,6 +4,19 @@ export type ConfirmationSource = 'preflight' | 'post-execution';
 export type RiskEnforcement = 'blocked' | 'confirm_required';
 
 export interface RunTaskResultLike {
+  diagnostics?: {
+    failureKind?: string;
+    riskAssessment?: {
+      needsConfirmation?: boolean;
+      confirmationSource?: string;
+      enforcement?: string;
+    };
+    gitChanges?: {
+      changedFiles?: string[];
+    };
+    verification?: unknown;
+    unclosedExecution?: boolean;
+  };
   failureKind?: string;
   riskAssessment?: {
     needsConfirmation?: boolean;
@@ -42,16 +55,17 @@ export function resolveRunTaskExecutionSemantics(input: {
   ok: boolean;
   data?: RunTaskResultLike;
 }): RunTaskExecutionSemantics {
-  const enforcement = toRiskEnforcement(input.data?.riskAssessment?.enforcement);
+  const diagnostics = input.data?.diagnostics;
+  const enforcement = toRiskEnforcement(diagnostics?.riskAssessment?.enforcement || input.data?.riskAssessment?.enforcement);
   const needsConfirmation = enforcement
     ? enforcement === 'confirm_required'
-    : input.data?.riskAssessment?.needsConfirmation === true;
+    : (diagnostics?.riskAssessment?.needsConfirmation === true || input.data?.riskAssessment?.needsConfirmation === true);
   const confirmationSource = needsConfirmation
-    ? toConfirmationSource(input.data?.riskAssessment?.confirmationSource)
+    ? toConfirmationSource(diagnostics?.riskAssessment?.confirmationSource || input.data?.riskAssessment?.confirmationSource)
     : undefined;
-  const changedFileCount = input.data?.gitChanges?.changedFiles?.length ?? 0;
-  const hasVerification = input.data?.verification !== undefined;
-  const unclosedExecution = input.data?.unclosedExecution === true
+  const changedFileCount = diagnostics?.gitChanges?.changedFiles?.length ?? input.data?.gitChanges?.changedFiles?.length ?? 0;
+  const hasVerification = diagnostics?.verification !== undefined || input.data?.verification !== undefined;
+  const unclosedExecution = diagnostics?.unclosedExecution === true || input.data?.unclosedExecution === true
     ? true
     : input.ok === false && changedFileCount > 0 && !hasVerification;
 
@@ -66,8 +80,9 @@ export function resolveRunTaskExecutionSemantics(input: {
 export function resolveRunTaskFailureKind(input: {
   data?: RunTaskResultLike;
 }): DocTaskFailureKind | undefined {
-  if (!input.data?.failureKind) {
+  const failureKind = input.data?.diagnostics?.failureKind || input.data?.failureKind;
+  if (!failureKind) {
     return undefined;
   }
-  return input.data.failureKind as DocTaskFailureKind;
+  return failureKind as DocTaskFailureKind;
 }

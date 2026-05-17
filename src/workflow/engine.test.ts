@@ -2,13 +2,31 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createWorkflowEngine, type WorkflowEngine } from './engine.js';
 import type { Step, ExecutionRecord } from '../types/index.js';
 
-let shouldFail = false;
-
 const mockSave = vi.fn().mockResolvedValue(undefined);
 const mockGet = vi.fn().mockResolvedValue(undefined);
 const mockList = vi.fn().mockResolvedValue([]);
 const mockSaveWorkflow = vi.fn().mockResolvedValue(undefined);
 const mockListWorkflows = vi.fn().mockResolvedValue([]);
+const mockState = vi.hoisted(() => {
+  let shouldFail = false;
+  const mockExecuteStep = vi.fn().mockImplementation(async (step, options) => {
+    if (options?.dryRun) {
+      return { stepId: step.id, status: 'COMPLETED' as const, output: ['[DRY RUN] echo hello'], duration: 0 };
+    }
+    await new Promise(resolve => setTimeout(resolve, 10));
+    if (shouldFail) {
+      shouldFail = false;
+      return { stepId: step.id, status: 'FAILED' as const, output: [], duration: 10, error: 'killed' };
+    }
+    return { stepId: step.id, status: 'COMPLETED' as const, output: ['done'], duration: 10 };
+  });
+
+  return {
+    mockExecuteStep,
+    resetShouldFail: () => { shouldFail = false; },
+    triggerFail: () => { shouldFail = true; },
+  };
+});
 
 vi.mock('./storage.js', () => ({
   createStorage: () => ({
@@ -26,20 +44,10 @@ vi.mock('./storage.js', () => ({
 vi.mock('./executor.js', () => ({
   createExecutor: vi.fn().mockReturnValue({
     exec: vi.fn().mockResolvedValue({ success: true, exitCode: 0, stdout: '', stderr: '', duration: 0 }),
-    execute: vi.fn().mockImplementation(async (step, options) => {
-      if (options?.dryRun) {
-        return { stepId: step.id, status: 'COMPLETED' as const, output: ['[DRY RUN] echo hello'], duration: 0 };
-      }
-      await new Promise(resolve => setTimeout(resolve, 10));
-      if (shouldFail) {
-        shouldFail = false;
-        return { stepId: step.id, status: 'FAILED' as const, output: [], duration: 10, error: 'killed' };
-      }
-      return { stepId: step.id, status: 'COMPLETED' as const, output: ['done'], duration: 10 };
-    }),
+    execute: mockState.mockExecuteStep,
     executeWorkflow: vi.fn().mockResolvedValue([]),
     validateStep: vi.fn().mockReturnValue({ valid: true, errors: [] }),
-    killCurrentProcess: vi.fn().mockImplementation(() => { shouldFail = true; }),
+    killCurrentProcess: vi.fn().mockImplementation(() => { mockState.triggerFail(); }),
   }),
 }));
 
@@ -64,7 +72,8 @@ describe('WorkflowEngine', () => {
     mockList.mockResolvedValue([]);
     mockSaveWorkflow.mockResolvedValue(undefined);
     mockListWorkflows.mockResolvedValue([]);
-    shouldFail = false;
+    mockState.mockExecuteStep.mockClear();
+    mockState.resetShouldFail();
     engine = await createWorkflowEngine();
   });
 
@@ -129,11 +138,10 @@ describe('WorkflowEngine', () => {
     ];
     const workflow = await engine.createWorkflow('test-workflow', steps);
 
-    let pauseCalled = false;
     const executionPromise = engine.execute(workflow);
 
     setTimeout(() => {
-      pauseCalled = engine.pause();
+      engine.pause();
     }, 20);
 
     const result = await executionPromise;
@@ -232,10 +240,29 @@ describe('WorkflowEngine', () => {
       expect(result.steps[1].stepId).toBe('step2');
       expect(result.steps[2].stepId).toBe('step3');
     });
+
+    it('should fail fast on missing dependency target', async () => {
+      const steps: Step[] = [
+        { id: 'step1', type: 'exec', cli: 'echo', args: ['first'], dependsOn: ['missing'] },
+      ];
+      const workflow = await engine.createWorkflow('missing-dependency', steps);
+
+      await expect(engine.execute(workflow)).rejects.toThrow('Missing dependency target');
+    });
+
+    it('should fail fast on cyclic dependency in relaxed mode', async () => {
+      const steps: Step[] = [
+        { id: 'step1', type: 'exec', cli: 'echo', args: ['1'], dependsOn: ['step2'] },
+        { id: 'step2', type: 'exec', cli: 'echo', args: ['2'], dependsOn: ['step1'] },
+      ];
+      const workflow = await engine.createWorkflow('cycle-dependency', steps);
+
+      await expect(engine.execute(workflow)).rejects.toThrow('Cyclic dependency');
+    });
   });
 
   describe('resumeFromFailure', () => {
-    it('should resume from failed step and execute remaining steps', async () => {
+    it('should resume from failed step and re-execute it', async () => {
       const steps: Step[] = [
         { id: 's1', type: 'exec', cli: 'echo', args: ['first'] },
         { id: 's2', type: 'exec', cli: 'echo', args: ['second'] },
@@ -266,6 +293,8 @@ describe('WorkflowEngine', () => {
       expect(result.steps[0].stepId).toBe('s1');
       expect(result.steps[1].stepId).toBe('s2');
       expect(result.steps[2].stepId).toBe('s3');
+      expect(result.steps.filter(step => step.stepId === 's2')).toHaveLength(1);
+      expect(result.steps[1].status).toBe('COMPLETED');
     });
 
     it('should preserve previousOutputs from earlier steps', async () => {
@@ -295,6 +324,43 @@ describe('WorkflowEngine', () => {
       const result = await engine.resumeFromFailure('exec_2', -1);
       expect(result.status).toBe('COMPLETED');
       expect(result.steps.length).toBe(3);
+      expect(result.steps[0].stepId).toBe('s1');
+      expect(result.steps[0].status).toBe('COMPLETED');
+      expect(result.steps[1].stepId).toBe('s2');
+      expect(result.steps[1].status).toBe('COMPLETED');
+    });
+
+    it('should allow resumed steps to depend on already completed steps in sorted execution order', async () => {
+      const steps: Step[] = [
+        { id: 's3', type: 'exec', cli: 'echo', args: ['third'], dependsOn: ['s2'] },
+        { id: 's1', type: 'exec', cli: 'echo', args: ['first'], outputVar: 'artifact' },
+        { id: 's2', type: 'exec', cli: 'echo', args: ['${artifact}'], dependsOn: ['s1'] },
+      ];
+      const workflow = await engine.createWorkflow('resume-deps', steps);
+
+      const previousExecution: ExecutionRecord = {
+        executionId: 'exec_dep',
+        workflowId: workflow.id,
+        workflowName: 'resume-deps',
+        status: 'FAILED',
+        mode: 'relaxed',
+        startedAt: new Date(),
+        steps: [
+          { stepId: 's1', status: 'COMPLETED', output: ['seed-output'] },
+          { stepId: 's2', status: 'FAILED', error: 'killed' },
+        ],
+        warnings: ['Step 2 failed: killed'],
+        logs: [],
+      };
+      mockGet.mockResolvedValue(previousExecution);
+
+      const result = await engine.resumeFromFailure('exec_dep', -1);
+      expect(result.status).toBe('COMPLETED');
+      expect(result.steps.map(step => step.stepId)).toEqual(['s1', 's2', 's3']);
+      expect(mockState.mockExecuteStep).toHaveBeenCalledTimes(2);
+      expect(mockState.mockExecuteStep.mock.calls[0]?.[0].id).toBe('s2');
+      expect(mockState.mockExecuteStep.mock.calls[0]?.[0].args).toEqual(['seed-output']);
+      expect(mockState.mockExecuteStep.mock.calls[1]?.[0].id).toBe('s3');
     });
 
     it('should throw when execution not found', async () => {
@@ -322,7 +388,7 @@ describe('WorkflowEngine', () => {
       await expect(engine.resumeFromFailure('exec_3', -1)).rejects.toThrow('No failed step');
     });
 
-    it('should throw when no remaining steps after failed step', async () => {
+    it('should re-run failed last step instead of throwing no remaining steps', async () => {
       const steps: Step[] = [{ id: 's1', type: 'exec', cli: 'echo', args: ['only'] }];
       const workflow = await engine.createWorkflow('last-fail', steps);
 
@@ -339,7 +405,11 @@ describe('WorkflowEngine', () => {
       };
       mockGet.mockResolvedValue(previousExecution);
 
-      await expect(engine.resumeFromFailure('exec_4', -1)).rejects.toThrow('No remaining steps');
+      const resumed = await engine.resumeFromFailure('exec_4', -1);
+      expect(resumed.status).toBe('COMPLETED');
+      expect(resumed.steps).toHaveLength(1);
+      expect(resumed.steps[0].stepId).toBe('s1');
+      expect(resumed.steps[0].status).toBe('COMPLETED');
     });
 
     it('should throw when workflow no longer exists', async () => {
@@ -430,7 +500,7 @@ describe('WorkflowEngine', () => {
       ];
       const workflow = await engine.createWorkflow('fail-wf', steps);
 
-      shouldFail = true;
+      mockState.triggerFail();
       const result = await engine.execute(workflow);
 
       expect(result.status).toBe('FAILED');
@@ -447,7 +517,7 @@ describe('WorkflowEngine', () => {
       ];
       const workflow = await engine.createWorkflow('partial-fail', steps);
 
-      shouldFail = true;
+      mockState.triggerFail();
       const result = await engine.execute(workflow);
 
       expect(result.steps.length).toBe(1);

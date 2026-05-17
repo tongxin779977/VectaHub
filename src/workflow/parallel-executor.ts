@@ -1,6 +1,6 @@
 import { createExecutor, type ExecutorOptions } from './executor.js';
-import { createContextManager, type ContextManager } from './context-manager.js';
-import { buildDependencyGraph, getReadyNodes, updateDependency, type DependencyGraph } from './dag.js';
+import { createContextManager } from './context-manager.js';
+import { buildDependencyGraph, getReadyNodes, updateDependency, validateDependencies } from './dag.js';
 import type { Step, StepRecord, SandboxMode } from '../types/index.js';
 
 export interface ParallelExecutorOptions {
@@ -29,6 +29,7 @@ export function createParallelExecutor(options: ParallelExecutorOptions = {}): P
     steps: Step[],
     execOptions: ExecutorOptions = { mode: defaultMode }
   ): Promise<ParallelExecutionResult> {
+    validateDependencies(steps);
     const graph = buildDependencyGraph(steps);
     const results = new Map<string, StepRecord>();
     
@@ -110,6 +111,10 @@ export function createParallelExecutor(options: ParallelExecutorOptions = {}): P
     
     contextManager.deleteContext(executionId);
     executionId = null;
+
+    if (!failed && results.size !== steps.length) {
+      throw new Error('Parallel execution terminated before all steps completed due to unresolved dependencies.');
+    }
 
     return {
       success: !failed,

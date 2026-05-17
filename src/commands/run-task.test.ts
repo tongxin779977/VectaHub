@@ -93,6 +93,7 @@ import { createLLMConfig } from '../nl/llm.js';
 import { execFile, spawn } from 'node:child_process';
 import type { AgentTaskContract } from '../types/doc-task.js';
 import { getAgentDescriptorById } from './agent-cli-adapter.js';
+import { computeInstructionHash } from './agent-task-contract.js';
 
 const defaultExecFileImpl = vi.mocked(execFile).getMockImplementation();
 const defaultSpawnImpl = vi.mocked(spawn).getMockImplementation();
@@ -208,6 +209,8 @@ describe('runTask', () => {
         'src/commands/run-task.ts',
         'src/commands/run-task.test.ts',
       ]);
+      expect(json.agentTaskContract?.instructionHash).toMatch(/^[0-9a-f]{16}$/);
+      expect(Object.prototype.hasOwnProperty.call(json.agentTaskContract ?? {}, 'docExcerpt')).toBe(false);
       expect(JSON.stringify(json)).not.toContain('文档片段');
       expect(JSON.stringify(json)).not.toContain('修改 `src/commands/run-task.ts`');
     } finally {
@@ -236,6 +239,8 @@ describe('runTask', () => {
       expect(result.success).toBe(true);
       expect(result.command).toBe('');
       expect(json.agentTaskContract?.allowedFiles).toEqual(['src/commands/run-task.ts']);
+      expect(json.agentTaskContract?.instructionHash).toMatch(/^[0-9a-f]{16}$/);
+      expect(Object.prototype.hasOwnProperty.call(json.agentTaskContract ?? {}, 'docExcerpt')).toBe(false);
       expect(createLLMConfig).not.toHaveBeenCalled();
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
@@ -1539,6 +1544,54 @@ describe('runTask', () => {
     }
   });
 
+  it('should send finalized instructionHash to LLM contract payload', async () => {
+    const llmModule = await import('../nl/llm.js');
+    const cacheManagerModule = await import('../cli-tools/discovery/cache-manager.js');
+    const originalCompleteRaw = llmModule.LLMClient.prototype.completeRaw;
+    const toolCacheManager = { discoverToolHelp: vi.fn(() => ({
+      toolName: 'unknown-cli',
+      version: '1.0.0',
+      helpOutput: 'Usage: unknown-cli [options]',
+      capabilities: [],
+      discoveredAt: '2026-05-10T00:00:00Z',
+    })) };
+    vi.mocked(cacheManagerModule.getToolCacheManager).mockReturnValue(toolCacheManager as any);
+
+    let capturedVars: Record<string, string> | undefined;
+    llmModule.LLMClient.prototype.completeRaw = vi.fn(async (_promptId, _instruction, vars) => {
+      capturedVars = vars as Record<string, string>;
+      return '{"command": "unknown-cli", "args": ["--message", "ok"], "explanation": "ok"}';
+    });
+
+    try {
+      const result = await runTask({
+        tool: 'unknown-cli',
+        taskId: 'P2-11H',
+        taskLabel: 'llm hash consistency',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+
+      expect(result.commandGenerationPath).toBe('llm-fallback');
+      expect(capturedVars).toBeDefined();
+      const contractPayload = JSON.parse(capturedVars!.agentTaskContract) as { instructionHash: string };
+      const summaryPayload = JSON.parse(capturedVars!.agentTaskContractSummary) as { instructionHash: string };
+      expect(contractPayload.instructionHash).toBe(summaryPayload.instructionHash);
+      const initialHash = computeInstructionHash(
+        'P2-11H',
+        'llm hash consistency',
+        '',
+        undefined,
+        (contractPayload as any).allowedFiles,
+        (contractPayload as any).forbiddenFiles,
+      );
+      expect(contractPayload.instructionHash).not.toBe(initialHash);
+      expect(result.agentTaskContract?.instructionHash).toBe(summaryPayload.instructionHash);
+    } finally {
+      llmModule.LLMClient.prototype.completeRaw = originalCompleteRaw;
+    }
+  });
+
   it('should fail closed when llm-generated command differs from input tool and never spawn', async () => {
     const llmModule = await import('../nl/llm.js');
     const cacheManagerModule = await import('../cli-tools/discovery/cache-manager.js');
@@ -1689,6 +1742,7 @@ describe('buildDefaultPrompt', () => {
     const contract: AgentTaskContract = {
       taskId: 'P4-1',
       label: '收敛执行提示词',
+      instructionHash: 'abc123abc123abc1',
       docPath: '/tmp/tasks.md',
       docExcerpt: '仅修改 src/commands/run-task.ts 与 run-task.test.ts',
       allowedFiles: ['src/commands/run-task.ts', 'src/commands/run-task.test.ts'],
@@ -1721,6 +1775,7 @@ describe('buildDefaultPrompt', () => {
     const contract: AgentTaskContract = {
       taskId: 'P4-2',
       label: '低置信度场景',
+      instructionHash: 'abc123abc123abc2',
       docPath: '/tmp/missing.md',
       docExcerpt: '',
       allowedFiles: ['src/commands/run-task.ts'],
@@ -1743,6 +1798,7 @@ describe('buildDefaultPrompt', () => {
     const contract: AgentTaskContract = {
       taskId: 'P4-3',
       label: '缺片段中等可信度',
+      instructionHash: 'abc123abc123abc3',
       docPath: '/tmp/tasks.md',
       docExcerpt: '',
       allowedFiles: ['src/commands/run-task.ts'],
@@ -1764,6 +1820,7 @@ describe('buildDefaultPrompt', () => {
     const contract: AgentTaskContract = {
       taskId: 'P4-4',
       label: '有片段低可信度',
+      instructionHash: 'abc123abc123abc4',
       docPath: '/tmp/tasks.md',
       docExcerpt: '仅限改动 run-task 文件',
       allowedFiles: ['src/commands/run-task.ts'],

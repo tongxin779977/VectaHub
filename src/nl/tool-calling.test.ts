@@ -146,8 +146,23 @@ describe('convertToolCallToSteps', () => {
       };
 
       const result = convertToolCallToSteps(toolCall);
-      expect(result.steps[0].cli).toBe('git commit');
-      expect(result.steps[0].args).toEqual(['-m', 'fix: bug fix']);
+      expect(result.steps[0].cli).toBe('git');
+      expect(result.steps[0].args).toEqual(['commit', '-m', 'fix: bug fix']);
+    });
+
+    it('should handle subcommand from params', () => {
+      const toolCall: LLMToolCall = {
+        id: 'call_6_1',
+        type: 'function',
+        function: {
+          name: 'cli_git',
+          arguments: JSON.stringify({ subcommand: 'checkout', args: '-b feature/x' }),
+        },
+      };
+
+      const result = convertToolCallToSteps(toolCall);
+      expect(result.steps[0].cli).toBe('git');
+      expect(result.steps[0].args).toEqual(['checkout', '-b', 'feature/x']);
     });
 
     it('should throw for restricted CLI tool', () => {

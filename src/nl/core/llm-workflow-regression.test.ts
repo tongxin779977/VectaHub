@@ -660,7 +660,8 @@ describe('LLM Workflow Regression', () => {
 
       expect(result).not.toBeNull();
       expect(result!.intent).toBe('cli_git_commit');
-      expect(result!.steps[0].cli).toBe('git commit');
+      expect(result!.steps[0].cli).toBe('git');
+      expect(result!.steps[0].args).toEqual(['commit', '-m', 'test']);
     });
 
     it('should return all intent names from template helper', () => {

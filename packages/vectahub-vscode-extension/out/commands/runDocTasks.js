@@ -130,7 +130,53 @@ function getCliDisplayOutput(result) {
     if (!result) {
         return undefined;
     }
-    return result.displayOutput || result.output;
+    return result.output;
+}
+function getCliDiagnostics(result) {
+    if (!result)
+        return undefined;
+    return {
+        agentExecutionOutcome: result.agentExecutionOutcome,
+        agentTaskContract: result.agentTaskContract,
+        failureKind: result.failureKind,
+        unclosedExecution: result.unclosedExecution,
+        completionSignal: result.completionSignal,
+        recoveryDecision: result.recoveryDecision,
+        gitChanges: result.gitChanges,
+        verification: result.verification,
+        riskAssessment: result.riskAssessment,
+        usage: result.usage,
+    };
+}
+function getCliAgentExecutionOutcome(result) {
+    return getCliDiagnostics(result)?.agentExecutionOutcome;
+}
+function getCliAgentTaskContract(result) {
+    return getCliDiagnostics(result)?.agentTaskContract;
+}
+function getCliFailureKind(result) {
+    return getCliDiagnostics(result)?.failureKind;
+}
+function getCliUnclosedExecution(result) {
+    return getCliDiagnostics(result)?.unclosedExecution;
+}
+function getCliCompletionSignal(result) {
+    return getCliDiagnostics(result)?.completionSignal;
+}
+function getCliRecoveryDecision(result) {
+    return getCliDiagnostics(result)?.recoveryDecision;
+}
+function getCliGitChanges(result) {
+    return getCliDiagnostics(result)?.gitChanges;
+}
+function getCliVerification(result) {
+    return getCliDiagnostics(result)?.verification;
+}
+function getCliRiskAssessment(result) {
+    return getCliDiagnostics(result)?.riskAssessment;
+}
+function getCliRecoveryHint(result) {
+    return getCliRecoveryDecision(result)?.summary;
 }
 async function readDocContentOnce(docPath) {
     if (!docPath)
@@ -409,7 +455,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                     (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, 'needs_confirmation');
                     tasksProvider.refresh();
                     if (runRecord) {
-                        const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
+                        const changedFiles = getCliGitChanges(result.data)?.changedFiles ?? [];
                         runRecord.status = 'needs_confirmation';
                         runRecord.failureKind = undefined;
                         runRecord.updatedAt = new Date().toISOString();
@@ -419,12 +465,12 @@ function registerDocTaskCommands(context, tasksProvider) {
                         runRecord.gitChanges = {
                             changedFileCount: changedFiles.length,
                             changedFiles,
-                            shortStat: result.data?.gitChanges?.shortStat,
+                            shortStat: getCliGitChanges(result.data)?.shortStat,
                         };
                         runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(getCliDisplayOutput(result.data) || '');
                         runRecord.outputTruncated = result.data?.outputTruncated === true;
-                        (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
-                        applyContractSummary(runRecord, result.data?.agentTaskContract);
+                        (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, getCliAgentTaskContract(result.data));
+                        applyContractSummary(runRecord, getCliAgentTaskContract(result.data));
                         applyExecutionSemanticsToRunRecord(runRecord, semantics);
                         await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'needs confirmation update', warnRunStore);
                     }
@@ -442,9 +488,9 @@ function registerDocTaskCommands(context, tasksProvider) {
                 }
                 if (result.ok) {
                     const output = getCliDisplayOutput(result.data) || '';
-                    const gitChanges = result.data?.gitChanges;
+                    const gitChanges = getCliGitChanges(result.data);
                     const changedFiles = gitChanges?.changedFiles ?? [];
-                    const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, result.data?.verification, result.data?.agentExecutionOutcome);
+                    const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, getCliVerification(result.data), getCliAgentExecutionOutcome(result.data));
                     const finalStatus = resolved.status;
                     task.lastRunId = runId;
                     task.lastTraceId = traceContext.traceId;
@@ -465,9 +511,9 @@ function registerDocTaskCommands(context, tasksProvider) {
                         };
                         runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(output);
                         runRecord.outputTruncated = result.data?.outputTruncated === true;
-                        (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
-                        applyContractSummary(runRecord, result.data?.agentTaskContract);
-                        applyVerificationToRunRecord(runRecord, result.data?.verification);
+                        (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, getCliAgentTaskContract(result.data));
+                        applyContractSummary(runRecord, getCliAgentTaskContract(result.data));
+                        applyVerificationToRunRecord(runRecord, getCliVerification(result.data));
                         applyExecutionSemanticsToRunRecord(runRecord, semantics);
                         await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'success update', warnRunStore);
                     }
@@ -490,7 +536,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                     });
                 }
                 else {
-                    if (result.data?.agentExecutionOutcome === 'planned_only') {
+                    if (getCliAgentExecutionOutcome(result.data) === 'planned_only') {
                         task.lastFailureKind = undefined;
                         (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, 'ready');
                         tasksProvider.refresh();
@@ -503,8 +549,8 @@ function registerDocTaskCommands(context, tasksProvider) {
                             runRecord.command = result.data?.command || runRecord.command;
                             runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(getCliDisplayOutput(result.data));
                             runRecord.outputTruncated = result.data?.outputTruncated === true;
-                            (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
-                            applyContractSummary(runRecord, result.data?.agentTaskContract);
+                            (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, getCliAgentTaskContract(result.data));
+                            applyContractSummary(runRecord, getCliAgentTaskContract(result.data));
                             applyExecutionSemanticsToRunRecord(runRecord, semantics);
                             await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'planned-only reset update', warnRunStore);
                         }
@@ -518,8 +564,8 @@ function registerDocTaskCommands(context, tasksProvider) {
                         vscode.window.showWarningMessage(`任务 ${task.id} 仅输出计划，未执行实现`);
                         return;
                     }
-                    const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
-                    const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, result.data?.verification, result.data?.agentExecutionOutcome);
+                    const changedFiles = getCliGitChanges(result.data)?.changedFiles ?? [];
+                    const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, getCliVerification(result.data), getCliAgentExecutionOutcome(result.data));
                     const verificationFailed = resolved.failureKind === 'test' || resolved.failureKind === 'system_internal';
                     task.lastRunId = runId;
                     task.lastTraceId = traceContext.traceId;
@@ -538,13 +584,13 @@ function registerDocTaskCommands(context, tasksProvider) {
                             runRecord.gitChanges = {
                                 changedFileCount: changedFiles.length,
                                 changedFiles,
-                                shortStat: result.data?.gitChanges?.shortStat
+                                shortStat: getCliGitChanges(result.data)?.shortStat
                             };
                             runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(getCliDisplayOutput(result.data));
                             runRecord.outputTruncated = result.data?.outputTruncated === true;
-                            (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
-                            applyContractSummary(runRecord, result.data?.agentTaskContract);
-                            applyVerificationToRunRecord(runRecord, result.data?.verification);
+                            (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, getCliAgentTaskContract(result.data));
+                            applyContractSummary(runRecord, getCliAgentTaskContract(result.data));
+                            applyVerificationToRunRecord(runRecord, getCliVerification(result.data));
                             applyExecutionSemanticsToRunRecord(runRecord, semantics);
                             await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'verification failed update', warnRunStore);
                         }
@@ -574,14 +620,14 @@ function registerDocTaskCommands(context, tasksProvider) {
                             runRecord.command = result.data?.command || runRecord.command;
                             runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(resolvedError.outputSummarySource || getCliDisplayOutput(result.data) || result.stderr || result.stdout);
                             runRecord.outputTruncated = result.data?.outputTruncated === true;
-                            const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
+                            const changedFiles = getCliGitChanges(result.data)?.changedFiles ?? [];
                             runRecord.gitChanges = {
                                 changedFileCount: changedFiles.length,
                                 changedFiles,
-                                shortStat: result.data?.gitChanges?.shortStat
+                                shortStat: getCliGitChanges(result.data)?.shortStat
                             };
-                            (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
-                            applyContractSummary(runRecord, result.data?.agentTaskContract);
+                            (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, getCliAgentTaskContract(result.data));
+                            applyContractSummary(runRecord, getCliAgentTaskContract(result.data));
                             applyExecutionSemanticsToRunRecord(runRecord, semantics);
                             await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'failed update', warnRunStore);
                         }
@@ -592,7 +638,11 @@ function registerDocTaskCommands(context, tasksProvider) {
                             status: 'failed',
                             agentCli: agentCli || '',
                         });
-                        vscode.window.showErrorMessage(`任务 ${task.id} 执行失败: ${errMsg}`);
+                        const recoveryHint = getCliRecoveryHint(result.data);
+                        const failureMessage = recoveryHint
+                            ? `任务 ${task.id} 执行失败: ${errMsg}\n${recoveryHint}`
+                            : `任务 ${task.id} 执行失败: ${errMsg}`;
+                        vscode.window.showErrorMessage(failureMessage);
                     }
                 }
             });
@@ -807,7 +857,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                         const semantics = (0, runTaskResultSemantics_js_1.resolveRunTaskExecutionSemantics)(result);
                         const cliFailureKind = (0, runTaskResultSemantics_js_1.resolveRunTaskFailureKind)({ data: result.data });
                         if (semantics.needsConfirmation) {
-                            const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
+                            const changedFiles = getCliGitChanges(result.data)?.changedFiles ?? [];
                             task.lastFailureKind = undefined;
                             (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, 'needs_confirmation');
                             failedCount++;
@@ -821,12 +871,12 @@ function registerDocTaskCommands(context, tasksProvider) {
                                 runRecord.gitChanges = {
                                     changedFileCount: changedFiles.length,
                                     changedFiles,
-                                    shortStat: result.data?.gitChanges?.shortStat
+                                    shortStat: getCliGitChanges(result.data)?.shortStat
                                 };
                                 runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(getCliDisplayOutput(result.data) || '');
                                 runRecord.outputTruncated = result.data?.outputTruncated === true;
-                                (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
-                                applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
+                                (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, getCliAgentTaskContract(result.data));
+                                applyContractSummary(runRecord, getCliAgentTaskContract(result.data), taskContractSummary);
                                 applyExecutionSemanticsToRunRecord(runRecord, semantics);
                                 await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch needs confirmation update', warnRunStore);
                             }
@@ -842,8 +892,8 @@ function registerDocTaskCommands(context, tasksProvider) {
                             return;
                         }
                         if (result.ok) {
-                            const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
-                            const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, result.data?.verification, result.data?.agentExecutionOutcome);
+                            const changedFiles = getCliGitChanges(result.data)?.changedFiles ?? [];
+                            const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, getCliVerification(result.data), getCliAgentExecutionOutcome(result.data));
                             const finalStatus = resolved.status;
                             task.lastFailureKind = cliFailureKind ?? resolved.failureKind;
                             (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, finalStatus);
@@ -860,13 +910,13 @@ function registerDocTaskCommands(context, tasksProvider) {
                                 runRecord.gitChanges = {
                                     changedFileCount: changedFiles.length,
                                     changedFiles,
-                                    shortStat: result.data?.gitChanges?.shortStat
+                                    shortStat: getCliGitChanges(result.data)?.shortStat
                                 };
                                 runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(getCliDisplayOutput(result.data));
                                 runRecord.outputTruncated = result.data?.outputTruncated === true;
-                                (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
-                                applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
-                                applyVerificationToRunRecord(runRecord, result.data?.verification);
+                                (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, getCliAgentTaskContract(result.data));
+                                applyContractSummary(runRecord, getCliAgentTaskContract(result.data), taskContractSummary);
+                                applyVerificationToRunRecord(runRecord, getCliVerification(result.data));
                                 applyExecutionSemanticsToRunRecord(runRecord, semantics);
                                 await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch success update', warnRunStore);
                             }
@@ -885,7 +935,7 @@ function registerDocTaskCommands(context, tasksProvider) {
                             }
                         }
                         else {
-                            if (result.data?.agentExecutionOutcome === 'planned_only') {
+                            if (getCliAgentExecutionOutcome(result.data) === 'planned_only') {
                                 task.lastFailureKind = undefined;
                                 (0, docTaskRunHelpers_js_1.setTaskDisplayState)(task, 'ready');
                                 skippedCount++;
@@ -898,8 +948,8 @@ function registerDocTaskCommands(context, tasksProvider) {
                                     runRecord.command = result.data?.command || runRecord.command;
                                     runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(getCliDisplayOutput(result.data));
                                     runRecord.outputTruncated = result.data?.outputTruncated === true;
-                                    (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
-                                    applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
+                                    (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, getCliAgentTaskContract(result.data));
+                                    applyContractSummary(runRecord, getCliAgentTaskContract(result.data), taskContractSummary);
                                     applyExecutionSemanticsToRunRecord(runRecord, semantics);
                                     await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch planned-only reset update', warnRunStore);
                                 }
@@ -913,8 +963,8 @@ function registerDocTaskCommands(context, tasksProvider) {
                                 updateProgress(task.id, '待执行');
                                 return;
                             }
-                            const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
-                            const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, result.data?.verification, result.data?.agentExecutionOutcome);
+                            const changedFiles = getCliGitChanges(result.data)?.changedFiles ?? [];
+                            const resolved = (0, docTaskStatusHelpers_js_1.resolveVerificationStatus)(changedFiles, getCliVerification(result.data), getCliAgentExecutionOutcome(result.data));
                             const verificationFailed = resolved.failureKind === 'test' || resolved.failureKind === 'system_internal';
                             if (verificationFailed) {
                                 const finalStatus = resolved.status;
@@ -931,13 +981,13 @@ function registerDocTaskCommands(context, tasksProvider) {
                                     runRecord.gitChanges = {
                                         changedFileCount: changedFiles.length,
                                         changedFiles,
-                                        shortStat: result.data?.gitChanges?.shortStat
+                                        shortStat: getCliGitChanges(result.data)?.shortStat
                                     };
                                     runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(getCliDisplayOutput(result.data));
                                     runRecord.outputTruncated = result.data?.outputTruncated === true;
-                                    (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
-                                    applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
-                                    applyVerificationToRunRecord(runRecord, result.data?.verification);
+                                    (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, getCliAgentTaskContract(result.data));
+                                    applyContractSummary(runRecord, getCliAgentTaskContract(result.data), taskContractSummary);
+                                    applyVerificationToRunRecord(runRecord, getCliVerification(result.data));
                                     applyExecutionSemanticsToRunRecord(runRecord, semantics);
                                     await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch verification failed update', warnRunStore);
                                 }
@@ -965,16 +1015,16 @@ function registerDocTaskCommands(context, tasksProvider) {
                                     runRecord.endedAt = runRecord.updatedAt;
                                     runRecord.durationMs = Date.now() - startedAtMs;
                                     runRecord.command = result.data?.command || runRecord.command;
-                                    const changedFiles = result.data?.gitChanges?.changedFiles ?? [];
+                                    const changedFiles = getCliGitChanges(result.data)?.changedFiles ?? [];
                                     runRecord.gitChanges = {
                                         changedFileCount: changedFiles.length,
                                         changedFiles,
-                                        shortStat: result.data?.gitChanges?.shortStat
+                                        shortStat: getCliGitChanges(result.data)?.shortStat
                                     };
                                     runRecord.outputSummary = (0, docTaskRunHelpers_js_1.summarizeOutput)(resolvedError.outputSummarySource || getCliDisplayOutput(result.data) || result.stderr || result.stdout);
                                     runRecord.outputTruncated = result.data?.outputTruncated === true;
-                                    (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, result.data?.agentTaskContract);
-                                    applyContractSummary(runRecord, result.data?.agentTaskContract, taskContractSummary);
+                                    (0, docTaskStatusHelpers_js_1.persistContractHashFromCliResult)(runRecord, getCliAgentTaskContract(result.data));
+                                    applyContractSummary(runRecord, getCliAgentTaskContract(result.data), taskContractSummary);
                                     applyExecutionSemanticsToRunRecord(runRecord, semantics);
                                     await (0, docTaskRunHelpers_js_1.safeUpdateRun)(runStore, runRecord, 'batch failed update', warnRunStore);
                                 }

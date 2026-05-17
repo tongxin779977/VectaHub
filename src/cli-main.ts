@@ -194,6 +194,27 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
         loadedCommands.add('detail');
         break;
       }
+      case 'rerun': {
+        const { rerunCmd } = await import('./commands/rerun.js');
+        removePlaceholderCommand('rerun');
+        program.addCommand(rerunCmd);
+        loadedCommands.add('rerun');
+        break;
+      }
+      case 'resume': {
+        const { resumeCmd } = await import('./commands/resume.js');
+        removePlaceholderCommand('resume');
+        program.addCommand(resumeCmd);
+        loadedCommands.add('resume');
+        break;
+      }
+      case 'archive': {
+        const { archiveCmd } = await import('./commands/archive.js');
+        removePlaceholderCommand('archive');
+        program.addCommand(archiveCmd);
+        loadedCommands.add('archive');
+        break;
+      }
       case 'run-command': {
         const { runCommandCmd } = await import('./commands/run-command.js');
         removePlaceholderCommand('run-command');
@@ -318,6 +339,7 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
         break;
       }
       case 'dev': {
+        removePlaceholderCommand('dev');
         const { status } = await import('./commands/status.js');
         const { moduleCmd } = await import('./commands/module.js');
         const { validate } = await import('./commands/validate.js');
@@ -615,6 +637,9 @@ const lazyLoadableCommands = [
   { name: 'mode', description: '切换执行模式', argument: '[mode]' },
   { name: 'history', description: '查看执行历史' },
   { name: 'detail', description: '查看执行详情', argument: '<executionId>' },
+  { name: 'rerun', description: '重跑历史执行', argument: '<executionId>' },
+  { name: 'resume', description: '恢复失败或暂停执行', argument: '<executionId>' },
+  { name: 'archive', description: '执行记录归档、恢复和删除' },
   { name: 'run-command', description: '直接运行 CLI 命令并进行安全扫描' },
   { name: 'generate', description: '生成工作流' },
   { name: 'schedule', description: '调度工作流' },
@@ -635,6 +660,20 @@ const lazyLoadableCommands = [
   { name: 'queue', description: '管理诊断队列' },
   { name: 'dev', description: '开发命令' },
 ];
+
+function resolveLazyCommandForHelp(argv: string[]): string | null {
+  const hasHelpFlag = argv.includes('--help') || argv.includes('-h');
+  if (!hasHelpFlag) {
+    return null;
+  }
+
+  const commandName = argv.find((arg) => !arg.startsWith('-'));
+  if (!commandName) {
+    return null;
+  }
+
+  return lazyLoadableCommands.some((cmd) => cmd.name === commandName) ? commandName : null;
+}
 
 for (const cmdInfo of lazyLoadableCommands) {
   const placeholderCmd = new Command(cmdInfo.name)
@@ -669,6 +708,12 @@ for (const cmdInfo of lazyLoadableCommands) {
       }
     });
   program.addCommand(placeholderCmd);
+}
+
+const lazyCommandForHelp = resolveLazyCommandForHelp(process.argv.slice(2));
+if (lazyCommandForHelp) {
+  await lazyLoadCommand(lazyCommandForHelp);
+  await lazyLoadCliTools();
 }
 
 program.parseAsync(process.argv).catch(handleError);

@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { djb2Hash, getVectaHubPath } from '../utils/paths.js';
 import type { DocTaskFailureKind, DocTaskRunStatus } from '../types/doc-task.js';
@@ -54,18 +54,63 @@ function getStoreDir(projectPath?: string): string {
 }
 
 function toDateFileName(date: Date): string {
-  return `runs-${date.toISOString().slice(0, 10)}.jsonl`;
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `runs-${year}-${month}-${day}.jsonl`;
+}
+
+function buildRecentUtcDateSet(days: number): Set<string> {
+  const result = new Set<string>();
+  const now = new Date();
+  const utcBase = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+  ));
+  for (let i = 0; i < days; i++) {
+    const current = new Date(utcBase);
+    current.setUTCDate(utcBase.getUTCDate() - i);
+    result.add(current.toISOString().slice(0, 10));
+  }
+  return result;
+}
+
+function buildRecentLocalDateSet(days: number): Set<string> {
+  const result = new Set<string>();
+  const now = new Date();
+  const localBase = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  for (let i = 0; i < days; i++) {
+    const current = new Date(localBase);
+    current.setDate(localBase.getDate() - i);
+    const year = current.getFullYear();
+    const month = String(current.getMonth() + 1).padStart(2, '0');
+    const day = String(current.getDate()).padStart(2, '0');
+    result.add(`${year}-${month}-${day}`);
+  }
+  return result;
+}
+
+function isWithinRecentDays(fileName: string, recentDateSet: Set<string>): boolean {
+  const match = fileName.match(/^runs-(\d{4}-\d{2}-\d{2})\.jsonl$/);
+  if (!match) return false;
+  return recentDateSet.has(match[1]);
 }
 
 function getRecentRunFiles(storeDir: string, days = RECENT_DAYS): string[] {
-  const files: string[] = [];
-  const now = new Date();
-  for (let i = 0; i < days; i++) {
-    const current = new Date(now);
-    current.setDate(now.getDate() - i);
-    files.push(resolve(storeDir, toDateFileName(current)));
+  const recentDateSet = new Set<string>([
+    ...buildRecentUtcDateSet(days),
+    ...buildRecentLocalDateSet(days),
+  ]);
+  try {
+    return readdirSync(storeDir)
+      .filter((name) => isWithinRecentDays(name, recentDateSet))
+      .sort()
+      .reverse()
+      .map((name) => resolve(storeDir, name));
+  } catch {
+    return [];
   }
-  return files;
 }
 
 function parseJsonLine(line: string): DocTaskRunRecord | undefined {

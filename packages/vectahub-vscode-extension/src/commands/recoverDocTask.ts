@@ -38,7 +38,6 @@ interface RecoverCliResult {
     ok: boolean;
     command?: string;
     output?: string;
-    displayOutput?: string;
     outputTruncated?: boolean;
     verification?: {
       ok: boolean;
@@ -47,6 +46,9 @@ interface RecoverCliResult {
   };
   status?: string;
   failureKind?: string;
+  diagnostics?: {
+    failureKind?: string;
+  };
   recoveryRecord?: {
     status: string;
   };
@@ -252,7 +254,7 @@ export function registerRecoverDocTaskCommand(
                 const classification = classifyRecoveryOutcome({
                   ok: result.data.ok,
                   status: result.data.status,
-                  failureKind: result.data.failureKind,
+                  failureKind: result.data.diagnostics?.failureKind ?? result.data.failureKind,
                   runResult,
                   error: result.data.error,
                 });
@@ -312,7 +314,7 @@ export function registerRecoverDocTaskCommand(
                 const classification = classifyRecoveryOutcome({
                   ok: result.data?.ok,
                   status: result.data?.status,
-                  failureKind: result.data?.failureKind,
+                  failureKind: result.data?.diagnostics?.failureKind ?? result.data?.failureKind,
                   runResult: result.data?.runResult,
                   error: errMsg,
                 });

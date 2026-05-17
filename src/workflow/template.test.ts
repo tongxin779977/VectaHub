@@ -44,7 +44,7 @@ steps:
   - id: backup
     type: exec
     cli: cp
-    args: ["-r", ".", "../backup-\$(date +%Y%m%d)"]
+    args: ["-r", ".", "../backup-$(date +%Y%m%d)"]
 `;
 
 describe('WorkflowTemplate', () => {

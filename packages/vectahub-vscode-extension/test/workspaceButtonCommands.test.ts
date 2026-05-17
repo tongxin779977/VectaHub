@@ -524,7 +524,11 @@ describe('workspace button commands', () => {
             ok: true,
             command: 'codex exec',
             output: 'implemented',
-            gitChanges: { changedFiles: [], shortStat: '' },
+            diagnostics: {
+              gitChanges: { changedFiles: [], shortStat: '' },
+              failureKind: 'timeout',
+              recoveryDecision: { kind: 'retry_direct', mode: 'confirm_required', summary: 'retry hint' },
+            },
           },
         }
       }
@@ -595,5 +599,8 @@ describe('workspace button commands', () => {
     expect(previewMock).toHaveBeenCalled()
     expect(runMock).toHaveBeenCalled()
     expect(addTaskRecordMock).toHaveBeenCalled()
+    expect(infoMessageMock).toHaveBeenCalledWith(expect.stringContaining('执行成功'))
+    expect(infoMessageMock).not.toHaveBeenCalledWith(expect.stringContaining('failureKind'))
+    expect(infoMessageMock).not.toHaveBeenCalledWith(expect.stringContaining('recoveryDecision'))
   })
 })

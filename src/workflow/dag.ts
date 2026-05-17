@@ -1,4 +1,4 @@
-import type { Step, WorkflowMode } from '../types/index.js';
+import type { WorkflowMode } from '../types/index.js';
 
 export interface DependencyGraph<T> {
   nodeMap: Map<string, T>;
@@ -11,9 +11,53 @@ export interface TopologicalSortResult<T> {
   cyclic: string[];
 }
 
+function collectMissingDependencies<T extends { id: string; dependsOn?: string[] }>(
+  nodes: T[],
+  satisfiedDependencyIds: ReadonlySet<string> = new Set()
+): Array<{ nodeId: string; dependencyId: string }> {
+  const nodeIds = new Set(nodes.map(node => node.id));
+  const missing: Array<{ nodeId: string; dependencyId: string }> = [];
+
+  for (const node of nodes) {
+    for (const depId of node.dependsOn || []) {
+      if (!nodeIds.has(depId) && !satisfiedDependencyIds.has(depId)) {
+        missing.push({ nodeId: node.id, dependencyId: depId });
+      }
+    }
+  }
+
+  return missing;
+}
+
+function assertNoMissingDependencies<T extends { id: string; dependsOn?: string[] }>(
+  nodes: T[],
+  satisfiedDependencyIds: ReadonlySet<string> = new Set()
+): void {
+  const missing = collectMissingDependencies(nodes, satisfiedDependencyIds);
+  if (missing.length === 0) {
+    return;
+  }
+
+  const formatted = missing.map(item => `${item.nodeId} -> ${item.dependencyId}`).join(', ');
+  throw new Error(`Missing dependency target(s): ${formatted}`);
+}
+
+export function validateDependencies<T extends { id: string; dependsOn?: string[] }>(
+  nodes: T[],
+  satisfiedDependencyIds: Iterable<string> = []
+): void {
+  const satisfiedIds = new Set(satisfiedDependencyIds);
+  assertNoMissingDependencies(nodes, satisfiedIds);
+  topologicalSort(nodes, 'relaxed', satisfiedIds);
+}
+
 export function buildDependencyGraph<T extends { id: string; dependsOn?: string[] }>(
-  nodes: T[]
+  nodes: T[],
+  satisfiedDependencyIds: Iterable<string> = []
 ): DependencyGraph<T> {
+  const satisfiedIds = new Set(satisfiedDependencyIds);
+  assertNoMissingDependencies(nodes, satisfiedIds);
+
   const nodeMap = new Map<string, T>();
   const inDegree = new Map<string, number>();
   const dependents = new Map<string, string[]>();
@@ -30,6 +74,11 @@ export function buildDependencyGraph<T extends { id: string; dependsOn?: string[
         if (nodeMap.has(depId)) {
           inDegree.set(node.id, (inDegree.get(node.id) || 0) + 1);
           dependents.get(depId)?.push(node.id);
+          continue;
+        }
+
+        if (satisfiedIds.has(depId)) {
+          continue;
         }
       }
     }
@@ -40,9 +89,10 @@ export function buildDependencyGraph<T extends { id: string; dependsOn?: string[
 
 export function topologicalSort<T extends { id: string; dependsOn?: string[] }>(
   nodes: T[],
-  mode: WorkflowMode = 'relaxed'
+  mode: WorkflowMode = 'relaxed',
+  satisfiedDependencyIds: Iterable<string> = []
 ): T[] {
-  const { nodeMap, inDegree, dependents } = buildDependencyGraph(nodes);
+  const { nodeMap, inDegree, dependents } = buildDependencyGraph(nodes, satisfiedDependencyIds);
 
   const queue: string[] = [];
   for (const [id, degree] of inDegree) {
@@ -69,27 +119,19 @@ export function topologicalSort<T extends { id: string; dependsOn?: string[] }>(
   if (sorted.length !== nodes.length) {
     const remaining = nodes.filter(n => !sorted.includes(n));
     const remainingIds = remaining.map(n => n.id);
-
-    if (mode === 'strict') {
-      throw new Error(
-        `Cyclic dependency detected in nodes: ${remainingIds.join(', ')}. Execution aborted.`
-      );
-    }
-
-    if (mode === 'relaxed' || mode === 'consensus') {
-      console.warn(
-        `Warning: Cyclic dependency detected in nodes: ${remainingIds.join(', ')}. Skipping cyclic nodes.`
-      );
-    }
+    throw new Error(
+      `Cyclic dependency detected in nodes: ${remainingIds.join(', ')}. Execution aborted.`
+    );
   }
 
+  void mode;
   return sorted;
 }
 
 export function detectCycles<T extends { id: string; dependsOn?: string[] }>(
   nodes: T[]
 ): string[][] {
-  const { nodeMap, inDegree, dependents } = buildDependencyGraph(nodes);
+  const { nodeMap, dependents } = buildDependencyGraph(nodes);
   const visited = new Set<string>();
   const cycles: string[][] = [];
 

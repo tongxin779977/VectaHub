@@ -112,7 +112,7 @@ export class LLMClient {
 
       audit.securityAction('LLM_CALL', `${this.config.provider}/${this.config.model}`, 'FAILED', this.sessionId || 'unknown');
 
-      throw new Error(`LLM call failed: ${errorMessage}`);
+      throw new Error(`LLM call failed: ${errorMessage}`, { cause: error });
     }
   }
 

@@ -1,9 +1,8 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'path';
 import { spawn } from 'child_process';
 import type { WorkflowEngine } from './engine.js';
 import type { Workflow } from '../types/index.js';
-import { getAuditInstance, AuditEventType, audit } from '../infrastructure/audit/index.js';
+import { getAuditInstance, audit } from '../infrastructure/audit/index.js';
 import { createDetector } from '../sandbox/detector.js';
 import { getVectaHubHome, getVectaHubPath } from '../utils/paths.js';
 
@@ -33,6 +32,14 @@ export interface ScheduleManager {
   list(): Promise<ScheduleEntry[]>;
   start(): Promise<void>;
   stop(): void;
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === 'object' && error !== null && 'code' in error;
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return isNodeError(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR');
 }
 
 async function executeCommand(entry: ScheduleEntry): Promise<{ success: boolean; error?: string }> {
@@ -69,16 +76,13 @@ async function executeCommand(entry: ScheduleEntry): Promise<{ success: boolean;
 }
 
 async function executeWorkflow(entry: ScheduleEntry, engine?: WorkflowEngine): Promise<{ success: boolean; error?: string }> {
-  if (!entry.workflowFile || !engine) return { success: false, error: 'No workflow or engine' };
+  if (!entry.workflowFile) return { success: false, error: 'workflowFile is required for workflow schedule execution' };
+  if (!engine) return { success: false, error: 'Workflow engine is required for workflow schedule execution' };
 
-  try {
-    const content = await readFile(entry.workflowFile, 'utf-8');
-    const workflow = JSON.parse(content) as Workflow;
-    const result = await engine.execute(workflow);
-    return { success: result.status === 'COMPLETED', error: result.warnings?.join('; ') };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
+  const content = await readFile(entry.workflowFile, 'utf-8');
+  const workflow = JSON.parse(content) as Workflow;
+  const result = await engine.execute(workflow);
+  return { success: result.status === 'COMPLETED', error: result.warnings?.join('; ') };
 }
 
 async function updateEntryStatus(entry: ScheduleEntry, result: { success: boolean; error?: string }): Promise<void> {
@@ -103,68 +107,77 @@ async function loadSchedules(): Promise<ScheduleEntry[]> {
   try {
     const raw = await readFile(schedulesFile, 'utf-8');
     return JSON.parse(raw) as ScheduleEntry[];
-  } catch {
-    return [];
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return [];
+    }
+    throw error;
   }
 }
 
-async function saveSchedules(entries: ScheduleEntry[]): Promise<void> {
-  await ensureSchedulesDir();
-  await writeFile(getVectaHubPath('schedules.json'), JSON.stringify(entries, null, 2), 'utf-8');
+function missingWorkflowFileError(entry: ScheduleEntry): { success: boolean; error: string } {
+  return {
+    success: false,
+    error: `workflowFile is required when workflowId is set: ${entry.workflowId}`,
+  };
 }
 
-function parseCronInterval(cron: string): number {
-  const match = cron.match(/^(\*|0) \/(\d+) (\*|\*) (\*|\*) (\*|\*)$/);
-  if (match) {
-    const minutes = parseInt(match[2], 10);
-    return minutes * 60 * 1000;
+async function runEntry(entry: ScheduleEntry, engine?: WorkflowEngine): Promise<{ success: boolean; error?: string }> {
+  if (entry.workflowFile) {
+    return executeWorkflow(entry, engine);
   }
-
-  if (cron === '* * * * *') return 60 * 1000;
-  if (cron.startsWith('*/')) {
-    const mins = parseInt(cron.split(' ')[1] || '5', 10);
-    return mins * 60 * 1000;
+  if (entry.workflowId) {
+    return missingWorkflowFileError(entry);
   }
+  if (entry.command) {
+    return executeCommand(entry);
+  }
+  return { success: false, error: 'No workflow or command configured' };
+}
 
-  return 5 * 60 * 1000;
+async function runTaskAndPersist(entry: ScheduleEntry, engine?: WorkflowEngine): Promise<void> {
+  const result = await runEntry(entry, engine);
+  await updateEntryStatus(entry, result);
+
+  audit.workflowStep(
+    `schedule:${entry.id}`,
+    entry.workflowFile || entry.command || '',
+    entry.args || [],
+    getAuditInstance().getSessionId(),
+    { scheduleId: entry.id, status: result.success ? 'SUCCESS' : 'FAILED', error: result.error }
+  );
+}
+
+async function runTask(entry: ScheduleEntry, engine?: WorkflowEngine): Promise<void> {
+  try {
+    await runTaskAndPersist(entry, engine);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await updateEntryStatus(entry, { success: false, error: message });
+    throw error;
+  }
+}
+
+async function runScheduledEntry(entry: ScheduleEntry, engine?: WorkflowEngine): Promise<void> {
+  await runTask(entry, engine);
 }
 
 export function createScheduleManager(options: ScheduleManagerOptions = {}): ScheduleManager {
-  let timers: Map<string, NodeJS.Timeout> = new Map();
+  const timers: Map<string, NodeJS.Timeout> = new Map();
   const { engine } = options;
-
-  async function runTask(entry: ScheduleEntry): Promise<void> {
-    let result: { success: boolean; error?: string };
-    
-    if (entry.workflowFile && engine) {
-      result = await executeWorkflow(entry, engine);
-    } else if (entry.command) {
-      result = await executeCommand(entry);
-    } else {
-      result = { success: false, error: 'No workflow or command configured' };
-    }
-
-    await updateEntryStatus(entry, result);
-
-    audit.workflowStep(
-      `schedule:${entry.id}`,
-      entry.workflowFile || entry.command || '',
-      entry.args || [],
-      getAuditInstance().getSessionId(),
-      { scheduleId: entry.id, status: result.success ? 'SUCCESS' : 'FAILED', error: result.error }
-    );
-  }
 
   function scheduleEntry(entry: ScheduleEntry): void {
     if (timers.has(entry.id)) {
-      clearInterval(timers.get(entry.id));
+      const existing = timers.get(entry.id);
+      if (existing) {
+        clearInterval(existing);
+      }
     }
 
     const interval = parseCronInterval(entry.cron);
-    const timer = setInterval(async () => {
-      if (entry.enabled) {
-        await runTask(entry);
-      }
+    const timer = setInterval(() => {
+      if (!entry.enabled) return;
+      void runScheduledEntry(entry, engine);
     }, interval);
 
     timers.set(entry.id, timer);
@@ -203,7 +216,7 @@ export function createScheduleManager(options: ScheduleManagerOptions = {}): Sch
     },
 
     async list(): Promise<ScheduleEntry[]> {
-      return await loadSchedules();
+      return loadSchedules();
     },
 
     async start(): Promise<void> {
@@ -216,10 +229,31 @@ export function createScheduleManager(options: ScheduleManagerOptions = {}): Sch
     },
 
     stop(): void {
-      for (const [id, timer] of timers) {
+      for (const [, timer] of timers) {
         clearInterval(timer);
       }
       timers.clear();
     },
   };
+}
+
+async function saveSchedules(entries: ScheduleEntry[]): Promise<void> {
+  await ensureSchedulesDir();
+  await writeFile(getVectaHubPath('schedules.json'), JSON.stringify(entries, null, 2), 'utf-8');
+}
+
+function parseCronInterval(cron: string): number {
+  const match = cron.match(/^(\*|0) \/(\d+) (\*|\*) (\*|\*) (\*|\*)$/);
+  if (match) {
+    const minutes = parseInt(match[2], 10);
+    return minutes * 60 * 1000;
+  }
+
+  if (cron === '* * * * *') return 60 * 1000;
+  if (cron.startsWith('*/')) {
+    const mins = parseInt(cron.split(' ')[1] || '5', 10);
+    return mins * 60 * 1000;
+  }
+
+  return 5 * 60 * 1000;
 }

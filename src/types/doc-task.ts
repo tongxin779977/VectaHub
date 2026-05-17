@@ -50,6 +50,7 @@ export interface DocTask {
 export interface AgentTaskContract {
   taskId: string;
   label: string;
+  instructionHash: string;
   docPath?: string;
   docExcerpt?: string;
   allowedFiles: string[];

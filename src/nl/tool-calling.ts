@@ -287,9 +287,11 @@ export function convertToolCallToSteps(toolCall: LLMToolCall): { intent: string;
   let params: Record<string, unknown>;
   try {
     params = JSON.parse(toolCall.function.arguments);
-  } catch (e) {
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `Invalid JSON in tool call arguments for "${intentName}": ${e instanceof Error ? e.message : String(e)}`
+      `Invalid JSON in tool call arguments for "${intentName}": ${errorMessage}`,
+      { cause: error }
     );
   }
 
@@ -305,18 +307,19 @@ export function convertToolCallToSteps(toolCall: LLMToolCall): { intent: string;
       throw new Error(`Unknown CLI tool "${toolName}" is not in the allowed list`);
     }
 
-    const subcommand = parts.length > 1 ? parts.slice(1).join('_') : (params.subcommand as string);
+    const subcommandArgs = parts.length > 1
+      ? parts.slice(1).filter(Boolean)
+      : parseArgs(params.subcommand);
     const args = parseArgs(params.args);
 
-    const cliCommand = subcommand ? `${toolName} ${subcommand}` : toolName;
     return {
       intent: intentName,
       params,
       steps: [{
         id: 'step_1',
         type: 'exec' as const,
-        cli: cliCommand,
-        args,
+        cli: toolName,
+        args: [...subcommandArgs, ...args],
       }],
     };
   }

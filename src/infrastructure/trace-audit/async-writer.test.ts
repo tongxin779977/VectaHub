@@ -159,6 +159,43 @@ describe('AsyncLogWriter', () => {
       await writer.flush();
       expect(writer.getQueueLength()).toBe(0);
     });
+
+    it('should keep current batch in queue when flush fails', async () => {
+      const brokenLogDir = path.join(TEST_LOG_DIR, 'broken-dir');
+      const brokenWriter = createAsyncLogWriter(brokenLogDir, {
+        bufferSize: 10,
+        flushIntervalMs: 10_000,
+      });
+
+      const span: TraceSpan = {
+        spanId: 'span_fail_001',
+        traceId: 'trace_fail_001',
+        caller: 'CLI',
+        callee: 'Workflow',
+        startTime: new Date().toISOString(),
+        status: 'RUNNING',
+      };
+
+      const pendingWrite = brokenWriter.write(span);
+
+      fs.rmSync(brokenLogDir, { recursive: true, force: true });
+      fs.writeFileSync(brokenLogDir, 'not-a-directory', 'utf-8');
+
+      await expect(brokenWriter.flush()).rejects.toThrow();
+      expect(brokenWriter.getQueueLength()).toBe(1);
+
+      fs.rmSync(brokenLogDir, { force: true });
+      fs.mkdirSync(brokenLogDir, { recursive: true });
+
+      await brokenWriter.flush();
+      await expect(pendingWrite).resolves.toBeUndefined();
+      expect(brokenWriter.getQueueLength()).toBe(0);
+
+      const logFile = path.join(brokenLogDir, `${new Date().toISOString().split('T')[0]}-traces.jsonl`);
+      expect(fs.existsSync(logFile)).toBe(true);
+
+      await brokenWriter.destroy();
+    });
   });
 
   describe('getStats', () => {
@@ -188,6 +225,27 @@ describe('AsyncLogWriter', () => {
 
       const stats = writer.getStats();
       expect(stats.isDestroyed).toBe(true);
+    });
+
+    it('should flush queued data before marking destroyed', async () => {
+      const span: TraceSpan = {
+        spanId: 'span_destroy_001',
+        traceId: 'trace_destroy_001',
+        caller: 'CLI',
+        callee: 'Workflow',
+        startTime: new Date().toISOString(),
+        status: 'COMPLETED',
+      };
+
+      const pendingWrite = writer.write(span);
+      await writer.destroy();
+      await expect(pendingWrite).resolves.toBeUndefined();
+
+      const logFile = path.join(TEST_LOG_DIR, `${new Date().toISOString().split('T')[0]}-traces.jsonl`);
+      expect(fs.existsSync(logFile)).toBe(true);
+
+      const content = fs.readFileSync(logFile, 'utf-8');
+      expect(content).toContain('"spanId":"span_destroy_001"');
     });
 
     it('should throw error when writing after destroy', async () => {

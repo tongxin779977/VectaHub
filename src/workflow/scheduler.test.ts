@@ -3,6 +3,7 @@ import { createScheduleManager } from './scheduler.js';
 import { existsSync, rmSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { writeFile } from 'node:fs/promises';
 import { createDetector } from '../sandbox/detector.js';
 
 describe('scheduler', () => {
@@ -140,5 +141,37 @@ describe('scheduler', () => {
     const saved = schedules.find(s => s.id === entry.id);
     expect(saved).toBeDefined();
     expect(saved?.lastStatus).toBeDefined();
+  });
+
+  it('fails fast when schedules file contains malformed JSON', async () => {
+    await writeFile(join(vectahubHome, 'schedules.json'), '{bad json', 'utf-8');
+    const manager = createScheduleManager();
+
+    await expect(manager.list()).rejects.toThrow();
+    await expect(manager.start()).rejects.toThrow();
+    manager.stop();
+  });
+
+  it('marks workflow schedule as failed when workflowId is set without workflowFile', async () => {
+    const manager = createScheduleManager();
+    const entry = await manager.add({
+      name: 'workflow-id-only',
+      cron: '* * * * *',
+      workflowId: 'wf_missing_file',
+    });
+
+    await manager.start();
+    vi.advanceTimersByTime(61000);
+    manager.stop();
+
+    vi.useRealTimers();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    const schedules = await manager.list();
+    const saved = schedules.find(s => s.id === entry.id);
+    expect(saved).toBeDefined();
+    expect(saved?.lastStatus).toBe('FAILED');
+    expect(saved?.lastError).toContain('workflowFile is required when workflowId is set');
   });
 });

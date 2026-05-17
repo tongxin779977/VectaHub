@@ -217,7 +217,7 @@ function registerRecoverDocTaskCommand(context, tasksProvider) {
                         const classification = (0, docTaskRecovery_js_1.classifyRecoveryOutcome)({
                             ok: result.data.ok,
                             status: result.data.status,
-                            failureKind: result.data.failureKind,
+                            failureKind: result.data.diagnostics?.failureKind ?? result.data.failureKind,
                             runResult,
                             error: result.data.error,
                         });
@@ -276,7 +276,7 @@ function registerRecoverDocTaskCommand(context, tasksProvider) {
                         const classification = (0, docTaskRecovery_js_1.classifyRecoveryOutcome)({
                             ok: result.data?.ok,
                             status: result.data?.status,
-                            failureKind: result.data?.failureKind,
+                            failureKind: result.data?.diagnostics?.failureKind ?? result.data?.failureKind,
                             runResult: result.data?.runResult,
                             error: errMsg,
                         });

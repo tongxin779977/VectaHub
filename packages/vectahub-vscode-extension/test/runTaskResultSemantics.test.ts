@@ -6,7 +6,9 @@ describe('runTaskResultSemantics', () => {
     const semantics = resolveRunTaskExecutionSemantics({
       ok: false,
       data: {
-        gitChanges: { changedFiles: ['src/a.ts'] },
+        diagnostics: {
+          gitChanges: { changedFiles: ['src/a.ts'] },
+        },
       },
     });
     expect(semantics.unclosedExecution).toBe(true);
@@ -17,8 +19,10 @@ describe('runTaskResultSemantics', () => {
     const semantics = resolveRunTaskExecutionSemantics({
       ok: false,
       data: {
-        gitChanges: { changedFiles: ['src/a.ts', 'src/b.ts'] },
-        verification: undefined,
+        diagnostics: {
+          gitChanges: { changedFiles: ['src/a.ts', 'src/b.ts'] },
+          verification: undefined,
+        },
       },
     });
     expect(semantics.unclosedExecution).toBe(true);
@@ -28,9 +32,11 @@ describe('runTaskResultSemantics', () => {
     const semantics = resolveRunTaskExecutionSemantics({
       ok: false,
       data: {
-        riskAssessment: {
-          needsConfirmation: true,
-          confirmationSource: 'preflight',
+        diagnostics: {
+          riskAssessment: {
+            needsConfirmation: true,
+            confirmationSource: 'preflight',
+          },
         },
       },
     });
@@ -42,10 +48,12 @@ describe('runTaskResultSemantics', () => {
     const semantics = resolveRunTaskExecutionSemantics({
       ok: false,
       data: {
-        riskAssessment: {
-          needsConfirmation: true,
-          confirmationSource: 'preflight',
-          enforcement: 'blocked',
+        diagnostics: {
+          riskAssessment: {
+            needsConfirmation: true,
+            confirmationSource: 'preflight',
+            enforcement: 'blocked',
+          },
         },
       },
     });
@@ -58,10 +66,12 @@ describe('runTaskResultSemantics', () => {
     const semantics = resolveRunTaskExecutionSemantics({
       ok: false,
       data: {
-        riskAssessment: {
-          needsConfirmation: false,
-          confirmationSource: 'preflight',
-          enforcement: 'confirm_required',
+        diagnostics: {
+          riskAssessment: {
+            needsConfirmation: false,
+            confirmationSource: 'preflight',
+            enforcement: 'confirm_required',
+          },
         },
       },
     });
@@ -74,11 +84,13 @@ describe('runTaskResultSemantics', () => {
     const semantics = resolveRunTaskExecutionSemantics({
       ok: false,
       data: {
-        riskAssessment: {
-          needsConfirmation: true,
-          confirmationSource: 'post-execution',
+        diagnostics: {
+          riskAssessment: {
+            needsConfirmation: true,
+            confirmationSource: 'post-execution',
+          },
+          gitChanges: { changedFiles: ['src/a.ts'] },
         },
-        gitChanges: { changedFiles: ['src/a.ts'] },
       },
     });
     expect(semantics.needsConfirmation).toBe(true);
@@ -89,9 +101,11 @@ describe('runTaskResultSemantics', () => {
     const semantics = resolveRunTaskExecutionSemantics({
       ok: false,
       data: {
-        gitChanges: { changedFiles: [] },
-        verification: {},
-        unclosedExecution: true,
+        diagnostics: {
+          gitChanges: { changedFiles: [] },
+          verification: {},
+          unclosedExecution: true,
+        },
       },
     });
     expect(semantics.unclosedExecution).toBe(true);
@@ -100,7 +114,9 @@ describe('runTaskResultSemantics', () => {
   it('should resolve CLI failureKind when present', () => {
     const failureKind = resolveRunTaskFailureKind({
       data: {
-        failureKind: 'timeout',
+        diagnostics: {
+          failureKind: 'timeout',
+        },
       },
     });
     expect(failureKind).toBe('timeout');

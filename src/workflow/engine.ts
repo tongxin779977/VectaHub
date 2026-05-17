@@ -1,10 +1,10 @@
 import type { Workflow, Step, ExecutionRecord, StepRecord, ExecutionStatus } from '../types/index.js';
-import { createExecutor, type Executor, type ExecutorOptions, type ExecutionContext } from './executor.js';
+import { createExecutor, type Executor, type ExecutorOptions } from './executor.js';
 import { createStorage, type Storage } from './storage.js';
 import { interpolateStep, type InterpolationContext } from './interpolation.js';
 import { createExecutionStateManager, type ExecutionStateManager } from './state-manager.js';
 import { createContextManager, type ContextManager, type ExecutorContext } from './context-manager.js';
-import { topologicalSort } from './dag.js';
+import { topologicalSort, validateDependencies } from './dag.js';
 import { audit } from '../utils/audit.js';
 import { createRetryManager } from '../skills/iterative-refinement/retry-manager.js';
 import { generateId } from '../execution/id-generator.js';
@@ -54,8 +54,6 @@ resumeFromFailure(executionId: string, stepIndex?: number, options?: ExecuteOpti
 
 let workflowCounter = 0;
 
-let currentEngine: WorkflowEngine | null = null;
-
 interface RunLoopOptions {
   workflow: Workflow;
   steps: Step[];
@@ -63,6 +61,8 @@ interface RunLoopOptions {
   contextManager: ContextManager;
   initialVariables?: Record<string, unknown>;
   initialSteps?: StepRecord[];
+  seedOutputs?: Array<{ stepKey: string; output: unknown[] }>;
+  satisfiedDependencyIds?: string[];
   initialWarnings?: string[];
   sessionId?: string;
   onProgress?: (info: ProgressInfo) => void;
@@ -89,6 +89,8 @@ async function runExecutionLoop(
     contextManager,
     initialVariables,
     initialSteps,
+    seedOutputs,
+    satisfiedDependencyIds,
     initialWarnings,
     sessionId = 'unknown',
     onProgress,
@@ -97,12 +99,18 @@ async function runExecutionLoop(
   const newExecutionId = generateId();
   const startedAt = new Date();
 
-  const context = contextManager.createContext(
+  contextManager.createContext(
     workflow.id,
     newExecutionId,
     sessionId,
     initialVariables || {}
   );
+
+  for (const seededOutput of seedOutputs || []) {
+    contextManager.setStepOutput(newExecutionId, seededOutput.stepKey, seededOutput.output, {
+      stdout: seededOutput.output.map(value => String(value)).join('\n'),
+    });
+  }
 
   sm.currentExecution = {
     executionId: newExecutionId,
@@ -123,7 +131,39 @@ async function runExecutionLoop(
     mode: workflow.mode,
   });
 
-  const sortedSteps = topologicalSort(steps, workflow.mode);
+  const finalizeExecution = async (): Promise<void> => {
+    sm.currentExecution.endedAt = new Date();
+    sm.currentExecution.duration = sm.currentExecution.endedAt.getTime() - startedAt.getTime();
+
+    await storage.save(sm.currentExecution);
+
+    audit.workflowEnd(
+      workflow.id,
+      sm.currentExecution.status,
+      sm.currentExecution.duration || 0,
+      sessionId
+    );
+
+    if (sm.completionResolver) {
+      sm.completionResolver(sm.currentExecution);
+      sm.completionResolver = null;
+      sm.completionPromise = null;
+    }
+
+    contextManager.deleteContext(newExecutionId);
+  };
+
+  let sortedSteps: Step[];
+  try {
+    validateDependencies(steps, satisfiedDependencyIds);
+    sortedSteps = topologicalSort(steps, workflow.mode, satisfiedDependencyIds);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    sm.setState('FAILED');
+    sm.currentExecution.warnings.push(`Workflow validation failed: ${message}`);
+    await finalizeExecution();
+    throw error;
+  }
 
   for (let i = 0; i < sortedSteps.length; i++) {
     sm.currentStepIndex = i;
@@ -243,26 +283,7 @@ async function runExecutionLoop(
     sm.setState('COMPLETED');
   }
 
-  sm.currentExecution.endedAt = new Date();
-  sm.currentExecution.duration = sm.currentExecution.endedAt.getTime() - startedAt.getTime();
-
-  await storage.save(sm.currentExecution);
-
-  audit.workflowEnd(
-    workflow.id,
-    sm.currentExecution.status,
-    sm.currentExecution.duration || 0,
-    sessionId
-  );
-
-  if (sm.completionResolver) {
-    sm.completionResolver(sm.currentExecution);
-    sm.completionResolver = null;
-    sm.completionPromise = null;
-  }
-
-  contextManager.deleteContext(newExecutionId);
-
+  await finalizeExecution();
   return sm.currentExecution;
 }
 
@@ -481,26 +502,59 @@ export function createWorkflowEngine(): WorkflowEngine {
         throw new Error(`No failed step found in execution ${executionId}`);
       }
 
-      const remainingSteps = workflow.steps.slice(failedStepIndex + 1);
-      if (remainingSteps.length === 0) {
-        throw new Error(`No remaining steps to execute after step ${failedStepIndex + 1}`);
+      const failedStepRecord = previousExecution.steps[failedStepIndex];
+      if (!failedStepRecord) {
+        throw new Error(`Failed step index ${failedStepIndex} out of range for execution ${executionId}`);
       }
 
+      const sortedWorkflowSteps = topologicalSort(workflow.steps, workflow.mode);
+      const failedWorkflowStepIndex = sortedWorkflowSteps.findIndex(step => step.id === failedStepRecord.stepId);
+      if (failedWorkflowStepIndex === -1) {
+        throw new Error(`Failed step ${failedStepRecord.stepId} not found in workflow ${workflow.id}`);
+      }
+
+      const resumedSteps = sortedWorkflowSteps.slice(failedWorkflowStepIndex);
+      if (resumedSteps.length === 0) {
+        throw new Error(`No remaining steps to execute from failed step ${failedStepRecord.stepId}`);
+      }
+
+      const completedRecordsById = new Map(
+        previousExecution.steps
+          .filter(stepRecord => stepRecord.status === 'COMPLETED')
+          .map(stepRecord => [stepRecord.stepId, stepRecord] as const)
+      );
+      const preservedSteps = sortedWorkflowSteps
+        .slice(0, failedWorkflowStepIndex)
+        .map(step => completedRecordsById.get(step.id))
+        .filter((stepRecord): stepRecord is StepRecord => Boolean(stepRecord));
+
       const initialVariables: Record<string, unknown> = {};
-      for (const stepRecord of previousExecution.steps) {
-        if (stepRecord.output) {
-          initialVariables[stepRecord.stepId] = stepRecord.output;
+      const seedOutputs: Array<{ stepKey: string; output: unknown[] }> = [];
+      for (const stepRecord of preservedSteps) {
+        if (stepRecord.status === 'COMPLETED' && stepRecord.output) {
+          const workflowStep = sortedWorkflowSteps.find(step => step.id === stepRecord.stepId);
+          const storageKey = (workflowStep as unknown as Record<string, unknown> | undefined)?.outputVar as string | undefined
+            ?? stepRecord.stepId;
+          initialVariables[storageKey] = stepRecord.output;
+          seedOutputs.push({ stepKey: storageKey, output: stepRecord.output });
         }
       }
 
+      const satisfiedDependencyIds = preservedSteps.map(stepRecord => stepRecord.stepId);
+      const resumedWarnings = previousExecution.warnings.filter(
+        warning => !/^Step \d+ failed:/.test(warning)
+      );
+
       return runExecutionLoop(sm, executor, storage, {
         workflow,
-        steps: remainingSteps,
+        steps: resumedSteps,
         executorOptions: buildExecutorOptions(workflow, options || {}),
         contextManager,
         initialVariables,
-        initialSteps: [...previousExecution.steps],
-        initialWarnings: [...previousExecution.warnings],
+        initialSteps: [...preservedSteps],
+        seedOutputs,
+        satisfiedDependencyIds,
+        initialWarnings: [...resumedWarnings],
       });
     },
   };

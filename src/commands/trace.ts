@@ -14,25 +14,69 @@ interface TraceSummary {
   lastSeen: string;
 }
 
+function buildRecentUtcDateSet(maxDays: number): Set<string> {
+  const result = new Set<string>();
+  const now = new Date();
+  const utcBase = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+  ));
+  for (let i = 0; i < maxDays; i++) {
+    const current = new Date(utcBase);
+    current.setUTCDate(utcBase.getUTCDate() - i);
+    result.add(current.toISOString().slice(0, 10));
+  }
+  return result;
+}
+
+function buildRecentLocalDateSet(maxDays: number): Set<string> {
+  const result = new Set<string>();
+  const now = new Date();
+  const localBase = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  for (let i = 0; i < maxDays; i++) {
+    const current = new Date(localBase);
+    current.setDate(localBase.getDate() - i);
+    const year = current.getFullYear();
+    const month = String(current.getMonth() + 1).padStart(2, '0');
+    const day = String(current.getDate()).padStart(2, '0');
+    result.add(`${year}-${month}-${day}`);
+  }
+  return result;
+}
+
+function isFileWithinRecentDays(fileName: string, recentDateSet: Set<string>): boolean {
+  const match = fileName.match(/^(\d{4}-\d{2}-\d{2})(?:-traces)?\.jsonl$/);
+  if (!match) return false;
+  return recentDateSet.has(match[1]);
+}
+
 async function readSpans(options?: {
   traceId?: string;
   maxDays?: number;
   maxSpans?: number;
 }): Promise<TraceSpanRecord[]> {
   const dir = getVectaHubPath('logs', 'traces');
-  let files: string[] = [];
+  let files: string[];
+  const maxDays = options?.maxDays ?? 14;
+  const recentDateSet = new Set<string>([
+    ...buildRecentUtcDateSet(maxDays),
+    ...buildRecentLocalDateSet(maxDays),
+  ]);
   try {
-    files = readdirSync(dir).filter((f) => f.endsWith('.jsonl')).sort().reverse();
+    files = readdirSync(dir)
+      .filter((f) => f.endsWith('.jsonl') && isFileWithinRecentDays(f, recentDateSet))
+      .sort()
+      .reverse();
   } catch {
     return [];
   }
 
   const result: TraceSpanRecord[] = [];
   const targetTraceId = options?.traceId;
-  const maxDays = options?.maxDays ?? 14;
   const maxSpans = options?.maxSpans ?? Number.MAX_SAFE_INTEGER;
 
-  for (const file of files.slice(0, maxDays)) {
+  for (const file of files) {
     const fullPath = join(dir, file);
     const reader = createInterface({
       input: createReadStream(fullPath, { encoding: 'utf8' }),

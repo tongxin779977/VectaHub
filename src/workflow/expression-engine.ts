@@ -84,7 +84,7 @@ function parseInfixToLogic(expression: string): any {
   }
 
   function parseComparison(): any {
-    let left = parsePrimary();
+    const left = parsePrimary();
     const ops = ['==', '!=', '>', '<', '>=', '<='];
     if (pos < tokens.length && ops.includes(tokens[pos])) {
       const op = tokens[pos++];

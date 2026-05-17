@@ -210,6 +210,7 @@ describe('decideAgentTaskConcurrency', () => {
     return {
       taskId: 'T-1',
       label: '任务',
+      instructionHash: 'abc123abc123abc1',
       allowedFiles: ['src/a.ts'],
       forbiddenFiles: [],
       validationCommands: ['npm run typecheck'],

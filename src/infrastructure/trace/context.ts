@@ -38,7 +38,6 @@ export function createRootTraceContext(): TraceContext {
 
 export function createChildEnv(context: TraceContext, parentSpanId: string): NodeJS.ProcessEnv {
   return {
-    ...process.env,
     [TRACE_ID_ENV]: context.traceId,
     [TRACE_PARENT_SPAN_ENV]: parentSpanId,
     [TRACE_SOURCE_ENV]: context.source || 'cli',
