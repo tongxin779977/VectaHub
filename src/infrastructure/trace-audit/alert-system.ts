@@ -285,9 +285,11 @@ export class AlertSystem {
   /** 控制台通知 */
   private sendConsoleNotification(alert: AlertEvent): void {
     const levelColors: Record<AlertLevel, string> = {
-      INFO: '\x1b[36m',
-      WARNING: '\x1b[33m',
-      CRITICAL: '\x1b[31m',
+      DEBUG: '\x1b[90m',    // 灰色
+      INFO: '\x1b[36m',     // 青色
+      WARNING: '\x1b[33m',   // 黄色
+      ERROR: '\x1b[35m',    // 紫色
+      CRITICAL: '\x1b[31m', // 红色
     };
     const reset = '\x1b[0m';
     const color = levelColors[alert.level] || '';

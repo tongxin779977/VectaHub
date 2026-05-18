@@ -1,5 +1,17 @@
-export type ExecutionStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'TIMEOUT' | 'PAUSED' | 'ABORTED';
+/**
+ * 执行记录类型定义
+ * ExecutionRecord 权威定义（string 时间戳）
+ * 其他模块应 re-export 此定义
+ */
 
+// 从统一类型定义中导入并导出 ExecutionStatus
+import type { ExecutionStatus } from '../types/workflow.js';
+export type { ExecutionStatus };
+
+/**
+ * 执行记录 - 权威定义（ISO 8601 string 时间戳）
+ * 其他模块应 re-export 此定义
+ */
 export interface ExecutionRecord {
   executionId: string;
   workflowId: string;
@@ -15,6 +27,9 @@ export interface ExecutionRecord {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * 步骤执行记录
+ */
 export interface StepExecution {
   stepId: string;
   stepName: string;

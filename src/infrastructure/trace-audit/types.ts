@@ -12,11 +12,12 @@ export type SpanId = string;
 /** 模块名称 */
 export type ModuleName = string;
 
-/** 执行状态 */
-export type ExecutionStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'TIMEOUT' | 'CANCELLED';
+// 从统一类型定义导入并导出 ExecutionStatus
+import type { ExecutionStatus } from '../../types/workflow.js';
+export type { ExecutionStatus };
 
-/** 告警级别 */
-export type AlertLevel = 'INFO' | 'WARNING' | 'CRITICAL';
+/** 告警级别 - 统一值集 */
+export type AlertLevel = 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL';
 
 /** 通知渠道 */
 export type NotificationChannel = 'console' | 'file' | 'webhook' | 'email';

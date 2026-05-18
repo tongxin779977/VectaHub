@@ -70,7 +70,8 @@ const EXECUTION_STATUSES: ReadonlySet<ExecutionStatus> = new Set([
   'COMPLETED',
   'FAILED',
   'TIMEOUT',
-  'CANCELLED',
+  'PAUSED',
+  'ABORTED',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -216,6 +217,7 @@ export class WorkflowTraceAuditAdapter {
     }
     if (s === 'SUCCESS') return 'COMPLETED';
     if (s === 'ERROR') return 'FAILED';
+    if (s === 'CANCELLED') return 'ABORTED';
     return 'FAILED'; // Default to FAILED for unknown statuses
   }
 

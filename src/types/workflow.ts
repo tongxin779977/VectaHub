@@ -35,12 +35,17 @@ export interface Workflow {
   createdAt: Date;
 }
 
+/**
+ * 执行状态枚举
+ * 统一值集：PENDING / RUNNING / COMPLETED / FAILED / TIMEOUT / PAUSED / ABORTED
+ */
 export type ExecutionStatus =
   | 'PENDING'
   | 'RUNNING'
-  | 'PAUSED'
   | 'COMPLETED'
   | 'FAILED'
+  | 'TIMEOUT'
+  | 'PAUSED'
   | 'ABORTED';
 
 export interface StepTiming {

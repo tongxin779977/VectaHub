@@ -1,10 +1,18 @@
-export type AlertLevel = 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL';
+/**
+ * 告警系统
+ * AlertLevel 和 AlertEvent 从 infrastructure/trace-audit/types.ts 统一导出
+ */
 
+// 从统一类型定义导入并重新导出 AlertLevel
+import type { AlertLevel } from '../infrastructure/trace-audit/types.js';
+export type { AlertLevel };
+
+// 重新定义 AlertEvent（因为包含 timestamp: Date）
 export interface AlertEvent {
   level: AlertLevel;
   message: string;
   timestamp: Date;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export type AlertHandler = (event: AlertEvent) => void;
