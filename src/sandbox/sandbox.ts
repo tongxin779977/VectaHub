@@ -153,7 +153,9 @@ export class SandboxManager {
       try {
         accessSync(SANDBOX_EXEC_PATH, constants.X_OK);
         caps.hasSandboxExec = true;
-      } catch {}
+      } catch {
+        caps.hasSandboxExec = false;
+      }
     } else if (os === 'linux') {
       // Test bwrap
       caps.hasBwrap = await this.testExecutable(BWRAP_PATH, ['--version']);

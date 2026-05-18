@@ -41,12 +41,12 @@ const CREDIT_CARD_PATTERN = /\b\d{4}[- ]\d{4}[- ]\d{4}[- ]\d{4}\b/g;
 
 // ── Sensitive file paths ──
 const DEFAULT_SENSITIVE_PATHS: RegExp[] = [
-  /\.ssh[\/\\]/,
-  /\.gnupg[\/\\]/,
+  /\.ssh[/\\]/,
+  /\.gnupg[/\\]/,
   /\.env\b/,
-  /\.aws[\/\\]/,
-  /\.kube[\/\\]/,
-  /\.docker[\/\\]/,
+  /\.aws[/\\]/,
+  /\.kube[/\\]/,
+  /\.docker[/\\]/,
   /id_rsa/,
   /id_ed25519/,
   /\.pem$/,

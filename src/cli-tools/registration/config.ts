@@ -1,5 +1,4 @@
-import type { CLIToolsConfig, Config } from '../../utils/config.js';
-import { loadConfig as loadAppConfig, getDefaultConfig } from '../../utils/config.js';
+import { loadConfig as loadAppConfig } from '../../utils/config.js';
 import { writeFileSync, existsSync, mkdirSync } from 'fs';
 import * as path from 'path';
 import { stringify } from 'yaml';
@@ -17,6 +16,11 @@ export interface ValidationResult {
   valid: boolean;
   errors: string[];
   warnings: string[];
+}
+
+interface ToolRegistrationCandidate {
+  name?: string;
+  description?: string;
 }
 
 function getConfigPath(): string {
@@ -69,12 +73,15 @@ export async function saveConfig(config: RegistrationConfig): Promise<void> {
     writeFileSync(configPath, content, 'utf-8');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to save config: ${message}`);
+    if (error instanceof Error) {
+      throw new Error(`Failed to save config: ${message}`, { cause: error });
+    }
+    throw error;
   }
 }
 
 export function validateToolRegistration(
-  tool: any,
+  tool: ToolRegistrationCandidate,
   existingConfig: RegistrationConfig
 ): ValidationResult {
   const errors: string[] = [];
@@ -88,7 +95,7 @@ export function validateToolRegistration(
     warnings.push('建议添加工具描述');
   }
 
-  if (existingConfig.registeredTools.includes(tool.name)) {
+  if (tool.name && existingConfig.registeredTools.includes(tool.name)) {
     warnings.push(`工具 ${tool.name} 已经注册`);
   }
 

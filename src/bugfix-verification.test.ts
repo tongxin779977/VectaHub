@@ -88,7 +88,7 @@ describe('Bug Fix: RBAC matchBlockedCommand (ReDoS-safe)', () => {
         return commandParts.some(part => part.startsWith(onlyPattern.slice(0, -1)));
       }
       const escaped = onlyPattern
-        .replace(/[-\/\\^$+().|[\]{}]/g, '\\$&')
+        .replace(/[-/\\^$+().|[\]{}]/g, '\\$&')
         .replace(/\*/g, '.*')
         .replace(/\?/g, '.');
       return commandParts.some(part => new RegExp(`^${escaped}$`).test(part));
@@ -108,7 +108,7 @@ describe('Bug Fix: RBAC matchBlockedCommand (ReDoS-safe)', () => {
           let matches = true;
           for (let i = 0; i < remainingP.length; i++) {
             if (remainingP[i] === '*') continue;
-            const escaped = remainingP[i].replace(/[-\/\\^$+().|[\]{}]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+            const escaped = remainingP[i].replace(/[-/\\^$+().|[\]{}]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
             if (!new RegExp(`^${escaped}$`).test(remainingC[start + i])) { matches = false; break; }
           }
           if (matches) return true;
@@ -121,7 +121,7 @@ describe('Bug Fix: RBAC matchBlockedCommand (ReDoS-safe)', () => {
       }
       if (patternPart.includes('*') || patternPart.includes('?')) {
         const escaped = patternPart
-          .replace(/[-\/\\^$+().|[\]{}]/g, '\\$&')
+          .replace(/[-/\\^$+().|[\]{}]/g, '\\$&')
           .replace(/\*/g, '.*')
           .replace(/\?/g, '.');
         if (new RegExp(`^${escaped}$`).test(commandPart)) {

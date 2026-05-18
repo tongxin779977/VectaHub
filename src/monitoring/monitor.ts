@@ -1,6 +1,9 @@
 import { performance, PerformanceObserver, PerformanceEntry } from 'perf_hooks';
 import os from 'os';
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { getLogger } from '../utils/logger.js';
+import { getVectaHubPath } from '../utils/paths.js';
 import { type PerformanceMetric, type MetricType, type MetricRecord, type AlertConfig, type Alert, type MetricThreshold } from './metrics.js';
 
 const DEFAULT_CONFIG: AlertConfig = {
@@ -302,14 +305,12 @@ export class PerformanceMonitor {
   }
 
   private logToFile(alert: Alert): void {
-    const fs = require('fs');
-    const { getVectaHubPath } = require('../utils/paths.js');
     const logDir = getVectaHubPath('logs');
-    const logFile = require('path').join(logDir, `alerts-${new Date().toISOString().split('T')[0]}.log`);
+    const logFile = join(logDir, `alerts-${new Date().toISOString().split('T')[0]}.log`);
 
     try {
-      fs.mkdirSync(logDir, { recursive: true });
-      fs.appendFileSync(logFile, `${new Date().toISOString()} [${alert.type.toUpperCase()}] ${alert.message}\n`);
+      mkdirSync(logDir, { recursive: true });
+      appendFileSync(logFile, `${new Date().toISOString()} [${alert.type.toUpperCase()}] ${alert.message}\n`);
     } catch {
       this.logger.error('Failed to write alert to file');
     }
@@ -318,15 +319,13 @@ export class PerformanceMonitor {
   private sendWebhook(alert: Alert): void {
     if (!this.config.webhookUrl) return;
 
-    try {
-      require('node-fetch')(this.config.webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(alert),
-      });
-    } catch {
+    fetch(this.config.webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(alert),
+    }).catch(() => {
       this.logger.error('Failed to send webhook alert');
-    }
+    });
   }
 
   getMetrics(): MetricRecord[] {

@@ -19,7 +19,7 @@ export interface WorkflowSkillOutput {
 }
 
 async function extractFilePath(input: string): Promise<string | null> {
-  const match = input.match(/\/Users\/[^\/\s]+\/[^\/\s]+(?:[^\s]*\/docs[^\s]*\.md)|\/[^\s]*\.md/);
+  const match = input.match(/\/Users\/[^/\s]+\/[^/\s]+(?:[^\s]*\/docs[^\s]*\.md)|\/[^\s]*\.md/);
   if (match) {
     return match[0];
   }

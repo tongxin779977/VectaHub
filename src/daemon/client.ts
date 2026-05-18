@@ -49,6 +49,7 @@ export function createDaemonClient(options: DaemonClientOptions = {}): DaemonCli
               pendingMessages.delete(response.id);
             }
           } catch {
+            continue;
           }
         }
       }

@@ -9,15 +9,15 @@ export function getBashCompletion(): string {
 
   case "\${prev}" in
     vectahub)
-      COMPREPLY=( \$(compgen -W "\${opts}" -- "\${cur}") )
+      COMPREPLY=( $(compgen -W "\${opts}" -- "\${cur}") )
       return 0
       ;;
     config)
-      COMPREPLY=( \$(compgen -W "show reset tools" -- "\${cur}") )
+      COMPREPLY=( $(compgen -W "show reset tools" -- "\${cur}") )
       return 0
       ;;
     completion)
-      COMPREPLY=( \$(compgen -W "bash zsh fish" -- "\${cur}") )
+      COMPREPLY=( $(compgen -W "bash zsh fish" -- "\${cur}") )
       return 0
       ;;
   esac
@@ -41,7 +41,7 @@ _vectahub() {
     '1: :->command' \\\\
     '*:: :->args'
 
-  case \$state in
+  case $state in
     command)
       _describe 'command' commands
       ;;
@@ -58,7 +58,7 @@ _vectahub() {
   esac
 }
 
-_vectahub "\$@"`;
+_vectahub "$@"`;
 }
 
 export function getFishCompletion(): string {
@@ -67,10 +67,10 @@ export function getFishCompletion(): string {
   set -l cmd (commandline -opc)
   set -l subcmd (commandline -ct)
 
-  if test (count \$cmd) -eq 1
-    complete -c vectahub -a "\$commands"
-  else if test (count \$cmd) -eq 2
-    switch \$cmd[2]
+  if test (count $cmd) -eq 1
+    complete -c vectahub -a "$commands"
+  else if test (count $cmd) -eq 2
+    switch $cmd[2]
       case config
         complete -c vectahub -a "show reset tools" -n "__fish_seen_subcommand_from config"
       case completion

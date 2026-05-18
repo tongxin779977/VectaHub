@@ -20,7 +20,7 @@ export function createDaemon(options: DaemonOptions = {}): Daemon {
   let server: NetServer | null = null;
   let startTime: number | null = null;
   let processedTasks = 0;
-  let activeSessionsCount = 0;
+  const activeSessionsCount = 0;
   const taskQueue: Array<{ message: DaemonMessage; socket: Socket }> = [];
   let isProcessing = false;
 
@@ -111,7 +111,7 @@ export function createDaemon(options: DaemonOptions = {}): Daemon {
             taskQueue.push({ message, socket });
             processQueue().catch(console.error);
           } catch {
-            // Ignore parse errors
+            continue;
           }
         }
       }
@@ -142,6 +142,7 @@ export function createDaemon(options: DaemonOptions = {}): Daemon {
             try {
               unlinkSync(config.socketPath);
             } catch {
+              // 忽略删除旧 socket 的失败，继续停止流程
             }
           }
           setState(DaemonState.STOPPED);
@@ -168,6 +169,7 @@ export function createDaemon(options: DaemonOptions = {}): Daemon {
         try {
           unlinkSync(config.socketPath);
         } catch {
+          // 忽略启动前清理旧 socket 的失败，后续 listen 会给出真实错误
         }
       }
 

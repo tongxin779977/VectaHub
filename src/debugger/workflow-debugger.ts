@@ -3,7 +3,7 @@ import { type Workflow } from '../types/workflow.js';
 import { type Breakpoint, type DebugState, type StepFrame, type ErrorInfo, type ExecutionHistory, type StepExecution, type WatchExpression, type DebugEvent, BreakpointType } from './debugger-api.js';
 import vm from 'vm';
 
-const ALLOWED_EXPRESSION_CHARS = /^[\w\s.+\-*/%<>=!&|()\[\]'"?:]*$/;
+const ALLOWED_EXPRESSION_CHARS = /^[\w\s.+*/%<>=!&|()[\]'"?:-]*$/;
 
 function sanitizeExpression(expression: string): { valid: boolean; message?: string } {
   const trimmed = expression.trim();

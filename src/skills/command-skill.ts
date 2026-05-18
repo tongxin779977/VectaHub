@@ -312,7 +312,10 @@ function executeCommand(command: string): { output: string; success: boolean } {
     const output = execSync(command, { encoding: 'utf-8', timeout: 30000 });
     return { output, success: true };
   } catch (error) {
-    throw new Error(`Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    if (error instanceof Error) {
+      throw new Error(`Command failed: ${error.message}`, { cause: error });
+    }
+    throw error;
   }
 }
 

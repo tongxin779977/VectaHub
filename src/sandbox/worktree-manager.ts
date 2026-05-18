@@ -32,7 +32,7 @@ function toBranchName(traceId: string): string {
 
 export async function createSandbox(options: SandboxOptions): Promise<SandboxContext> {
   const branchName = toBranchName(options.traceId);
-  let isInsideWorktree = false;
+  let isInsideWorktree: boolean;
 
   try {
     const inside = await execGit(['rev-parse', '--is-inside-work-tree'], options.sourceCwd);

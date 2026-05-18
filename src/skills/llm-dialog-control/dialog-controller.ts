@@ -194,10 +194,10 @@ export function createDialogController(
         throw new LLMNetworkError(`API error: ${response.status} - ${errorText}`, response.status);
       }
       
-      const data = await response.json() as any;
+      const data = await response.json() as {
+        choices?: Array<{ message?: { content?: string } }>;
+      };
       return data.choices?.[0]?.message?.content || '';
-    } catch (error) {
-      throw error;
     } finally {
       clearTimeout(timeoutId);
     }

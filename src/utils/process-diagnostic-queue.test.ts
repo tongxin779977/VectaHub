@@ -82,7 +82,7 @@ describe('process-diagnostic-queue', () => {
         title: 'Run task',
         description: 'run',
         source: 'manual',
-        commandToFix: `\"${process.execPath}\" --version`,
+        commandToFix: `"${process.execPath}" --version`,
         status: 'pending',
         createdAt: new Date('2025-01-01T00:00:00.000Z'),
         updatedAt: new Date('2025-01-01T00:00:00.000Z'),

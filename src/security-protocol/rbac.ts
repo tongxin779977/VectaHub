@@ -200,7 +200,7 @@ function matchBlockedCommand(command: string, blockedPattern: string): boolean {
     }
 
     const escaped = onlyPattern
-      .replace(/[-\/\\^$+().|[\]{}]/g, '\\$&')
+      .replace(/[-/\\^$+().|[\]{}]/g, '\\$&')
       .replace(/\*/g, '.*')
       .replace(/\?/g, '.');
 
@@ -237,7 +237,7 @@ function matchBlockedCommand(command: string, blockedPattern: string): boolean {
 
           if (nextPattern.includes('*') || nextPattern.includes('?')) {
             const escaped = nextPattern
-              .replace(/[-\/\\^$+().|[\]{}]/g, '\\$&')
+              .replace(/[-/\\^$+().|[\]{}]/g, '\\$&')
               .replace(/\*/g, '.*')
               .replace(/\?/g, '.');
 
@@ -269,7 +269,7 @@ function matchBlockedCommand(command: string, blockedPattern: string): boolean {
 
     if (patternPart.includes('*') || patternPart.includes('?')) {
       const escaped = patternPart
-        .replace(/[-\/\\^$+().|[\]{}]/g, '\\$&')
+        .replace(/[-/\\^$+().|[\]{}]/g, '\\$&')
         .replace(/\*/g, '.*')
         .replace(/\?/g, '.');
 

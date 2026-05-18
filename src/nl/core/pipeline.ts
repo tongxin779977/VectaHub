@@ -139,7 +139,10 @@ function createTaskListFromWorkflow(workflowYAML: string, userInput: string): NL
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Invalid workflow YAML: ${message}`);
+    if (error instanceof Error) {
+      throw new Error(`Invalid workflow YAML: ${message}`, { cause: error });
+    }
+    throw error;
   }
 
   if (!workflow || !Array.isArray(workflow.steps) || workflow.steps.length === 0) {

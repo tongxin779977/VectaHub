@@ -273,7 +273,7 @@ export function fallbackParseByRegex(content: string): DocTask[] {
   const tasks: DocTask[] = [];
   const lines = content.split('\n');
 
-  const headingPattern = /^#{1,6}\s+.*?([A-Za-z]?\d+(?:[-.]\d+)*)\s*[:：\-]?\s*(.+)$/;
+  const headingPattern = /^#{1,6}\s+.*?([A-Za-z]?\d+(?:[-.]\d+)*)\s*[:：-]?\s*(.+)$/;
   const listPattern = /^[-*]\s+.*?([A-Za-z]?\d+(?:[-.]\d+)*)[.、:)]\s*(.+)$/;
   const numberedPattern = /^([A-Za-z]?\d+(?:[-.]\d+)*)[.、:)]\s+(.+)$/;
 

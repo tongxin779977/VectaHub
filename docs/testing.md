@@ -17,6 +17,7 @@ npm run lint
 ```
 
 当前 `lint` 脚本等同于 `tsc --noEmit`。
+当前 `lint` 脚本运行 ESLint；`typecheck` 继续只负责 TypeScript 类型检查。
 
 全量测试：
 

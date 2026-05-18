@@ -1,3 +1,5 @@
+import { execSync } from 'node:child_process';
+
 export const OPENCLI_TOOL = {
   id: 'opencli',
   name: 'opencli',
@@ -14,7 +16,6 @@ export const OPENCLI_TOOL = {
 
 export function isOpencliInstalled(): boolean {
   try {
-    const { execSync } = require('child_process');
     execSync('opencli --version', { stdio: 'ignore' });
     return true;
   } catch {

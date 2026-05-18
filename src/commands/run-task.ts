@@ -2265,18 +2265,15 @@ export const runTaskCmd = new Command('run-task')
             console.log(rendered);
             await formatJsonSpan.end({ outputLength: rendered.length });
             await traceCloseout.rootSpan.fail(error);
-            deferredTraceCloseout = undefined;
           } catch (formatError) {
             await formatJsonSpan.fail(formatError);
             await traceCloseout.rootSpan.fail(formatError);
-            deferredTraceCloseout = undefined;
             throw formatError;
           }
         }
       } else {
         if (deferredTraceCloseout) {
           await deferredTraceCloseout.rootSpan.fail(error);
-          deferredTraceCloseout = undefined;
         }
         logger.error(`执行失败: ${message}`);
       }

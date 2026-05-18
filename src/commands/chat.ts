@@ -27,11 +27,9 @@ export const chatCmd = new Command('chat')
     console.log('Type your request or "exit" to quit.');
     console.log('');
 
-    let running = true;
-    while (running) {
+    while (true) {
       const input = await prompt('> ');
       if (input.trim().toLowerCase() === 'exit' || input.trim().toLowerCase() === 'quit') {
-        running = false;
         break;
       }
       if (!input.trim()) continue;
