@@ -1,4 +1,3 @@
-import { join } from 'path';
 import { promises as fs } from 'fs';
 import { getVectaHubPath } from './paths.js';
 

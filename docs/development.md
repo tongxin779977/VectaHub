@@ -26,8 +26,22 @@ npm install
 | `npm test` | 运行 Vitest。 |
 | `npm run test:run` | 以非 watch 模式运行 Vitest。 |
 | `npm run typecheck` | 运行 TypeScript 类型检查。 |
-| `npm run lint` | 当前等同于 `tsc --noEmit`。 |
+| `npm run lint` | 运行 ESLint 检查（当前存在 1100+ 遗留警告）。 |
 | `npm run compile:extension` | 编译 VS Code extension workspace。 |
+
+...
+
+## 技术债管理 (Lint & Types)
+
+当前项目存在 1100+ ESLint 警告（主要是 `any` 类型使用、`unused-vars` 和 `console` 语句）。
+
+### 处理原则
+
+1. **渐进式清理**：遵循“童子军军规”，在修改某个模块时，顺便清理该模块内的 Lint 警告。
+2. **禁止暴力全量修复**：严禁进行全量 `eslint --fix` 或大规模修改 `any` 类型，除非经过充分的回归测试。
+3. **新增代码零警告**：新提交的代码应严格遵守 Lint 规约，不产生新的警告。
+4. **质量基线**：使用 `bash scripts/collect_quality_signals.sh` 监控警告总数，确保其处于下降趋势。
+
 | `npm run package:vsix` | 编译并打包 VSIX。 |
 
 ## 本地调试 CLI

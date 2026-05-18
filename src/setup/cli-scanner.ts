@@ -1,7 +1,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { createInterface } from 'readline';
-import { loadConfig, saveConfig, VectaHubConfig } from './first-run-wizard.js';
+import { loadConfig, saveConfig } from './first-run-wizard.js';
 import { getAgentDescriptorById } from '../commands/agent-cli-adapter.js';
 import { bootstrapAgentRuntime } from '../commands/agent-runtime-bootstrap.js';
 

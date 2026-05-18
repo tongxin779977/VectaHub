@@ -48,20 +48,7 @@ export function createPriorityInstaller(
   steps: InstallationStep[],
   options?: InstallerOptions,
 ): Installer {
-  let rl: Interface | null = null;
-
-  const getRl = (): Interface => {
-    if (!rl) {
-      rl = createInterface({ input: process.stdin, output: process.stdout });
-    }
-    return rl;
-  };
-
   const cleanup = (): void => {
-    if (rl) {
-      rl.close();
-      rl = null;
-    }
     closeSetupRl();
   };
 

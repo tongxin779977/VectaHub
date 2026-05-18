@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join, dirname } from 'path';
+import { dirname } from 'path';
 import { parse, stringify } from 'yaml';
 import { createInterface, type Interface } from 'readline';
 import { getLogger } from '../utils/logger.js';

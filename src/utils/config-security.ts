@@ -135,7 +135,6 @@ export class ConfigSecurity {
   }
 
   private isPermissionSecure(permissions: string): boolean {
-    const ownerPerms = permissions[0];
     const groupPerms = permissions[1];
     const otherPerms = permissions[2];
 
