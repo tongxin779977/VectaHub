@@ -5,7 +5,7 @@ import { interpolateStep, type InterpolationContext } from './interpolation.js';
 import { createExecutionStateManager, type ExecutionStateManager } from './state-manager.js';
 import { contextManager as sharedContextManager, type ContextManager, type ExecutorContext } from './context-manager.js';
 import { topologicalSort, validateDependencies } from './dag.js';
-import { audit } from '../utils/audit.js';
+import { audit as globalAudit, type AuditHelper, type AuditLogger } from '../infrastructure/audit/index.js';
 import { createRetryManager } from '../skills/iterative-refinement/retry-manager.js';
 import { generateId } from '../execution/id-generator.js';
 import { SYSTEM_WORKFLOWS } from './system-workflows.js';
@@ -46,6 +46,7 @@ export interface WorkflowEngineDeps {
   storage?: Storage;
   contextManager?: ContextManager;
   stateManager?: ExecutionStateManager;
+  audit?: AuditHelper;
 }
 
 export interface WorkflowEngine {
@@ -81,6 +82,7 @@ interface RunLoopOptions {
   initialWarnings?: string[];
   sessionId?: string;
   onProgress?: (info: ProgressInfo) => void;
+  auditHelper: AuditHelper;
 }
 
 function toInterpolationContext(executorCtx: ExecutorContext, executionId?: string): InterpolationContext {
@@ -110,6 +112,7 @@ async function runExecutionLoop(
     initialWarnings,
     sessionId = 'unknown',
     onProgress,
+    auditHelper,
   } = options;
   const isDryRun = Boolean(executorOptions.dryRun);
 
@@ -150,7 +153,7 @@ async function runExecutionLoop(
   const isAbortState = (): boolean => sm.state === 'ABORTING' || sm.state === 'ABORTED';
 
   if (!isDryRun) {
-    audit.workflowStart(workflow.id, workflow.name, sessionId, {
+    auditHelper.workflowStart(workflow.id, workflow.name, sessionId, {
       stepCount: steps.length,
       mode: workflow.mode,
     });
@@ -163,7 +166,7 @@ async function runExecutionLoop(
     if (!isDryRun) {
       await storage.save(currentExecution);
 
-      audit.workflowEnd(
+      auditHelper.workflowEnd(
         workflow.id,
         currentExecution.status,
         currentExecution.duration || 0,
@@ -250,7 +253,7 @@ async function runExecutionLoop(
       currentExecution.steps.push(stepRecord);
 
       if (!isDryRun) {
-        audit.workflowStep(
+        auditHelper.workflowStep(
           step.id,
           step.cli || '',
           step.args || [],
@@ -335,6 +338,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps = {}): WorkflowEng
   const storage = deps.storage ?? createStorage();
   const sm = deps.stateManager ?? createExecutionStateManager();
   const contextManager: ContextManager = deps.contextManager ?? sharedContextManager;
+  const auditHelper: AuditHelper = deps.audit ?? globalAudit;
 
   function buildExecutorOptions(
     workflow: Workflow,
@@ -389,6 +393,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps = {}): WorkflowEng
       contextManager,
       initialVariables,
       onProgress: options.onProgress,
+      auditHelper,
     });
   }
 
@@ -641,6 +646,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps = {}): WorkflowEng
         seedOutputs,
         satisfiedDependencyIds,
         initialWarnings: [...resumedWarnings],
+        auditHelper,
       });
     },
   };

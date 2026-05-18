@@ -9,7 +9,7 @@ import { CommandRuleEngine, createCommandRuleEngine, loadGlobalBlocklist, loadGl
 import { SANDBOX_EXEC_PATH, BWRAP_PATH, UNSHARE_PATH, SUDOERS_PATH, FALLBACK_PATH, DEFAULT_PROTECTED_DIRS } from './constants.js';
 import type { SandboxMode, CommandDetection } from '../types/index.js';
 import type { DefaultPolicy } from '../command-rules/types.js';
-import { performEnvAudit, audit, AuditEventType, getCurrentSessionId } from '../infrastructure/audit/index.js';
+import { performEnvAudit, audit as globalAudit, AuditEventType, getCurrentSessionId, type AuditHelper } from '../infrastructure/audit/index.js';
 
 const DEFAULT_POLICY: DefaultPolicy = 'passthrough';
 
@@ -91,12 +91,14 @@ const DEFAULT_CONFIG: SandboxConfig = {
 export interface SandboxManagerDeps {
   detector?: Detector;
   ruleEngine?: CommandRuleEngine;
+  audit?: AuditHelper;
 }
 
 export class SandboxManager {
   private config: SandboxConfig;
   private detector: Detector;
   private ruleEngine: CommandRuleEngine;
+  private auditHelper: AuditHelper;
   private projectPath: string | undefined;
 
   private isolationStrategy: IsolationStrategy | null = null;
@@ -119,6 +121,7 @@ export class SandboxManager {
       projectAllowlist: loadProjectAllowlist(this.projectPath),
       defaultPolicy: this.config.defaultPolicy || 'passthrough',
     });
+    this.auditHelper = deps.audit ?? globalAudit;
     this.ensureDirectories();
   }
 
@@ -142,7 +145,7 @@ export class SandboxManager {
     const auditResult = await performEnvAudit();
     const os = auditResult.platform;
     
-    audit.log({
+    this.auditHelper.log({
       event: AuditEventType.ENV_AUDIT,
       timestamp: new Date().toISOString(),
       sessionId: getCurrentSessionId(),
@@ -179,7 +182,7 @@ export class SandboxManager {
     this.capabilities = caps;
     this.isolationStrategy = this.computeStrategy();
 
-    audit.log({
+    this.auditHelper.log({
       event: AuditEventType.CONFIG_CHANGE,
       timestamp: new Date().toISOString(),
       sessionId: getCurrentSessionId(),

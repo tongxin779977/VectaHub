@@ -4,6 +4,7 @@ import type { ExpressionData } from '../expression-engine.js';
 import type { Detector } from '../../sandbox/detector.js';
 import type { SemanticDetector } from '../../sandbox/semantic-detector.js';
 import type { SandboxManager } from '../../sandbox/sandbox.js';
+import type { AuditHelper } from '../../infrastructure/audit/index.js';
 
 export interface ExecutorOptions {
   mode: SandboxMode;
@@ -54,7 +55,7 @@ export interface CLIResult {
 export interface HandlerDependencies {
   detector: Detector;
   semanticDetector?: SemanticDetector;
-  audit: any; // audit 模块目前没有简单的 interface
+  audit: AuditHelper;
   sandboxManager?: SandboxManager;
   exec: (cli: string, args: string[], options: ExecutorOptions) => Promise<CLIResult>;
   execInSandbox: (cli: string, args: string[], options: ExecutorOptions) => Promise<CLIResult>;

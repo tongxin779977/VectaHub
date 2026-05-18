@@ -61,7 +61,7 @@ function setupProcessListeners() {
   });
 }
 
-import { initAuditLogger, getCurrentSessionId, audit } from './utils/audit.js';
+import { AuditLogger, createAuditHelper, getCurrentSessionId, audit } from './utils/audit.js';
 import { setGlobalOptions, isVerbose } from './utils/global-options.js';
 import { setLogLevel, setMuted } from './infrastructure/logger/index.js';
 // runCmd and doctorCmd are lazy-loaded via the placeholder system below
@@ -476,7 +476,7 @@ program
     if (!_auditLoggerInitialized) {
       _auditLoggerInitialized = true;
       try {
-        initAuditLogger();
+        new AuditLogger();
       } catch (error) {
         console.warn('⚠️  审计日志初始化失败，将继续运行...');
         console.warn(`   原因: ${formatErrorMessage(error, '审计日志')}`);

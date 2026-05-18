@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { spawn } from 'child_process';
 import type { WorkflowEngine } from './engine.js';
 import type { Workflow } from '../types/index.js';
-import { getAuditInstance, audit } from '../infrastructure/audit/index.js';
+import { audit as globalAudit, type AuditHelper, getCurrentSessionId } from '../infrastructure/audit/index.js';
 import { createDetector } from '../sandbox/detector.js';
 import { getVectaHubHome, getVectaHubPath } from '../utils/paths.js';
 
@@ -24,6 +24,7 @@ export interface ScheduleEntry {
 
 export interface ScheduleManagerOptions {
   engine?: WorkflowEngine;
+  audit?: AuditHelper;
 }
 
 export interface ScheduleManager {
@@ -42,23 +43,26 @@ function isNotFoundError(error: unknown): boolean {
   return isNodeError(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR');
 }
 
-async function executeCommand(entry: ScheduleEntry): Promise<{ success: boolean; error?: string }> {
+/**
+ * 执行调度命令，注入审计助手
+ */
+async function executeCommand(entry: ScheduleEntry, auditHelper: AuditHelper): Promise<{ success: boolean; error?: string }> {
   const command = entry.command;
   if (!command) return { success: false, error: 'No command to execute' };
 
   const detector = createDetector();
   const detection = detector.detect(command);
-  
+
   if (detection.isDangerous) {
-    audit.sandboxDetect(
+    auditHelper.sandboxDetect(
       command,
       detection.isDangerous,
       detection.level || 'none',
-      getAuditInstance().getSessionId()
+      getCurrentSessionId()
     );
-    return { 
-      success: false, 
-      error: `Dangerous command blocked: ${detection.reason} (level: ${detection.level})` 
+    return {
+      success: false,
+      error: `Dangerous command blocked: ${detection.reason} (level: ${detection.level})`
     };
   }
 
@@ -122,7 +126,10 @@ function missingWorkflowFileError(entry: ScheduleEntry): { success: boolean; err
   };
 }
 
-async function runEntry(entry: ScheduleEntry, engine?: WorkflowEngine): Promise<{ success: boolean; error?: string }> {
+/**
+ * 运行调度条目，注入审计助手
+ */
+async function runEntry(entry: ScheduleEntry, engine: WorkflowEngine | undefined, auditHelper: AuditHelper): Promise<{ success: boolean; error?: string }> {
   if (entry.workflowFile) {
     return executeWorkflow(entry, engine);
   }
@@ -130,27 +137,30 @@ async function runEntry(entry: ScheduleEntry, engine?: WorkflowEngine): Promise<
     return missingWorkflowFileError(entry);
   }
   if (entry.command) {
-    return executeCommand(entry);
+    return executeCommand(entry, auditHelper);
   }
   return { success: false, error: 'No workflow or command configured' };
 }
 
-async function runTaskAndPersist(entry: ScheduleEntry, engine?: WorkflowEngine): Promise<void> {
-  const result = await runEntry(entry, engine);
+/**
+ * 运行任务并持久化结果，注入审计助手
+ */
+async function runTaskAndPersist(entry: ScheduleEntry, engine: WorkflowEngine | undefined, auditHelper: AuditHelper): Promise<void> {
+  const result = await runEntry(entry, engine, auditHelper);
   await updateEntryStatus(entry, result);
 
-  audit.workflowStep(
+  auditHelper.workflowStep(
     `schedule:${entry.id}`,
     entry.workflowFile || entry.command || '',
     entry.args || [],
-    getAuditInstance().getSessionId(),
+    getCurrentSessionId(),
     { scheduleId: entry.id, status: result.success ? 'SUCCESS' : 'FAILED', error: result.error }
   );
 }
 
-async function runTask(entry: ScheduleEntry, engine?: WorkflowEngine): Promise<void> {
+async function runTask(entry: ScheduleEntry, engine: WorkflowEngine | undefined, auditHelper: AuditHelper): Promise<void> {
   try {
-    await runTaskAndPersist(entry, engine);
+    await runTaskAndPersist(entry, engine, auditHelper);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await updateEntryStatus(entry, { success: false, error: message });
@@ -158,13 +168,14 @@ async function runTask(entry: ScheduleEntry, engine?: WorkflowEngine): Promise<v
   }
 }
 
-async function runScheduledEntry(entry: ScheduleEntry, engine?: WorkflowEngine): Promise<void> {
-  await runTask(entry, engine);
+async function runScheduledEntry(entry: ScheduleEntry, engine: WorkflowEngine | undefined, auditHelper: AuditHelper): Promise<void> {
+  await runTask(entry, engine, auditHelper);
 }
 
 export function createScheduleManager(options: ScheduleManagerOptions = {}): ScheduleManager {
   const timers: Map<string, NodeJS.Timeout> = new Map();
   const { engine } = options;
+  const auditHelper: AuditHelper = options.audit ?? globalAudit;
 
   function scheduleEntry(entry: ScheduleEntry): void {
     if (timers.has(entry.id)) {
@@ -177,7 +188,7 @@ export function createScheduleManager(options: ScheduleManagerOptions = {}): Sch
     const interval = parseCronInterval(entry.cron);
     const timer = setInterval(() => {
       if (!entry.enabled) return;
-      void runScheduledEntry(entry, engine);
+      void runScheduledEntry(entry, engine, auditHelper);
     }, interval);
 
     timers.set(entry.id, timer);
