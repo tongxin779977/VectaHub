@@ -18,6 +18,17 @@ export type { StepHandler, ExecuteStepFn, ExecutionContext, ExecutorOptions, Exe
 
 const DEFAULT_TIMEOUT = 60000;
 
+/**
+ * 执行器依赖注入接口
+ * 用于支持自定义替换各个组件，提高可测试性
+ */
+export interface ExecutorDeps {
+  detector?: Detector;
+  semanticDetector?: SemanticDetector;
+  policyManager?: PolicyManager;
+  sandboxManager?: SandboxManager;
+}
+
 export interface Executor {
   exec(cli: string, args: string[], options: ExecutorOptions): Promise<CLIResult>;
   execute(step: Step, options?: ExecutorOptions, context?: ExecutionContext): Promise<ExecutionResult>;
@@ -41,10 +52,11 @@ function shouldAllow(
   return true;
 }
 
-export function createExecutor(sandboxManager?: SandboxManager): Executor {
-  const detector: Detector = createDetector();
-  const semanticDetector: SemanticDetector = createSemanticDetector();
-  const policyManager = new PolicyManager();
+export function createExecutor(deps: ExecutorDeps = {}): Executor {
+  const detector: Detector = deps.detector ?? createDetector();
+  const semanticDetector: SemanticDetector = deps.semanticDetector ?? createSemanticDetector();
+  const policyManager = deps.policyManager ?? new PolicyManager();
+  const sandboxManager = deps.sandboxManager;
 
   async function exec(cli: string, args: string[], options: ExecutorOptions): Promise<CLIResult> {
     const startTime = Date.now();

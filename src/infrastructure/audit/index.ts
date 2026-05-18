@@ -4,6 +4,9 @@ import { VectaHubError, ErrorType } from '../errors/index.js';
 import { redactSensitiveData } from '../../utils/sensitive-data.js';
 import { getVectaHubPath } from '../../utils/paths.js';
 
+/**
+ * @deprecated 使用 new AuditLogger() 构造函数代替，支持依赖注入
+ */
 let auditInstance: AuditLogger | null = null;
 
 export enum AuditEventType {
@@ -177,6 +180,9 @@ export function initAuditLogger(sessionId?: string, baseDir?: string): AuditLogg
   return auditInstance;
 }
 
+/**
+ * @deprecated 使用 new AuditLogger() 构造函数代替，支持依赖注入
+ */
 export function getAuditInstance(): AuditLogger {
   if (!auditInstance) {
     auditInstance = initAuditLogger();

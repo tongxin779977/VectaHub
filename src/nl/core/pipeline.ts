@@ -21,12 +21,18 @@ interface SkillResult<T = unknown> {
   metadata?: Record<string, unknown>;
 }
 
-export function createNLProcessor(
-  deps: {
-    llmConfig?: ReturnType<typeof createLLMConfig> | null;
-  } = {}
-): NLProcessor {
+/**
+ * NL 处理器依赖注入接口
+ * 用于支持自定义替换各个组件，提高可测试性
+ */
+export interface NLProcessorDeps {
+  llmConfig?: ReturnType<typeof createLLMConfig> | null;
+  semanticDetector?: ReturnType<typeof createSemanticDetector>;
+}
+
+export function createNLProcessor(deps: NLProcessorDeps = {}): NLProcessor {
   const llmConfig = deps.llmConfig ?? null;
+  const semanticDetector = deps.semanticDetector ?? createSemanticDetector();
 
   if (!llmConfig) {
     throw new Error('LLM configuration is required. Keyword fallback has been removed.');
@@ -40,8 +46,6 @@ export function createNLProcessor(
     if (!input) {
       throw new Error('Empty input: NL pipeline requires a non-empty string input');
     }
-
-    const semanticDetector = createSemanticDetector();
     const injectionResult = semanticDetector.detectInjection(input);
     if (injectionResult.detected) {
       throw new Error(`Semantic Guardrails: ${injectionResult.reason}`);

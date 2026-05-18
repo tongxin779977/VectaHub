@@ -4,7 +4,7 @@ import { join } from 'path';
 import { platform } from 'os';
 import { getVectaHubPath } from '../utils/paths.js';
 import { createHash, timingSafeEqual } from 'crypto';
-import { createDetector } from './detector.js';
+import { createDetector, type Detector } from './detector.js';
 import { CommandRuleEngine, createCommandRuleEngine, loadGlobalBlocklist, loadGlobalAllowlist, loadProjectBlocklist, loadProjectAllowlist } from '../command-rules/index.js';
 import { SANDBOX_EXEC_PATH, BWRAP_PATH, UNSHARE_PATH, SUDOERS_PATH, FALLBACK_PATH, DEFAULT_PROTECTED_DIRS } from './constants.js';
 import type { SandboxMode, CommandDetection } from '../types/index.js';
@@ -84,9 +84,18 @@ const DEFAULT_CONFIG: SandboxConfig = {
   defaultPolicy: 'passthrough', // 保持向后兼容性，使用原有行为
 };
 
+/**
+ * 沙箱管理器依赖注入接口
+ * 用于支持自定义替换各个组件，提高可测试性
+ */
+export interface SandboxManagerDeps {
+  detector?: Detector;
+  ruleEngine?: CommandRuleEngine;
+}
+
 export class SandboxManager {
   private config: SandboxConfig;
-  private detector = createDetector();
+  private detector: Detector;
   private ruleEngine: CommandRuleEngine;
   private projectPath: string | undefined;
 
@@ -98,11 +107,12 @@ export class SandboxManager {
     hasUserNS: boolean;
   } | null = null;
 
-  constructor(config: Partial<SandboxConfig> & { projectPath?: string } = {}) {
+  constructor(config: Partial<SandboxConfig> & { projectPath?: string } = {}, deps: SandboxManagerDeps = {}) {
     const workspaceDefault = config.workspace || process.cwd();
     this.config = { ...DEFAULT_CONFIG, ...config, workspace: workspaceDefault };
     this.projectPath = config.projectPath;
-    this.ruleEngine = createCommandRuleEngine({
+    this.detector = deps.detector ?? createDetector();
+    this.ruleEngine = deps.ruleEngine ?? createCommandRuleEngine({
       globalBlocklist: loadGlobalBlocklist(),
       globalAllowlist: loadGlobalAllowlist(),
       projectBlocklist: loadProjectBlocklist(this.projectPath),

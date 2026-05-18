@@ -37,6 +37,17 @@ export interface CreateWorkflowOptions {
   persist?: boolean;
 }
 
+/**
+ * 工作流引擎依赖注入接口
+ * 用于支持自定义替换各个组件，提高可测试性
+ */
+export interface WorkflowEngineDeps {
+  executor?: Executor;
+  storage?: Storage;
+  contextManager?: ContextManager;
+  stateManager?: ExecutionStateManager;
+}
+
 export interface WorkflowEngine {
   createWorkflow(name: string, steps: Step[], options?: CreateWorkflowOptions): Promise<Workflow>;
   addStep(workflowId: string, step: Step): Promise<void>;
@@ -318,12 +329,12 @@ async function runExecutionLoop(
   return currentExecution;
 }
 
-export function createWorkflowEngine(): WorkflowEngine {
+export function createWorkflowEngine(deps: WorkflowEngineDeps = {}): WorkflowEngine {
   const workflows = new Map<string, Workflow>();
-  const executor = createExecutor();
-  const storage = createStorage();
-  const sm = createExecutionStateManager();
-  const contextManager: ContextManager = sharedContextManager;
+  const executor = deps.executor ?? createExecutor();
+  const storage = deps.storage ?? createStorage();
+  const sm = deps.stateManager ?? createExecutionStateManager();
+  const contextManager: ContextManager = deps.contextManager ?? sharedContextManager;
 
   function buildExecutorOptions(
     workflow: Workflow,
