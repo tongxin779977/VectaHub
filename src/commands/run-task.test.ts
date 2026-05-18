@@ -1021,6 +1021,11 @@ describe('runTask', () => {
     vi.mocked(cacheManagerModule.getToolCacheManager).mockReturnValue(toolCacheManager as any);
     const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
     const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalClaudeHome = process.env.CLAUDE_HOME;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    delete process.env.CLAUDE_HOME;
 
     vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
       const cb = typeof options === 'function' ? options : callback;
@@ -1063,6 +1068,155 @@ describe('runTask', () => {
       expect(llmSpy).not.toHaveBeenCalled();
       expect(toolCacheManager.discoverToolHelp).not.toHaveBeenCalled();
     } finally {
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CLAUDE_HOME', originalClaudeHome);
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+      llmSpy.mockRestore();
+    }
+  });
+
+  it('should bootstrap claude runtime home via envPatch on normal run', async () => {
+    const llmModule = await import('../nl/llm.js');
+    const cacheManagerModule = await import('../cli-tools/discovery/cache-manager.js');
+    const llmSpy = vi.spyOn(llmModule, 'createLLMConfig');
+    const toolCacheManager = { discoverToolHelp: vi.fn() };
+    vi.mocked(cacheManagerModule.getToolCacheManager).mockReturnValue(toolCacheManager as any);
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalClaudeHome = process.env.CLAUDE_HOME;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempClaudeHome = mkdtempSync(join(tmpdir(), 'claude-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CLAUDE_HOME = tempClaudeHome;
+
+    // 创建一个 settings.json 以触发 bootstrap 复制
+    writeFileSync(join(tempClaudeHome, 'settings.json'), '{"theme":"dark"}');
+
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'claude' && Array.isArray(args) && args.join(' ') === 'code --help') {
+        cb(null, 'Usage: claude code\n', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+    let capturedEnv: Record<string, string> | undefined;
+    vi.mocked(spawn).mockImplementation(((file: any, _args: any, options: any) => {
+      capturedEnv = options?.env;
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      process.nextTick(() => {
+        child.stdout.write('claude run ok\n');
+        child.stdout.end();
+        child.stderr.end();
+        child.emit('close', 0);
+      });
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'claude',
+        taskId: 'P2-8C-BOOT',
+        taskLabel: 'claude bootstrap env test',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.commandGenerationPath).toBe('adapter');
+      // 核心断言：envPatch 生效
+      expect(capturedEnv).toBeDefined();
+      expect(capturedEnv!.CLAUDE_HOME).toBeDefined();
+      expect(capturedEnv!.CLAUDE_HOME).toContain('agent-homes/claude');
+      expect(capturedEnv!.CLAUDE_HOME).not.toBe(tempClaudeHome);
+      // 验证 bootstrap 复制了 settings.json
+      expect(existsSync(join(capturedEnv!.CLAUDE_HOME, 'settings.json'))).toBe(true);
+      expect(readFileSync(join(capturedEnv!.CLAUDE_HOME, 'settings.json'), 'utf8')).toContain('"theme"');
+      expect(llmSpy).not.toHaveBeenCalled();
+    } finally {
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CLAUDE_HOME', originalClaudeHome);
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempClaudeHome, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+      llmSpy.mockRestore();
+    }
+  });
+
+  it('should keep claude on inherited user environment when bootstrap source is missing', async () => {
+    const llmModule = await import('../nl/llm.js');
+    const cacheManagerModule = await import('../cli-tools/discovery/cache-manager.js');
+    const llmSpy = vi.spyOn(llmModule, 'createLLMConfig');
+    const toolCacheManager = { discoverToolHelp: vi.fn() };
+    vi.mocked(cacheManagerModule.getToolCacheManager).mockReturnValue(toolCacheManager as any);
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalClaudeHome = process.env.CLAUDE_HOME;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    delete process.env.CLAUDE_HOME;
+
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'claude' && Array.isArray(args) && args.join(' ') === 'code --help') {
+        cb(null, 'Usage: claude code\n', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+    let capturedEnv: Record<string, string> | undefined;
+    vi.mocked(spawn).mockImplementation(((file: any, _args: any, options: any) => {
+      capturedEnv = options?.env;
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      process.nextTick(() => {
+        child.stdout.write('claude run ok\n');
+        child.stdout.end();
+        child.stderr.end();
+        child.emit('close', 0);
+      });
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'claude',
+        taskId: 'P2-8C-INHERIT',
+        taskLabel: 'claude inherit env test',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.commandGenerationPath).toBe('adapter');
+      expect(capturedEnv).toBeDefined();
+      expect(capturedEnv!.CLAUDE_HOME).toBeUndefined();
+      expect(llmSpy).not.toHaveBeenCalled();
+      expect(toolCacheManager.discoverToolHelp).not.toHaveBeenCalled();
+    } finally {
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CLAUDE_HOME', originalClaudeHome);
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
       if (originalExecFileImpl) {
         vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
       }

@@ -23,6 +23,7 @@ VECTAHUB_HOME > $HOME/.vectahub
 
 - VectaHub 不得因为创建隔离运行目录而隐式切换 Agent provider、账号、模型或认证来源。
 - 如果某个 Agent CLI 需要独立可写 home，系统必须先从用户默认配置源同步最小必要配置，再启动该 Agent。
+- 如果某个 Agent CLI 采用条件 bootstrap，只有在检测到最小必要配置源时才允许改写该 Agent 的 home 环境变量；否则必须继续直接继承用户环境。
 - “最小必要配置”至少应覆盖会影响 provider、auth、模型或路由选择的文件；不能只创建空目录。
 - 如果无法解析用户默认配置源，或无法完成最小必要同步，应按配置类失败处理，而不是静默回退到其他 provider。
 

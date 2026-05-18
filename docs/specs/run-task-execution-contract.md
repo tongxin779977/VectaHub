@@ -225,6 +225,8 @@ fallback 规则：
 - bootstrap 的目标是提供可写运行态，而不是改变用户默认 provider/auth/model 语义
 - 不能把空目录当作新的权威配置源
 - 缺少必要配置时必须按配置类失败收口
+- 如果某个 Agent 采用条件 bootstrap，只有在检测到最小必要 bootstrap 源时才允许改写其 home 环境变量
+- 条件 bootstrap 未命中时，系统必须继续继承用户默认环境，不得因为创建或可创建运行目录而切换到空 runtime home
 
 ### 4.4 Agent Preflight
 

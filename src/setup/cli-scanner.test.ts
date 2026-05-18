@@ -133,10 +133,14 @@ describe('cli-scanner', () => {
     it('should return CLIToolStatus for each known tool name', async () => {
       const originalVectaHubHome = process.env.VECTAHUB_HOME;
       const originalCodexHome = process.env.CODEX_HOME;
+      const originalClaudeHome = process.env.CLAUDE_HOME;
       const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
       const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+      const tempClaudeHome = mkdtempSync(join(tmpdir(), 'claude-home-'));
       process.env.VECTAHUB_HOME = tempVectaHubHome;
       process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+      writeFileSync(join(tempClaudeHome, 'settings.json'), '{"theme":"dark"}');
+      process.env.CLAUDE_HOME = tempClaudeHome;
 
       try {
         mockExec.mockImplementation((cmd: string, cb: any) => {
@@ -175,8 +179,14 @@ describe('cli-scanner', () => {
       } finally {
         process.env.VECTAHUB_HOME = originalVectaHubHome;
         process.env.CODEX_HOME = originalCodexHome;
+        if (originalClaudeHome === undefined) {
+          delete process.env.CLAUDE_HOME;
+        } else {
+          process.env.CLAUDE_HOME = originalClaudeHome;
+        }
         rmSync(tempVectaHubHome, { recursive: true, force: true });
         rmSync(tempConfigRoot, { recursive: true, force: true });
+        rmSync(tempClaudeHome, { recursive: true, force: true });
       }
     });
 

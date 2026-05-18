@@ -94,6 +94,7 @@
 - 用户在 `run-task`、chat 或插件选择器中引用未知 Agent 时，目标行为是触发同一条 onboarding / reprobe 管道，再根据 validation 结果继续、询问或阻断。
 - 正常执行路径默认应继承用户当前 Agent CLI 的配置语义，而不是因为 VectaHub 的运行态隔离自动切换 provider、auth 或 model。
 - 如果某个已知 Agent 需要独立可写 home，`run-task` 必须先完成 runtime bootstrap：创建可写运行目录，并从用户默认配置源同步最小必要配置，然后再执行 preflight 和 spawn。
+- 如果某个已知 Agent 只在检测到最小必要配置时才允许切换到独立可写 home，`run-task` 必须先判断 bootstrap 源是否存在；若不存在，则继续直接继承用户环境，不得把空运行目录当作新的权威配置源。
 - 未注册或自定义 Agent CLI 在没有明确 registry record 前，不应擅自改写其 home 或配置根；onboarding 期间默认保持直接继承用户环境，除非探测证据证明需要受控 runtime bootstrap。
 - `run-task` 的 preflight 只覆盖 VectaHub 已知的外层 CLI 入口，不覆盖下游 Agent 自身的二级沙箱、approval policy、远程插件同步或本地命令执行权限。
 - 因此即使 `tools agents --json` 报告某个 Agent 为 `ready`，真实任务仍可能在 `spawn` 之后因下游运行时限制失败；这类失败不应被误解为 provider/bootstrap 语义漂移。

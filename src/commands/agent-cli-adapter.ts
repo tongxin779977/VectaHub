@@ -18,6 +18,7 @@ export interface AgentWritableRuntimeHomePolicy {
   defaultHomeSubdir: string;
   bootstrapFiles: AgentRuntimeBootstrapFile[];
   requireAnyBootstrapFile: boolean;
+  fallbackToUserHomeWhenBootstrapMissing?: boolean;
 }
 
 export interface AgentRuntimePolicy {
@@ -248,6 +249,15 @@ const BUILT_IN_AGENT_DESCRIPTORS: Record<string, AgentDescriptor> = {
     dryRunRenderMode: 'prompt-only',
     runtimePolicy: {
       configSemantics: 'inherit-user-default',
+      writableRuntimeHome: {
+        envVar: 'CLAUDE_HOME',
+        defaultHomeSubdir: '.claude',
+        bootstrapFiles: [
+          { relativePath: 'settings.json', required: false },
+        ],
+        requireAnyBootstrapFile: false,
+        fallbackToUserHomeWhenBootstrapMissing: true,
+      },
     },
   },
 };

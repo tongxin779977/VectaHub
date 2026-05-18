@@ -144,11 +144,25 @@ describe('agent-cli-adapter registry', () => {
     expect(rendered.preview).toContain('codex exec --cd /workspace/project --sandbox workspace-write');
   });
 
-  it('should keep non-codex known agents on inherited user-default config semantics only', () => {
-    for (const agentId of ['aider', 'gemini', 'claude'] as const) {
+  it('should keep aider and gemini on inherited user-default config semantics only', () => {
+    for (const agentId of ['aider', 'gemini'] as const) {
       const descriptor = getAgentDescriptorById(agentId);
       expect(descriptor?.runtimePolicy?.configSemantics).toBe('inherit-user-default');
       expect(descriptor?.runtimePolicy?.writableRuntimeHome).toBeUndefined();
     }
+  });
+
+  it('should configure claude with writable runtime home bootstrap semantics', () => {
+    const descriptor = getAgentDescriptorById('claude');
+    expect(descriptor?.runtimePolicy?.configSemantics).toBe('inherit-user-default');
+    expect(descriptor?.runtimePolicy?.writableRuntimeHome).toEqual({
+      envVar: 'CLAUDE_HOME',
+      defaultHomeSubdir: '.claude',
+      bootstrapFiles: [
+        { relativePath: 'settings.json', required: false },
+      ],
+      requireAnyBootstrapFile: false,
+      fallbackToUserHomeWhenBootstrapMissing: true,
+    });
   });
 });

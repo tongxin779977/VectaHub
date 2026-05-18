@@ -7,6 +7,7 @@ import { djb2Hash, getVectaHubPath } from '../utils/paths.js';
 
 export interface AgentRuntimeBootstrapResult {
   envPatch?: Record<string, string>;
+  bootstrapApplied?: boolean;
 }
 
 function resolveUserDefaultHome(policy: AgentWritableRuntimeHomePolicy): string {
@@ -47,11 +48,10 @@ export async function bootstrapAgentRuntime(input: {
   }
 
   const userDefaultHome = resolveUserDefaultHome(writableRuntimeHome);
-  const runtimeHome = getVectaHubPath('agent-homes', input.descriptor.id, djb2Hash(input.workspaceRoot));
-  await mkdir(runtimeHome, { recursive: true });
-
   let copiedFiles = 0;
+  const runtimeHome = getVectaHubPath('agent-homes', input.descriptor.id, djb2Hash(input.workspaceRoot));
   for (const file of writableRuntimeHome.bootstrapFiles) {
+    await mkdir(runtimeHome, { recursive: true });
     const copied = await copyBootstrapFile(userDefaultHome, runtimeHome, file.relativePath);
     if (copied) {
       copiedFiles += 1;
@@ -66,7 +66,14 @@ export async function bootstrapAgentRuntime(input: {
     throw new Error(`no bootstrap config files found in ${userDefaultHome}`);
   }
 
+  if (copiedFiles === 0 && writableRuntimeHome.fallbackToUserHomeWhenBootstrapMissing) {
+    return {
+      bootstrapApplied: false,
+    };
+  }
+
   return {
+    bootstrapApplied: copiedFiles > 0 || !writableRuntimeHome.fallbackToUserHomeWhenBootstrapMissing,
     envPatch: {
       [writableRuntimeHome.envVar]: runtimeHome,
     },

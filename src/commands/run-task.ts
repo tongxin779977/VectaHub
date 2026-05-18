@@ -26,6 +26,15 @@ import { decideRecovery, type RecoveryDecision, type RecoveryDecisionKind, type 
 import type { DocTaskFailureKind } from '../types/doc-task.js';
 
 const execFileAsync = promisify(execFile);
+
+function safeExecFileAsync(file: string, args: string[], options?: Parameters<typeof execFileAsync>[2]): Promise<{ stdout: string; stderr: string }> {
+  return execFileAsync(file, args, options as any).then((result: any) => {
+    if (typeof result === 'string') {
+      return { stdout: result, stderr: '' };
+    }
+    return result ?? { stdout: '', stderr: '' };
+  });
+}
 const logger = getLogger('run-task');
 const IDE_ENV_PATTERNS = [
   /^CODEX_(?!HOME$)/,
@@ -400,10 +409,10 @@ export function buildDefaultPrompt(taskId: string, taskLabel: string, docPath: s
 
 async function readGitDiffSnapshot(): Promise<GitDiffSnapshot | null> {
   try {
-    const { stdout: shortStat } = await execFileAsync('git', ['diff', '--shortstat'], { timeout: 5000 });
+    const { stdout: shortStat } = await safeExecFileAsync('git', ['diff', '--shortstat'], { timeout: 5000 });
     if (!shortStat.trim()) return null;
 
-    const { stdout: diffStat } = await execFileAsync('git', ['diff', '--stat'], { timeout: 5000 });
+    const { stdout: diffStat } = await safeExecFileAsync('git', ['diff', '--stat'], { timeout: 5000 });
     const changedFiles = diffStat.split('\n')
       .map(line => {
         const parts = line.split('|');
@@ -1198,7 +1207,7 @@ export async function runVerificationCommands(
     const [executable, ...args] = parts;
     const startMs = Date.now();
     try {
-      const { stdout, stderr } = await execFileAsync(executable, args, {
+      const { stdout, stderr } = await safeExecFileAsync(executable, args, {
         timeout: verificationTimeout,
         cwd,
       });

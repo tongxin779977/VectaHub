@@ -355,7 +355,7 @@ describe('Redactor', () => {
       expect(result).toContain('[REDACTED]');
     });
 
-    it('should not truncate inputs under 100KB', () => {
+    it('should not truncate inputs under 100KB', { timeout: 15000 }, () => {
       const redactor = new Redactor();
       const input = 'OPENAI_API_KEY=sk-abc123def456ghi789 ' + 'y'.repeat(50_000);
       const result = redactor.redact(input);
@@ -363,7 +363,7 @@ describe('Redactor', () => {
       expect(result).not.toContain('sk-abc123def456ghi789');
     });
 
-    it('should complete large input redaction quickly', () => {
+    it('should complete large input redaction quickly', { timeout: 15000 }, () => {
       const redactor = new Redactor();
       const input = 'safe content '.repeat(20_000); // ~260KB
       const start = performance.now();

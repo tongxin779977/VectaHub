@@ -7,6 +7,7 @@ import { bootstrapAgentRuntime } from './agent-runtime-bootstrap.js';
 
 const originalVectaHubHome = process.env.VECTAHUB_HOME;
 const originalCodexHome = process.env.CODEX_HOME;
+const originalClaudeHome = process.env.CLAUDE_HOME;
 
 function makeTempDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix));
@@ -32,6 +33,11 @@ afterEach(() => {
     delete process.env.CODEX_HOME;
   } else {
     process.env.CODEX_HOME = originalCodexHome;
+  }
+  if (originalClaudeHome === undefined) {
+    delete process.env.CLAUDE_HOME;
+  } else {
+    process.env.CLAUDE_HOME = originalClaudeHome;
   }
 });
 
@@ -86,6 +92,50 @@ describe('bootstrapAgentRuntime', () => {
     } finally {
       rmSync(tempVectaHubHome, { recursive: true, force: true });
       rmSync(tempConfigRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('should keep inheriting user environment for claude when no bootstrap source exists', async () => {
+    const tempVectaHubHome = makeTempDir('vectahub-home-');
+    const tempClaudeHome = makeTempDir('claude-home-');
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CLAUDE_HOME = tempClaudeHome;
+
+    try {
+      const descriptor = getAgentDescriptorById('claude');
+      const result = await bootstrapAgentRuntime({
+        descriptor: descriptor!,
+        workspaceRoot: '/workspace/project-c',
+      });
+
+      expect(result.bootstrapApplied).toBe(false);
+      expect(result.envPatch).toBeUndefined();
+    } finally {
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempClaudeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('should bootstrap claude runtime home only when minimal bootstrap source exists', async () => {
+    const tempVectaHubHome = makeTempDir('vectahub-home-');
+    const tempClaudeHome = makeTempDir('claude-home-');
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CLAUDE_HOME = tempClaudeHome;
+    writeFileSync(join(tempClaudeHome, 'settings.json'), '{"theme":"dark"}');
+
+    try {
+      const descriptor = getAgentDescriptorById('claude');
+      const result = await bootstrapAgentRuntime({
+        descriptor: descriptor!,
+        workspaceRoot: '/workspace/project-d',
+      });
+
+      expect(result.bootstrapApplied).toBe(true);
+      expect(result.envPatch?.CLAUDE_HOME).toContain('agent-homes/claude');
+      expect(readFileSync(join(result.envPatch!.CLAUDE_HOME, 'settings.json'), 'utf8')).toContain('"theme":"dark"');
+    } finally {
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempClaudeHome, { recursive: true, force: true });
     }
   });
 });
