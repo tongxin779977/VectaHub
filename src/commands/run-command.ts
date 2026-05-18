@@ -1,5 +1,6 @@
 import { Command } from 'commander';
-import { getSecurityManager } from '../security-protocol/manager.js';
+import { getSecurityGuard } from '../security-protocol/factory.js';
+import type { CommandIntention, SecurityContext } from '../types/security.js';
 import { createWorkflowEngine } from '../workflow/engine.js';
 import { createRecordManager } from '../execution/record-manager.js';
 import { setMuted } from '../infrastructure/logger/index.js';
@@ -27,67 +28,86 @@ export const runCommandCmd = new Command('run-command')
     const fullCommand = commandArgs.join(' ');
     const cliTool = commandArgs[0];
 
-    // 1. Security scanning
-    const securityManager = getSecurityManager();
-    const detectionResult = securityManager.detectCommand(fullCommand, cliTool);
+    // 1. 安全扫描与评估
+    const guard = getSecurityGuard();
+    const securityContext: SecurityContext = {
+      cwd: process.cwd(),
+      sessionId: `direct-${Date.now()}`,
+      isDryRun: options.dryRun,
+    };
+    const intention: CommandIntention = {
+      rawCommand: fullCommand,
+      tool: cliTool,
+      args: commandArgs.slice(1),
+    };
 
-    if (options.mode === 'strict' && detectionResult.isDangerous) {
+    const decision = await guard.assess(intention, securityContext);
+
+    // 严格模式：任何非通过决策均阻断
+    if (options.mode === 'strict' && decision.decision !== 'PASSED') {
       const errorOutput = {
         ok: false,
         error: {
           code: 'SECURITY_VIOLATION',
-          message: `Command blocked by security policy: ${detectionResult.rule?.name || 'Unknown Rule'}`,
-          matchedPattern: detectionResult.matchedPattern,
-          severity: detectionResult.severity
+          message: `安全策略拦截: ${decision.reason || decision.ruleName || '未知规则'}`,
+          riskLevel: decision.riskLevel,
+          ruleName: decision.ruleName
         }
       };
 
       if (options.json) {
         console.log(JSON.stringify(errorOutput, null, 2));
       } else {
-        console.error(`❌ Security Violation: ${errorOutput.error.message}`);
-        console.error(`Reason: Matched pattern "${detectionResult.matchedPattern}"`);
+        console.error(`❌ 安全违规: ${errorOutput.error.message}`);
+        console.error(`原因: ${decision.reason || '未授权的操作'}`);
       }
       process.exit(1);
     }
 
-    if (options.mode === 'relaxed' && detectionResult.isDangerous) {
-      if (options.json) {
-        console.error(JSON.stringify({
-          ok: true,
-          warning: {
-            message: `Command flagged as ${detectionResult.severity} risk`,
-            rule: detectionResult.rule?.name,
-            matchedPattern: detectionResult.matchedPattern
-          }
-        }, null, 2));
-      } else {
-        console.warn(`⚠️  警告: 该命令被标记为 ${detectionResult.severity} 风险`);
-        console.warn(`   规则: ${detectionResult.rule?.name || 'Unknown'}`);
-        console.warn(`   匹配模式: ${detectionResult.matchedPattern}`);
-        console.warn(`   继续执行中...\n`);
+    // 宽松模式：拦截 BLOCKED，警告 REQUIRES_CONFIRMATION
+    if (options.mode === 'relaxed') {
+      if (decision.decision === 'BLOCKED') {
+        console.error(`❌ 安全策略拦截: ${decision.reason || '该操作已被禁止'}`);
+        process.exit(1);
+      }
+      if (decision.decision === 'REQUIRES_CONFIRMATION') {
+        if (options.json) {
+          console.error(JSON.stringify({
+            ok: true,
+            warning: {
+              message: `命令具有 ${decision.riskLevel} 风险`,
+              rule: decision.ruleName,
+              reason: decision.reason
+            }
+          }, null, 2));
+        } else {
+          console.warn(`⚠️  警告: 该命令被标记为 ${decision.riskLevel} 风险`);
+          console.warn(`   规则: ${decision.ruleName || 'Unknown'}`);
+          console.warn(`   原因: ${decision.reason}`);
+          console.warn(`   继续执行中...\n`);
+        }
       }
     }
 
-    // 2. Dry run handling
+    // 2. 干跑模式处理
     if (options.dryRun) {
       if (options.json) {
         console.log(JSON.stringify({
           ok: true,
           dryRun: true,
           command: fullCommand,
-          security: detectionResult
+          security: decision
         }, null, 2));
       } else {
         console.log(`Dry-run: Would execute "${fullCommand}"`);
-        if (detectionResult.isDangerous) {
-          console.warn(`Warning: This command is flagged as ${detectionResult.severity} risk.`);
+        if (decision.decision !== 'PASSED') {
+          console.warn(`Warning: This command is flagged as ${decision.riskLevel} risk.`);
         }
       }
       return;
     }
 
-    // 3. Execution
+    // 3. 执行流程
     try {
       const engine = createWorkflowEngine();
       await engine.loadWorkflows();
@@ -106,7 +126,7 @@ export const runCommandCmd = new Command('run-command')
         dryRun: options.dryRun
       });
 
-      // 4. Recording
+      // 4. 执行记录保存
       const recordManager = createRecordManager();
       const metadata: ExecutionMetadata = {
         source: 'direct',
@@ -114,7 +134,10 @@ export const runCommandCmd = new Command('run-command')
         nlInput: fullCommand
       };
 
-      // Convert EngineRecord (Date) to StoredRecord (string)
+      // 脱敏处理输出内容
+      const rawOutput = result.steps[0]?.output?.join('\n') || '';
+      const redactedOutput = guard.redactOutput(rawOutput, securityContext);
+
       const recordToSave: Partial<StoredRecord> = {
         executionId: result.executionId,
         workflowId: result.workflowId,
@@ -130,7 +153,7 @@ export const runCommandCmd = new Command('run-command')
           status: s.status as any,
           startedAt: s.startAt?.toISOString(),
           finishedAt: s.endAt?.toISOString(),
-          output: s.output?.join('\n'),
+          output: guard.redactOutput(s.output?.join('\n') || '', securityContext),
           error: s.error
         })),
         metadata: metadata as any
@@ -138,21 +161,19 @@ export const runCommandCmd = new Command('run-command')
       
       await recordManager.save(recordToSave as StoredRecord);
 
-      // 5. Output
+      // 5. 结果输出
       if (options.json) {
         console.log(JSON.stringify({
           ok: result.status === 'COMPLETED',
           status: result.status,
-          output: result.steps[0]?.output || [],
+          output: redactedOutput.split('\n'),
           error: result.steps[0]?.error,
-          security: detectionResult
+          security: decision
         }, null, 2));
       } else {
         if (result.status === 'COMPLETED') {
           console.log('✅ Command executed successfully');
-          if (result.steps[0]?.output) {
-            result.steps[0].output.forEach(line => console.log(line));
-          }
+          console.log(redactedOutput);
         } else {
           console.error('❌ Command execution failed');
           if (result.steps[0]?.error) {

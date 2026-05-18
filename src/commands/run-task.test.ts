@@ -67,10 +67,13 @@ vi.mock('../infrastructure/audit/index.js', () => ({
   },
 }));
 
-vi.mock('../security-protocol/engine.js', () => ({
-  assessCommandRisk: vi.fn(() => ({
-    level: 'safe',
-    needsConfirmation: false,
+vi.mock('../security-protocol/factory.js', () => ({
+  getSecurityGuard: vi.fn(() => ({
+    assess: vi.fn(async () => ({
+      decision: 'PASSED',
+      riskLevel: 'none',
+    })),
+    redactOutput: vi.fn((out) => out),
   })),
 }));
 

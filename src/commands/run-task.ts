@@ -7,7 +7,8 @@ import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Transform } from 'node:stream';
 import { getLogger } from '../utils/logger.js';
-import { assessCommandRisk } from '../security-protocol/engine.js';
+import { getSecurityGuard } from '../security-protocol/factory.js';
+import type { SecurityContext, CommandIntention } from '../types/security.js';
 import { createLLMConfig, createLLMConfigDigestSource, LLMClient } from '../nl/llm.js';
 import { AGENT_CMD_GENERATOR_ID } from '../nl/prompt-manager.js';
 import { getToolCacheManager } from '../cli-tools/discovery/cache-manager.js';
@@ -954,14 +955,20 @@ function failureKindToStatus(kind: DocTaskFailureKind): 'failed_config' | 'faile
   return map[kind];
 }
 
-function detectValidationPreflightRisk(validationCommands: string[]): RunTaskRiskAssessment | null {
+async function detectValidationPreflightRisk(
+  validationCommands: string[],
+  context: SecurityContext
+): Promise<RunTaskRiskAssessment | null> {
+  const guard = getSecurityGuard();
   const commandsToCheck = validationCommands.slice(0, MAX_VERIFICATION_COMMANDS);
   for (const cmd of commandsToCheck) {
-    const risk = assessCommandRisk(cmd);
-    if (risk.level === 'critical' || risk.level === 'high') {
+    const intention: CommandIntention = { rawCommand: cmd };
+    const decision = await guard.assess(intention, context);
+    
+    if (decision.decision === 'BLOCKED' || decision.decision === 'REQUIRES_CONFIRMATION') {
       return {
-        level: risk.level,
-        ruleName: risk.ruleName,
+        level: decision.riskLevel,
+        ruleName: decision.ruleName,
         needsConfirmation: true,
         enforcement: 'confirm_required',
         phase: 'verification',
@@ -1183,16 +1190,31 @@ export async function runVerificationCommands(
   validationCommands: string[],
   cwd: string,
 ): Promise<VerificationResult> {
+  const guard = getSecurityGuard();
+  const securityContext: SecurityContext = {
+    cwd,
+    sessionId: 'verification-session', // 在验证阶段使用固定会话标识
+  };
   const commandsToRun = validationCommands.slice(0, MAX_VERIFICATION_COMMANDS);
   const results: VerificationCommandResult[] = [];
   let overallOk = true;
   let hasSystemError = false;
 
   for (const cmd of commandsToRun) {
-    // Risk assessment: block critical commands, flag high-risk
-    const risk = assessCommandRisk(cmd);
-    if (risk.level === 'critical') {
-      logger.warn(`验证命令被安全策略阻断 (critical): ${cmd} — ${risk.reason || ''}`);
+    // 使用新的安全防线进行风险评估
+    const intention: CommandIntention = { rawCommand: cmd };
+    const decision = await guard.assess(intention, securityContext);
+    
+    if (decision.decision === 'BLOCKED') {
+      logger.warn(`验证命令被安全策略阻断 (critical): ${cmd} — ${decision.reason || ''}`);
+      results.push({ command: cmd, ok: false, exitCode: null, durationMs: 0 });
+      overallOk = false;
+      continue;
+    }
+
+    if (decision.decision === 'REQUIRES_CONFIRMATION') {
+      // 在自动验证流程中，如果不具备交互能力，高风险命令视为阻断
+      logger.warn(`验证命令需要人工确认，在自动流程中已被跳过: ${cmd}`);
       results.push({ command: cmd, ok: false, exitCode: null, durationMs: 0 });
       overallOk = false;
       continue;
@@ -1569,7 +1591,19 @@ export async function runTask(options: {
       }
     }
 
-    const securityManager = getSecurityManager();
+    const guard = getSecurityGuard();
+    const securityContext: SecurityContext = {
+      cwd: process.cwd(),
+      sessionId: traceContext.traceId,
+      taskId: taskId,
+      isDryRun: Boolean(dryRun)
+    };
+    const commandIntention: CommandIntention = {
+      rawCommand: fullCommand,
+      tool: generated.command,
+      args: generated.args,
+    };
+
     const securitySpan = startSpan('cli.run-task.securityCheck', {
       context: traceContext,
       parentSpanId: rootSpan.spanId,
@@ -1579,30 +1613,33 @@ export async function runTask(options: {
         commandGenerationPath,
       },
     });
-    const detectionResult = securityManager.detectCommand(fullCommand, generated.command);
+
+    const decision = await guard.assess(commandIntention, securityContext);
+
     await securitySpan.end({
-      dangerous: Boolean(detectionResult.isDangerous),
-      severity: detectionResult.severity || 'none',
-      ruleName: detectionResult.rule?.name || '',
+      dangerous: decision.decision !== 'PASSED',
+      severity: decision.riskLevel,
+      ruleName: decision.ruleName || '',
       command: limitText(fullCommand),
       fallbackUsed,
     });
+
     // Build risk assessment for the main command
     let riskAssessment: RunTaskRiskAssessment | undefined;
-    if (detectionResult.isDangerous && detectionResult.severity === 'critical') {
-      const ruleName = detectionResult.rule?.name || 'Unknown Rule';
-      logger.error(`安全策略拦截: 命令匹配规则 "${ruleName}" (severity: critical)`);
-      logger.error(`匹配模式: ${detectionResult.matchedPattern}`);
+    if (decision.decision === 'BLOCKED') {
+      const ruleName = decision.ruleName || 'Unknown Rule';
+      logger.error(`安全策略拦截: 命令匹配规则 "${ruleName}" (risk: ${decision.riskLevel})`);
+      logger.error(`拦截原因: ${decision.reason || '无'}`);
       audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'BLOCKED', 'run-task');
       return {
         success: false,
-        output: `安全策略拦截: ${ruleName}`,
+        output: `命令被安全策略拦截: ${decision.reason || '未授权操作'}`,
         command: fullCommand,
         commandGenerationPath,
         fallbackUsed,
         riskAssessment: {
-          level: 'critical',
-          ruleName,
+          level: decision.riskLevel,
+          ruleName: decision.ruleName,
           needsConfirmation: true,
           enforcement: 'blocked',
           phase: 'command',
@@ -1616,10 +1653,11 @@ export async function runTask(options: {
         agentTaskContract: agentTaskContractSummary,
       };
     }
-    if (detectionResult.isDangerous && detectionResult.severity === 'high') {
+
+    if (decision.decision === 'REQUIRES_CONFIRMATION') {
       riskAssessment = {
-        level: 'high',
-        ruleName: detectionResult.rule?.name,
+        level: decision.riskLevel,
+        ruleName: decision.ruleName,
         needsConfirmation: true,
         enforcement: 'confirm_required',
         phase: 'command',
@@ -1642,17 +1680,18 @@ export async function runTask(options: {
         agentTaskContract: agentTaskContractSummary,
       };
     }
-    if (detectionResult.isDangerous) {
+
+    if (decision.decision === 'REDACTED' || decision.riskLevel !== 'none') {
       riskAssessment = {
-        level: detectionResult.severity || 'medium',
-        ruleName: detectionResult.rule?.name,
+        level: decision.riskLevel,
+        ruleName: decision.ruleName,
         needsConfirmation: false,
         phase: 'command',
       };
-      logger.warn(`命令风险评级: ${riskAssessment.level} (${riskAssessment.ruleName || 'unknown'})`);
+      logger.warn(`命令风险提示: ${riskAssessment.level} (${riskAssessment.ruleName || 'unknown'})`);
     }
 
-    const validationRisk = detectValidationPreflightRisk(agentTaskContractSummary.validationCommands);
+    const validationRisk = await detectValidationPreflightRisk(agentTaskContractSummary.validationCommands, securityContext);
     if (validationRisk) {
       logger.warn(`验证命令风险评级: ${validationRisk.level} (${validationRisk.ruleName || 'unknown'}) — 无确认能力，执行前阻断`);
       audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'BLOCKED', 'run-task');

@@ -51,7 +51,7 @@ src/sandbox/                  沙箱和危险检测
 src/cli-tools/                外部工具集成
 src/skills/                   技能与执行能力
 src/command-rules/            命令黑白名单
-src/infrastructure/           审计、配置、错误、日志
+src/infrastructure/           基础设施模块（审计、配置、错误、日志、路径、事件、安全、数据、并发、加载器）
 src/utils/                    CLI 命令实现
 packages/doc-task-contract-core/          文档任务合同纯函数包
 packages/vectahub-vscode-extension/       VS Code 插件

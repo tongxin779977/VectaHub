@@ -1,4 +1,5 @@
-import { getSecurityManager } from './manager.js';
+import { getSecurityGuard } from './factory.js';
+import type { CommandIntention, SecurityContext } from '../types/security.js';
 
 export type RiskLevel = 'safe' | 'low' | 'medium' | 'high' | 'critical';
 
@@ -10,42 +11,28 @@ export interface CommandRiskAssessment {
   needsConfirmation: boolean;
 }
 
-const SEVERITY_TO_RISK: Record<string, RiskLevel> = {
-  critical: 'critical',
-  high: 'high',
-  medium: 'medium',
-  low: 'low',
-};
-
-const HIGH_OR_ABOVE: ReadonlySet<RiskLevel> = new Set(['high', 'critical']);
-
 /**
- * Assess the risk of a command string using the SecurityProtocolManager rule engine.
- * Performance target: < 5ms per call (regex matching only, no I/O).
+ * 评估命令风险的异步版本
+ * 遵循新的安全防线架构，整合了静态规则、语义检测和正则库
  */
-export function assessCommandRisk(command: string, cliTool?: string): CommandRiskAssessment {
-  const manager = getSecurityManager();
-  const detection = manager.detectCommand(command, cliTool);
+export async function assessCommandRisk(command: string, cliTool?: string): Promise<CommandRiskAssessment> {
+  const guard = getSecurityGuard();
+  const intention: CommandIntention = {
+    rawCommand: command,
+    tool: cliTool,
+  };
+  const context: SecurityContext = {
+    cwd: process.cwd(),
+    sessionId: 'legacy-engine-session',
+  };
 
-  if (!detection.isDangerous || !detection.severity || detection.severity === 'none') {
-    return {
-      level: 'safe',
-      needsConfirmation: false,
-    };
-  }
-
-  const level: RiskLevel = SEVERITY_TO_RISK[detection.severity] ?? 'medium';
-  const needsConfirmation = HIGH_OR_ABOVE.has(level);
+  const decision = await guard.assess(intention, context);
 
   return {
-    level,
-    ruleName: detection.rule?.name,
-    reason: detection.rule?.description,
-    suggestion: level === 'critical'
-      ? '此命令已被安全策略阻断，无法执行。'
-      : level === 'high'
-        ? '此命令被评估为高风险，需要人工确认后方可继续。'
-        : undefined,
-    needsConfirmation,
+    level: (decision.riskLevel === 'none' ? 'safe' : decision.riskLevel) as RiskLevel,
+    ruleName: decision.ruleName,
+    reason: decision.reason,
+    suggestion: decision.suggestion,
+    needsConfirmation: decision.decision === 'REQUIRES_CONFIRMATION' || decision.decision === 'BLOCKED',
   };
 }
