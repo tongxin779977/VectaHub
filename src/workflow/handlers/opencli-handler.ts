@@ -1,19 +1,13 @@
 import type { Step } from '../../types/index.js';
-import type { StepHandler, ExecutorOptions, ExecutionContext, ExecuteStepFn, ExecutionResult } from './types.js';
+import type { StepHandler, ExecutorOptions, ExecutionContext, ExecuteStepFn, ExecutionResult, HandlerDependencies } from './types.js';
 import { interpolateString } from '../interpolation.js';
 
-export const createOpenCliHandler = (deps: {
-  detector: any;
-  audit: any;
-  sandboxManager?: any;
-  exec: any;
-  execInSandbox: any;
-}): StepHandler => {
+export const createOpenCliHandler = (deps: HandlerDependencies): StepHandler => {
   return async (
     step: Step,
     options: ExecutorOptions,
     context: ExecutionContext,
-    executeStep: ExecuteStepFn,
+    _executeStep: ExecuteStepFn,
     startTime: number
   ): Promise<ExecutionResult> => {
     const site = interpolateString(step.site || '', context);
@@ -46,7 +40,7 @@ export const createOpenCliHandler = (deps: {
       );
 
       const outputs = result.stdout ? [result.stdout] : [];
-      const storageKey = (step as any).outputVar || step.id;
+      const storageKey = (step as Step & { outputVar?: string }).outputVar || step.id;
       context.previousOutputs[storageKey] = outputs;
       if (storageKey !== step.id) {
         context.previousOutputs[step.id] = outputs;

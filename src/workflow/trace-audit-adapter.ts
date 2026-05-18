@@ -5,10 +5,9 @@
  * 将链路审计系统集成到现有工作流引擎中
  */
 
-import { createTraceAuditSystem, type TraceAuditSystem } from '../infrastructure/trace-audit/index.js';
+import { createTraceAuditSystem, type TraceAuditSystem, type ExecutionStatus, type TraceQueryOptions, type TraceMetrics, type AlertEvent } from '../infrastructure/trace-audit/index.js';
 import type { Workflow, Step, ExecutionRecord } from '../types/index.js';
 import type { ExecuteOptions } from './engine.js';
-import { audit } from '../utils/audit.js';
 
 /** 集成配置 */
 export interface TraceAuditIntegrationConfig {
@@ -81,7 +80,7 @@ export class WorkflowTraceAuditAdapter {
     traceId: string,
     parentSpanId: string,
     step: Step,
-    sessionId: string
+    _sessionId: string
   ): Promise<string> {
     if (!this.traceSystem || !this.config.enabled || !traceId) {
       return '';
@@ -117,8 +116,8 @@ export class WorkflowTraceAuditAdapter {
 
     await this.traceSystem.completeSpan(
       spanId,
-      status as any,
-      this.config.recordInputOutput && output ? { output } : undefined,
+      this.mapStatus(status),
+      this.config.recordInputOutput && output ? { output: output as Record<string, unknown> } : undefined,
       error
     );
   }
@@ -135,7 +134,7 @@ export class WorkflowTraceAuditAdapter {
     // 完成根跨度
     await this.traceSystem.completeSpan(
       traceId,
-      execution.status as any,
+      this.mapStatus(execution.status),
       {
         executionId: execution.executionId,
         stepCount: execution.steps.length,
@@ -148,6 +147,16 @@ export class WorkflowTraceAuditAdapter {
     this.traceSystem.refreshIndex();
   }
 
+  private mapStatus(status: string): ExecutionStatus {
+    const s = status.toUpperCase();
+    if (['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'TIMEOUT', 'CANCELLED'].includes(s)) {
+      return s as ExecutionStatus;
+    }
+    if (s === 'SUCCESS') return 'COMPLETED';
+    if (s === 'ERROR') return 'FAILED';
+    return 'FAILED'; // Default to FAILED for unknown statuses
+  }
+
   /** 获取链路追踪详情 */
   getTrace(traceId: string) {
     if (!this.traceSystem) {
@@ -157,7 +166,7 @@ export class WorkflowTraceAuditAdapter {
   }
 
   /** 查询链路 */
-  query(options: any = {}) {
+  query(options: TraceQueryOptions = {}) {
     if (!this.traceSystem) {
       return { total: 0, traces: [], hasMore: false };
     }
@@ -165,7 +174,7 @@ export class WorkflowTraceAuditAdapter {
   }
 
   /** 获取统计指标 */
-  getMetrics(options: any = {}) {
+  getMetrics(options: TraceQueryOptions = {}) {
     if (!this.traceSystem) {
       return {
         totalCalls: 0,
@@ -182,15 +191,15 @@ export class WorkflowTraceAuditAdapter {
         byModule: {},
       };
     }
-    return this.traceSystem.getMetrics(options);
+    return this.traceSystem.getMetrics(options) as TraceMetrics;
   }
 
   /** 获取告警 */
-  getAlerts(options: any = {}) {
+  getAlerts(options: { limit?: number; offset?: number } = {}) {
     if (!this.traceSystem) {
       return [];
     }
-    return this.traceSystem.getAlerts(options);
+    return this.traceSystem.getAlerts(options) as AlertEvent[];
   }
 
   /** 获取系统统计 */
@@ -217,46 +226,4 @@ export function createWorkflowTraceAuditAdapter(
   config?: Partial<TraceAuditIntegrationConfig>
 ): WorkflowTraceAuditAdapter {
   return new WorkflowTraceAuditAdapter(config);
-}
-
-/**
- * 便捷函数：包装工作流执行并添加链路追踪
- * Utility: Wrap workflow execution with trace audit
- */
-export async function executeWithTraceAudit(
-  adapter: WorkflowTraceAuditAdapter,
-  executeFn: () => Promise<ExecutionRecord>,
-  workflow: Workflow,
-  executionId: string,
-  sessionId: string,
-  options?: ExecuteOptions
-): Promise<ExecutionRecord> {
-  const { traceId, spanId } = await adapter.onWorkflowStart(
-    workflow,
-    executionId,
-    sessionId,
-    options
-  );
-
-  try {
-    const result = await executeFn();
-    await adapter.onWorkflowComplete(traceId, result);
-    return result;
-  } catch (error) {
-    const err = error as Error;
-    await adapter.onWorkflowComplete(traceId, {
-      executionId,
-      workflowId: workflow.id,
-      workflowName: workflow.name,
-      status: 'FAILED',
-      mode: workflow.mode,
-      startedAt: new Date(),
-      endedAt: new Date(),
-      duration: 0,
-      steps: [],
-      warnings: [err.message],
-      logs: [],
-    });
-    throw error;
-  }
 }

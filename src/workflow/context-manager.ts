@@ -101,7 +101,7 @@ export class ContextManager {
       return { steps: {}, env: {}, vars: {}, config: {} };
     }
 
-    const steps: Record<string, any> = {};
+    const steps: ExpressionData['steps'] = {};
     for (const [stepId, output] of context.stepOutputs) {
       const stepData = {
         output: output.result,

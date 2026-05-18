@@ -141,7 +141,36 @@ export function evaluateCondition(condition: string, context: ExecutionContext):
   const data = context.expressionData ?? buildExpressionData(context);
   const normalizedCondition = normalizeLegacyCondition(condition, context);
 
-  return Boolean(evaluateExpression(normalizedCondition, normalizeExpressionData(data)));
+  try {
+    return Boolean(evaluateExpression(normalizedCondition, normalizeExpressionData(data)));
+  } catch (e) {
+    const error = e as Error;
+    // Check if it's a syntax error from expression-engine
+    const isSyntaxError = error.message.includes('Invalid expression syntax') || 
+                         error.message.includes('Unexpected token') ||
+                         error.message.includes('Unexpected end of expression') ||
+                         error.message.includes('Missing closing parenthesis');
+    
+    if (isSyntaxError) {
+      const trimmed = condition.trim();
+      
+      // For formal syntax (JSON, parentheses, operators), keep throwing to avoid hiding bugs
+      const isFormalSyntax = trimmed.startsWith('{') || 
+                            trimmed.includes('(') || 
+                            trimmed.includes(')') || 
+                            /\s*(==|!=|>=|<=|>|<|&&|\|\|)\s*/.test(trimmed);
+      
+      if (isFormalSyntax) {
+        throw e;
+      }
+      
+      // For legacy/unknown free text condition format, skip body (return false)
+      return false;
+    }
+    
+    // For other errors (like JSON parse error which has its own message), rethrow
+    throw e;
+  }
 }
 
 export const handleIf: StepHandler = async (

@@ -56,4 +56,23 @@ describe('Expression Engine', () => {
     });
     expect(evaluateExpression(logicStr, data)).toBe(true);
   });
+
+  describe('error handling', () => {
+    it('should throw on invalid JSON logic string', () => {
+      expect(() => evaluateExpression('{"and": [}', data)).toThrow('Invalid JsonLogic JSON string');
+    });
+
+    it('should throw on malformed infix expression', () => {
+      expect(() => evaluateExpression('steps.s1.exitCode ==', data)).toThrow('Unexpected end of expression');
+      expect(() => evaluateExpression('vars.count >> 5', data)).toThrow('Unexpected token at position 3: 5');
+    });
+
+    it('should throw on missing parenthesis', () => {
+      expect(() => evaluateExpression('(vars.count > 0', data)).toThrow('Missing closing parenthesis');
+    });
+
+    it('should return null on non-existent path (truthiness support)', () => {
+      expect(evaluateExpression('vars.nonexistent.field', data)).toBeNull();
+    });
+  });
 });

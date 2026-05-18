@@ -1,22 +1,13 @@
 import type { Step } from '../../types/index.js';
-import type { StepHandler, ExecutorOptions, ExecutionContext, ExecuteStepFn, ExecutionResult } from './types.js';
+import type { StepHandler, ExecutorOptions, ExecutionContext, ExecuteStepFn, ExecutionResult, HandlerDependencies } from './types.js';
 import { interpolateString } from '../interpolation.js';
-import type { SemanticDetector } from '../../sandbox/semantic-detector.js';
 
-export const createExecHandler = (deps: {
-  detector: any;
-  semanticDetector?: SemanticDetector;
-  audit: any;
-  sandboxManager?: any;
-  exec: any;
-  execInSandbox: any;
-  shouldAllow: any;
-}): StepHandler => {
+export const createExecHandler = (deps: HandlerDependencies): StepHandler => {
   return async (
     step: Step,
     options: ExecutorOptions,
     context: ExecutionContext,
-    executeStep: ExecuteStepFn,
+    _executeStep: ExecuteStepFn,
     startTime: number
   ): Promise<ExecutionResult> => {
     const interpolatedCli = interpolateString(step.cli!, context);
@@ -54,9 +45,11 @@ export const createExecHandler = (deps: {
     }
 
     try {
+      // Safely access optional timeout from step
+      const stepTimeout = (step as Step & { timeout?: number }).timeout;
       const stepOptions = {
         ...options,
-        timeout: (step as any).timeout || options.timeout
+        timeout: stepTimeout || options.timeout
       };
 
       const result = options.useSandbox && deps.sandboxManager

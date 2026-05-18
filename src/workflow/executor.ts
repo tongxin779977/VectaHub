@@ -1,13 +1,10 @@
 import { spawn, ChildProcess } from 'child_process';
-import type { Step, ExecutionStatus, SandboxMode } from '../types/index.js';
+import type { Step, SandboxMode } from '../types/index.js';
 import { createDetector, type Detector } from '../sandbox/detector.js';
 import { createSemanticDetector, type SemanticDetector } from '../sandbox/semantic-detector.js';
 import { createSandboxManager, type SandboxManager } from '../sandbox/sandbox.js';
-import { interpolateString, interpolateStep } from './interpolation.js';
-import { audit, getCurrentSessionId } from '../utils/audit.js';
-import { createRBACManager, type RoleName } from '../security-protocol/rbac.js';
-import { getCliToolRegistry } from '../cli-tools/index.js';
-import { ShellTokenizer } from '../utils/shell-tokenizer.js';
+import { interpolateString } from './interpolation.js';
+import { audit } from '../utils/audit.js';
 import { PolicyManager } from './policy-manager.js';
 
 // Import decoupled handlers
@@ -16,18 +13,10 @@ import { handleParallel } from './handlers/parallel-handler.js';
 import { handleForEach } from './handlers/foreach-handler.js';
 import { createOpenCliHandler } from './handlers/opencli-handler.js';
 import { createExecHandler } from './handlers/exec-handler.js';
-import type { StepHandler, ExecuteStepFn, ExecutionContext, ExecutorOptions, ExecutionResult } from './handlers/types.js';
-export type { StepHandler, ExecuteStepFn, ExecutionContext, ExecutorOptions, ExecutionResult };
+import type { StepHandler, ExecuteStepFn, ExecutionContext, ExecutorOptions, ExecutionResult, HandlerDependencies, CLIResult } from './handlers/types.js';
+export type { StepHandler, ExecuteStepFn, ExecutionContext, ExecutorOptions, ExecutionResult, HandlerDependencies, CLIResult };
 
 const DEFAULT_TIMEOUT = 60000;
-
-export interface CLIResult {
-  success: boolean;
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-  duration: number;
-}
 
 export interface Executor {
   exec(cli: string, args: string[], options: ExecutorOptions): Promise<CLIResult>;
@@ -129,164 +118,22 @@ export function createExecutor(sandboxManager?: SandboxManager): Executor {
     };
   }
 
-  async function handleOpenCli(step: Step, options: ExecutorOptions, context: ExecutionContext, _executeStep: ExecuteStepFn, startTime: number): Promise<ExecutionResult> {
-    const site = interpolateString(step.site || '', context);
-    const command = interpolateString(step.command || '', context);
-    const args = (step.args || []).map((arg: string) => interpolateString(arg, context));
-
-    const fullArgs = [site, command, ...args];
-
-    const detection = detector.detect('opencli');
-
-    audit.sandboxDetect(
-      `opencli ${site} ${command}`,
-      detection.isDangerous,
-      detection.level || 'none',
-      'unknown'
-    );
-
-    try {
-      const result = options.useSandbox && sandboxManager
-        ? await execInSandbox('opencli', fullArgs, options)
-        : await exec('opencli', fullArgs, options);
-
-      audit.executorResult(
-        step.id,
-        'opencli',
-        result.exitCode,
-        result.duration,
-        'unknown',
-        { stdoutLength: result.stdout.length, stderrLength: result.stderr.length }
-      );
-
-      const outputs = result.stdout ? [result.stdout] : [];
-      const storageKey = (step as any).outputVar || step.id;
-      context.previousOutputs[storageKey] = outputs;
-
-      return {
-        stepId: step.id,
-        status: result.success ? 'COMPLETED' : 'FAILED',
-        output: outputs,
-        error: result.success ? undefined : result.stderr,
-        duration: Date.now() - startTime,
-        sandboxed: options.useSandbox && sandboxManager ? true : undefined,
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      return {
-        stepId: step.id,
-        status: 'FAILED',
-        error: errorMessage,
-        duration: Date.now() - startTime,
-      };
-    }
-  }
-
-  async function handleForEach(step: Step, options: ExecutorOptions, context: ExecutionContext, executeStep: ExecuteStepFn, startTime: number): Promise<ExecutionResult> {
-    const itemsStr = interpolateString(step.items || '', context);
-    const outputs: string[] = [];
-
-    let parsedItems: unknown[] | null = null;
-    const trimmed = itemsStr.trim();
-    if (trimmed.startsWith('[')) {
-      try {
-        parsedItems = JSON.parse(trimmed);
-        if (!Array.isArray(parsedItems)) parsedItems = null;
-      } catch {
-        parsedItems = null;
-      }
-    }
-
-    if (parsedItems) {
-      for (const parsedItem of parsedItems) {
-        const itemContext: ExecutionContext = {
-          ...context,
-          variables: { ...context.variables, item: [parsedItem as unknown] as unknown as string[] },
-        };
-
-        for (const bodyStep of step.body || []) {
-          const interpolatedStep = interpolateStep(bodyStep, itemContext);
-          const result = await executeStep(interpolatedStep, options, itemContext);
-          if (result.output) outputs.push(...result.output);
-
-          if (result.status === 'FAILED') {
-            return {
-              stepId: step.id,
-              status: 'FAILED',
-              output: outputs,
-              iterations: parsedItems.indexOf(parsedItem) + 1,
-              duration: Date.now() - startTime,
-            };
-          }
-        }
-      }
-
-      return {
-        stepId: step.id,
-        status: 'COMPLETED',
-        output: outputs,
-        iterations: parsedItems.length,
-        duration: Date.now() - startTime,
-      };
-    }
-
-    const items = itemsStr.split('\n').filter(Boolean);
-
-    for (const item of items) {
-      const itemContext: ExecutionContext = {
-        ...context,
-        variables: { ...context.variables, item: [item] },
-      };
-
-      for (const bodyStep of step.body || []) {
-        const interpolatedStep = interpolateStep(bodyStep, itemContext);
-        const result = await executeStep(interpolatedStep, options, itemContext);
-        if (result.output) outputs.push(...result.output);
-
-        if (result.status === 'FAILED') {
-          return {
-            stepId: step.id,
-            status: 'FAILED',
-            output: outputs,
-            iterations: items.indexOf(item) + 1,
-            duration: Date.now() - startTime,
-          };
-        }
-      }
-    }
-
-    return {
-      stepId: step.id,
-      status: 'COMPLETED',
-      output: outputs,
-      iterations: items.length,
-      duration: Date.now() - startTime,
-    };
-  }
-
-  async function handleParallel(step: Step, options: ExecutorOptions, context: ExecutionContext, executeStep: ExecuteStepFn, startTime: number): Promise<ExecutionResult> {
-    const promises = (step.body || []).map(bodyStep =>
-      executeStep(bodyStep, options, context)
-    );
-    const results = await Promise.all(promises);
-    const hasFailed = results.some(r => r.status === 'FAILED');
-    const outputs = results.flatMap(r => r.output || []);
-
-    return {
-      stepId: step.id,
-      status: hasFailed ? 'FAILED' : 'COMPLETED',
-      output: outputs,
-      iterations: results.length,
-      duration: Date.now() - startTime,
-    };
-  }
+  const handlerDeps: HandlerDependencies = {
+    detector,
+    semanticDetector,
+    audit,
+    sandboxManager,
+    exec,
+    execInSandbox,
+    shouldAllow
+  };
 
   const stepHandlers: Record<string, StepHandler> = {
     if: handleIf,
     parallel: handleParallel,
     for_each: handleForEach,
-    opencli: createOpenCliHandler({ detector, audit, sandboxManager, exec, execInSandbox }),
-    exec: createExecHandler({ detector, semanticDetector, audit, sandboxManager, exec, execInSandbox, shouldAllow }),
+    opencli: createOpenCliHandler(handlerDeps),
+    exec: createExecHandler(handlerDeps),
   };
 
   const extendedStepHandlers: Record<string, StepHandler> = {};
