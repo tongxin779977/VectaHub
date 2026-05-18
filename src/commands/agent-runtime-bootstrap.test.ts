@@ -1,9 +1,10 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, beforeAll } from 'vitest';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getAgentDescriptorById } from './agent-cli-adapter.js';
 import { bootstrapAgentRuntime } from './agent-runtime-bootstrap.js';
+import { initializeBuiltInAgents } from '../agent-runtime/factory.js';
 
 const originalVectaHubHome = process.env.VECTAHUB_HOME;
 const originalCodexHome = process.env.CODEX_HOME;
@@ -42,6 +43,9 @@ afterEach(() => {
 });
 
 describe('bootstrapAgentRuntime', () => {
+  beforeAll(() => {
+    initializeBuiltInAgents();
+  });
   it('should copy minimal codex config files into isolated runtime home', async () => {
     const tempVectaHubHome = makeTempDir('vectahub-home-');
     const tempConfigRoot = makeTempDir('codex-home-');

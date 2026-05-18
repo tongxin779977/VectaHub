@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -95,6 +95,7 @@ import { execFile, spawn } from 'node:child_process';
 import type { AgentTaskContract } from '../types/doc-task.js';
 import { getAgentDescriptorById } from './agent-cli-adapter.js';
 import { computeInstructionHash } from './agent-task-contract.js';
+import { initializeBuiltInAgents } from '../agent-runtime/factory.js';
 
 const defaultExecFileImpl = vi.mocked(execFile).getMockImplementation();
 const defaultSpawnImpl = vi.mocked(spawn).getMockImplementation();
@@ -116,6 +117,9 @@ function seedCodexUserHome(rootDir: string): string {
 }
 
 describe('runTask', () => {
+  beforeAll(() => {
+    initializeBuiltInAgents();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     if (defaultExecFileImpl) {

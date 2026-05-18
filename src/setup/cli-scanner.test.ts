@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -40,6 +40,7 @@ import {
   getAvailableExternalCLI,
   type CLIToolStatus,
 } from './cli-scanner.js';
+import { initializeBuiltInAgents } from '../agent-runtime/factory.js';
 import { loadConfig, saveConfig } from './first-run-wizard.js';
 import * as agentAdapter from '../commands/agent-cli-adapter.js';
 
@@ -52,6 +53,10 @@ function seedCodexUserHome(rootDir: string): string {
 }
 
 describe('cli-scanner', () => {
+  beforeAll(() => {
+    initializeBuiltInAgents();
+  });
+
   const mockExec = vi.mocked(exec);
 
   beforeEach(() => {

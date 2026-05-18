@@ -5,7 +5,15 @@
  * 将链路审计系统集成到现有工作流引擎中
  */
 
-import { createTraceAuditSystem, type TraceAuditSystem, type ExecutionStatus, type TraceQueryOptions, type TraceMetrics, type AlertEvent } from '../infrastructure/trace-audit/index.js';
+import {
+  createTraceAuditSystem,
+  type TraceAuditSystem,
+  type ExecutionStatus,
+  type TraceQueryOptions,
+  type TraceQueryResult,
+  type TraceMetrics,
+  type AlertEvent,
+} from '../infrastructure/trace-audit/index.js';
 import type { Workflow, Step, ExecutionRecord } from '../types/index.js';
 import type { ExecuteOptions } from './engine.js';
 
@@ -26,6 +34,60 @@ const DEFAULT_CONFIG: TraceAuditIntegrationConfig = {
   recordInputOutput: true,
   enableAlerts: true,
 };
+
+type AlertQueryOptions = {
+  level?: AlertEvent['level'];
+  resolved?: boolean;
+  limit?: number;
+};
+
+type TraceMetricsQueryOptions = Pick<TraceQueryOptions, 'moduleName' | 'startTimeFrom' | 'startTimeTo'>;
+
+const EMPTY_TRACE_QUERY_RESULT: TraceQueryResult = {
+  total: 0,
+  traces: [],
+  hasMore: false,
+};
+
+const EMPTY_TRACE_METRICS: TraceMetrics = {
+  totalCalls: 0,
+  successCount: 0,
+  failureCount: 0,
+  timeoutCount: 0,
+  successRate: 0,
+  avgDuration: 0,
+  p50Duration: 0,
+  p95Duration: 0,
+  p99Duration: 0,
+  maxDuration: 0,
+  minDuration: 0,
+  byModule: {},
+};
+
+const EXECUTION_STATUSES: ReadonlySet<ExecutionStatus> = new Set([
+  'PENDING',
+  'RUNNING',
+  'COMPLETED',
+  'FAILED',
+  'TIMEOUT',
+  'CANCELLED',
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function normalizeStepOutput(output: unknown): Record<string, unknown> | undefined {
+  if (output === undefined) {
+    return undefined;
+  }
+
+  if (isRecord(output)) {
+    return output;
+  }
+
+  return { value: output };
+}
 
 /**
  * 工作流链路审计适配器
@@ -117,7 +179,7 @@ export class WorkflowTraceAuditAdapter {
     await this.traceSystem.completeSpan(
       spanId,
       this.mapStatus(status),
-      this.config.recordInputOutput && output ? { output: output as Record<string, unknown> } : undefined,
+      this.config.recordInputOutput ? normalizeStepOutput(output) : undefined,
       error
     );
   }
@@ -149,7 +211,7 @@ export class WorkflowTraceAuditAdapter {
 
   private mapStatus(status: string): ExecutionStatus {
     const s = status.toUpperCase();
-    if (['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'TIMEOUT', 'CANCELLED'].includes(s)) {
+    if (EXECUTION_STATUSES.has(s as ExecutionStatus)) {
       return s as ExecutionStatus;
     }
     if (s === 'SUCCESS') return 'COMPLETED';
@@ -166,40 +228,27 @@ export class WorkflowTraceAuditAdapter {
   }
 
   /** 查询链路 */
-  query(options: TraceQueryOptions = {}) {
+  query(options: TraceQueryOptions = {}): TraceQueryResult {
     if (!this.traceSystem) {
-      return { total: 0, traces: [], hasMore: false };
+      return EMPTY_TRACE_QUERY_RESULT;
     }
     return this.traceSystem.query(options);
   }
 
   /** 获取统计指标 */
-  getMetrics(options: TraceQueryOptions = {}) {
+  getMetrics(options: TraceMetricsQueryOptions = {}): TraceMetrics {
     if (!this.traceSystem) {
-      return {
-        totalCalls: 0,
-        successCount: 0,
-        failureCount: 0,
-        timeoutCount: 0,
-        successRate: 0,
-        avgDuration: 0,
-        p50Duration: 0,
-        p95Duration: 0,
-        p99Duration: 0,
-        maxDuration: 0,
-        minDuration: 0,
-        byModule: {},
-      };
+      return EMPTY_TRACE_METRICS;
     }
-    return this.traceSystem.getMetrics(options) as TraceMetrics;
+    return this.traceSystem.getMetrics(options);
   }
 
   /** 获取告警 */
-  getAlerts(options: { limit?: number; offset?: number } = {}) {
+  getAlerts(options: AlertQueryOptions = {}): AlertEvent[] {
     if (!this.traceSystem) {
       return [];
     }
-    return this.traceSystem.getAlerts(options) as AlertEvent[];
+    return this.traceSystem.getAlerts(options);
   }
 
   /** 获取系统统计 */

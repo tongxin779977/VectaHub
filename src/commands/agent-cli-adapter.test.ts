@@ -1,12 +1,17 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import {
   getAgentAdapterById,
   getAgentDescriptorById,
   getBuiltInAgentDescriptors,
   isKnownAgentCli,
 } from './agent-cli-adapter.js';
+import { initializeBuiltInAgents } from '../agent-runtime/factory.js';
 
 describe('agent-cli-adapter registry', () => {
+  beforeAll(() => {
+    initializeBuiltInAgents();
+  });
+
   it('should register built-in known agent descriptors', () => {
     const descriptors = getBuiltInAgentDescriptors();
     const ids = descriptors.map(item => item.id).sort();

@@ -4,3 +4,4 @@ export * from './prompt.js';
 export * from './session.js';
 export * from './diagnostic.js';
 export * from './doc-task.js';
+export * from './agent.js';

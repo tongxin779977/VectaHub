@@ -160,6 +160,7 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
         break;
       }
       case 'tools': {
+        await lazyLoadAgentRuntime();
         const { toolsCmd } = await import('./commands/tools.js');
         removePlaceholderCommand('tools');
         program.addCommand(toolsCmd);
@@ -265,6 +266,7 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
         break;
       }
       case 'chat': {
+        await lazyLoadAgentRuntime();
         const { chatCmd } = await import('./commands/chat.js');
         removePlaceholderCommand('chat');
         program.addCommand(chatCmd);
@@ -297,6 +299,7 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
         break;
       }
       case 'vscode': {
+        await lazyLoadAgentRuntime();
         const { vscodeDiagnosticCmd } = await import('./commands/vscode-diagnostic.js');
         removePlaceholderCommand('vscode');
         program.addCommand(vscodeDiagnosticCmd);
@@ -311,6 +314,7 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
         break;
       }
       case 'run-task': {
+        await lazyLoadAgentRuntime();
         const { runTaskCmd } = await import('./commands/run-task.js');
         removePlaceholderCommand('run-task');
         program.addCommand(runTaskCmd);
@@ -385,6 +389,19 @@ async function lazyLoadCliTools(): Promise<void> {
   } catch (error) {
     console.warn('⚠️  工具注册失败，将继续运行...');
     console.warn(`   原因: ${formatErrorMessage(error, '工具注册')}`);
+  }
+}
+
+async function lazyLoadAgentRuntime(): Promise<void> {
+  if (loadedCommands.has('agent-runtime')) return;
+  
+  try {
+    const { initializeBuiltInAgents } = await import('./agent-runtime/index.js');
+    initializeBuiltInAgents();
+    loadedCommands.add('agent-runtime');
+  } catch (error) {
+    console.warn('⚠️  Agent 运行时初始化失败，将继续运行...');
+    console.warn(`   原因: ${formatErrorMessage(error, 'Agent 运行时')}`);
   }
 }
 
@@ -522,6 +539,7 @@ program.hook('preSubcommand', async (thisCommand, subcommand) => {
 const setupCmd = new Command('setup')
   .description('运行优先级安装流程')
   .action(async () => {
+    await lazyLoadAgentRuntime();
     console.log('🔧 运行优先级安装流程...\n');
     const installer = createDefaultInstaller();
     if (!installer) {
@@ -585,6 +603,7 @@ configCmd
   .command('tools')
   .description('列出已配置的 CLI 工具')
   .action(async () => {
+    await lazyLoadAgentRuntime();
     await lazyLoadCliTools();
     const available = getAvailableExternalCLI();
     console.log('\n📋 可用的外部 CLI 工具:\n');
