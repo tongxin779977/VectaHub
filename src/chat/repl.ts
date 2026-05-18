@@ -5,11 +5,11 @@ import type { ChatOutput, SlashCommandContext, PendingWorkflow, UIRenderer, Repl
 import type { ChatConfig } from './config.js';
 import type { SessionManager } from '../nl/session-manager.js';
 import type { NLResult } from '../nl/core/types.js';
-import { createLLMConfig, LLMClient } from '../nl/llm.js';
+import { LLMClient } from '../nl/llm.js';
 import { buildAllTools } from '../nl/tool-calling.js';
 import { createUIRenderer } from './ui-renderer.js';
 import { createCommandManager, type CommandManager } from './command-manager.js';
-import type { Workflow, Step } from '../types/index.js';
+import type { Step, StepRecord } from '../types/index.js';
 
 interface ParsedWorkflowStep {
   id?: string;
@@ -21,6 +21,12 @@ interface ParsedWorkflowStep {
   condition?: unknown;
   items?: unknown;
   outputVar?: unknown;
+}
+
+interface ReplWorkflowMetadata {
+  intent?: string;
+  confidence?: number;
+  path?: NLResult['metadata']['path'];
 }
 
 function normalizeOutputVar(outputVar: unknown): string | undefined {
@@ -148,10 +154,10 @@ export function createREPL(
     try {
       const workflow = (await workflowEngine.getWorkflow(workflowId)) ?? pending.workflow;
       const result = await workflowEngine.execute(workflow, { mode: 'relaxed', initialVariables });
-      const stepsOutput = (result.steps as any[]).map(s => {
-        const icon = s.status === 'COMPLETED' ? '✅' : '❌';
-        const output = s.output ? `\n    ${String(s.output).substring(0, 200)}` : '';
-        return `  ${icon} ${s.stepId}: ${s.status}${output}`;
+      const stepsOutput = result.steps.map((step: StepRecord) => {
+        const icon = step.status === 'COMPLETED' ? '✅' : '❌';
+        const output = step.output ? `\n    ${String(step.output).substring(0, 200)}` : '';
+        return `  ${icon} ${step.stepId}: ${step.status}${output}`;
       }).join('\n');
       const summary = result.status === 'COMPLETED' ? '✅ 执行成功' : '❌ 执行失败';
       return {
@@ -304,7 +310,13 @@ export function createREPL(
       return handleWorkflowGeneration(nlResult, input);
     }
 
-    return { type: 'workflow', content: JSON.stringify(nlResult), metadata: nlResult as any };
+    const metadata: ReplWorkflowMetadata = {
+      intent: nlResult.intent,
+      confidence: nlResult.confidence,
+      path: nlResult.metadata?.path,
+    };
+
+    return { type: 'workflow', content: JSON.stringify(nlResult), metadata };
   }
 
   async function handleWorkflowGeneration(nlResult: NLResult, rawInput: string): Promise<ChatOutput> {
@@ -369,7 +381,10 @@ export function createREPL(
   return processInput;
 }
 
-export function createRepl(deps: ReplDeps, options?: { sessionId?: string; sessionManager?: SessionManager; config?: ChatConfig }): { start: () => Promise<void>; getSlashCommands: () => Map<string, unknown>; processInput: (input: string) => Promise<ChatOutput> } {
+export function createRepl(
+  deps: ReplDeps,
+  options?: { sessionId?: string; sessionManager?: SessionManager; config?: ChatConfig }
+): { start: () => Promise<void>; getSlashCommands: () => Map<string, import('./types.js').SlashCommand>; processInput: (input: string) => Promise<ChatOutput> } {
   const sessionId = options?.sessionId ?? `chat-${Date.now()}`;
   const config = options?.config ?? deps.config;
   
@@ -409,7 +424,7 @@ export function createRepl(deps: ReplDeps, options?: { sessionId?: string; sessi
         process.exit(0);
       });
     },
-    getSlashCommands: () => cmdManager.getAllSlashCommands() as any,
+    getSlashCommands: () => cmdManager.getAllSlashCommands(),
     processInput: processInputFn
   };
 }

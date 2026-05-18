@@ -7,7 +7,8 @@ import { createStorage } from '../workflow/storage.js';
 import { createScheduleManager } from '../workflow/scheduler.js';
 import { audit, getCurrentSessionId, AuditEventType, queryAuditLogs } from '../utils/audit.js';
 import { getVectaHubPath } from '../utils/paths.js';
-import type { Workflow, Step } from '../types/index.js';
+import type { Step } from '../types/index.js';
+import type { LLMResponse } from '../nl/llm.js';
 
 function getWorkflowsDir(): string {
   return getVectaHubPath('workflows');
@@ -17,6 +18,40 @@ interface APIResponse {
   success: boolean;
   data?: unknown;
   error?: string;
+}
+
+interface APIExecutionSummary {
+  status: string;
+  steps: unknown[];
+  warnings?: string[];
+}
+
+type LLMWorkflowStep = LLMResponse['workflow']['steps'][number];
+
+function mapLLMWorkflowStep(step: LLMWorkflowStep, index: number): Step {
+  return {
+    id: `step_${index + 1}`,
+    type: step.type,
+    cli: step.cli,
+    args: step.args || [],
+    condition: step.condition,
+    items: step.items,
+    body: Array.isArray(step.body)
+      ? step.body.map((childStep, childIndex) => mapLLMWorkflowStep(childStep as LLMWorkflowStep, childIndex))
+      : undefined,
+  };
+}
+
+function mapLLMWorkflowSteps(steps: LLMWorkflowStep[]): Step[] {
+  return steps.map((step, index) => mapLLMWorkflowStep(step, index));
+}
+
+function toExecutionSummary(result: { status: string; steps: unknown[]; warnings?: string[] }): APIExecutionSummary {
+  return {
+    status: result.status,
+    steps: result.steps,
+    warnings: result.warnings,
+  };
 }
 
 function jsonResponse(res: ServerResponse, statusCode: number, body: APIResponse): void {
@@ -80,7 +115,7 @@ export async function createAPIServer(port = 3000): Promise<ReturnType<typeof cr
         const input = (body.input as string) || '';
         const workflowFile = (body.workflowFile as string);
 
-        let executionResult: { status: string; steps: unknown[]; warnings?: string[] } = {
+        let executionResult: APIExecutionSummary = {
           status: 'PENDING',
           steps: [],
           warnings: [],
@@ -90,42 +125,24 @@ export async function createAPIServer(port = 3000): Promise<ReturnType<typeof cr
           const content = readFileSync(workflowFile, 'utf-8');
           const workflow = JSON.parse(content);
           const result = await engine.execute(workflow);
-          executionResult = { status: result.status, steps: result.steps, warnings: result.warnings };
+          executionResult = toExecutionSummary(result);
         } else {
           const llmConfig = createLLMConfig();
-          let executionResult: { status: string; steps: unknown[]; warnings?: string[] };
 
-          if (workflowFile && existsSync(workflowFile)) {
-            const content = readFileSync(workflowFile, 'utf-8');
-            const workflow = JSON.parse(content) as Workflow;
-            const result = await engine.execute(workflow);
-            executionResult = { status: result.status, steps: result.steps, warnings: result.warnings };
-          } else {
-            if (llmConfig) {
-              const llmParser = createLLMEnhancedParser(llmConfig);
-              const llmResult = await llmParser.parse(input);
-              
-              if (llmResult.confidence >= 0.7 && llmResult.workflow?.steps?.length > 0) {
-                const steps = llmResult.workflow.steps.map((s, i) => ({
-                  id: s.cli ? `step_${i + 1}` : `step_${i + 1}`,
-                  type: s.type,
-                  cli: s.cli,
-                  args: s.args || [],
-                  site: (s as any).site,
-                  command: (s as any).command,
-                  condition: (s as any).condition,
-                  items: (s as any).items,
-                  body: (s as any).body,
-                })) as Step[];
-                const workflow = await engine.createWorkflow(llmResult.workflow.name || input, steps);
-                const result = await engine.execute(workflow);
-                executionResult = { status: result.status, steps: result.steps, warnings: result.warnings };
-              } else {
-                executionResult = { status: 'NEEDS_CLARIFICATION', steps: [], warnings: ['Low confidence, no workflow generated'] };
-              }
+          if (llmConfig) {
+            const llmParser = createLLMEnhancedParser(llmConfig);
+            const llmResult = await llmParser.parse(input);
+
+            if (llmResult.confidence >= 0.7 && llmResult.workflow?.steps?.length > 0) {
+              const steps = mapLLMWorkflowSteps(llmResult.workflow.steps);
+              const workflow = await engine.createWorkflow(llmResult.workflow.name || input, steps);
+              const result = await engine.execute(workflow);
+              executionResult = toExecutionSummary(result);
             } else {
-              executionResult = { status: 'NEEDS_CLARIFICATION', steps: [], warnings: ['LLM not configured'] };
+              executionResult = { status: 'NEEDS_CLARIFICATION', steps: [], warnings: ['Low confidence, no workflow generated'] };
             }
+          } else {
+            executionResult = { status: 'NEEDS_CLARIFICATION', steps: [], warnings: ['LLM not configured'] };
           }
         }
 
@@ -158,17 +175,7 @@ export async function createAPIServer(port = 3000): Promise<ReturnType<typeof cr
         }
 
         if (llmResult.workflow?.steps?.length > 0) {
-          const steps = llmResult.workflow.steps.map((s, i) => ({
-            id: `step_${i + 1}`,
-            type: s.type,
-            cli: s.cli,
-            args: s.args || [],
-            site: (s as any).site,
-            command: (s as any).command,
-            condition: (s as any).condition,
-            items: (s as any).items,
-            body: (s as any).body,
-          })) as Step[];
+          const steps = mapLLMWorkflowSteps(llmResult.workflow.steps);
           const workflow = await engine.createWorkflow(llmResult.workflow.name || input, steps);
           const result = await engine.execute(workflow);
 

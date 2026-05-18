@@ -1,4 +1,3 @@
-import { execSync } from 'child_process';
 import { Command } from 'commander';
 import {
   getCliToolRegistry,
@@ -10,6 +9,9 @@ import {
   saveConfig,
 } from '../cli-tools/index.js';
 import { npmTool } from '../cli-tools/tools/npm.js';
+import type { CliCommand, CliTool } from '../cli-tools/types.js';
+import type { SecurityTemplate, CommandRule, CommandRuleResult } from '../cli-tools/command-rules/types.js';
+import type { KnownTool } from '../cli-tools/discovery/types.js';
 import { loadConfig as loadSetupConfig } from '../setup/first-run-wizard.js';
 import { scanSingleTool, syncCLIToolPermissionState } from '../setup/cli-scanner.js';
 import { getBuiltInAgentDescriptors } from './agent-cli-adapter.js';
@@ -17,7 +19,15 @@ import { getBuiltInAgentDescriptors } from './agent-cli-adapter.js';
 export const toolsCmd = new Command('tools')
   .description('CLI tools management commands');
 
-function formatToolList(tools: any[]): string {
+const SECURITY_TEMPLATES: SecurityTemplate[] = ['default', 'strict', 'relaxed'];
+
+function normalizeSecurityTemplate(template: string): SecurityTemplate {
+  return SECURITY_TEMPLATES.includes(template as SecurityTemplate)
+    ? template as SecurityTemplate
+    : 'default';
+}
+
+function formatToolList(tools: CliTool[]): string {
   if (tools.length === 0) {
     return '\n⚠️  No CLI tools registered.\n';
   }
@@ -36,7 +46,7 @@ function formatToolList(tools: any[]): string {
   return lines.join('\n');
 }
 
-function formatToolInfo(tool: any): string {
+function formatToolInfo(tool: CliTool): string {
   const lines = [
     `\n📦 ${tool.name}`,
     '─'.repeat(80),
@@ -56,21 +66,20 @@ function formatToolInfo(tool: any): string {
   return lines.join('\n');
 }
 
-function formatToolCommands(tool: any): string {
+function formatToolCommands(tool: CliTool): string {
   const lines = [`\n📋 ${tool.name} Commands:`, '─'.repeat(80)];
 
   const commands = Object.values(tool.commands);
-  for (const cmd of commands) {
-    const cmdObj = cmd as any;
-    const dangerTag = cmdObj.dangerous ? ' ⚠️' : '';
-    lines.push(`${cmdObj.name.padEnd(25)} ${cmdObj.description}${dangerTag}`);
+  for (const command of commands) {
+    const dangerTag = command.dangerous ? ' ⚠️' : '';
+    lines.push(`${command.name.padEnd(25)} ${command.description}${dangerTag}`);
   }
   lines.push('');
 
   return lines.join('\n');
 }
 
-function formatCommandDetail(tool: any, cmd: any): string {
+function formatCommandDetail(tool: CliTool, cmd: CliCommand): string {
   const lines = [
     `\n📋 ${tool.name} ${cmd.name}`,
     '─'.repeat(80),
@@ -106,7 +115,7 @@ function formatCommandDetail(tool: any, cmd: any): string {
   return lines.join('\n');
 }
 
-function formatTestResult(toolName: string, command: string, isDangerous: boolean, cmd?: any): string {
+function formatTestResult(toolName: string, command: string, isDangerous: boolean, cmd?: CliCommand): string {
   if (isDangerous) {
     const lines = [
       `\n❌ DANGEROUS: "${command}" is marked as dangerous`,
@@ -121,33 +130,7 @@ function formatTestResult(toolName: string, command: string, isDangerous: boolea
   }
 }
 
-function formatScanResult(result: any): string {
-  const lines = [
-    '\n✅ 扫描完成！',
-    `\n发现了 ${result.discoveredTools.length} 个工具（共扫描 ${result.totalScanned} 个）`,
-  ];
-
-  if (result.discoveredTools.length > 0) {
-    lines.push('\n📦 发现的工具：');
-    lines.push('─'.repeat(80));
-    for (const tool of result.discoveredTools) {
-      lines.push(`${tool.knownTool.name.padEnd(20)} v${tool.version}`);
-      lines.push(`  ${tool.knownTool.description}`);
-    }
-  }
-
-  if (result.failedChecks.length > 0) {
-    lines.push('\n⚠️  检测失败的工具：');
-    for (const fail of result.failedChecks) {
-      lines.push(`  - ${fail.name}: ${fail.reason}`);
-    }
-  }
-  lines.push('');
-
-  return lines.join('\n');
-}
-
-function formatKnownTools(tools: any[]): string {
+function formatKnownTools(tools: KnownTool[]): string {
   const lines = [`\n📚 已知工具库（共 ${tools.length} 个）：`, '─'.repeat(80)];
 
   for (const tool of tools) {
@@ -160,7 +143,7 @@ function formatKnownTools(tools: any[]): string {
   return lines.join('\n');
 }
 
-function formatRuleList(template: string, rules: any[]): string {
+function formatRuleList(template: SecurityTemplate, rules: CommandRule[]): string {
   const lines = [
     `\n🔒 安全规则模板: ${template.toUpperCase()}`,
     '─'.repeat(80),
@@ -183,7 +166,7 @@ function formatRuleList(template: string, rules: any[]): string {
   return lines.join('\n');
 }
 
-function formatEvalResult(args: string[], template: string, result: any): string {
+function formatEvalResult(args: string[], template: SecurityTemplate, result: CommandRuleResult): string {
   const lines = [
     `\n📋 命令: ${args.join(' ')}`,
     `模板: ${template.toUpperCase()}`,
@@ -214,7 +197,10 @@ function formatCategoryList(categories: string[]): string {
   return lines.join('\n');
 }
 
-function formatSearchResults(tools: any[], commands: any[]): string {
+function formatSearchResults(
+  tools: CliTool[],
+  commands: Array<{ tool: CliTool; command: CliCommand }>
+): string {
   const lines = ['\n🔍 搜索结果：', '─'.repeat(80)];
 
   if (tools.length > 0) {
@@ -253,7 +239,7 @@ function formatSearchResults(tools: any[], commands: any[]): string {
   return lines.join('\n');
 }
 
-function formatCategoryTools(category: string, tools: any[]): string {
+function formatCategoryTools(category: string, tools: CliTool[]): string {
   const lines = [
     `\n📁 分类：${category}`,
     '─'.repeat(80),
@@ -279,7 +265,7 @@ toolsCmd
   .command('list')
   .description('List all registered CLI tools')
   .option('--json', 'Output results in JSON format')
-  .action((options) => {
+  .action((options: { json?: boolean }) => {
     const registry = getCliToolRegistry();
     const tools = registry.getAllTools();
 
@@ -303,7 +289,7 @@ toolsCmd
   .description('List AI Agent CLIs with installation status')
   .option('--json', 'Output results in JSON format')
   .option('--sync-config', 'Sync detected permission state back into VectaHub config')
-  .action(async (options) => {
+  .action(async (options: { json?: boolean; syncConfig?: boolean }) => {
     const appConfig = loadSetupConfig();
     const externalCli = appConfig.external_cli || {};
     const knownNames = getBuiltInAgentDescriptors().map((descriptor) => descriptor.id);
@@ -460,7 +446,6 @@ toolsCmd
     if (toolName === 'all') {
       console.log('\n🚀 注册所有已知工具...');
       let registeredCount = 0;
-      const allTools = getAllKnownTools();
 
       // 已经有 git 和 npm 工具定义了
       // 这里可以完善更多工具定义
@@ -506,24 +491,26 @@ toolsCmd
   .command('rules')
   .description('Show command rule engine status and default rules')
   .option('-t, --template <template>', 'Security template to use: default | strict | relaxed', 'default')
-  .action(async (options) => {
-    const rules = getSecurityTemplate(options.template as any);
+  .action(async (options: { template: string }) => {
+    const template = normalizeSecurityTemplate(options.template);
+    const rules = getSecurityTemplate(template);
 
-    console.log(formatRuleList(options.template, rules));
+    console.log(formatRuleList(template, rules));
   });
 
 toolsCmd
   .command('eval <command...>')
   .description('Evaluate a command against the rule engine')
   .option('-t, --template <template>', 'Security template to use: default | strict | relaxed', 'default')
-  .action(async (args: string[], options) => {
+  .action(async (args: string[], options: { template: string }) => {
     const command = args[0] || '';
     const cmdArgs = args.slice(1);
-    const rules = getSecurityTemplate(options.template as any);
+    const template = normalizeSecurityTemplate(options.template);
+    const rules = getSecurityTemplate(template);
     const engine = new CommandRuleEngine(rules);
     const result = engine.evaluate(command, cmdArgs, process.cwd());
 
-    console.log(formatEvalResult(args, options.template, result));
+    console.log(formatEvalResult(args, template, result));
   });
 
 toolsCmd

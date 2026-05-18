@@ -1,7 +1,13 @@
 import type { ChatConfig } from './config.js';
-import type { SessionContext, Workflow } from '../types/index.js';
+import type { Workflow } from '../types/index.js';
 import type { NLProcessor } from '../nl/core/types.js';
 import type { SessionManager } from '../nl/session-manager.js';
+import type { LLMConfig } from '../nl/llm.js';
+import type { WorkflowEngine } from '../workflow/engine.js';
+import type { CommandBridge } from './command-bridge.js';
+import type { ParamExtractor } from '../nl/param-extractor.js';
+import type { ContextBuilderResult } from './context-builder.js';
+import type { CommandExecutor } from '../nl/executor/command-executor.js';
 
 export type ChatInputType = 'nl' | 'shell' | 'slash-command';
 
@@ -17,13 +23,16 @@ export type ChatOutputType = 'text' | 'workflow' | 'error' | 'command-result';
 export interface ChatOutput {
   type: ChatOutputType;
   content: string;
-  metadata?: Record<string, unknown> & {
+  metadata?: {
     exit?: boolean;
     executionId?: string;
     status?: string;
     duration?: number;
     exitCode?: number;
     stderr?: string;
+    intent?: string;
+    confidence?: number;
+    path?: string;
   };
 }
 
@@ -58,14 +67,14 @@ export interface UIRenderer {
 
 export interface ReplDeps {
   nlProcessor: NLProcessor;
-  contextBuilder: { buildContext(sessionId?: string): Promise<unknown> };
+  contextBuilder: { buildContext(sessionId?: string): Promise<ContextBuilderResult> };
   sessionManager?: SessionManager;
   useLLM: boolean;
-  llmConfig: any; // Add this line
-  workflowEngine?: any; // Keep any for now if not easily typeable, but we should fix it later
-  commandExecutor?: any;
-  commandBridge: any;
-  paramExtractor: any;
+  llmConfig?: LLMConfig | null;
+  workflowEngine?: WorkflowEngine;
+  commandExecutor?: CommandExecutor;
+  commandBridge: CommandBridge;
+  paramExtractor: ParamExtractor;
   config: ChatConfig;
 }
 
