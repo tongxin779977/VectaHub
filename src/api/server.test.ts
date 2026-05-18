@@ -102,4 +102,56 @@ describe('API Server', () => {
     const result = await apiFetch('/api/ai-delegate', 'POST', { input: 'test' }) as { success: boolean };
     expect(result.success).toBe(false);
   });
+
+  it('POST /api/workflows with invalid JSON returns 400', async (ctx) => {
+    await startServer(ctx);
+    const url = `http://${host}:${port}/api/workflows`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{ invalid json !!!',
+    });
+    expect(res.status).toBe(400);
+    const result = await res.json() as { success: boolean; error: string };
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Invalid JSON');
+  });
+
+  it('POST /api/ai-delegate with invalid JSON returns 400', async (ctx) => {
+    await startServer(ctx);
+    const url = `http://${host}:${port}/api/ai-delegate`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not json at all',
+    });
+    expect(res.status).toBe(400);
+    const result = await res.json() as { success: boolean; error: string };
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Invalid JSON');
+  });
+
+  it('POST /api/workflows with valid JSON does not regress', async (ctx) => {
+    await startServer(ctx);
+    // LLM is mocked as unavailable, so workflow will get NEEDS_CLARIFICATION
+    const result = await apiFetch('/api/workflows', 'POST', { input: 'test input' }) as { success: boolean; data: { status: string } };
+    expect(result.success).toBe(true);
+    expect(result.data.status).toBe('NEEDS_CLARIFICATION');
+  });
+
+  it('POST /api/workflows with oversized body returns 413', async (ctx) => {
+    await startServer(ctx);
+    const url = `http://${host}:${port}/api/workflows`;
+    // 构造一个超过 1MB 的 JSON body
+    const bigPayload = JSON.stringify({ data: 'x'.repeat(1024 * 1024) });
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: bigPayload,
+    });
+    expect(res.status).toBe(413);
+    const result = await res.json() as { success: boolean; error: string };
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('too large');
+  });
 });

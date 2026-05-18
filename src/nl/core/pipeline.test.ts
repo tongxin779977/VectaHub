@@ -4,6 +4,7 @@ import { LLMClient } from '../llm.js';
 import YAML from 'yaml';
 
 const mockLLMConfig = {
+  provider: 'openai' as const,
   apiKey: 'test-key',
   baseUrl: 'http://localhost:11434/v1',
   model: 'qwen3:1.7b',
@@ -152,14 +153,31 @@ describe('NLProcessor', () => {
       );
     });
 
-    it('should fail fast when workflow YAML is invalid', async () => {
+    it('should fail fast when workflow has no type field', async () => {
+      vi.spyOn(LLMClient.prototype, 'complete').mockResolvedValue({
+        intent: 'RUN_SCRIPT',
+        confidence: 0.8,
+        params: {},
+        workflow: {
+          name: 'no-type',
+          steps: [{ cli: 'git status' }],
+        },
+      } as any);
+
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig });
+      await expect(processor.parse({ input: 'run script' })).rejects.toThrow(
+        'LLM step missing required field "type"'
+      );
+    });
+
+    it('should fail fast when workflow YAML generation fails', async () => {
       vi.spyOn(LLMClient.prototype, 'complete').mockResolvedValue({
         intent: 'RUN_SCRIPT',
         confidence: 0.8,
         params: {},
         workflow: {
           name: 'broken-yaml',
-          steps: [{ cli: 'git status' }],
+          steps: [{ type: 'exec', cli: 'echo ok' }],
         },
       } as any);
       vi.spyOn(YAML, 'parseAllDocuments').mockImplementation(() => {
@@ -169,6 +187,135 @@ describe('NLProcessor', () => {
       const processor = createNLProcessor({ llmConfig: mockLLMConfig });
       await expect(processor.parse({ input: 'run script' })).rejects.toThrow(
         'Invalid workflow YAML'
+      );
+    });
+
+    it('should produce workflowYAML for a valid tool_call step with type and cli', async () => {
+      vi.spyOn(LLMClient.prototype, 'complete').mockResolvedValue({
+        intent: 'UNKNOWN',
+        confidence: 0.95,
+        params: {},
+        workflow: { name: '', steps: [] },
+        tool_calls: [{
+          id: 'call_git_status',
+          type: 'function',
+          function: {
+            name: 'cli_git_status',
+            arguments: JSON.stringify({}),
+          },
+        }],
+      } as any);
+
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig });
+      const result = await processor.parse({ input: 'check status' });
+
+      expect(result.success).toBe(true);
+      expect(result.workflowYAML).toBeDefined();
+      expect(result.taskList?.tasks.length).toBeGreaterThan(0);
+    });
+
+    it('should throw when exec step is missing cli field (no silent echo fallback)', async () => {
+      // 直接 mock convertToolCallToSteps 返回缺少 cli 的 exec step
+      const toolCallingModule = await import('../tool-calling.js');
+      vi.spyOn(toolCallingModule, 'convertToolCallToSteps').mockReturnValue({
+        intent: 'UNKNOWN',
+        params: {},
+        steps: [{ id: 'step_1', type: 'exec' as const }],
+      });
+
+      vi.spyOn(LLMClient.prototype, 'complete').mockResolvedValue({
+        intent: 'UNKNOWN',
+        confidence: 0.95,
+        params: {},
+        workflow: { name: '', steps: [] },
+        tool_calls: [{
+          id: 'call_bad',
+          type: 'function',
+          function: { name: 'bad_tool', arguments: '{}' },
+        }],
+      } as any);
+
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig });
+      await expect(processor.parse({ input: 'do something bad' })).rejects.toThrow(
+        'LLM exec step missing required field "cli"'
+      );
+    });
+
+    it('should throw when step is missing type field', async () => {
+      const toolCallingModule = await import('../tool-calling.js');
+      vi.spyOn(toolCallingModule, 'convertToolCallToSteps').mockReturnValue({
+        intent: 'UNKNOWN',
+        params: {},
+        steps: [{ id: 'step_1' } as any],
+      });
+
+      vi.spyOn(LLMClient.prototype, 'complete').mockResolvedValue({
+        intent: 'UNKNOWN',
+        confidence: 0.95,
+        params: {},
+        workflow: { name: '', steps: [] },
+        tool_calls: [{
+          id: 'call_no_type',
+          type: 'function',
+          function: { name: 'no_type_tool', arguments: '{}' },
+        }],
+      } as any);
+
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig });
+      await expect(processor.parse({ input: 'step with no type' })).rejects.toThrow(
+        'LLM step missing required field "type"'
+      );
+    });
+
+    it('should throw when nested body step is missing cli (recursive validation)', async () => {
+      // for_each 路径：嵌套 body 中子 step 缺少 cli
+      vi.spyOn(LLMClient.prototype, 'complete').mockResolvedValue({
+        intent: 'RUN_SCRIPT',
+        confidence: 0.9,
+        params: {},
+        workflow: {
+          name: 'nested-bad',
+          steps: [{
+            type: 'for_each',
+            items: '{{files}}',
+            body: [
+              { type: 'exec' as const },
+            ],
+          }],
+        },
+      } as any);
+
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig });
+      await expect(processor.parse({ input: 'iterate files' })).rejects.toThrow(
+        /LLM exec step missing required field "cli" at steps\[0\]\.body\[0\]/
+      );
+    });
+
+    it('should pass validation for a valid nested for_each step', async () => {
+      // for_each 步骤本身不含 cli，嵌套 body 中的 exec step 有 cli
+      // 验证递归校验不会误拒合法结构
+      // createTaskListFromWorkflow 不支持 for_each 提取，所以 taskList 会失败
+      // 关键是：错误来自 taskList 而非 validation
+      vi.spyOn(LLMClient.prototype, 'complete').mockResolvedValue({
+        intent: 'RUN_SCRIPT',
+        confidence: 0.9,
+        params: {},
+        workflow: {
+          name: 'nested-good',
+          steps: [{
+            type: 'for_each',
+            items: '{{files}}',
+            body: [
+              { type: 'exec', cli: 'echo processing file' },
+            ],
+          }],
+        },
+      } as any);
+
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig });
+      // 错误来自 "Workflow contains no executable command steps"（taskList 层），而非 "missing required field"（validation 层）
+      await expect(processor.parse({ input: 'process each file' })).rejects.toThrow(
+        'Workflow contains no executable command steps'
       );
     });
   });

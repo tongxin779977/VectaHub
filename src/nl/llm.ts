@@ -34,20 +34,22 @@ export interface LLMToolCall {
   };
 }
 
+export interface LLMWorkflowStepInline {
+  type: 'exec' | 'for_each' | 'if' | 'parallel';
+  cli?: string;
+  args?: string[];
+  condition?: string;
+  items?: string;
+  body?: LLMWorkflowStepInline[];
+}
+
 export interface LLMResponse {
   intent: string;
   confidence: number;
   params: Record<string, unknown>;
   workflow: {
     name: string;
-    steps: {
-      type: 'exec' | 'for_each' | 'if' | 'parallel';
-      cli?: string;
-      args?: string[];
-      condition?: string;
-      items?: string;
-      body?: unknown[];
-    }[];
+    steps: LLMWorkflowStepInline[];
   };
   tool_calls?: LLMToolCall[];
   usage?: {

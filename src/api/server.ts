@@ -8,7 +8,7 @@ import { createScheduleManager } from '../workflow/scheduler.js';
 import { audit, getCurrentSessionId, AuditEventType, queryAuditLogs } from '../utils/audit.js';
 import { getVectaHubPath } from '../utils/paths.js';
 import type { Step } from '../types/index.js';
-import type { LLMResponse } from '../nl/llm.js';
+import type { LLMWorkflowStepInline } from '../nl/llm.js';
 
 function getWorkflowsDir(): string {
   return getVectaHubPath('workflows');
@@ -26,9 +26,7 @@ interface APIExecutionSummary {
   warnings?: string[];
 }
 
-type LLMWorkflowStep = LLMResponse['workflow']['steps'][number];
-
-function mapLLMWorkflowStep(step: LLMWorkflowStep, index: number): Step {
+function mapLLMWorkflowStep(step: LLMWorkflowStepInline, index: number): Step {
   return {
     id: `step_${index + 1}`,
     type: step.type,
@@ -37,12 +35,12 @@ function mapLLMWorkflowStep(step: LLMWorkflowStep, index: number): Step {
     condition: step.condition,
     items: step.items,
     body: Array.isArray(step.body)
-      ? step.body.map((childStep, childIndex) => mapLLMWorkflowStep(childStep as LLMWorkflowStep, childIndex))
+      ? step.body.map((childStep, childIndex) => mapLLMWorkflowStep(childStep, childIndex))
       : undefined,
   };
 }
 
-function mapLLMWorkflowSteps(steps: LLMWorkflowStep[]): Step[] {
+function mapLLMWorkflowSteps(steps: LLMWorkflowStepInline[]): Step[] {
   return steps.map((step, index) => mapLLMWorkflowStep(step, index));
 }
 
@@ -54,21 +52,84 @@ function toExecutionSummary(result: { status: string; steps: unknown[]; warnings
   };
 }
 
+export class RequestBodyParseError extends Error {
+  readonly statusCode = 400;
+  constructor(message = 'Invalid JSON in request body') {
+    super(message);
+    this.name = 'RequestBodyParseError';
+  }
+}
+
+export class BodyTooLargeError extends Error {
+  readonly statusCode = 413;
+  constructor(message = 'Request body too large') {
+    super(message);
+    this.name = 'BodyTooLargeError';
+  }
+}
+
+const MAX_BODY_SIZE_BYTES = 1024 * 1024; // 1MB 默认限制
+
 function jsonResponse(res: ServerResponse, statusCode: number, body: APIResponse): void {
   res.writeHead(statusCode, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(body));
 }
 
 async function parseRequestBody(req: IncomingMessage): Promise<Record<string, unknown>> {
-  return new Promise((resolve) => {
+  // Content-Length 快速路径：提前拒绝超限请求
+  const contentLength = req.headers['content-length'];
+  if (contentLength !== undefined) {
+    const cl = Number(contentLength);
+    if (!Number.isFinite(cl) || cl < 0) {
+      throw new RequestBodyParseError('Invalid Content-Length header');
+    }
+    if (cl > MAX_BODY_SIZE_BYTES) {
+      throw new BodyTooLargeError(
+        `Request body too large: ${cl} bytes exceeds limit of ${MAX_BODY_SIZE_BYTES} bytes`
+      );
+    }
+  }
+
+  return new Promise((resolve, reject) => {
     let body = '';
-    req.on('data', (chunk) => { body += chunk; });
-    req.on('end', () => {
-      try {
-        resolve(JSON.parse(body));
-      } catch {
-        resolve({});
+    let totalBytes = 0;
+    let rejected = false;
+
+    req.on('data', (chunk: Buffer) => {
+      if (rejected) return;
+      totalBytes += chunk.length;
+      if (totalBytes > MAX_BODY_SIZE_BYTES) {
+        rejected = true;
+        req.destroy();
+        reject(new BodyTooLargeError(
+          `Request body too large: exceeds limit of ${MAX_BODY_SIZE_BYTES} bytes`
+        ));
+        return;
       }
+      body += chunk.toString();
+    });
+
+    req.on('end', () => {
+      if (rejected) return;
+
+      if (!body.trim()) {
+        resolve({});
+        return;
+      }
+      try {
+        const parsed: unknown = JSON.parse(body);
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+          reject(new RequestBodyParseError('Request body must be a JSON object'));
+          return;
+        }
+        resolve(parsed as Record<string, unknown>);
+      } catch {
+        reject(new RequestBodyParseError());
+      }
+    });
+
+    req.on('error', (err) => {
+      if (!rejected) reject(err);
     });
   });
 }
@@ -202,6 +263,9 @@ export async function createAPIServer(port = 3000): Promise<ReturnType<typeof cr
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      const statusCode = (err instanceof RequestBodyParseError)
+        ? 400
+        : (err instanceof BodyTooLargeError) ? 413 : 500;
       audit.log({
         event: AuditEventType.WORKFLOW_END,
         timestamp: new Date().toISOString(),
@@ -212,7 +276,7 @@ export async function createAPIServer(port = 3000): Promise<ReturnType<typeof cr
         success: false,
         error: message,
       });
-      jsonResponse(res, 500, { success: false, error: message });
+      jsonResponse(res, statusCode, { success: false, error: message });
     }
   });
 

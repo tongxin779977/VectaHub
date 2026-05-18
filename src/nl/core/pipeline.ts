@@ -71,12 +71,11 @@ async function executeLLMToolCalling(
     const toolCall = llmResponse.tool_calls[0];
     const parsed = convertToolCallToSteps(toolCall);
     
-    const workflowSteps = parsed.steps.map(s => ({
-      ...s,
-      type: s.type || 'exec',
-      cli: s.cli || 'echo',
-      args: s.args || [],
-    }));
+    // 校验每个 step 至少具备最小可执行字段，不允许静默补默认值
+    for (let i = 0; i < parsed.steps.length; i++) {
+      validateWorkflowStep(parsed.steps[i], `steps[${i}]`);
+    }
+    const workflowSteps = parsed.steps;
 
     const workflowYAML = YAML.stringify({ steps: workflowSteps });
     return {
@@ -94,7 +93,11 @@ async function executeLLMToolCalling(
   }
 
   if (llmResponse.intent !== 'UNKNOWN' && llmResponse.workflow?.steps) {
-    const steps = llmResponse.workflow.steps as any[];
+    // 校验 LLM 直接返回的 workflow steps，包括嵌套 body
+    for (let i = 0; i < llmResponse.workflow.steps.length; i++) {
+      validateWorkflowStep(llmResponse.workflow.steps[i], `steps[${i}]`);
+    }
+    const steps = llmResponse.workflow.steps;
     const workflowYAML = YAML.stringify({ steps });
     return {
       success: true,
@@ -114,6 +117,28 @@ async function executeLLMToolCalling(
 
 
 
+
+/** 最小 step 合同：只要有 type 可选、cli 可选、body 可选即可递归校验 */
+interface MinimalStep {
+  type?: string;
+  cli?: string;
+  body?: MinimalStep[];
+}
+
+function validateWorkflowStep(step: MinimalStep, path: string): void {
+  if (!step.type) {
+    throw new Error(`LLM step missing required field "type" at ${path}: ${JSON.stringify(step)}`);
+  }
+  if (step.type === 'exec' && !step.cli) {
+    throw new Error(`LLM exec step missing required field "cli" at ${path}: ${JSON.stringify(step)}`);
+  }
+  // 递归校验嵌套 body
+  if (Array.isArray(step.body)) {
+    for (let i = 0; i < step.body.length; i++) {
+      validateWorkflowStep(step.body[i], `${path}.body[${i}]`);
+    }
+  }
+}
 
 function createTaskListFromWorkflow(workflowYAML: string, userInput: string): NLResult['taskList'] {
   let workflow: {

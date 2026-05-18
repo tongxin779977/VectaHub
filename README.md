@@ -2,10 +2,10 @@
 
 > Natural Language Workflow Engine — 将任务描述转换为本地执行指令。
 
-[![Version](https://img.shields.io/badge/version-1.1.1-blue)]()
+[![Version](https://img.shields.io/badge/version-1.0.11-blue)]()
 [![Node.js](https://img.shields.io/badge/node-%3E%3D21.0.0-brightgreen)]()
-[![Tests](https://img.shields.io/badge/tests-1185%20passing%20%7C%2014%20skipped-brightgreen)]()
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)]()
+[![Tests](https://img.shields.io/badge/tests->%202300%20passing%20%7C%2012%20skipped-brightgreen)]()
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue)]()
 
 [English](./README.md) · [中文](./docs/README.md)
 
@@ -199,7 +199,7 @@ npm test
 ```
 
 ### 测试状态
-目前已通过 **1185** 个单元测试用例。跳过的项主要为特定操作系统环境相关的集成测试。
+目前已通过超过 **2300** 个单元测试用例。跳过的项主要为特定操作系统环境相关的集成测试。
 
 ---
 

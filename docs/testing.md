@@ -4,20 +4,27 @@
 
 ## 基础检查
 
-类型检查：
+类型检查（TypeScript）：
 
 ```bash
 npm run typecheck
 ```
 
-lint：
+Lint 检查（ESLint）：
 
 ```bash
 npm run lint
 ```
 
-当前 `lint` 脚本等同于 `tsc --noEmit`。
-当前 `lint` 脚本运行 ESLint；`typecheck` 继续只负责 TypeScript 类型检查。
+## 统一质量评估
+
+如果需要一次性获取所有质量信号（Lint、Typecheck、Any 使用情况、Console 使用情况），请运行：
+
+```bash
+bash scripts/collect_quality_signals.sh
+```
+
+## 测试运行
 
 全量测试：
 
