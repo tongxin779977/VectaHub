@@ -8,6 +8,7 @@ export interface NLResult {
   taskList?: TaskList;
   workflowYAML?: string;
   workflow?: Workflow;
+  reply?: string;
   params?: Record<string, unknown>; // Add params here
   metadata: {
     path: 'category-router' | 'llm-tool-calling' | 'no-match' | 'direct-query' | 'dialog';

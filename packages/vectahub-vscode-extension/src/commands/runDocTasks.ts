@@ -21,6 +21,7 @@ import {
   setTaskDisplayState,
   summarizeOutput,
 } from './docTaskRunHelpers.js';
+import { updateMarkdownDocTaskStatus } from '../project/docTaskUpdate.js';
 import { persistContractHashFromCliResult, resolveVerificationStatus } from './docTaskStatusHelpers.js';
 import { type RiskLevel } from '../security/riskUI.js';
 import { resolveRunTaskExecutionSemantics, resolveRunTaskFailureKind } from './runTaskResultSemantics.js';
@@ -583,6 +584,20 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
             setTaskDisplayState(task, finalStatus);
             tasksProvider.refresh();
 
+            // 如果执行成功（success 或 changed），则更新文档并清理任务
+            if (finalStatus === 'success' || finalStatus === 'changed') {
+              if (docPath) {
+                const updated = await updateMarkdownDocTaskStatus(docPath, task.id);
+                if (updated) {
+                  logToOutput(`[doc-task] 任务 ${task.id} 已完成并同步至文档`);
+                }
+              }
+              // 清理任务列表
+              const currentTasks = tasksProvider.getDocTasks();
+              tasksProvider.setDocTasks(currentTasks.filter(t => t.id !== task.id));
+              tasksProvider.refresh();
+            }
+
             if (runRecord) {
               runRecord.status = finalStatus;
               runRecord.failureKind = cliFailureKind ?? resolved.failureKind;
@@ -762,7 +777,14 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
         return;
       }
 
-      const runningTasks = tasks.filter(t => t.status === 'running');
+      // 过滤掉已完成的任务
+      const tasksToRun = tasks.filter(t => t.status !== 'success' && t.status !== 'changed');
+      if (tasksToRun.length === 0) {
+        vscode.window.showInformationMessage('当前文档的所有任务均已完成');
+        return;
+      }
+
+      const runningTasks = tasksToRun.filter(t => t.status === 'running');
       if (runningTasks.length > 0) {
         vscode.window.showWarningMessage(`当前有 ${runningTasks.length} 个任务正在执行中，请等待完成后再试`);
         return;
@@ -784,7 +806,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
       const requestedMaxConcurrent = config.get<number>('maxConcurrentTasks', 3);
       const docContent = await readDocContentOnce(docPath);
       const contractSummaries = buildAgentTaskContractSummaries({
-        tasks,
+        tasks: tasksToRun,
         docContent,
         projectRoot: workspaceRoot || '',
       });
@@ -799,7 +821,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
       logToOutput(`[batch] 边界预检完成: ${concurrencyDecision.mode}, ${concurrencyDecision.reason}, effectiveMaxConcurrent=${maxConcurrent}`);
 
       const confirm = await vscode.window.showInformationMessage(
-        `即将${concurrencyLabel} ${tasks.length} 个任务`,
+        `即将${concurrencyLabel} ${tasksToRun.length} 个任务`,
         { modal: true },
         '确认启动',
         '取消'
@@ -814,7 +836,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
         source: 'vscode',
         attributes: {
           taskId: 'batch',
-          taskLabel: `count:${tasks.length}`,
+          taskLabel: `count:${tasksToRun.length}`,
           status: 'started',
           agentCli: agentCli || '',
           concurrencyMode: concurrencyDecision.mode,
@@ -827,21 +849,22 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
       runStore?.beginBatchWrites();
       let batchFlushError: unknown;
 
-      const queue = [...tasks];
+      const queue = [...tasksToRun];
       let completedCount = 0;
       let failedCount = 0;
       let skippedCount = 0;
-      const totalTasks = tasks.length;
+      const totalTasks = tasksToRun.length;
       let cancelled = false;
       let globalFailureAfterBatch: { message: string; status: DocTaskRunStatus; kind?: string } | undefined;
       let batchRecord: DocTaskBatchRunRecord | undefined;
       const runRecordMap = new Map<string, DocTaskRunRecord>();
-      const notStartedTaskIds = new Set(tasks.map(task => task.id));
+      const notStartedTaskIds = new Set(tasksToRun.map(task => task.id));
+      const successfulTaskIds = new Set<string>();
 
-      for (const task of tasks) {
+      for (const task of tasksToRun) {
         task.status = 'pending';
       }
-      tasksProvider.setDocTasks(tasks);
+      tasksProvider.setDocTasks(tasks); // 注意：这里还是保存全部任务的状态，只是 queue 里只有待执行的
       tasksProvider.refresh();
 
       try {
@@ -1008,6 +1031,15 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
               const finalStatus = resolved.status;
               task.lastFailureKind = cliFailureKind ?? resolved.failureKind;
               setTaskDisplayState(task, finalStatus);
+
+              // 如果执行成功，更新文档并记录
+              if (finalStatus === 'success' || finalStatus === 'changed') {
+                successfulTaskIds.add(task.id);
+                if (docPath) {
+                  await updateMarkdownDocTaskStatus(docPath, task.id);
+                }
+              }
+
               if (resolved.status === 'failed_test') {
                 failedCount++;
               }
@@ -1350,6 +1382,11 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
           batchFlushError = err;
           const msg = err instanceof Error ? err.message : String(err);
           warnRunStore(`[doc-task-run-store] batch flush 失败: ${msg}`);
+        }
+        // 清理成功的任务
+        if (successfulTaskIds.size > 0) {
+          const currentTasks = tasksProvider.getDocTasks();
+          tasksProvider.setDocTasks(currentTasks.filter(t => !successfulTaskIds.has(t.id)));
         }
         tasksProvider.setIsBatchRunning(false);
         tasksProvider.refresh();

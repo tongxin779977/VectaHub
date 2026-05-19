@@ -26,9 +26,10 @@ VectaHub 解决的是 AI 执行失控问题：
 
 | 要求 | 含义 |
 |------|------|
+| **谷歌工程规范** | **严格执行依赖注入 (DI) 与环境隔离，确保测试封闭性 (Hermeticity)。** |
 | 可预览 | 自然语言和文档任务执行前必须能生成 preview。 |
 | 可约束 | Agent 只能执行边界清楚的小任务，修改范围和验证命令必须结构化。 |
-| 可追踪 | 每次用户操作、CLI 调用、Agent 执行和验证命令都能关联 trace。 |
+| 可追踪 | **对齐 OpenTelemetry 标准，每次调用关联结构化 Trace。** |
 | 可验证 | Agent 成功后必须进入验证阶段，不能只依赖 Agent 输出。 |
 | 可恢复 | 失败必须分类，并提供恢复、重试或人工处理路径。 |
 | 安全默认 | `dry-run` 零副作用，高风险命令确认，敏感信息不得落盘。 |
@@ -53,7 +54,6 @@ VectaHub 解决的是 AI 执行失控问题：
 | [发布指南](./release.md) | 当前可确认的 release、build、VSIX 打包和发布前检查入口。 |
 | [Agent 操作规范](./agent-operating-guide.md) | 开发 Agent 执行项目任务时必须遵守的工程规范。 |
 | [路线图](./roadmap.md) | 当前优先级、下一步任务和不建议立即投入的方向。 |
-| [未实现项总表](./unimplemented.md) | 汇总当前尚未完整实现、尚未收口或仍在 hardening 的能力。 |
 | [归档说明](./archive.md) | 旧文档清理原则和仍保留的参考文档。 |
 
 ## 规格入口
@@ -62,7 +62,6 @@ VectaHub 解决的是 AI 执行失控问题：
 |------|------|
 | [架构总览](./architecture.md) | 项目定位、系统边界、模块职责和演进方向。 |
 | [核心合同](./contracts.md) | CLI JSON、任务状态、Agent 合同、Trace、安全、恢复等协议入口。 |
-| [实现追踪矩阵](./specs/implementation-traceability.md) | 把目标能力、权威文档、代码入口、测试入口和已知缺口对应起来。 |
 | [Agent 执行系统](./agent-execution.md) | `VectaHub = Orchestrator` 的执行模型和阶段边界。 |
 | [Run-Task 执行合同](./specs/run-task-execution-contract.md) | `run-task` 的输入分支、完成边界、失败分类、确认语义和恢复入口真相源。 |
 | [规格合同](./specs/agent-worker-contract.md) | Agent 任务边界、片段提取、文件范围和合同摘要规格。 |

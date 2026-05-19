@@ -132,6 +132,7 @@ export interface OrchestrateStep {
 export interface OrchestrateResult {
   steps: OrchestrateStep[];
   plan?: ExecutionPlan;
+  reply?: string;
   intentRecognitionMethod: 'capability' | 'llm' | 'none';
   matchedCapability?: string;
   score?: number;
@@ -308,6 +309,7 @@ async function orchestrateSingleIntent(
 ): Promise<OrchestrateResult> {
   const context = buildProjectContext(input, options);
   const routeResult = routeCapability(input, context);
+  console.log(`[DEBUG] routeResult: ${JSON.stringify(routeResult)}`);
 
   switch (routeResult.route) {
     case 'auto': {
@@ -339,12 +341,9 @@ async function orchestrateSingleIntent(
       };
     }
     case 'clarify':
-      return {
-        steps: [],
-        intentRecognitionMethod: 'none',
-        matchedCapability: routeResult.matchedCapability,
-        score: routeResult.score,
-      };
+      // 如果路由要求澄清，但在本场景下我们希望 Agent 能对话，
+      // 则继续向下走 LLM 流程，让 LLM 来决定是对话还是请求澄清。
+      break;
     case 'fallback':
       break;
     default: {
@@ -360,13 +359,15 @@ async function orchestrateSingleIntent(
 
   const llmResult = await processInput(input, llmConfig);
   const steps = mapTaskListToSteps(llmResult.taskList);
-  if (steps.length === 0) {
+  
+  if (steps.length === 0 && !llmResult.reply) {
     throw new Error('NL parsing produced no executable steps');
   }
 
   return {
     steps,
-    intentRecognitionMethod: llmResult.metadata.path === 'llm-tool-calling' ? 'llm' : 'none',
+    reply: llmResult.reply,
+    intentRecognitionMethod: 'llm',
     recognizedIntent: llmResult.intent as string | undefined,
     score: llmResult.confidence,
   };
@@ -385,13 +386,15 @@ export async function orchestrateIntent(
       clauses.map(clause => orchestrateSingleIntent(clause, options))
     );
 
-    const hasNonExecutableClause = clauseResults.some(result => result.steps.length === 0);
+    const hasNonExecutableClause = clauseResults.some(result => result.steps.length === 0 && !result.reply);
     if (hasNonExecutableClause) {
       throw new Error('Multi-intent contains non-executable clause; clarification or preview required');
     }
 
     const steps = clauseResults.flatMap(result => result.steps);
-    if (steps.length === 0) {
+    const combinedReply = clauseResults.map(r => r.reply).filter(Boolean).join('\n\n');
+    
+    if (steps.length === 0 && !combinedReply) {
       throw new Error('Multi-intent parsing produced no executable steps');
     }
     const allCapability = clauseResults.every(result => result.intentRecognitionMethod === 'capability');
@@ -399,6 +402,7 @@ export async function orchestrateIntent(
 
     return {
       steps,
+      reply: combinedReply || undefined,
       intentRecognitionMethod: allCapability ? 'none' : (hasLLM ? 'llm' : 'none'),
       score: Math.min(...clauseResults.map(result => result.score ?? 0)),
     };

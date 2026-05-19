@@ -33,7 +33,7 @@ function getProjectQueuePath(projectRoot: string): string {
 }
 
 const DEV_KINDS = ['dev', 'start', 'serve'];
-const QUALITY_KINDS = ['test', 'build', 'lint', 'typecheck', 'check', 'validate', 'format', 'format:check', 'coverage', 'storybook'];
+const QUALITY_KINDS = ['test', 'build', 'lint', 'typecheck', 'check', 'validate', 'format', 'coverage', 'storybook'];
 
 export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeItem> {
   private _onDidChangeTreeData: vscode.EventEmitter<VectaHubTreeItem | undefined | null | void> = new vscode.EventEmitter<VectaHubTreeItem | undefined | null | void>();
@@ -49,10 +49,14 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
   private selectedAgentCli: string | undefined;
   private isDocParsing: boolean = false;
   private isBatchRunning: boolean = false;
+  private isPipelineRunning: boolean = false;
+  private isSyncingCi: boolean = false;
+  private tasksCache: ProjectTask[] | null = null;
 
   constructor() {
     this.setupWatcher();
     this.setupLrtListeners();
+    this.setupPackageWatcher();
   }
 
   private setupWatcher() {
@@ -64,6 +68,17 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
     this.watcher.onDidDelete(() => this.refresh());
   }
 
+  private setupPackageWatcher() {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (workspaceFolder) {
+      const pattern = new vscode.RelativePattern(workspaceFolder, 'package.json');
+      const pkgWatcher = vscode.workspace.createFileSystemWatcher(pattern);
+      pkgWatcher.onDidChange(() => this.refreshTasks());
+      pkgWatcher.onDidCreate(() => this.refreshTasks());
+      pkgWatcher.onDidDelete(() => this.refreshTasks());
+    }
+  }
+
   private setupLrtListeners() {
     const lrt = LongRunningTaskManager.getInstance();
     lrt.onTaskStarted(() => this.refresh());
@@ -72,6 +87,20 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
 
   refresh(): void {
     this._onDidChangeTreeData.fire();
+  }
+
+  refreshTasks(): void {
+    this.tasksCache = null;
+    this.refresh();
+  }
+
+  setIsSyncingCi(syncing: boolean): void {
+    this.isSyncingCi = syncing;
+    this.refresh();
+  }
+
+  getIsSyncingCi(): boolean {
+    return this.isSyncingCi;
   }
 
   getSelectedDocPath(): string | undefined {
@@ -114,6 +143,15 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
     this.isBatchRunning = running;
   }
 
+  getIsPipelineRunning(): boolean {
+    return this.isPipelineRunning;
+  }
+
+  setIsPipelineRunning(running: boolean): void {
+    this.isPipelineRunning = running;
+    this.refresh();
+  }
+
   getTreeItem(element: VectaHubTreeItem): vscode.TreeItem {
     return element;
   }
@@ -153,7 +191,10 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
     }
 
     if (!element) {
-      this.projectTasks = await detectProjectTasks();
+      if (!this.tasksCache) {
+        this.tasksCache = await detectProjectTasks();
+      }
+      this.projectTasks = this.tasksCache;
       const queueResult = this.readDiagnosticQueue();
       this.diagnosticTasks = queueResult.tasks;
       this.queueError = queueResult.error;
@@ -265,10 +306,14 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
       .filter(t => QUALITY_KINDS.includes(t.kind))
       .map(t => this.createTaskItem(t));
 
+    const verifyIcon = this.isPipelineRunning ? 'sync~spin' : 'play-circle';
+    const verifyTitle = this.isPipelineRunning ? '验证流水线运行中...' : '运行 format:check / typecheck / lint / test / build';
+    const verifyCommand = this.isPipelineRunning ? '' : 'vectahubTasks.runVerifyAll';
+
     qualityItems.push(new TaskTreeItem('一键验证全部', {
-      command: 'vectahubTasks.runVerifyAll',
-      title: '运行 format:check / typecheck / lint / test / build'
-    }, 'play-circle'));
+      command: verifyCommand,
+      title: verifyTitle
+    }, verifyIcon));
 
     categories.push(new CategoryTreeItem('质量检查', qualityItems));
   }
@@ -288,11 +333,15 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
 
     if (!gitAvailable) return;
 
+    const syncIcon = this.isSyncingCi ? 'sync~spin' : 'sync';
+    const syncTitle = this.isSyncingCi ? '正在同步并修复...' : '拉取 CI 错误并自动修复';
+    const syncCommand = this.isSyncingCi ? '' : 'vectahubTasks.syncAndFixCi';
+
     const ciItems: VectaHubTreeItem[] = [
       new TaskTreeItem('同步并修复', {
-        command: 'vectahubTasks.syncAndFixCi',
-        title: '拉取 CI 错误并自动修复'
-      }, 'sync')
+        command: syncCommand,
+        title: syncTitle
+      }, syncIcon)
     ];
 
     const queueChildren: VectaHubTreeItem[] = [];
@@ -411,7 +460,9 @@ export class TasksViewProvider implements vscode.TreeDataProvider<VectaHubTreeIt
     switch (kind) {
       case 'test': return 'beaker';
       case 'build': return 'package';
-      case 'lint': return 'check-all';
+      case 'lint':
+      case 'check':
+      case 'validate': return 'check-all';
       case 'typecheck': return 'symbol-class';
       case 'install': return 'cloud-download';
       case 'dev':

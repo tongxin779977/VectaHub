@@ -103,6 +103,36 @@ node dist/cli.js <command>
 
 文中的 `--json` 断言以当前实现为准，不能只引用旧文档或 UI 描述推断行为。
 
+## 内存化测试 (Hermetic Testing)
+
+为了对齐谷歌工程标准，项目现在支持完全隔离的内存化测试。这避免了测试过程中产生文件系统副作用，并提升了执行速度。
+
+### 使用 Mock 基础设施
+
+在测试基础设施相关逻辑或需要环境隔离的业务逻辑时，推荐使用 `createTestInfrastructureContext()`：
+
+```typescript
+import { createTestInfrastructureContext } from '../infrastructure/testing/index.js';
+
+describe('My Module', () => {
+  it('should work without IO side effects', async () => {
+    const ctx = createTestInfrastructureContext();
+    const env = ctx.environment; // 这是一个 MockEnvironmentService
+    
+    // 模拟文件
+    env.writeFile('/test.txt', 'hello');
+    
+    // 执行业务逻辑...
+    
+    // 断言日志输出（日志已捕获在内存中）
+    const logs = (ctx.logger as MockLoggerService).logs;
+    expect(logs[0].msg).toContain('expected message');
+  });
+});
+```
+
+这种方式是验证基础设施修改（如安全扫描、Trace 注入）的首选方案。
+
 ## 核心命令测试矩阵
 
 以下矩阵聚焦维护者本地最常用、最容易回归的核心链路。事实源优先级为：命令实现、CLI 规格、相关用户文档。

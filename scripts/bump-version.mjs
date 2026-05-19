@@ -35,4 +35,7 @@ syncVersion(rootPkgPath, newVersion);
 const extPkgPath = resolve(rootDir, 'packages', 'vectahub-vscode-extension', 'package.json');
 syncVersion(extPkgPath, newVersion);
 
+const corePkgPath = resolve(rootDir, 'packages', 'doc-task-contract-core', 'package.json');
+syncVersion(corePkgPath, newVersion);
+
 console.log(`${oldVersion} → ${newVersion}`);

@@ -1,8 +1,7 @@
 # VectaHub 架构总览
 
-> Document Status: Target Design / Migration Contract
-> Authority: High-level architecture only. Runtime behavior is owned by the linked specs and current code.
-> Traceability: See `./specs/implementation-traceability.md` before treating target capabilities as implemented.
+> Document Status: Baseline Architecture (Finalized v1.0)
+> Authority: High-level architecture. Implementation follows Google Engineering Standards.
 
 ## 定位
 
@@ -14,10 +13,10 @@ VectaHub 是 AI 辅助开发场景下的执行编排层。
 User / VS Code / CLI
         |
         v
-VectaHub Orchestrator
+VectaHub Orchestrator (Infrastructure Context / DI)
         |
         +-- Task Contract
-        +-- Trace
+        +-- Trace (OpenTelemetry Compatible)
         +-- Security Policy
         +-- Verification
         +-- Recovery
@@ -35,7 +34,6 @@ VectaHub 不做以下事情：
 - 不把高风险命令交给 Agent 静默执行。
 - 不要求插件解析人类日志来判断执行结果。
 - 不在当前阶段引入数据库、多租户 RBAC 或完整服务端控制面。
-- 不把未来 Go 重构蓝图描述为当前 TypeScript 实现。
 
 ## 当前系统边界
 
@@ -51,21 +49,28 @@ src/sandbox/                  沙箱和危险检测
 src/cli-tools/                外部工具集成
 src/skills/                   技能与执行能力
 src/command-rules/            命令黑白名单
-src/infrastructure/           基础设施模块（审计、配置、错误、日志、路径、事件、安全、数据、并发、加载器）
-src/utils/                    CLI 命令实现
+src/infrastructure/           基础设施核心 (DI/IO/Logger/Trace/Event/Audit)
+src/utils/                    CLI 命令业务逻辑实现
 packages/doc-task-contract-core/          文档任务合同纯函数包
 packages/vectahub-vscode-extension/       VS Code 插件
 ```
 
-插件、Agent 任务和文档任务相关能力必须通过 CLI 的结构化协议和共享合同包接入，不能复制一份长期漂移的业务逻辑。
+### 基础设施层 (Infrastructure Context)
 
-Agent CLI 的运行时定义应由统一动态 registry 驱动，而不是分别依赖静态白名单、静态 descriptor 表、插件本地判断或配置布尔位。
+系统通过 `InfrastructureContext` 实现依赖注入（DI），彻底解耦了文件系统、环境变量、进程控制和日志系统。这种设计支持：
+- **生产环境**：使用 `EnvironmentService`（Node.js 原生 API）和 `LoggerService`（Pino 结构化日志）。
+- **测试环境**：使用 `MockEnvironmentService` 和 `MockLoggerService`，实现 100% 内存化隔离，无 IO 副作用。
 
-LLM 不应通过静态记忆、临场读取 `--help` 或猜测命令参数来理解 VectaHub。LLM 能力上下文必须由 VectaHub 生成，至少包含：
+### 结构化追踪 (Trace)
 
-- `Agent Runtime Catalog`：已注册 Agent CLI、执行模式、ready 状态、调用传输方式、能力标签和限制。
-- `VectaHub Capability Catalog`：VectaHub CLI 自身可用能力、输入合同、副作用等级、JSON 支持和 dry-run 支持。
-- `LLM Context Pack`：面向单次 LLM 调用的短上下文，只暴露本次决策需要的 Agent 与 VectaHub 能力摘要。
+追踪系统对齐 **OpenTelemetry** 标准，引入 `SpanKind` 语义（INTERNAL, CLIENT, SERVER 等）。所有执行过程均通过结构化 Span 记录，支持导出为标准遥测格式。
+
+### CLI 纪律
+
+所有 CLI 输出遵循以下红线：
+- **Stdout (fd 1)**：仅用于输出纯净的业务数据或结构化 JSON。
+- **Stderr (fd 2)**：用于输出所有人类可读的日志、警告和错误。
+这确保了 VectaHub 可以被无缝嵌入到管道（Pipes）或作为子进程调用。
 
 ## 核心模块
 

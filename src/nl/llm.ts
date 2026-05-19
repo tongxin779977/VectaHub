@@ -54,7 +54,8 @@ export interface LLMResponse {
   intent: string;
   confidence: number;
   params: Record<string, unknown>;
-  workflow: {
+  reply?: string;
+  workflow?: {
     name: string;
     steps: LLMWorkflowStepInline[];
   };
@@ -398,13 +399,20 @@ export class LLMClient {
       const parsed = JSON.parse(content) as LLMResponse;
 
       if (!parsed.intent || !INTENT_LIST.includes(parsed.intent)) {
-        parsed.intent = 'UNKNOWN';
-        parsed.confidence = 0;
+        parsed.intent = 'QUERY_INFO'; // Default to QUERY_INFO if we have a reply
+        parsed.confidence = 0.9;
       }
 
       return parsed;
     } catch {
-      throw new Error(`Failed to parse LLM response as JSON: ${content.substring(0, 100)}...`);
+      // 如果解析 JSON 失败，将原始内容作为 reply 返回，意图定为 QUERY_INFO
+      return {
+        intent: 'QUERY_INFO',
+        confidence: 0.9,
+        params: {},
+        reply: content,
+        workflow: { name: 'Chat Response', steps: [] },
+      };
     }
   }
 

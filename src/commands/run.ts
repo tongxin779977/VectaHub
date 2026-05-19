@@ -223,7 +223,28 @@ export const runCmd = new Command('run')
           getLogger().info(`识别到意图: ${recognizedIntent}`);
         }
 
+        if (result.reply) {
+          if (options.json) {
+            if (orchestrateSteps.length === 0) {
+              console.log(JSON.stringify({
+                ok: true,
+                reply: result.reply,
+                intent: recognizedIntent,
+              }, null, 2));
+              restoreEnvValue('VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+              return;
+            }
+          } else {
+            getLogger().info(`\n🤖 VectaHub Expert:\n\n${result.reply}\n`);
+          }
+        }
+
         if (orchestrateSteps.length === 0) {
+          if (result.reply) {
+            // 已显示回复，直接退出
+            restoreEnvValue('VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+            return;
+          }
           exitWithError('❌ 无法解析意图，请尝试更明确的输入！', 'INTENT_PARSE_FAILED', options.json);
         }
 

@@ -100,27 +100,52 @@ async function executeLLMToolCalling(
     };
   }
 
-  if (llmResponse.intent !== 'UNKNOWN' && llmResponse.workflow?.steps) {
-    // 校验 LLM 直接返回的 workflow steps，包括嵌套 body
-    for (let i = 0; i < llmResponse.workflow.steps.length; i++) {
-      validateWorkflowStep(llmResponse.workflow.steps[i] as unknown as MinimalStep, `steps[${i}]`);
+  if (llmResponse.intent !== 'UNKNOWN') {
+    const steps = llmResponse.workflow?.steps || [];
+    if (steps.length > 0) {
+      // 校验 LLM 直接返回的 workflow steps，包括嵌套 body
+      for (let i = 0; i < steps.length; i++) {
+        validateWorkflowStep(steps[i] as unknown as MinimalStep, `steps[${i}]`);
+      }
+      const workflowYAML = YAML.stringify({ steps });
+      return {
+        success: true,
+        intent: llmResponse.intent as IntentName,
+        confidence: llmResponse.confidence || 0.8,
+        workflowYAML,
+        reply: llmResponse.reply,
+        metadata: {
+          path: 'llm-tool-calling',
+          usedSkills: [],
+        },
+        taskList: createTaskListFromWorkflow(workflowYAML, input),
+      };
+    } else if (llmResponse.reply) {
+      return {
+        success: true,
+        intent: llmResponse.intent as IntentName,
+        confidence: llmResponse.confidence || 0.8,
+        reply: llmResponse.reply,
+        metadata: {
+          path: 'dialog',
+        },
+      };
     }
-    const steps = llmResponse.workflow.steps;
-    const workflowYAML = YAML.stringify({ steps });
+  }
+
+  if (llmResponse.reply) {
     return {
       success: true,
       intent: llmResponse.intent as IntentName,
       confidence: llmResponse.confidence || 0.8,
-      workflowYAML,
+      reply: llmResponse.reply,
       metadata: {
-        path: 'llm-tool-calling',
-        usedSkills: [],
+        path: 'dialog',
       },
-      taskList: createTaskListFromWorkflow(workflowYAML, input),
     };
   }
 
-  throw new Error('LLM failed to generate a result: no tool calls or workflow produced');
+  throw new Error('LLM failed to generate a result: no tool calls, workflow or reply produced');
 }
 
 

@@ -26,10 +26,30 @@ npm install
 | `npm test` | 运行 Vitest。 |
 | `npm run test:run` | 以非 watch 模式运行 Vitest。 |
 | `npm run typecheck` | 运行 TypeScript 类型检查。 |
-| `npm run lint` | 运行 ESLint 检查（当前存在 1100+ 遗留警告）。 |
+| `npm run lint` | 运行 ESLint 检查。 |
 | `npm run compile:extension` | 编译 VS Code extension workspace。 |
 
-...
+## 谷歌工程规范 (Google Engineering Standards)
+
+本项目严格遵循谷歌工程规范，所有核心逻辑必须通过基础设施层进行解耦。
+
+### 1. 依赖注入 (DI) 与环境隔离
+严禁在业务代码（`src/utils/` 或 `src/commands/`）中直接调用 Node.js 原生模块（如 `fs`, `process`, `child_process`）。
+- **必须**使用 `getDefaultContext().environment` 进行文件操作、环境变量读取或进程产生。
+- **好处**：确保了代码的可测试性（Hermeticity），支持在内存中运行完整的集成测试。
+
+### 2. 日志规范 (Logger Discipline)
+- **严禁**使用 `console.log` 输出调试信息。
+- **必须**使用 `InfrastructureContext.logger` 获取 pino 实例。
+- **Stderr 优先**：所有日志、告警、进度信息必须输出到 `stderr`。`stdout` 仅保留给业务数据输出（特别是 `--json` 模式）。
+
+### 3. 结构化遥测 (Structured Trace)
+所有复杂的业务流程必须包裹在 `startSpan` 或 `withSpan` 中。
+- 遵循 OpenTelemetry 规范选择合适的 `SpanKind`。
+- 确保 Trace ID 在整个调用链（插件 -> CLI -> Agent）中透传。
+
+### 4. 零 any 政策
+新代码严禁使用 `any` 类型。应优先使用 `unknown` 并配合 Zod 或类型守卫（Type Guards）进行类型收敛。
 
 ## 技术债管理 (Lint & Types)
 
