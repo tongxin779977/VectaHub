@@ -199,7 +199,7 @@ export interface IEnvironmentService {
    * @param options - 执行选项
    * @returns 命令输出
    */
-  exec(command: string, options?: { cwd?: string; env?: Record<string, string> }): Promise<{ stdout: string; stderr: string }>;
+  exec(command: string, options?: { cwd?: string; env?: Record<string, string | undefined>; timeout?: number }): Promise<{ stdout: string; stderr: string }>;
 
   /**
    * 产生子进程
@@ -207,7 +207,7 @@ export interface IEnvironmentService {
    * @param args - 参数
    * @param options - 选项
    */
-  spawn(command: string, args: string[], options?: { cwd?: string; env?: Record<string, string>; stdio?: any }): any;
+  spawn(command: string, args: string[], options?: { cwd?: string; env?: Record<string, string | undefined>; stdio?: any }): any;
 
   /**
    * 退出进程

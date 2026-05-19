@@ -1,11 +1,11 @@
 import { Command } from 'commander';
 import { createRecordManager } from '../execution/record-manager.js';
 import { createStorage } from '../workflow/storage.js';
-import { getLogger } from '../utils/logger.js';
 import { getDefaultContext } from '../infrastructure/index.js';
+import type { ExecutionRecord, StepExecution } from '../execution/types.js';
 
-const logger = getLogger('history');
-const _ctx = getDefaultContext();
+const ctx = getDefaultContext();
+const logger = ctx.logger.getLogger('history');
 
 function formatStatus(status: string): string {
   switch (status) {
@@ -19,20 +19,32 @@ function formatStatus(status: string): string {
 }
 
 function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
   const s = Math.floor(ms / 1000);
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
   return `${m}m ${s % 60}s`;
 }
-
-interface ExtendedStepRecord extends StepRecord {
+interface ExtendedStepRecord {
+  stepId: string;
+  stepName?: string;
+  status: string;
+  startedAt?: string | Date;
+  duration?: number;
+  output?: any;
   outputSummary?: string;
+  error?: string;
   command?: string;
 }
 
-interface ExtendedExecutionRecord extends ExecutionRecord {
-  metadata?: Record<string, unknown>;
+interface ExtendedExecutionRecord {
+  executionId: string;
+  workflowId: string;
+  workflowName: string;
+  status: string;
+  startedAt: string | Date;
+  duration?: number;
+  steps: ExtendedStepRecord[];
+  metadata?: Record<string, any>;
   error?: string;
 }
 
@@ -48,13 +60,14 @@ export const historyCmd = new Command('history')
     const recordManager = createRecordManager();
     const limit = parseInt(options.limit, 10) || 20;
 
-    let records: ExtendedExecutionRecord[];
+    let records: ExtendedExecutionRecord[] = [];
+
     if (options.query) {
       const result = await recordManager.search(options.query, {
         limit,
         status: options.status,
       });
-      records = result.records as ExtendedExecutionRecord[];
+      records = result.records as unknown as ExtendedExecutionRecord[];
 
       logger.info('');
       logger.info(`Search results for "${options.query}" (${result.total} total, showing ${records.length}):`);
@@ -62,10 +75,11 @@ export const historyCmd = new Command('history')
         logger.info('Use --limit to see more results.');
       }
     } else {
-      records = await storage.list() as ExtendedExecutionRecord[];
+      const rawRecords = await storage.list();
+      records = rawRecords as unknown as ExtendedExecutionRecord[];
 
       if (options.status) {
-        records = records.filter(r => r.status === options.status!.toUpperCase());
+        records = records.filter(r => String(r.status) === options.status!.toUpperCase());
       }
       if (options.workflow) {
         records = records.filter(r => r.workflowId === options.workflow);

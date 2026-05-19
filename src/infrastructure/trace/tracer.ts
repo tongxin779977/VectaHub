@@ -1,6 +1,6 @@
 import { createRootTraceContext, createSpanId, getTraceContextFromEnv } from './context.js';
 import { writeTraceSpan } from './writer.js';
-import { TraceContext, TraceError, TraceSource } from './types.js';
+import { TraceContext, TraceError, TraceSource, SpanKind, TraceSpanStatus } from './types.js';
 
 export interface SpanHandle {
   traceId: string;
@@ -27,6 +27,7 @@ export function startSpan(
     context?: TraceContext;
     parentSpanId?: string;
     source?: TraceSource;
+    kind?: SpanKind;
     attributes?: Record<string, unknown>;
   }
 ): SpanHandle {
@@ -35,13 +36,14 @@ export function startSpan(
   const context = externalContext || fallbackContext;
   const spanId = createSpanId();
   const traceId = context.traceId;
-  const parentSpanId = options?.parentSpanId ?? context.parentSpanId;
+  const parentSpanId = options?.parentSpanId ?? context.parentSpanId ?? context.spanId;
   const source = options?.source || context.source || 'cli';
+  const kind = options?.kind || SpanKind.INTERNAL;
   const startMs = process.hrtime.bigint();
   const startTime = new Date().toISOString();
   let closed = false;
 
-  const close = async (status: 'completed' | 'failed', error?: unknown, attributes?: Record<string, unknown>) => {
+  const close = async (status: TraceSpanStatus, error?: unknown, attributes?: Record<string, unknown>) => {
     if (closed) return;
     closed = true;
     const endTime = new Date().toISOString();
@@ -51,6 +53,7 @@ export function startSpan(
       spanId,
       parentSpanId,
       name,
+      kind,
       source,
       status,
       startTime,

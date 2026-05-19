@@ -270,9 +270,13 @@ export class EnvironmentService implements IEnvironmentService {
   // 进程控制
   // ==========================================
 
-  async exec(command: string, options?: { cwd?: string; env?: Record<string, string> }): Promise<{ stdout: string; stderr: string }> {
+  async exec(command: string, options?: { cwd?: string; env?: Record<string, string | undefined>; timeout?: number }): Promise<{ stdout: string; stderr: string }> {
     try {
-      return await execAsync(command, options);
+      const { stdout, stderr } = await execAsync(command, options);
+      return {
+        stdout: stdout.toString(),
+        stderr: stderr.toString(),
+      };
     } catch (error) {
       throw new VectaHubError(
         `Failed to execute command: ${command}`,
@@ -282,7 +286,7 @@ export class EnvironmentService implements IEnvironmentService {
     }
   }
 
-  spawn(command: string, args: string[], options?: { cwd?: string; env?: Record<string, string>; stdio?: any }): any {
+  spawn(command: string, args: string[], options?: { cwd?: string; env?: Record<string, string | undefined>; stdio?: any }): any {
     try {
       return spawn(command, args, options);
     } catch (error) {

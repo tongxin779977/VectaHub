@@ -53,7 +53,9 @@ export class LoggerService implements ILoggerService {
 
   createConsoleLogger(prefix = ''): pino.Logger {
     const name = prefix || 'vectahub';
-    return pino({
+    const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
+    
+    const baseOptions: pino.LoggerOptions = {
       name,
       level: this.getEffectiveLevel(),
       formatters: {
@@ -69,15 +71,31 @@ export class LoggerService implements ILoggerService {
           return redacted;
         },
       },
-      transport: {
-        target: 'pino-pretty',
-        options: {
-          colorize: true,
-          translateTime: 'HH:MM:ss',
-          ignore: 'pid,hostname',
-        },
-      },
-    });
+    };
+
+    // 仅在开发环境尝试使用 pino-pretty
+    if (isDevelopment) {
+      try {
+        return pino({
+          ...baseOptions,
+          transport: {
+            target: 'pino-pretty',
+            options: {
+              destination: 2, // 写入 stderr
+              colorize: true,
+              translateTime: 'HH:MM:ss',
+              ignore: 'pid,hostname',
+            },
+          },
+        });
+      } catch (_e) {
+        // 如果 pino-pretty 加载失败，回退到普通日志（写入 stderr）
+        return pino(baseOptions, pino.destination(2));
+      }
+    }
+
+    // 生产环境直接写入 stderr
+    return pino(baseOptions, pino.destination(2));
   }
 
   createFileLogger(prefix = ''): pino.Logger {

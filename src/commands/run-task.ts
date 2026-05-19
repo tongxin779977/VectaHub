@@ -46,11 +46,11 @@ function stripIDEEnv(): Record<string, string | undefined> {
 }
 
 const DEFAULT_AGENT_CLI_TIMEOUT = 600000;
-const agentCliTimeout = ctx.environment.getEnvNumber('AGENT_CLI_TIMEOUT', DEFAULT_AGENT_CLI_TIMEOUT);
+const agentCliTimeout = ctx.environment.getEnvNumber('AGENT_CLI_TIMEOUT', DEFAULT_AGENT_CLI_TIMEOUT) ?? DEFAULT_AGENT_CLI_TIMEOUT;
 const DEFAULT_AGENT_EXIT_FLUSH_GRACE_MS = 1500;
-const agentExitFlushGraceMs = ctx.environment.getEnvNumber('AGENT_EXIT_FLUSH_GRACE_MS', DEFAULT_AGENT_EXIT_FLUSH_GRACE_MS);
+const agentExitFlushGraceMs = ctx.environment.getEnvNumber('AGENT_EXIT_FLUSH_GRACE_MS', DEFAULT_AGENT_EXIT_FLUSH_GRACE_MS) ?? DEFAULT_AGENT_EXIT_FLUSH_GRACE_MS;
 const DEFAULT_MAX_JSON_OUTPUT_LENGTH = 50000;
-const MAX_JSON_OUTPUT_LENGTH = ctx.environment.getEnvNumber('RUN_TASK_MAX_JSON_OUTPUT_LENGTH', DEFAULT_MAX_JSON_OUTPUT_LENGTH);
+const MAX_JSON_OUTPUT_LENGTH = ctx.environment.getEnvNumber('RUN_TASK_MAX_JSON_OUTPUT_LENGTH', DEFAULT_MAX_JSON_OUTPUT_LENGTH) ?? DEFAULT_MAX_JSON_OUTPUT_LENGTH;
 const TRUNCATED_OUTPUT_MARKER = '\n... (output truncated)';
 const NOISY_OUTPUT_PATTERNS = [
   /YOLO mode is enabled\..*/i,
@@ -2299,6 +2299,4 @@ export const runTaskCmd = new Command('run-task')
       }
       throw error instanceof VectaHubError ? error : new VectaHubError(message, ErrorType.RUNTIME, error);
     }
-  });
-}
   });

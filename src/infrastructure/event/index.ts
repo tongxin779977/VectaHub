@@ -4,7 +4,7 @@
  * 提供全局事件注册、触发和管理功能
  */
 export {
-  EventManager,
+  type EventManager,
   createEventManager,
   globalEventManager,
 } from './event-manager.js';

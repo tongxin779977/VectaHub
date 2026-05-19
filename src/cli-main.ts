@@ -501,17 +501,13 @@ const program = new Command();
 program
   .name('vectahub')
   .description('VectaHub - Workflow Editor & Engine + OpenCLI')
-  .version('0.0.0')
+  .version(getVersion())
   .option('-v, --verbose', '详细输出模式')
   .option('-d, --debug', '调试模式（包含详细输出）')
   .option('--non-interactive', '非交互模式（适用于 CI/CD）')
   .hook('preAction', async (thisCommand) => {
     setupProcessListeners();
     setupGlobalSignals();
-    if (!_versionInitialized) {
-      _versionInitialized = true;
-      program.version(getVersion());
-    }
     // 懒初始化审计日志记录器
     if (!_auditLoggerInitialized) {
       _auditLoggerInitialized = true;

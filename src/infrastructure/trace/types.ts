@@ -1,6 +1,17 @@
 export type TraceSource = 'cli' | 'vscode';
 
-export type TraceSpanStatus = 'completed' | 'failed';
+/**
+ * 对齐 OpenTelemetry SpanKind
+ */
+export enum SpanKind {
+  INTERNAL = 'INTERNAL',
+  SERVER = 'SERVER',
+  CLIENT = 'CLIENT',
+  PRODUCER = 'PRODUCER',
+  CONSUMER = 'CONSUMER',
+}
+
+export type TraceSpanStatus = 'completed' | 'failed' | 'unset';
 
 export interface TraceError {
   message: string;
@@ -13,6 +24,7 @@ export interface TraceSpanRecord {
   spanId: string;
   parentSpanId?: string;
   name: string;
+  kind: SpanKind;
   source: TraceSource;
   status: TraceSpanStatus;
   startTime: string;
@@ -24,6 +36,7 @@ export interface TraceSpanRecord {
 
 export interface TraceContext {
   traceId: string;
+  spanId?: string;
   parentSpanId?: string;
   source?: TraceSource;
 }

@@ -29,12 +29,31 @@ export class InfrastructureContext {
     eventBus?: IEventBus;
     audit?: IAuditService;
   }) {
-    // 先初始化环境服务（其他服务可能依赖它）
+    // 依赖注入，如果没有提供则使用默认实现
     this.environment = options?.environment ?? createEnvironmentService();
     this.config = options?.config ?? new ConfigService(this.environment);
     this.logger = options?.logger ?? new LoggerService(this.environment);
     this.eventBus = options?.eventBus ?? new EventBus();
     this.audit = options?.audit ?? new AuditService(this.environment);
+  }
+
+  /**
+   * 创建一个具有覆盖选项的新上下文（用于局部替换某些服务）
+   */
+  with(overrides: Partial<{
+    environment: IEnvironmentService;
+    config: IConfigService;
+    logger: ILoggerService;
+    eventBus: IEventBus;
+    audit: IAuditService;
+  }>): InfrastructureContext {
+    return new InfrastructureContext({
+      environment: overrides.environment ?? this.environment,
+      config: overrides.config ?? this.config,
+      logger: overrides.logger ?? this.logger,
+      eventBus: overrides.eventBus ?? this.eventBus,
+      audit: overrides.audit ?? this.audit,
+    });
   }
 }
 

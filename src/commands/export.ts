@@ -2,10 +2,11 @@ import { Command } from 'commander';
 import { join } from 'path';
 import { platform } from 'os';
 import { VectaHubError, ErrorType, getDefaultContext } from '../infrastructure/index.js';
+import { createRecordManager } from '../execution/record-manager.js';
 
 const ctx = getDefaultContext();
 const environment = ctx.environment;
-const logger = ctx.logger;
+const logger = ctx.logger.getLogger('export');
 
 const VECTAHUB_DIR = environment.getHomePath();
 

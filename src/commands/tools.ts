@@ -545,5 +545,3 @@ toolsCmd
 
     console.log(formatCategoryTools(categoryName, tools));
   });
-(formatCategoryTools(categoryName, tools));
-  });
