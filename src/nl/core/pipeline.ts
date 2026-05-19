@@ -130,6 +130,8 @@ async function executeLLMToolCalling(
           path: 'dialog',
         },
       };
+    } else if (llmResponse.workflow) {
+      throw new Error('Workflow must contain at least one step');
     }
   }
 

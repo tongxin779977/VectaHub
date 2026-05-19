@@ -7,64 +7,21 @@ import {
   DEFAULT_INTENT_PARSER_ID,
   DEFAULT_WORKFLOW_YAML_ID,
 } from './prompt-manager.js';
+import type {
+  LLMConfig,
+  LLMTool,
+  LLMToolCall,
+  LLMWorkflowStepInline,
+  LLMResponse,
+} from './interfaces.js';
+
+export type { LLMConfig, LLMTool, LLMToolCall, LLMWorkflowStepInline, LLMResponse };
 
 /**
  * LLM 客户端依赖注入接口
  */
 export interface LLMClientDeps {
   auditHelper?: AuditHelper;
-}
-
-export interface LLMConfig {
-  provider: 'openai' | 'anthropic' | 'ollama' | 'groq';
-  apiKey?: string;
-  baseUrl?: string;
-  model: string;
-  timeout?: number;
-}
-
-export interface LLMTool {
-  type: 'function';
-  function: {
-    name: string;
-    description: string;
-    parameters: Record<string, unknown>;
-  };
-}
-
-export interface LLMToolCall {
-  id: string;
-  type: 'function';
-  function: {
-    name: string;
-    arguments: string;
-  };
-}
-
-export interface LLMWorkflowStepInline {
-  type: 'exec' | 'for_each' | 'if' | 'parallel';
-  cli?: string;
-  args?: string[];
-  condition?: string;
-  items?: string;
-  body?: LLMWorkflowStepInline[];
-}
-
-export interface LLMResponse {
-  intent: string;
-  confidence: number;
-  params: Record<string, unknown>;
-  reply?: string;
-  workflow?: {
-    name: string;
-    steps: LLMWorkflowStepInline[];
-  };
-  tool_calls?: LLMToolCall[];
-  usage?: {
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-  };
 }
 
 const INTENT_LIST = getAllIntentNames();
@@ -395,25 +352,19 @@ export class LLMClient {
       this.promptManager.sessionManager.addAssistantMessage(this.sessionId, content);
     }
 
+    let parsed: LLMResponse;
     try {
-      const parsed = JSON.parse(content) as LLMResponse;
-
-      if (!parsed.intent || !INTENT_LIST.includes(parsed.intent)) {
-        parsed.intent = 'QUERY_INFO'; // Default to QUERY_INFO if we have a reply
-        parsed.confidence = 0.9;
-      }
-
-      return parsed;
+      parsed = JSON.parse(content) as LLMResponse;
     } catch {
-      // 如果解析 JSON 失败，将原始内容作为 reply 返回，意图定为 QUERY_INFO
-      return {
-        intent: 'QUERY_INFO',
-        confidence: 0.9,
-        params: {},
-        reply: content,
-        workflow: { name: 'Chat Response', steps: [] },
-      };
+      throw new Error('Failed to parse LLM response: invalid JSON content');
     }
+
+    if (!parsed.intent || !INTENT_LIST.includes(parsed.intent)) {
+      parsed.intent = 'UNKNOWN';
+      parsed.confidence = 0;
+    }
+
+    return parsed;
   }
 
   async embed(text: string): Promise<number[]> {

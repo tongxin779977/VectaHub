@@ -43,22 +43,34 @@ export interface LLMToolCall {
 }
 
 /**
- * LLM 响应接口
+ * LLM 工作流步骤（支持递归嵌套 body）
+ */
+export interface LLMWorkflowStepInline {
+  type: 'exec' | 'for_each' | 'if' | 'parallel';
+  cli?: string;
+  args?: string[];
+  condition?: string;
+  items?: string;
+  body?: LLMWorkflowStepInline[];
+}
+
+/**
+ * LLM 响应接口（权威定义）
+ *
+ * 响应形态：
+ * - tool calling 响应：包含 `tool_calls`
+ * - workflow 响应：包含 `workflow`
+ * - dialog 响应：包含 `reply`
+ * - unknown/low-confidence 响应：允许无 workflow，调用方必须显式处理
  */
 export interface LLMResponse {
   intent: string;
   confidence: number;
   params: Record<string, unknown>;
-  workflow: {
+  reply?: string;
+  workflow?: {
     name: string;
-    steps: Array<{
-      type: string;
-      cli?: string;
-      args?: string[];
-      condition?: string;
-      items?: string;
-      body?: unknown[];
-    }>;
+    steps: LLMWorkflowStepInline[];
   };
   tool_calls?: LLMToolCall[];
   usage?: {

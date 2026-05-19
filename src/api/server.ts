@@ -193,10 +193,11 @@ export async function createAPIServer(port = 3000): Promise<ReturnType<typeof cr
           if (llmConfig) {
             const llmParser = createLLMEnhancedParser(llmConfig);
             const llmResult = await llmParser.parse(input);
+            const llmWorkflow = llmResult.workflow;
 
-            if (llmResult.confidence >= 0.7 && llmResult.workflow?.steps?.length > 0) {
-              const steps = mapLLMWorkflowSteps(llmResult.workflow.steps);
-              const workflow = await engine.createWorkflow(llmResult.workflow.name || input, steps);
+            if (llmResult.confidence >= 0.7 && llmWorkflow && llmWorkflow.steps.length > 0) {
+              const steps = mapLLMWorkflowSteps(llmWorkflow.steps);
+              const workflow = await engine.createWorkflow(llmWorkflow.name || input, steps);
               const result = await engine.execute(workflow);
               executionResult = toExecutionSummary(result);
             } else {
@@ -223,6 +224,7 @@ export async function createAPIServer(port = 3000): Promise<ReturnType<typeof cr
 
         const llmParser = createLLMEnhancedParser(llmConfig);
         const llmResult = await llmParser.parse(input);
+        const llmWorkflow = llmResult.workflow;
 
         audit.intentMatch(llmResult.intent, llmResult.confidence, llmResult.params, sessionId);
 
@@ -235,9 +237,9 @@ export async function createAPIServer(port = 3000): Promise<ReturnType<typeof cr
           return;
         }
 
-        if (llmResult.workflow?.steps?.length > 0) {
-          const steps = mapLLMWorkflowSteps(llmResult.workflow.steps);
-          const workflow = await engine.createWorkflow(llmResult.workflow.name || input, steps);
+        if (llmWorkflow && llmWorkflow.steps.length > 0) {
+          const steps = mapLLMWorkflowSteps(llmWorkflow.steps);
+          const workflow = await engine.createWorkflow(llmWorkflow.name || input, steps);
           const result = await engine.execute(workflow);
 
           audit.workflowEnd('ai-delegate', result.status as AuditEventType, result.duration || 0, sessionId);
