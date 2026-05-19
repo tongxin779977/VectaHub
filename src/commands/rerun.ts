@@ -3,6 +3,7 @@ import { createRecordManager } from '../execution/record-manager.js';
 import { createWorkflowEngine } from '../workflow/engine.js';
 import type { Workflow } from '../types/index.js';
 import { getLogger } from '../utils/logger.js';
+import { VectaHubError, ErrorType } from '../infrastructure/index.js';
 
 const logger = getLogger('rerun');
 
@@ -44,6 +45,6 @@ export const rerunCmd = new Command('rerun')
       logger.info(`Duration: ${result.duration ? `${result.duration}ms` : 'N/A'}`);
     } catch (error) {
       logger.error(`Re-run failed: ${(error as Error).message}`);
-      process.exit(1);
+      throw new VectaHubError(`Re-run failed: ${(error as Error).message}`, ErrorType.RUNTIME, error);
     }
   });

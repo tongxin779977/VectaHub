@@ -73,7 +73,7 @@ export class CommandRuleEvaluator implements SecurityEvaluator {
     return {
       decision,
       riskLevel,
-      ruleName: result.rule?.id || result.rule?.name,
+      ruleName: result.rule?.id || (result.rule as any)?.name,
       reason: result.message,
     };
   }

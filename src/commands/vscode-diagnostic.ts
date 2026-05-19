@@ -1,6 +1,8 @@
 import { Command } from 'commander';
-import { readFile } from 'node:fs/promises';
 import { getVectaHubPath } from '../utils/paths.js';
+import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+
+const ctx = getDefaultContext();
 
 export interface VSCodeDiagnostic {
   message: string;
@@ -34,7 +36,7 @@ export interface BridgeInfo {
 
 export async function getBridgeInfo(): Promise<BridgeInfo> {
   const portFile = getVectaHubPath('bridge-port');
-  const content = await readFile(portFile, 'utf-8');
+  const content = await ctx.environment.readFileAsync(portFile);
   const trimmed = content.trim();
 
   try {
@@ -48,7 +50,7 @@ export async function getBridgeInfo(): Promise<BridgeInfo> {
 
   const port = parseInt(trimmed, 10);
   if (isNaN(port) || port <= 0) {
-    throw new Error(`Invalid bridge port: ${trimmed}`);
+    throw new VectaHubError(`Invalid bridge port: ${trimmed}`, ErrorType.RUNTIME);
   }
   return { port };
 }
@@ -81,7 +83,7 @@ export async function fetchDiagnosticsFromBridge(options: {
 
   const resp = await fetch(url.toString(), { headers });
   if (!resp.ok) {
-    throw new Error(`Bridge returned HTTP ${resp.status}`);
+    throw new VectaHubError(`Bridge returned HTTP ${resp.status}`, ErrorType.RUNTIME);
   }
 
   return (await resp.json()) as VSCodeBridgeResponse;
@@ -110,7 +112,7 @@ vscodeDiagnosticCmd
       } else {
         if (!result.ok) {
           console.error(`❌ Bridge error: ${result.error}`);
-          process.exit(1);
+          throw new VectaHubError(`Bridge error: ${result.error}`, ErrorType.RUNTIME);
         }
 
         console.log(`📋 VSCode Diagnostics: ${result.totalDiagnostics} issues across ${result.files} files\n`);
@@ -125,6 +127,9 @@ vscodeDiagnosticCmd
         }
       }
     } catch (err) {
+      if (err instanceof VectaHubError) {
+        throw err;
+      }
       const msg = err instanceof Error ? err.message : String(err);
       if (options.json) {
         console.log(JSON.stringify({ ok: false, error: msg }));
@@ -132,6 +137,6 @@ vscodeDiagnosticCmd
         console.error(`❌ ${msg}`);
         console.error('💡 Make sure VSCode is open with the VectaHub extension active.');
       }
-      process.exit(1);
+      throw new VectaHubError(`VSCode diagnostic failed: ${msg}`, ErrorType.RUNTIME);
     }
   });

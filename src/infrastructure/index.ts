@@ -14,6 +14,9 @@
  * - data: 数据管理
  * - concurrency: 并发基础设施
  * - loaders: 模块加载基础设施
+ * - interfaces: 基础设施接口定义
+ * - environment: 环境服务
+ * - context: 基础设施依赖注入容器
  */
 export * from './logger/index.js';
 export * from './audit/index.js';
@@ -27,3 +30,14 @@ export * from './security/index.js';
 export * from './data/index.js';
 export * from './concurrency/index.js';
 export * from './loaders/index.js';
+// 明确导出接口，避免 LogLevel 重复导出
+export type {
+  IEnvironmentService,
+  IConfigService,
+  ILoggerService,
+  IEventBus,
+  EventListener,
+  IAuditService,
+} from './interfaces/index.js';
+export * from './environment/index.js';
+export * from './context.js';

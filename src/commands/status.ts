@@ -1,8 +1,6 @@
 import { Command } from 'commander';
-import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
-import { getVectaHubPath } from '../utils/paths.js';
 import { parse } from 'yaml';
+import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
 
 interface ModuleStatus {
   name: string;
@@ -18,14 +16,15 @@ interface Config {
 }
 
 function findConfigFile(): string | null {
+  const ctx = getDefaultContext();
   const searchPaths = [
-    join(process.cwd(), 'config/vectahub-dev.config.yaml'),
-    join(process.cwd(), 'vectahub-dev.config.yaml'),
-    getVectaHubPath('vectahub-dev.config.yaml'),
+    ctx.environment.resolvePath(ctx.environment.getCwd(), 'config/vectahub-dev.config.yaml'),
+    ctx.environment.resolvePath(ctx.environment.getCwd(), 'vectahub-dev.config.yaml'),
+    ctx.environment.getPath('vectahub-dev.config.yaml'),
   ];
   
   for (const path of searchPaths) {
-    if (existsSync(path)) {
+    if (ctx.environment.exists(path)) {
       return path;
     }
   }
@@ -37,6 +36,7 @@ export const status = new Command('status')
   .description('View project development progress')
   .option('--json', 'Output in JSON format')
   .action(async (options) => {
+    const ctx = getDefaultContext();
     const configPath = findConfigFile();
 
     if (!configPath) {
@@ -48,7 +48,7 @@ export const status = new Command('status')
       return;
     }
 
-    const content = readFileSync(configPath, 'utf-8');
+    const content = ctx.environment.readFile(configPath);
     const config = parse(content) as Config;
 
     if (options.json) {

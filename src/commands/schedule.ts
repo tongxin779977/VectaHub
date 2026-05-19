@@ -1,7 +1,9 @@
 import { Command } from 'commander';
 import { createScheduleManager } from '../workflow/scheduler.js';
 import { getLogger } from '../utils/logger.js';
+import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
 
+const ctx = getDefaultContext();
 const logger = getLogger('schedule');
 
 export const scheduleCmd = new Command('schedule')
@@ -45,8 +47,7 @@ scheduleCmd
     if (removed) {
       logger.info(`Schedule removed: ${opts.id}`);
     } else {
-      logger.error(`Schedule not found: ${opts.id}`);
-      process.exit(1);
+      throw new VectaHubError(`Schedule not found: ${opts.id}`, ErrorType.RUNTIME);
     }
   });
 

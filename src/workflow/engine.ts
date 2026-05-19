@@ -6,6 +6,8 @@ import { createExecutionStateManager, type ExecutionStateManager } from './state
 import { contextManager as sharedContextManager, type ContextManager, type ExecutorContext } from './context-manager.js';
 import { topologicalSort, validateDependencies } from './dag.js';
 import { audit as globalAudit, type AuditHelper, type AuditLogger } from '../infrastructure/audit/index.js';
+import { createSecurityGuard } from '../security-protocol/factory.js';
+import type { SecurityGuard } from '../types/security.js';
 import { createRetryManager } from '../skills/iterative-refinement/retry-manager.js';
 import { generateId } from '../execution/id-generator.js';
 import { SYSTEM_WORKFLOWS } from './system-workflows.js';
@@ -47,6 +49,7 @@ export interface WorkflowEngineDeps {
   contextManager?: ContextManager;
   stateManager?: ExecutionStateManager;
   audit?: AuditHelper;
+  securityGuard?: SecurityGuard;
 }
 
 export interface WorkflowEngine {
@@ -334,7 +337,8 @@ async function runExecutionLoop(
 
 export function createWorkflowEngine(deps: WorkflowEngineDeps = {}): WorkflowEngine {
   const workflows = new Map<string, Workflow>();
-  const executor = deps.executor ?? createExecutor();
+  const securityGuard: SecurityGuard = deps.securityGuard ?? createSecurityGuard();
+  const executor = deps.executor ?? createExecutor({ securityGuard });
   const storage = deps.storage ?? createStorage();
   const sm = deps.stateManager ?? createExecutionStateManager();
   const contextManager: ContextManager = deps.contextManager ?? sharedContextManager;

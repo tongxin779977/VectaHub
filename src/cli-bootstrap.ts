@@ -1,11 +1,13 @@
-import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getDefaultContext } from './infrastructure/context.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function getVersion(): string {
-  const pkg = JSON.parse(readFileSync(join(__dirname, '../package.json'), 'utf-8'));
+  const ctx = getDefaultContext();
+  const pkgPath = join(__dirname, '../package.json');
+  const pkg = JSON.parse(ctx.environment.readFile(pkgPath));
   return pkg.version;
 }
 

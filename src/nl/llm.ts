@@ -1,4 +1,4 @@
-import { audit } from '../utils/audit.js';
+import { audit, type AuditHelper } from '../infrastructure/audit/index.js';
 import { getAllIntentNames, buildKeywordSummary } from './templates/index.js';
 import createLLMDialogControlSkill from '../skills/llm-dialog-control/index.js';
 import { loadConfig } from '../setup/first-run-wizard.js';
@@ -7,6 +7,13 @@ import {
   DEFAULT_INTENT_PARSER_ID,
   DEFAULT_WORKFLOW_YAML_ID,
 } from './prompt-manager.js';
+
+/**
+ * LLM 客户端依赖注入接口
+ */
+export interface LLMClientDeps {
+  auditHelper?: AuditHelper;
+}
 
 export interface LLMConfig {
   provider: 'openai' | 'anthropic' | 'ollama' | 'groq';
@@ -196,10 +203,12 @@ export class LLMClient {
   private sessionId?: string;
   private promptManager;
   private embeddingCache: Map<string, number[]> = new Map();
+  private auditHelper: AuditHelper;
 
-  constructor(config: LLMConfig) {
+  constructor(config: LLMConfig, deps: LLMClientDeps = {}) {
     this.config = config;
     this.promptManager = createPromptManager();
+    this.auditHelper = deps.auditHelper ?? audit;
   }
 
   setSessionId(sessionId: string): void {
@@ -235,14 +244,14 @@ export class LLMClient {
       const data = await response.json();
       const duration = Date.now() - startTime;
 
-      audit.securityAction('LLM_CALL', `${this.config.provider}/${this.config.model}`, 'COMPLETED', this.sessionId || 'unknown');
+      this.auditHelper.securityAction('LLM_CALL', `${this.config.provider}/${this.config.model}`, 'COMPLETED', this.sessionId || 'unknown');
 
       return this.parseResponse(data);
     } catch (error) {
       const duration = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : String(error);
 
-      audit.securityAction('LLM_CALL', `${this.config.provider}/${this.config.model}`, 'FAILED', this.sessionId || 'unknown');
+      this.auditHelper.securityAction('LLM_CALL', `${this.config.provider}/${this.config.model}`, 'FAILED', this.sessionId || 'unknown');
 
       throw new Error(`LLM call failed: ${errorMessage}`, { cause: error });
     }
@@ -603,6 +612,139 @@ export class LLMClient {
     }
     
     return result.output;
+  }
+
+  /**
+   * 实现 ILLMClient 接口的 chat 方法
+   */
+  async chat(
+    messages: Array<{
+      role: 'user' | 'assistant' | 'system';
+      content: string;
+    }>
+  ): Promise<LLMResponse> {
+    const startTime = Date.now();
+
+    try {
+      let response: Response;
+
+      if (this.config.provider === 'openai' || this.config.provider === 'ollama' || this.config.provider === 'groq') {
+        response = await this.callOpenAICompatibleChat(messages);
+      } else if (this.config.provider === 'anthropic') {
+        response = await this.callAnthropicChat(messages);
+      } else {
+        throw new Error(`Unsupported provider: ${this.config.provider}`);
+      }
+
+      const data = await response.json();
+      const duration = Date.now() - startTime;
+
+      this.auditHelper.securityAction('LLM_CHAT', `${this.config.provider}/${this.config.model}`, 'COMPLETED', this.sessionId || 'unknown');
+
+      return this.parseResponse(data);
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      this.auditHelper.securityAction('LLM_CHAT', `${this.config.provider}/${this.config.model}`, 'FAILED', this.sessionId || 'unknown');
+
+      throw new Error(`LLM chat failed: ${errorMessage}`, { cause: error });
+    }
+  }
+
+  private async callOpenAICompatibleChat(
+    messages: Array<{
+      role: 'user' | 'assistant' | 'system';
+      content: string;
+    }>
+  ): Promise<Response> {
+    const apiKey = this.config.apiKey;
+    const baseUrl = this.config.baseUrl;
+
+    if (!baseUrl) {
+      throw new Error('Base URL is not configured');
+    }
+
+    const controller = new AbortController();
+    const timeout = this.config.timeout || 30000;
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    try {
+      const requestBody = {
+        model: this.config.model,
+        messages,
+        temperature: 0.1,
+        response_format: { type: 'json_object' } as Record<string, unknown>,
+      };
+
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
+        },
+        signal: controller.signal,
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
+      }
+
+      return response;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  private async callAnthropicChat(
+    messages: Array<{
+      role: 'user' | 'assistant' | 'system';
+      content: string;
+    }>
+  ): Promise<Response> {
+    const apiKey = this.config.apiKey;
+
+    if (!apiKey) {
+      throw new Error('API key is not configured');
+    }
+
+    const controller = new AbortController();
+    const timeout = this.config.timeout || 30000;
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    try {
+      const systemMessage = messages.find(m => m.role === 'system');
+      const userMessages = messages.filter(m => m.role !== 'system');
+
+      const requestBody = {
+        model: this.config.model,
+        max_tokens: 1024,
+        system: systemMessage?.content || '',
+        messages: userMessages,
+      };
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        signal: controller.signal,
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Anthropic API error: ${response.status} - ${errorText}`);
+      }
+
+      return response;
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 }
 

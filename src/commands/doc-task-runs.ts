@@ -1,8 +1,7 @@
 import { Command } from 'commander';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { djb2Hash, getVectaHubPath } from '../utils/paths.js';
+import { djb2Hash } from '../utils/paths.js';
 import type { DocTaskFailureKind, DocTaskRunStatus } from '../types/doc-task.js';
+import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 500;
@@ -48,9 +47,10 @@ function clampLimit(raw?: string): number {
 }
 
 function getStoreDir(projectPath?: string): string {
-  const projectRoot = resolve(projectPath || process.cwd());
+  const ctx = getDefaultContext();
+  const projectRoot = ctx.environment.resolvePath(projectPath || ctx.environment.getCwd());
   const projectHash = djb2Hash(projectRoot);
-  return getVectaHubPath('projects', projectHash, 'doc-task-runs');
+  return ctx.environment.getPath('projects', projectHash, 'doc-task-runs');
 }
 
 function toDateFileName(date: Date): string {
@@ -98,16 +98,17 @@ function isWithinRecentDays(fileName: string, recentDateSet: Set<string>): boole
 }
 
 function getRecentRunFiles(storeDir: string, days = RECENT_DAYS): string[] {
+  const ctx = getDefaultContext();
   const recentDateSet = new Set<string>([
     ...buildRecentUtcDateSet(days),
     ...buildRecentLocalDateSet(days),
   ]);
   try {
-    return readdirSync(storeDir)
+    return ctx.environment.readDir(storeDir)
       .filter((name) => isWithinRecentDays(name, recentDateSet))
       .sort()
       .reverse()
-      .map((name) => resolve(storeDir, name));
+      .map((name) => ctx.environment.resolvePath(storeDir, name));
   } catch {
     return [];
   }
@@ -134,8 +135,9 @@ function matchesFilters(run: DocTaskRunRecord, filters: RunFilters): boolean {
 }
 
 function readRunsFromFile(filePath: string, filters: RunFilters, targetLimit: number): DocTaskRunRecord[] {
-  if (!existsSync(filePath)) return [];
-  const content = readFileSync(filePath, 'utf-8');
+  const ctx = getDefaultContext();
+  if (!ctx.environment.exists(filePath)) return [];
+  const content = ctx.environment.readFile(filePath);
   const lines = content.split(/\r?\n/);
   const runs: DocTaskRunRecord[] = [];
 
@@ -151,9 +153,10 @@ function readRunsFromFile(filePath: string, filters: RunFilters, targetLimit: nu
 }
 
 export function listRecentRuns(options: ListOptions): { runs: DocTaskRunRecord[]; hasMore: boolean } {
+  const ctx = getDefaultContext();
   const limit = clampLimit(options.limit);
   const storeDir = getStoreDir(options.project);
-  if (!existsSync(storeDir)) {
+  if (!ctx.environment.exists(storeDir)) {
     return { runs: [], hasMore: false };
   }
 
@@ -181,12 +184,13 @@ export function listRecentRuns(options: ListOptions): { runs: DocTaskRunRecord[]
 }
 
 export function readLatestRuns(project?: string): DocTaskRunRecord[] {
+  const ctx = getDefaultContext();
   const storeDir = getStoreDir(project);
-  const latestFile = resolve(storeDir, 'latest.json');
-  if (!existsSync(latestFile)) return [];
+  const latestFile = ctx.environment.resolvePath(storeDir, 'latest.json');
+  if (!ctx.environment.exists(latestFile)) return [];
 
   try {
-    const parsed = JSON.parse(readFileSync(latestFile, 'utf-8')) as unknown;
+    const parsed = JSON.parse(ctx.environment.readFile(latestFile)) as unknown;
     if (Array.isArray(parsed)) return parsed as DocTaskRunRecord[];
     if (parsed && typeof parsed === 'object') {
       return Object.values(parsed as Record<string, DocTaskRunRecord>);
@@ -199,13 +203,14 @@ export function readLatestRuns(project?: string): DocTaskRunRecord[] {
 }
 
 export function findRunById(runId: string, project?: string): DocTaskRunRecord | undefined {
+  const ctx = getDefaultContext();
   const storeDir = getStoreDir(project);
-  if (!existsSync(storeDir)) return undefined;
+  if (!ctx.environment.exists(storeDir)) return undefined;
 
   const files = getRecentRunFiles(storeDir, RECENT_DAYS);
   for (const file of files) {
-    if (!existsSync(file)) continue;
-    const content = readFileSync(file, 'utf-8');
+    if (!ctx.environment.exists(file)) continue;
+    const content = ctx.environment.readFile(file);
     const lines = content.split(/\r?\n/);
     for (let i = lines.length - 1; i >= 0; i--) {
       const run = parseJsonLine(lines[i]);

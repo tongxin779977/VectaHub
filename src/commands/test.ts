@@ -1,7 +1,7 @@
 import { Command } from 'commander';
-import { existsSync } from 'fs';
-import { join } from 'path';
-import { spawn } from 'child_process';
+import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+
+const ctx = getDefaultContext();
 
 const moduleMap: Record<string, string[]> = {
   cli: ['src/cli.test.ts'],
@@ -25,7 +25,7 @@ export const test = new Command('test')
     if (!patterns) {
       console.error(`❌ Module "${moduleName}" not found.`);
       console.error('Available modules:', Object.keys(moduleMap).join(', '));
-      process.exit(1);
+      throw new VectaHubError(`Module "${moduleName}" not found.`, ErrorType.RUNTIME);
     }
 
     const args = ['vitest', 'run'];
@@ -34,17 +34,16 @@ export const test = new Command('test')
     }
     args.push(...patterns);
 
-    const child = spawn('npx', args, {
-      cwd: process.cwd(),
+    const child = ctx.environment.spawn('npx', args, {
+      cwd: ctx.environment.getCwd(),
       stdio: 'inherit',
     });
 
-    child.on('close', (code) => {
+    child.on('close', (code: number | null) => {
       if (code === 0) {
         console.log('\n✅ All tests passed');
       } else {
-        console.error(`\n❌ Tests failed with exit code ${code}`);
-        process.exit(code || 1);
+        throw new VectaHubError(`Tests failed with exit code ${code}`, ErrorType.RUNTIME);
       }
     });
   });

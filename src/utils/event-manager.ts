@@ -7,6 +7,9 @@ interface ListenerEntry {
   isOnce: boolean;
 }
 
+/**
+ * @deprecated 请迁移到 `InfrastructureContext` 中的 `eventBus` 服务。
+ */
 export interface EventManager {
   on(event: string, listener: (...args: unknown[]) => void, context?: unknown): void;
   once(event: string, listener: (...args: unknown[]) => void, context?: unknown): void;
@@ -25,6 +28,9 @@ function createKey(event: string, listener: (...args: unknown[]) => void): strin
   return `${event}:${listener.name || listener.toString().slice(0, 100)}`;
 }
 
+/**
+ * @deprecated 请迁移到 `InfrastructureContext` 中的 `eventBus` 服务。
+ */
 export function createEventManager(): EventManager {
   return {
     on(event: string, listener: (...args: unknown[]) => void, context?: unknown): void {
@@ -147,4 +153,7 @@ export function createEventManager(): EventManager {
   };
 }
 
+/**
+ * @deprecated 请迁移到 `InfrastructureContext` 中的 `eventBus` 服务。
+ */
 export const globalEventManager = createEventManager();

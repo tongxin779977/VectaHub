@@ -1,6 +1,7 @@
 import { Command } from 'commander';
-import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+
+const ctx = getDefaultContext();
 
 interface ValidationResult {
   module: string;
@@ -55,11 +56,11 @@ const MODULE_CONTRACTS: ModuleContract[] = [
 ];
 
 function extractMethods(filePath: string): string[] {
-  if (!existsSync(filePath)) {
+  if (!ctx.environment.exists(filePath)) {
     return [];
   }
 
-  const content = readFileSync(filePath, 'utf-8');
+  const content = ctx.environment.readFile(filePath);
   const methods: string[] = [];
 
   const interfaceMethodMatches = content.matchAll(/export\s+interface\s+\w+\s*\{([^}]+)\}/g);
@@ -96,10 +97,10 @@ function extractMethods(filePath: string): string[] {
 }
 
 function validateModule(contract: ModuleContract): ValidationResult {
-  const filePath = join(process.cwd(), contract.file);
+  const filePath = ctx.environment.resolvePath(contract.file);
   const details: string[] = [];
 
-  if (!existsSync(join(process.cwd(), 'src'))) {
+  if (!ctx.environment.exists(ctx.environment.resolvePath('src'))) {
     return {
       module: contract.name,
       status: 'warning',
@@ -107,7 +108,7 @@ function validateModule(contract: ModuleContract): ValidationResult {
     };
   }
 
-  if (!existsSync(filePath)) {
+  if (!ctx.environment.exists(filePath)) {
     return {
       module: contract.name,
       status: 'warning',
@@ -200,6 +201,6 @@ export const validate = new Command('validate')
 
     const failCount = results.filter(r => r.status === 'fail').length;
     if (failCount > 0) {
-      process.exit(1);
+      throw new VectaHubError('Validation FAILED - some modules have missing methods', ErrorType.RUNTIME);
     }
   });

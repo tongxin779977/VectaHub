@@ -7,6 +7,7 @@ import { setMuted } from '../infrastructure/logger/index.js';
 import type { Step, WorkflowMode } from '../types/index.js';
 import type { ExecutionMetadata, ExecutionRecord as StoredRecord } from '../execution/types.js';
 import type { ExecutionRecord as EngineRecord } from '../types/index.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
 interface RunCommandOptions {
   mode: 'strict' | 'relaxed' | 'consensus';
@@ -61,14 +62,14 @@ export const runCommandCmd = new Command('run-command')
         console.error(`❌ 安全违规: ${errorOutput.error.message}`);
         console.error(`原因: ${decision.reason || '未授权的操作'}`);
       }
-      process.exit(1);
+      throw new VectaHubError(`Security violation: ${decision.reason || decision.ruleName}`, ErrorType.SECURITY);
     }
 
     // 宽松模式：拦截 BLOCKED，警告 REQUIRES_CONFIRMATION
     if (options.mode === 'relaxed') {
       if (decision.decision === 'BLOCKED') {
         console.error(`❌ 安全策略拦截: ${decision.reason || '该操作已被禁止'}`);
-        process.exit(1);
+        throw new VectaHubError(`Security policy blocked: ${decision.reason}`, ErrorType.SECURITY);
       }
       if (decision.decision === 'REQUIRES_CONFIRMATION') {
         if (options.json) {
@@ -89,7 +90,7 @@ export const runCommandCmd = new Command('run-command')
       }
     }
 
-    // 2. 干跑模式处理
+    // 2. 干运行模式处理
     if (options.dryRun) {
       if (options.json) {
         console.log(JSON.stringify({
@@ -119,7 +120,7 @@ export const runCommandCmd = new Command('run-command')
         args: commandArgs.slice(1)
       }];
 
-      const workflow = await engine.createWorkflow(`direct_${Date.now()}`, steps);
+      const workflow = await engine.createWorkflow(`direct-${Date.now()}`, steps);
       
       const result: EngineRecord = await engine.execute(workflow, {
         mode: options.mode as any,
@@ -183,9 +184,12 @@ export const runCommandCmd = new Command('run-command')
       }
 
       if (result.status !== 'COMPLETED') {
-        process.exit(1);
+        throw new VectaHubError('Command execution failed', ErrorType.RUNTIME);
       }
     } catch (error) {
+      if (error instanceof VectaHubError) {
+        throw error;
+      }
       const message = error instanceof Error ? error.message : String(error);
       if (options.json) {
         console.log(JSON.stringify({
@@ -198,6 +202,6 @@ export const runCommandCmd = new Command('run-command')
       } else {
         console.error(`❌ Execution Error: ${message}`);
       }
-      process.exit(1);
+      throw new VectaHubError(message, ErrorType.RUNTIME, error);
     }
   });

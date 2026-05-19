@@ -15,7 +15,9 @@ import type { KnownTool } from '../cli-tools/discovery/types.js';
 import { loadConfig as loadSetupConfig } from '../setup/first-run-wizard.js';
 import { scanSingleTool, syncCLIToolPermissionState } from '../setup/cli-scanner.js';
 import { getBuiltInAgentDescriptors } from './agent-cli-adapter.js';
+import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
 
+const ctx = getDefaultContext();
 export const toolsCmd = new Command('tools')
   .description('CLI tools management commands');
 
@@ -367,7 +369,7 @@ toolsCmd
     if (!tool) {
       console.error(`❌ Tool not found: ${toolName}`);
       console.error('Available tools:', registry.getAllTools().map(t => t.name).join(', '));
-      process.exit(1);
+      throw new VectaHubError(`Tool not found: ${toolName}`, ErrorType.RUNTIME);
     }
 
     console.log(formatToolInfo(tool));
@@ -382,7 +384,7 @@ toolsCmd
 
     if (!tool) {
       console.error(`❌ Tool not found: ${toolName}`);
-      process.exit(1);
+      throw new VectaHubError(`Tool not found: ${toolName}`, ErrorType.RUNTIME);
     }
 
     console.log(formatToolCommands(tool));
@@ -397,14 +399,14 @@ toolsCmd
 
     if (!tool) {
       console.error(`❌ Tool not found: ${toolName}`);
-      process.exit(1);
+      throw new VectaHubError(`Tool not found: ${toolName}`, ErrorType.RUNTIME);
     }
 
     const cmd = registry.getCommandInfo(toolName, commandName);
     if (!cmd) {
       console.error(`❌ Command not found: ${commandName}`);
       console.error('Available commands:', Object.keys(tool.commands).join(', '));
-      process.exit(1);
+      throw new VectaHubError(`Command not found: ${commandName}`, ErrorType.RUNTIME);
     }
 
     console.log(formatCommandDetail(tool, cmd));
@@ -419,7 +421,7 @@ toolsCmd
     const tool = registry.getTool(toolName);
     if (!tool) {
       console.error(`❌ Tool not found: ${toolName}`);
-      process.exit(1);
+      throw new VectaHubError(`Tool not found: ${toolName}`, ErrorType.RUNTIME);
     }
 
     const isDangerous = registry.isCommandDangerous(toolName, command);
@@ -467,12 +469,12 @@ toolsCmd
       if (!known) {
         console.error('\n❌ 未知工具:', toolName);
         console.log('使用 tools known 查看所有可用工具\n');
-        process.exit(1);
+        throw new VectaHubError(`Unknown tool: ${toolName}`, ErrorType.RUNTIME);
       }
 
       if (registry.getTool(toolName)) {
         console.log('\n⚠️  工具已注册:', toolName);
-        process.exit(1);
+        throw new VectaHubError(`Tool already registered: ${toolName}`, ErrorType.RUNTIME);
       }
 
       if (toolName === 'npm') {
@@ -508,7 +510,7 @@ toolsCmd
     const template = normalizeSecurityTemplate(options.template);
     const rules = getSecurityTemplate(template);
     const engine = new CommandRuleEngine(rules);
-    const result = engine.evaluate(command, cmdArgs, process.cwd());
+    const result = engine.evaluate(command, cmdArgs, ctx.environment.getCwd());
 
     console.log(formatEvalResult(args, template, result));
   });
@@ -542,4 +544,6 @@ toolsCmd
     const tools = registry.getToolsByCategory(categoryName);
 
     console.log(formatCategoryTools(categoryName, tools));
+  });
+(formatCategoryTools(categoryName, tools));
   });

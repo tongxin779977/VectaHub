@@ -1,11 +1,7 @@
 import { Command } from 'commander';
-import { execFile, spawn } from 'node:child_process';
-import { existsSync, createWriteStream, readFileSync, readdirSync } from 'node:fs';
-import { mkdir, readFile } from 'node:fs/promises';
-import { promisify } from 'node:util';
-import { resolve } from 'node:path';
-import { tmpdir } from 'node:os';
 import { Transform } from 'node:stream';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import { getLogger } from '../utils/logger.js';
 import { getSecurityGuard } from '../security-protocol/factory.js';
 import type { SecurityContext, CommandIntention } from '../types/security.js';
@@ -26,16 +22,8 @@ import { bootstrapAgentRuntime } from './agent-runtime-bootstrap.js';
 import { decideRecovery, type RecoveryDecision, type RecoveryDecisionKind, type RecoveryDecisionMode } from '../types/recovery.js';
 import type { DocTaskFailureKind } from '../types/doc-task.js';
 
-const execFileAsync = promisify(execFile);
+const ctx = getDefaultContext();
 
-function safeExecFileAsync(file: string, args: string[], options?: Parameters<typeof execFileAsync>[2]): Promise<{ stdout: string; stderr: string }> {
-  return execFileAsync(file, args, options as any).then((result: any) => {
-    if (typeof result === 'string') {
-      return { stdout: result, stderr: '' };
-    }
-    return result ?? { stdout: '', stderr: '' };
-  });
-}
 const logger = getLogger('run-task');
 const IDE_ENV_PATTERNS = [
   /^CODEX_(?!HOME$)/,
@@ -47,9 +35,9 @@ const IDE_ENV_PATTERNS = [
   /^SAFE_RM_/,
 ];
 
-function stripIDEEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(process.env)) {
+function stripIDEEnv(): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(ctx.environment.getAllEnv())) {
     if (!IDE_ENV_PATTERNS.some(p => p.test(key))) {
       env[key] = value;
     }
@@ -58,11 +46,11 @@ function stripIDEEnv(): NodeJS.ProcessEnv {
 }
 
 const DEFAULT_AGENT_CLI_TIMEOUT = 600000;
-const agentCliTimeout = parseInt(process.env.AGENT_CLI_TIMEOUT || '', 10) || DEFAULT_AGENT_CLI_TIMEOUT;
+const agentCliTimeout = ctx.environment.getEnvNumber('AGENT_CLI_TIMEOUT', DEFAULT_AGENT_CLI_TIMEOUT);
 const DEFAULT_AGENT_EXIT_FLUSH_GRACE_MS = 1500;
-const agentExitFlushGraceMs = parseInt(process.env.AGENT_EXIT_FLUSH_GRACE_MS || '', 10) || DEFAULT_AGENT_EXIT_FLUSH_GRACE_MS;
+const agentExitFlushGraceMs = ctx.environment.getEnvNumber('AGENT_EXIT_FLUSH_GRACE_MS', DEFAULT_AGENT_EXIT_FLUSH_GRACE_MS);
 const DEFAULT_MAX_JSON_OUTPUT_LENGTH = 50000;
-const MAX_JSON_OUTPUT_LENGTH = parseInt(process.env.RUN_TASK_MAX_JSON_OUTPUT_LENGTH || '', 10) || DEFAULT_MAX_JSON_OUTPUT_LENGTH;
+const MAX_JSON_OUTPUT_LENGTH = ctx.environment.getEnvNumber('RUN_TASK_MAX_JSON_OUTPUT_LENGTH', DEFAULT_MAX_JSON_OUTPUT_LENGTH);
 const TRUNCATED_OUTPUT_MARKER = '\n... (output truncated)';
 const NOISY_OUTPUT_PATTERNS = [
   /YOLO mode is enabled\..*/i,
@@ -80,7 +68,7 @@ const TRACE_TEXT_MAX_LENGTH = 500;
 const PROMPT_CONTRACT_MAX_LENGTH = 12000;
 const MAX_VERIFICATION_COMMANDS = 10;
 const DEFAULT_VERIFICATION_TIMEOUT = 120000;
-const verificationTimeout = parseInt(process.env.VERIFICATION_TIMEOUT_MS || '', 10) || DEFAULT_VERIFICATION_TIMEOUT;
+const verificationTimeout = ctx.environment.getEnvNumber('VERIFICATION_TIMEOUT_MS', DEFAULT_VERIFICATION_TIMEOUT);
 const VERIFICATION_SUMMARY_MAX_LENGTH = 600;
 const redactor = createRedactor();
 
@@ -410,10 +398,10 @@ export function buildDefaultPrompt(taskId: string, taskLabel: string, docPath: s
 
 async function readGitDiffSnapshot(): Promise<GitDiffSnapshot | null> {
   try {
-    const { stdout: shortStat } = await safeExecFileAsync('git', ['diff', '--shortstat'], { timeout: 5000 });
+    const { stdout: shortStat } = await ctx.environment.exec('git diff --shortstat');
     if (!shortStat.trim()) return null;
 
-    const { stdout: diffStat } = await safeExecFileAsync('git', ['diff', '--stat'], { timeout: 5000 });
+    const { stdout: diffStat } = await ctx.environment.exec('git diff --stat');
     const changedFiles = diffStat.split('\n')
       .map(line => {
         const parts = line.split('|');
@@ -608,7 +596,7 @@ async function buildAgentTaskContract(input: {
   let excerptStrategy: AgentTaskContractSummary['excerptStrategy'] = 'none';
   const notes: string[] = [];
 
-  if (input.docPath && existsSync(input.docPath)) {
+  if (input.docPath && ctx.environment.exists(input.docPath)) {
     const excerpt = await deriveDocExcerpt({
       docPath: input.docPath,
       taskId: input.taskId,
@@ -672,7 +660,8 @@ async function buildAgentTaskContract(input: {
 
 function readPackageScripts(projectRoot: string): string[] {
   try {
-    const packageJson = JSON.parse(readFileSync(resolve(projectRoot, 'package.json'), 'utf8')) as {
+    const packageJsonPath = ctx.environment.resolvePath(projectRoot, 'package.json');
+    const packageJson = JSON.parse(ctx.environment.readFile(packageJsonPath)) as {
       scripts?: Record<string, unknown>;
     };
     return Object.keys(packageJson.scripts ?? {});
@@ -733,12 +722,12 @@ export function splitCommandArgs(cmd: string): string[] {
 }
 
 function getRunTaskOutputDir(): string {
-  return getVectaHubPath('outputs', 'run-task', djb2Hash(process.cwd()));
+  return getVectaHubPath('outputs', 'run-task', djb2Hash(ctx.environment.getCwd()));
 }
 
 function getRunTaskOutputDirCandidates(): string[] {
   const preferredDir = getRunTaskOutputDir();
-  const fallbackDir = resolve(tmpdir(), 'vectahub', 'outputs', 'run-task', djb2Hash(process.cwd()));
+  const fallbackDir = ctx.environment.resolvePath(ctx.environment.getTmpDir(), 'vectahub', 'outputs', 'run-task', djb2Hash(ctx.environment.getCwd()));
   return preferredDir === fallbackDir ? [preferredDir] : [preferredDir, fallbackDir];
 }
 
@@ -746,7 +735,7 @@ async function ensureRunTaskOutputDir(): Promise<string> {
   let lastError: unknown;
   for (const outputDir of getRunTaskOutputDirCandidates()) {
     try {
-      await mkdir(outputDir, { recursive: true });
+      await ctx.environment.mkdirAsync(outputDir, { recursive: true });
       return outputDir;
     } catch (error) {
       lastError = error;
@@ -760,7 +749,7 @@ async function ensureRunTaskOutputDir(): Promise<string> {
 
 async function safeReadTextFile(filePath: string): Promise<string> {
   try {
-    return await readFile(filePath, 'utf8');
+    return await ctx.environment.readFileAsync(filePath);
   } catch {
     return '';
   }
@@ -771,7 +760,7 @@ function findLatestRunTaskOutputFiles(taskId: string): { stdoutPath?: string; st
   const stderrEntries: string[] = [];
 
   for (const outputDir of getRunTaskOutputDirCandidates()) {
-    if (!existsSync(outputDir)) {
+    if (!ctx.environment.exists(outputDir)) {
       continue;
     }
 
@@ -790,9 +779,9 @@ function findLatestRunTaskOutputFiles(taskId: string): { stdoutPath?: string; st
 
 function globOutputCandidates(outputDir: string, prefix: string, suffix: string): string[] {
   try {
-    return readdirSync(outputDir)
+    return ctx.environment.readDir(outputDir)
       .filter(name => name.startsWith(prefix) && name.endsWith(suffix))
-      .map(name => resolve(outputDir, name));
+      .map(name => ctx.environment.resolvePath(outputDir, name));
   } catch {
     return [];
   }
@@ -1220,17 +1209,9 @@ export async function runVerificationCommands(
       continue;
     }
 
-    const parts = splitCommandArgs(cmd);
-    if (parts.length === 0) {
-      results.push({ command: cmd, ok: false, exitCode: null, durationMs: 0 });
-      overallOk = false;
-      continue;
-    }
-    const [executable, ...args] = parts;
     const startMs = Date.now();
     try {
-      const { stdout, stderr } = await safeExecFileAsync(executable, args, {
-        timeout: verificationTimeout,
+      const { stdout, stderr } = await ctx.environment.exec(cmd, {
         cwd,
       });
       const durationMs = Date.now() - startMs;
@@ -1368,7 +1349,7 @@ export async function runTask(options: {
   const traceContext = { traceId: rootSpan.traceId, source: 'cli' as const };
 
   const execute = async (): Promise<RunTaskResult> => {
-    const docPath = doc ? resolve(doc) : '(未指定文档)';
+    const docPath = doc ? ctx.environment.resolvePath(doc) : '(未指定文档)';
     const label = taskLabel || `任务 ${taskId}`;
     const contractSpan = startSpan('cli.run-task.buildAgentTaskContract', {
       context: traceContext,
@@ -1382,7 +1363,7 @@ export async function runTask(options: {
         taskId,
         label,
         docPath: doc ? docPath : undefined,
-        projectRoot: process.cwd(),
+        projectRoot: ctx.environment.getCwd(),
         tool: tool || undefined,
         globalConfigDigest: precomputedGlobalConfigDigest,
       });
@@ -1425,7 +1406,7 @@ export async function runTask(options: {
       const dryRunGenerated = knownAgentDescriptor && knownAgentAdapter
         ? knownAgentAdapter.render({
           descriptor: knownAgentDescriptor,
-          workspaceRoot: process.cwd(),
+          workspaceRoot: ctx.environment.getCwd(),
           taskPrompt: dryRunPrompt,
           mode: 'dry-run',
           outputMode: 'text',
@@ -1454,7 +1435,7 @@ export async function runTask(options: {
     if (knownAgentDescriptor && knownAgentAdapter) {
       const adapterOutput = knownAgentAdapter.render({
         descriptor: knownAgentDescriptor,
-        workspaceRoot: process.cwd(),
+        workspaceRoot: ctx.environment.getCwd(),
         taskPrompt: buildDefaultPrompt(taskId, label, docPath, agentTaskContract),
         mode: 'run',
         outputMode: 'text',
@@ -1593,7 +1574,7 @@ export async function runTask(options: {
 
     const guard = getSecurityGuard();
     const securityContext: SecurityContext = {
-      cwd: process.cwd(),
+      cwd: ctx.environment.getCwd(),
       sessionId: traceContext.traceId,
       taskId: taskId,
       isDryRun: Boolean(dryRun)
@@ -1717,7 +1698,7 @@ export async function runTask(options: {
       try {
         const bootstrapResult = await bootstrapAgentRuntime({
           descriptor: knownAgentDescriptor,
-          workspaceRoot: process.cwd(),
+          workspaceRoot: ctx.environment.getCwd(),
         });
         runtimeEnvPatch = bootstrapResult.envPatch;
       } catch (bootstrapError) {
@@ -1767,9 +1748,9 @@ export async function runTask(options: {
         ? '就绪检查'
         : '入口检查';
       try {
-        await execFileAsync(generated.command, preflightArgs, {
+        await ctx.environment.exec([generated.command, ...preflightArgs].join(' '), {
           timeout: 10000,
-          cwd: process.cwd(),
+          cwd: ctx.environment.getCwd(),
           env: childEnv,
         });
         await preflightSpan.end({ agentAvailable: true });
@@ -1815,11 +1796,11 @@ export async function runTask(options: {
       });
       const outputDir = await ensureRunTaskOutputDir();
       const ts = Date.now();
-      const redactedStdoutPath = resolve(outputDir, `${taskId}-${ts}.stdout`);
-      const redactedStderrPath = resolve(outputDir, `${taskId}-${ts}.stderr`);
+      const redactedStdoutPath = ctx.environment.resolvePath(outputDir, `${taskId}-${ts}.stdout`);
+      const redactedStderrPath = ctx.environment.resolvePath(outputDir, `${taskId}-${ts}.stderr`);
 
-      const child = spawn(generated.command, generated.args, {
-        cwd: process.cwd(),
+      const child = ctx.environment.spawn(generated.command, generated.args, {
+        cwd: ctx.environment.getCwd(),
         env: childEnv,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -1837,8 +1818,8 @@ export async function runTask(options: {
 
       const stdoutRedactor = new RedactionTransform(undefined, onToken);
       const stderrRedactor = new RedactionTransform(undefined, onToken);
-      const stdoutRedactedWriter = createWriteStream(redactedStdoutPath, { encoding: 'utf8' });
-      const stderrRedactedWriter = createWriteStream(redactedStderrPath, { encoding: 'utf8' });
+      const stdoutRedactedWriter = ctx.environment.createWriteStream(redactedStdoutPath, { encoding: 'utf8' });
+      const stderrRedactedWriter = ctx.environment.createWriteStream(redactedStderrPath, { encoding: 'utf8' });
 
       let redactedStdout = '';
       let redactedStderr = '';
@@ -2043,7 +2024,7 @@ export async function runTask(options: {
           },
         });
         try {
-          verification = await runVerificationCommands(validationCommands, process.cwd());
+          verification = await runVerificationCommands(validationCommands, ctx.environment.getCwd());
           await verificationSpan.end({
             verificationOk: verification.ok,
             verificationIsSystemError: !!verification.isSystemError,
@@ -2278,7 +2259,7 @@ export const runTaskCmd = new Command('run-task')
         }
       } else if (!result.success) {
         console.log(result.output);
-        process.exit(1);
+        throw new VectaHubError('Task execution failed', ErrorType.RUNTIME);
       } else {
         console.log(result.output);
       }
@@ -2316,6 +2297,8 @@ export const runTaskCmd = new Command('run-task')
         }
         logger.error(`执行失败: ${message}`);
       }
-      process.exit(1);
+      throw error instanceof VectaHubError ? error : new VectaHubError(message, ErrorType.RUNTIME, error);
     }
+  });
+}
   });

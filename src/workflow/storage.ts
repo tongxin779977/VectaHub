@@ -14,6 +14,7 @@ export interface StorageOptions {
 }
 
 export interface Storage {
+  // 向后兼容的旧接口
   save(record: ExecutionRecord): Promise<void>;
   get(id: string): Promise<ExecutionRecord | undefined>;
   list(): Promise<ExecutionRecord[]>;
@@ -27,6 +28,11 @@ export interface Storage {
   loadWorkflowFromFile(filepath: string): Promise<Workflow | null>;
 
   getOutputStore(): OutputStore | undefined;
+
+  // 新的 IStorage 兼容方法（向后兼容）
+  saveExecution?(record: ExecutionRecord): Promise<void>;
+  getExecution?(id: string): Promise<ExecutionRecord | undefined>;
+  listExecutions?(): Promise<ExecutionRecord[]>;
 }
 
 async function ensureDir(dir: string): Promise<void> {
@@ -165,6 +171,10 @@ export function createStorage(options: StorageOptions = {}): Storage {
       await saveRecordWithOutput(record);
     },
 
+    async saveExecution(record: ExecutionRecord): Promise<void> {
+      await saveRecordWithOutput(record);
+    },
+
     async get(id: string): Promise<ExecutionRecord | undefined> {
       const filePath = path.join(executionsDir, `${id}.json`);
       try {
@@ -179,7 +189,42 @@ export function createStorage(options: StorageOptions = {}): Storage {
       }
     },
 
+    async getExecution(id: string): Promise<ExecutionRecord | undefined> {
+      const filePath = path.join(executionsDir, `${id}.json`);
+      try {
+        const data = parseJsonObject(await fs.readFile(filePath, 'utf-8'), filePath);
+        const record = readRecordWithOutput(data);
+        return enrichRecordWithOutput(record);
+      } catch (error) {
+        if (isNotFoundError(error)) {
+          return undefined;
+        }
+        throw error;
+      }
+    },
+
     async list(): Promise<ExecutionRecord[]> {
+      try {
+        const files = await fs.readdir(executionsDir);
+        const records = await Promise.all(
+          files
+            .filter(f => f.endsWith('.json'))
+            .map(async f => {
+              const filePath = path.join(executionsDir, f);
+              const data = parseJsonObject(await fs.readFile(filePath, 'utf-8'), filePath);
+              return readRecordWithOutput(data);
+            })
+        );
+        return records.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+      } catch (error) {
+        if (isNotFoundError(error)) {
+          return [];
+        }
+        throw error;
+      }
+    },
+
+    async listExecutions(): Promise<ExecutionRecord[]> {
       try {
         const files = await fs.readdir(executionsDir);
         const records = await Promise.all(

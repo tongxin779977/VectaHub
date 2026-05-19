@@ -1,6 +1,6 @@
 import { Command } from 'commander';
-import { mkdirSync, existsSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
+import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
 
 interface ModuleConfig {
   name: string;
@@ -222,26 +222,27 @@ export const moduleCmd = new Command('module')
   .argument('<module-name>', 'Name of the module to generate')
   .option('--agent <name>', 'Agent assigned to this module')
   .action(async (moduleName: string, options) => {
+    const ctx = getDefaultContext();
     const config = MODULE_CONFIGS[moduleName];
 
     if (!config) {
       console.error(`Unknown module: ${moduleName}`);
       console.log(`Available modules: ${Object.keys(MODULE_CONFIGS).join(', ')}`);
-      process.exit(1);
+      throw new VectaHubError(`Unknown module: ${moduleName}`, ErrorType.RUNTIME);
     }
 
     console.log(`Generating module: ${moduleName}`);
 
     for (const file of config.files) {
-      const filePath = join(process.cwd(), file.path);
+      const filePath = ctx.environment.resolvePath(file.path);
       const dir = dirname(filePath);
 
-      if (!existsSync(dir)) {
-        mkdirSync(dir, { recursive: true });
+      if (!ctx.environment.exists(dir)) {
+        ctx.environment.ensureDir(dir);
       }
 
-      if (!existsSync(filePath)) {
-        writeFileSync(filePath, file.content);
+      if (!ctx.environment.exists(filePath)) {
+        ctx.environment.writeFile(filePath, file.content);
         console.log(`  Created: ${file.path}`);
       } else {
         console.log(`  Skipped (exists): ${file.path}`);

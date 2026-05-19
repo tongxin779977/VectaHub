@@ -1,7 +1,5 @@
 import { Command } from 'commander';
 import { getQueueManager, getQueueManagerForProject } from '../execution/queue-manager.js';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 export const queueCmd = new Command('queue')
   .description('管理诊断队列');

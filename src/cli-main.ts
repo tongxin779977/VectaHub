@@ -1,41 +1,42 @@
 #!/usr/bin/env node
 
-import process from 'node:process';
-
-import { globalEventManager } from './utils/event-manager.js';
-import { AsyncLogWriter } from './infrastructure/trace-audit/async-writer.js';
-
-function setupGlobalSignals() {
-  if ((setupGlobalSignals as any).initialized) return;
-  (setupGlobalSignals as any).initialized = true;
-
-  globalEventManager.on('SIGINT', async () => {
-    console.log('\n\n🛑 Shutting down...');
-    await AsyncLogWriter.flushAll();
-    process.exit(0);
-  });
-
-  globalEventManager.on('SIGTERM', async () => {
-    console.log('\n\n🛑 Shutting down...');
-    await AsyncLogWriter.flushAll();
-    process.exit(0);
-  });
-}
-
 import { Command } from 'commander';
-import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// 引入基础设施模块
+import { getDefaultContext } from './infrastructure/context.js';
+import { Signal } from './infrastructure/interfaces/environment-service.js';
+import { AsyncLogWriter } from './infrastructure/trace-audit/async-writer.js';
+import { AuditEventType } from './infrastructure/audit/index.js';
+
+// 路径常量
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// ESM-safe: use readFileSync (already imported) instead of require()
+// 全局 InfrastructureContext 实例
+const ctx = getDefaultContext();
+
+// 初始化标记
 let _version: string | undefined;
+let _versionInitialized = false;
+let _auditLoggerInitialized = false;
+let policyWarningShown = false;
+let _signalsSetup = false;
+let _processListenersSetup = false;
+
+// 加载的命令集合
+const loadedCommands = new Set<string>();
+const commandLoadErrors = new Map<string, string>();
+
+/**
+ * 获取版本号（通过基础设施服务读取）
+ */
 function getVersion(): string {
   if (!_version) {
     try {
       const pkgPath = join(__dirname, '../package.json');
-      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+      const pkgContent = ctx.environment.readFile(pkgPath);
+      const pkg = JSON.parse(pkgContent);
       _version = pkg.version;
     } catch {
       _version = '0.0.0';
@@ -44,13 +45,35 @@ function getVersion(): string {
   return _version!;
 }
 
+/**
+ * 设置全局信号处理（通过基础设施）
+ */
+function setupGlobalSignals() {
+  if (_signalsSetup) return;
+  _signalsSetup = true;
+
+  ctx.environment.onSignal(Signal.SIGINT, async () => {
+    console.log('\n\n🛑 Shutting down...');
+    await AsyncLogWriter.flushAll();
+    ctx.environment.exit(0);
+  });
+
+  ctx.environment.onSignal(Signal.SIGTERM, async () => {
+    console.log('\n\n🛑 Shutting down...');
+    await AsyncLogWriter.flushAll();
+    ctx.environment.exit(0);
+  });
+}
+
+/**
+ * 设置进程监听器（通过基础设施）
+ */
 function setupProcessListeners() {
-  if ((setupProcessListeners as any).initialized) return;
-  (setupProcessListeners as any).initialized = true;
+  if (_processListenersSetup) return;
+  _processListenersSetup = true;
 
-  process.setMaxListeners(100);
-
-  process.on('warning', (warning) => {
+  // 通过基础设施统一管理进程警告
+  ctx.environment.onWarning((warning) => {
     if (warning.name === 'MaxListenersExceededWarning') {
       return;
     }
@@ -61,16 +84,21 @@ function setupProcessListeners() {
   });
 }
 
-import { AuditLogger, createAuditHelper, getCurrentSessionId, audit } from './utils/audit.js';
+// 引入必要的工具（保持现有功能）
 import { setGlobalOptions, isVerbose } from './utils/global-options.js';
 import { setLogLevel, setMuted } from './infrastructure/logger/index.js';
-// runCmd and doctorCmd are lazy-loaded via the placeholder system below
 import { formatErrorMessage, toJSONError } from './utils/errors.js';
-import { loadConfig as loadUtilsConfig } from './utils/config.js';
+import { isFirstRun, runFirstRunWizard, loadConfig as loadSetupConfig, saveConfig as saveSetupConfig, setNonInteractiveMode } from './setup/first-run-wizard.js';
+import { scanCLITools, updateCLIToolConfig, getAvailableExternalCLI } from './setup/cli-scanner.js';
+import { createDefaultInstaller } from './setup/priority-installer.js';
+import { completeWorkflowNames, completeTemplateNames, completeConfigCommands, completeShellTypes } from './utils/completion.js';
+import { getBashCompletion, getZshCompletion, getFishCompletion } from './utils/completion-scripts.js';
 
-// Error handling helper
+/**
+ * 错误处理函数
+ */
 async function handleError(error: unknown): Promise<never> {
-  const isJson = process.argv.includes('--json');
+  const isJson = ctx.environment.getArgv().includes('--json');
   
   // 确保审计日志刷盘
   try {
@@ -87,34 +115,34 @@ async function handleError(error: unknown): Promise<never> {
       console.error(error);
     }
   }
-  process.exit(1);
+  // 使用基础设施的 exit 替代原生 process.exit
+  ctx.environment.exit(1);
+  // 用于类型安全的兜底（理论上不会到达）
+  throw new Error('Should not reach here');
 }
 
-process.on('unhandledRejection', (reason) => {
+// 通过基础设施设置未处理错误监听器
+ctx.environment.onUncaughtException((error) => {
+  handleError(error);
+});
+
+ctx.environment.onUnhandledRejection((reason) => {
   handleError(reason);
 });
 
-process.on('uncaughtException', (error) => {
-  handleError(error);
-});
-import { isFirstRun, runFirstRunWizard, loadConfig as loadSetupConfig, saveConfig as saveSetupConfig, setNonInteractiveMode } from './setup/first-run-wizard.js';
-import { scanCLITools, updateCLIToolConfig, getAvailableExternalCLI } from './setup/cli-scanner.js';
-import { createDefaultInstaller } from './setup/priority-installer.js';
-import { completeWorkflowNames, completeTemplateNames, completeConfigCommands, completeShellTypes } from './utils/completion.js';
-import { getBashCompletion, getZshCompletion, getFishCompletion } from './utils/completion-scripts.js';
-
-const loadedCommands = new Set<string>();
-const commandLoadErrors = new Map<string, string>();
-let _versionInitialized = false;
-
+// 移除占位符命令（保持原有功能）
 function removePlaceholderCommand(commandName: string): void {
   const existingCmd = program.commands.find(c => c.name() === commandName);
   if (existingCmd) {
-    // Commander's commands array is readonly in types, use any cast for dynamic modification
-    (program as any).commands = program.commands.filter((c: any) => c.name() !== commandName);
+    // 使用类型安全的方式处理 Commander 的命令
+    const programInternal = program as unknown as { commands: Command[] };
+    programInternal.commands = programInternal.commands.filter(c => c.name() !== commandName);
   }
 }
 
+/**
+ * 懒加载命令（保持原有逻辑）
+ */
 async function lazyLoadCommand(commandName: string): Promise<void> {
   if (loadedCommands.has(commandName)) return;
   
@@ -370,6 +398,9 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
   }
 }
 
+/**
+ * 懒加载 CLI 工具（保持原有逻辑）
+ */
 async function lazyLoadCliTools(): Promise<void> {
   if (loadedCommands.has('cli-tools')) return;
   
@@ -392,6 +423,9 @@ async function lazyLoadCliTools(): Promise<void> {
   }
 }
 
+/**
+ * 懒加载 Agent 运行时（保持原有逻辑）
+ */
 async function lazyLoadAgentRuntime(): Promise<void> {
   if (loadedCommands.has('agent-runtime')) return;
   
@@ -405,13 +439,15 @@ async function lazyLoadAgentRuntime(): Promise<void> {
   }
 }
 
-// Defer initAuditLogger() to preAction hook to avoid sync IO at top level
-let _auditLoggerInitialized = false;
-const isDryRunInvocation = process.argv.includes('--dry-run');
+// 检查是否为干运行
+const isDryRunInvocation = ctx.environment.getArgv().includes('--dry-run');
 if (isDryRunInvocation) {
-  process.env.VECTAHUB_AUDIT_DISABLED = '1';
+  ctx.environment.setEnv('VECTAHUB_AUDIT_DISABLED', '1');
 }
 
+/**
+ * 安全策略警告模板（保持原有功能）
+ */
 function getSecurityWarningTemplate(policy: string): string {
   const blockTag = policy === 'block' ? ' (当前)' : '';
   const allowTag = policy === 'allow' ? ' (当前)' : '';
@@ -438,13 +474,16 @@ function getSecurityWarningTemplate(policy: string): string {
 `.trim();
 }
 
+/**
+ * 显示安全策略警告（通过基础设施获取配置）
+ */
 function displayPolicyWarning(): void {
-  if (process.argv.includes('--json')) {
+  if (ctx.environment.getArgv().includes('--json')) {
     return;
   }
 
   try {
-    const config = loadUtilsConfig();
+    const config = ctx.config.getConfig();
     const policy = config.sandbox.defaultPolicy;
     
     if (policy !== 'block') {
@@ -456,6 +495,7 @@ function displayPolicyWarning(): void {
   }
 }
 
+// 创建 Commander 程序
 const program = new Command();
 
 program
@@ -470,13 +510,14 @@ program
     setupGlobalSignals();
     if (!_versionInitialized) {
       _versionInitialized = true;
-      (program as any)._version = getVersion();
+      program.version(getVersion());
     }
-    // Lazy-init audit logger on first command invocation (not at top level)
+    // 懒初始化审计日志记录器
     if (!_auditLoggerInitialized) {
       _auditLoggerInitialized = true;
       try {
-        new AuditLogger();
+        // 使用基础设施的审计服务
+        ctx.audit.getLogger();
       } catch (error) {
         console.warn('⚠️  审计日志初始化失败，将继续运行...');
         console.warn(`   原因: ${formatErrorMessage(error, '审计日志')}`);
@@ -491,11 +532,12 @@ program
       setNonInteractiveMode(true);
     }
     const commandArgs = thisCommand.args || [];
-    if (commandArgs.includes('--json') || process.argv.includes('--json')) {
+    if (commandArgs.includes('--json') || ctx.environment.getArgv().includes('--json')) {
       setMuted(true);
     }
   });
 
+// 版本命令
 program
   .command('version')
   .description('显示版本信息')
@@ -509,8 +551,7 @@ program
     }
   });
 
-// Defer policy warning to preAction hook to avoid blocking --version path
-let policyWarningShown = false;
+// 预执行钩子：显示策略警告
 program.hook('preAction', async (thisCommand) => {
   if (!policyWarningShown) {
     policyWarningShown = true;
@@ -521,21 +562,34 @@ program.hook('preAction', async (thisCommand) => {
   }
 });
 
-// Hook for audit logging (lazy loading is handled in placeholder actions)
+// 子命令钩子：使用基础设施的审计服务记录命令
 program.hook('preSubcommand', async (thisCommand, subcommand) => {
   const commandName = subcommand.name();
   
   try {
-    const sessionId = getCurrentSessionId();
-    const args = process.argv.slice(3);
-    audit.cliCommand(commandName, args, sessionId);
+    const sessionId = ctx.audit.getLogger().getSessionId();
+    const args = ctx.environment.getArgv().slice(3);
+    
+    // 使用基础设施审计服务记录命令
+    ctx.audit.getLogger().write({
+      event: AuditEventType.CLI_COMMAND,
+      timestamp: new Date().toISOString(),
+      sessionId,
+      module: 'cli',
+      action: commandName,
+      input: args,
+      output: undefined,
+      duration: undefined,
+      success: true,
+      error: undefined,
+      metadata: {}
+    });
   } catch {
-    // audit logging failed silently
+    // 审计日志记录失败时静默处理
   }
 });
 
-// runCmd and doctorCmd are registered as lazy-loadable commands below
-
+// 设置命令
 const setupCmd = new Command('setup')
   .description('运行优先级安装流程')
   .action(async () => {
@@ -544,22 +598,25 @@ const setupCmd = new Command('setup')
     const installer = createDefaultInstaller();
     if (!installer) {
       console.error('❌ 安装器初始化失败');
-      process.exit(1);
+      ctx.environment.exit(1);
     }
-    const summary = await installer.run();
+    // 告诉 TypeScript 我们已经检查过 null 了
+    const nonNullInstaller = installer!;
+    const summary = await nonNullInstaller.run();
     if (!summary.overallSuccess) {
       console.log('\n⚠️  安装未完全成功，部分功能可能不可用。');
       console.log('💡 重新运行 `vectahub setup` 可修复问题。\n');
-      process.exit(1);
+      ctx.environment.exit(1);
     } else {
       const config = loadSetupConfig();
       config.first_run_completed = true;
       saveSetupConfig(config);
       console.log('\n🎉 安装完成！所有组件已就绪。\n');
-      process.exit(0);
+      ctx.environment.exit(0);
     }
   });
 
+// 配置命令
 const configCmd = new Command('config')
   .description('管理 VectaHub 配置');
 
@@ -567,11 +624,11 @@ configCmd
   .command('show')
   .description('显示当前配置')
   .action(() => {
-    const config = loadSetupConfig();
+    const config = ctx.config.getConfig();
     console.log('\n📋 当前配置:\n');
     console.log(`首次启动完成: ${config.first_run_completed}`);
-    console.log(`LLM 提供商: ${config.ai_providers.vectahub_llm.provider || '未配置'}`);
-    console.log(`LLM 启用: ${config.ai_providers.vectahub_llm.enabled}`);
+    console.log(`LLM 提供商: ${config.ai_providers.vectahub_llm?.provider || '未配置'}`);
+    console.log(`LLM 启用: ${config.ai_providers.vectahub_llm?.enabled}`);
     console.log(`优先级: ${config.priority.join(' → ')}`);
     console.log('\n外部 CLI 工具:');
     for (const [name, cliConfig] of Object.entries(config.external_cli)) {
@@ -615,6 +672,7 @@ configCmd
     console.log();
   });
 
+// 补全命令
 const completionCmd = new Command('completion')
   .description('生成命令补全脚本')
   .argument('<shell>', '目标shell类型: bash, zsh, fish')
@@ -632,17 +690,16 @@ const completionCmd = new Command('completion')
       default:
         console.error(`❌ 不支持的shell类型: ${shell}`);
         console.log('支持的类型: bash, zsh, fish');
-        process.exit(1);
+        ctx.environment.exit(1);
     }
   });
 
-
-
+// 注册所有顶级命令
 program.addCommand(completionCmd);
 program.addCommand(setupCmd);
 program.addCommand(configCmd);
 
-// Register lazy-loadable commands with minimal placeholder - actual implementation loaded on use
+// 懒加载命令列表（保持原有功能）
 const lazyLoadableCommands = [
   { name: 'run', description: '执行工作流' },
   { name: 'doctor', description: '运行系统诊断' },
@@ -680,6 +737,7 @@ const lazyLoadableCommands = [
   { name: 'dev', description: '开发命令' },
 ];
 
+// 解析帮助命令的懒加载
 function resolveLazyCommandForHelp(argv: string[]): string | null {
   const hasHelpFlag = argv.includes('--help') || argv.includes('-h');
   if (!hasHelpFlag) {
@@ -694,12 +752,13 @@ function resolveLazyCommandForHelp(argv: string[]): string | null {
   return lazyLoadableCommands.some((cmd) => cmd.name === commandName) ? commandName : null;
 }
 
+// 注册所有懒加载命令的占位符
 for (const cmdInfo of lazyLoadableCommands) {
   const placeholderCmd = new Command(cmdInfo.name)
     .description(cmdInfo.description);
   
-  if ((cmdInfo as any).argument) {
-    placeholderCmd.argument((cmdInfo as any).argument);
+  if ('argument' in cmdInfo) {
+    placeholderCmd.argument(cmdInfo.argument as string);
   }
   
   placeholderCmd
@@ -714,8 +773,8 @@ for (const cmdInfo of lazyLoadableCommands) {
       
       const loadedCmd = program.commands.find(c => c.name() === cmdName);
       if (loadedCmd && loadedCmd !== placeholderCmd) {
-        const cmdIndex = process.argv.findIndex(arg => arg === cmdName);
-        const remainingArgs = process.argv.slice(cmdIndex + 1);
+        const cmdIndex = ctx.environment.getArgv().findIndex(arg => arg === cmdName);
+        const remainingArgs = ctx.environment.getArgv().slice(cmdIndex + 1);
         await loadedCmd.parseAsync(remainingArgs, { from: 'user' });
       } else {
         const loadError = commandLoadErrors.get(cmdName);
@@ -723,16 +782,18 @@ for (const cmdInfo of lazyLoadableCommands) {
         if (loadError) {
           console.error(`   原因: ${loadError}`);
         }
-        process.exit(1);
+        ctx.environment.exit(1);
       }
     });
   program.addCommand(placeholderCmd);
 }
 
-const lazyCommandForHelp = resolveLazyCommandForHelp(process.argv.slice(2));
+// 提前加载帮助命令
+const lazyCommandForHelp = resolveLazyCommandForHelp(ctx.environment.getArgv().slice(2));
 if (lazyCommandForHelp) {
   await lazyLoadCommand(lazyCommandForHelp);
   await lazyLoadCliTools();
 }
 
-program.parseAsync(process.argv).catch(handleError);
+// 开始执行程序
+program.parseAsync(ctx.environment.getArgv()).catch(handleError);

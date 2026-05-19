@@ -3,9 +3,13 @@ import { join } from 'path';
 import { VectaHubError, ErrorType } from '../errors/index.js';
 import { redactSensitiveData } from '../../utils/sensitive-data.js';
 import { getVectaHubPath } from '../../utils/paths.js';
+import { getDefaultContext } from '../context.js';
+
+// 导出 AuditService
+export { AuditService } from './service.js';
 
 /**
- * @deprecated 使用 new AuditLogger() 构造函数代替，支持依赖注入
+ * @deprecated 使用 InfrastructureContext.audit 或 new AuditLogger() 构造函数代替，支持依赖注入
  */
 let auditInstance: AuditLogger | null = null;
 
@@ -98,7 +102,15 @@ export class AuditLogger {
       const line = JSON.stringify(sanitizedEvent) + '\n';
       appendFileSync(this.filePath, line, 'utf-8');
     } catch (error) {
-      console.warn('Failed to write audit log:', (error as Error).message);
+      // 审计日志写入失败不应影响主流程
+      const err = error as Error;
+      
+      // 使用注入的错误回调（如果有）
+      if ((this as any).onError) {
+        (this as any).onError(err);
+      } else {
+        console.error('[AUDIT] 审计日志写入失败:', err.message);
+      }
     }
   }
 
@@ -175,7 +187,7 @@ export class AuditLogger {
   }
 }
 
-function generateSessionId(): string {
+export function generateSessionId(): string {
   return `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 }
 

@@ -1,9 +1,11 @@
 import type { NLProcessor, NLContext, NLResult } from './types.js';
 import type { IntentName } from '../../types/index.js';
+import type { ILLMClient, LLMConfig } from '../interfaces.js';
+import type { AuditHelper } from '../../infrastructure/audit/index.js';
 import YAML from 'yaml';
 import { getLogger } from '../../utils/logger.js';
 import { splitPosixArgs } from '../../utils/shell.js';
-import { LLMClient, createLLMConfig, type LLMConfig } from '../llm.js';
+import { LLMClient, createLLMConfig } from '../llm.js';
 import { buildAllTools, convertToolCallToSteps } from '../tool-calling.js';
 import { createSemanticDetector } from '../../sandbox/semantic-detector.js';
 
@@ -28,6 +30,8 @@ interface SkillResult<T = unknown> {
 export interface NLProcessorDeps {
   llmConfig?: ReturnType<typeof createLLMConfig> | null;
   semanticDetector?: ReturnType<typeof createSemanticDetector>;
+  llmClient?: ILLMClient;
+  auditHelper?: AuditHelper;
 }
 
 export function createNLProcessor(deps: NLProcessorDeps = {}): NLProcessor {
@@ -39,6 +43,7 @@ export function createNLProcessor(deps: NLProcessorDeps = {}): NLProcessor {
   }
 
   const resolvedLLMConfig = llmConfig;
+  const llmClient: ILLMClient = deps.llmClient ?? new LLMClient(resolvedLLMConfig, { auditHelper: deps.auditHelper });
 
   async function parse(context: NLContext): Promise<NLResult> {
     const input = typeof context.input === 'string' ? context.input.trim() : '';
@@ -52,7 +57,7 @@ export function createNLProcessor(deps: NLProcessorDeps = {}): NLProcessor {
     }
 
     try {
-      return await executeLLMToolCalling(input, resolvedLLMConfig);
+      return await executeLLMToolCalling(input, llmClient);
     } catch (err) {
       logger.error(`LLM Tool Calling failed: ${err}`);
       throw err;
@@ -64,9 +69,8 @@ export function createNLProcessor(deps: NLProcessorDeps = {}): NLProcessor {
 
 async function executeLLMToolCalling(
   input: string,
-  llmConfig: LLMConfig
+  llmClient: ILLMClient
 ): Promise<NLResult> {
-  const llmClient = new LLMClient(llmConfig);
   const tools = buildAllTools();
   
   const llmResponse = await llmClient.complete('nl-processor-tool-calling', input, {}, { tools, toolChoice: 'auto' });
@@ -99,7 +103,7 @@ async function executeLLMToolCalling(
   if (llmResponse.intent !== 'UNKNOWN' && llmResponse.workflow?.steps) {
     // 校验 LLM 直接返回的 workflow steps，包括嵌套 body
     for (let i = 0; i < llmResponse.workflow.steps.length; i++) {
-      validateWorkflowStep(llmResponse.workflow.steps[i], `steps[${i}]`);
+      validateWorkflowStep(llmResponse.workflow.steps[i] as unknown as MinimalStep, `steps[${i}]`);
     }
     const steps = llmResponse.workflow.steps;
     const workflowYAML = YAML.stringify({ steps });

@@ -1,5 +1,4 @@
 import { Command } from 'commander';
-import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { getLogger } from '../utils/logger.js';
 import { createStorage } from '../workflow/storage.js';
@@ -16,12 +15,15 @@ import {
   type TemplateSource,
   type TemplateMetadata,
 } from '../workflow/template-market.js';
+import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
 
 const logger = getLogger('templates');
+const ctx = getDefaultContext();
 
 function getTemplatesDir(): string {
-  if (process.env.VECTAHUB_TEMPLATES_DIR) {
-    return process.env.VECTAHUB_TEMPLATES_DIR;
+  const envDir = ctx.environment.getEnv('VECTAHUB_TEMPLATES_DIR');
+  if (envDir) {
+    return envDir;
   }
 
   try {
@@ -34,8 +36,8 @@ function getTemplatesDir(): string {
   }
 
   const __filename = fileURLToPath(import.meta.url);
-  const __dirname = join(__filename, '..');
-  return join(__dirname, '..', '..', '..', 'templates');
+  const __dirname = ctx.environment.getPath(__filename, '..');
+  return ctx.environment.getPath(__dirname, '..', '..', '..', 'templates');
 }
 
 const BUILTIN_TEMPLATES_DIR = getTemplatesDir();
@@ -123,7 +125,7 @@ export const templatesCmd = new Command('templates')
       logger.info('\n使用 `vectahub templates install <name>` 安装模板');
     } catch (error) {
       logger.error(`搜索失败: ${(error as Error).message}`);
-      process.exit(1);
+      throw new VectaHubError(`搜索失败: ${(error as Error).message}`, ErrorType.RUNTIME, error);
     }
   })
   .command('install')
@@ -140,7 +142,7 @@ export const templatesCmd = new Command('templates')
       logger.info(`\n使用: vectahub templates use ${name}`);
     } catch (error) {
       logger.error(`安装失败: ${(error as Error).message}`);
-      process.exit(1);
+      throw new VectaHubError(`安装失败: ${(error as Error).message}`, ErrorType.RUNTIME, error);
     }
   })
   .command('sources')
@@ -170,7 +172,7 @@ export const templatesCmd = new Command('templates')
       logger.info(`\n✅ 模板源添加成功: ${name}`);
     } catch (error) {
       logger.error(`添加失败: ${(error as Error).message}`);
-      process.exit(1);
+      throw new VectaHubError(`添加失败: ${(error as Error).message}`, ErrorType.RUNTIME, error);
     }
   })
   .command('remove')
@@ -182,7 +184,7 @@ export const templatesCmd = new Command('templates')
       logger.info(`\n✅ 模板源已移除: ${id}`);
     } catch (error) {
       logger.error(`移除失败: ${(error as Error).message}`);
-      process.exit(1);
+      throw new VectaHubError(`移除失败: ${(error as Error).message}`, ErrorType.RUNTIME, error);
     }
   })
   .command('update')
@@ -199,7 +201,7 @@ export const templatesCmd = new Command('templates')
       }
     } catch (error) {
       logger.error(`更新失败: ${(error as Error).message}`);
-      process.exit(1);
+      throw new VectaHubError(`更新失败: ${(error as Error).message}`, ErrorType.RUNTIME, error);
     }
   });
 
@@ -215,8 +217,9 @@ export const templatesSaveCmd = new Command('save')
     const workflow = await storage.getWorkflow(workflowId);
 
     if (!workflow) {
-      logger.error(`Workflow "${workflowId}" not found`);
-      process.exit(1);
+      const errorMessage = `Workflow "${workflowId}" not found`;
+      logger.error(errorMessage);
+      throw new VectaHubError(errorMessage, ErrorType.RUNTIME);
     }
 
     const templateName = options.name || workflow.name;
@@ -225,8 +228,6 @@ export const templatesSaveCmd = new Command('save')
     const tags = options.tags ? options.tags.split(',').map(t => t.trim()) : [category];
 
     const YAML = await import('yaml');
-    const { writeFileSync } = await import('fs');
-    const { join } = await import('path');
 
     const templatesDir = BUILTIN_TEMPLATES_DIR;
 
@@ -243,8 +244,8 @@ export const templatesSaveCmd = new Command('save')
       },
     };
 
-    const outputPath = join(templatesDir, `${templateName}.yaml`);
-    writeFileSync(outputPath, YAML.default.stringify(templateYAML), 'utf-8');
+    const outputPath = ctx.environment.getPath(templatesDir, `${templateName}.yaml`);
+    ctx.environment.writeFile(outputPath, YAML.default.stringify(templateYAML));
 
     logger.info(`Template saved: ${templateName}`);
     console.log(`  Name: ${templateName}`);
@@ -262,12 +263,13 @@ export const templatesUseCmd = new Command('use')
     const templates = listTemplates(BUILTIN_TEMPLATES_DIR);
     const tmpl = templates.find(t => t.name === name);
     if (!tmpl) {
-      logger.error(`Template "${name}" not found. Use "vectahub templates list" to see available templates.`);
-      process.exit(1);
+      const errorMessage = `Template "${name}" not found. Use "vectahub templates list" to see available templates.`;
+      logger.error(errorMessage);
+      throw new VectaHubError(errorMessage, ErrorType.RUNTIME);
     }
 
     try {
-      const path = join(BUILTIN_TEMPLATES_DIR, `${name}.yaml`);
+      const path = ctx.environment.getPath(BUILTIN_TEMPLATES_DIR, `${name}.yaml`);
       const workflow = instantiateTemplate(path, options.param);
 
       logger.info(`Instantiated template: ${tmpl.name}`);
@@ -282,22 +284,22 @@ export const templatesUseCmd = new Command('use')
       }
 
       if (options.output) {
-        const { writeFileSync } = await import('fs');
         const YAML = await import('yaml');
-        writeFileSync(options.output, YAML.default.stringify({
+        ctx.environment.writeFile(options.output, YAML.default.stringify({
           name: workflow.name,
           description: tmpl.description,
           mode: workflow.mode,
           steps: workflow.steps,
-        }), 'utf-8');
+        }));
         logger.info(`YAML saved to: ${options.output}`);
       }
 
       if (!options.save && !options.output) {
         logger.info('Use --save to save to library, or --output <file> to save as YAML');
       }
-    } catch (error) {
-      logger.error(`Failed to instantiate template: ${error instanceof Error ? error.message : String(error)}`);
-      process.exit(1);
+    } catch (error: unknown) {
+      const errorMessage = `Failed to instantiate template: ${error instanceof Error ? error.message : String(error)}`;
+      logger.error(errorMessage);
+      throw new VectaHubError(errorMessage, ErrorType.RUNTIME, error);
     }
   });

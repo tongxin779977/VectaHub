@@ -5,6 +5,8 @@ import { createSemanticDetector, type SemanticDetector } from '../sandbox/semant
 import { createSandboxManager, type SandboxManager } from '../sandbox/sandbox.js';
 import { interpolateString } from './interpolation.js';
 import { audit as globalAudit, type AuditHelper } from '../infrastructure/audit/index.js';
+import { createSecurityGuard } from '../security-protocol/factory.js';
+import type { SecurityGuard } from '../types/security.js';
 import { PolicyManager } from './policy-manager.js';
 
 // Import decoupled handlers
@@ -28,6 +30,8 @@ export interface ExecutorDeps {
   policyManager?: PolicyManager;
   sandboxManager?: SandboxManager;
   audit?: AuditHelper;
+  securityGuard?: SecurityGuard;
+  stepHandlers?: Record<string, StepHandler>;
 }
 
 export interface Executor {
@@ -57,8 +61,13 @@ export function createExecutor(deps: ExecutorDeps = {}): Executor {
   const detector: Detector = deps.detector ?? createDetector();
   const semanticDetector: SemanticDetector = deps.semanticDetector ?? createSemanticDetector();
   const policyManager = deps.policyManager ?? new PolicyManager();
-  const sandboxManager = deps.sandboxManager;
+  const securityGuard: SecurityGuard = deps.securityGuard ?? createSecurityGuard();
+  const sandboxManager = deps.sandboxManager ?? createSandboxManager(
+    {},
+    { securityGuard }
+  );
   const auditHelper: AuditHelper = deps.audit ?? globalAudit;
+  const customStepHandlers = deps.stepHandlers || {};
 
   async function exec(cli: string, args: string[], options: ExecutorOptions): Promise<CLIResult> {
     const startTime = Date.now();
@@ -136,18 +145,25 @@ export function createExecutor(deps: ExecutorDeps = {}): Executor {
     detector,
     semanticDetector,
     audit: auditHelper,
+    securityGuard,
     sandboxManager,
     exec,
     execInSandbox,
     shouldAllow
   };
 
-  const stepHandlers: Record<string, StepHandler> = {
+  const defaultStepHandlers: Record<string, StepHandler> = {
     if: handleIf,
     parallel: handleParallel,
     for_each: handleForEach,
     opencli: createOpenCliHandler(handlerDeps),
     exec: createExecHandler(handlerDeps),
+  };
+
+  // 合并自定义 stepHandlers 到默认 stepHandlers，自定义覆盖默认
+  const stepHandlers: Record<string, StepHandler> = {
+    ...defaultStepHandlers,
+    ...customStepHandlers,
   };
 
   const extendedStepHandlers: Record<string, StepHandler> = {};

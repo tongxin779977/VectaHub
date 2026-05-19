@@ -1,8 +1,5 @@
 import { Command } from 'commander';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
+import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
 
 interface CheckResult {
   name: string;
@@ -35,8 +32,9 @@ export async function runVerification(type: string): Promise<VerifyReport> {
 }
 
 async function runTypeCheck(): Promise<CheckResult> {
+  const env = getDefaultContext().environment;
   try {
-    const { stdout, stderr } = await execAsync('npx tsc --noEmit 2>&1');
+    const { stdout, stderr } = await env.exec('npx tsc --noEmit 2>&1');
     const hasErrors = stderr.includes('error TS') || stdout.includes('error TS');
     const errorCount = (stderr.match(/error TS/g) || stdout.match(/error TS/g) || []).length;
 
@@ -52,8 +50,9 @@ async function runTypeCheck(): Promise<CheckResult> {
 }
 
 async function runTests(): Promise<CheckResult> {
+  const env = getDefaultContext().environment;
   try {
-    const { stdout } = await execAsync('npx vitest --run --reporter=basic 2>&1');
+    const { stdout } = await env.exec('npx vitest --run --reporter=basic 2>&1');
     const passMatch = stdout.match(/(\d+) passed/);
     const failMatch = stdout.match(/(\d+) failed/);
     const passed = passMatch ? parseInt(passMatch[1], 10) : 0;
@@ -70,8 +69,9 @@ async function runTests(): Promise<CheckResult> {
 }
 
 async function runCoverageCheck(): Promise<CheckResult> {
+  const env = getDefaultContext().environment;
   try {
-    const { stdout } = await execAsync('npx vitest --run --coverage 2>&1');
+    const { stdout } = await env.exec('npx vitest --run --coverage 2>&1');
     const coverageMatch = stdout.match(/All files\s*\|\s*([\d.]+)\s*\|/);
     if (coverageMatch) {
       const coverage = parseFloat(coverageMatch[1]);
@@ -115,13 +115,13 @@ export const verifyCmd = new Command('verify')
 
     if (!validTypes.includes(type)) {
       console.error(`Invalid type: ${type}. Must be one of: ${validTypes.join(', ')}`);
-      process.exit(1);
+      throw new VectaHubError(`Invalid verification type: ${type}`, ErrorType.RUNTIME);
     }
 
     const report = await runVerification(type);
     console.log(formatReport(report));
 
     if (report.verdict === 'FAIL') {
-      process.exit(1);
+      throw new VectaHubError('Verification failed', ErrorType.RUNTIME);
     }
   });

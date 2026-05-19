@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { getLogger } from '../utils/logger.js';
 import { loadConfig, updateConfig } from '../infrastructure/config/index.js';
+import { VectaHubError, ErrorType } from '../infrastructure/index.js';
 
 const logger = getLogger('mode');
 const VALID_MODES = ['strict', 'relaxed', 'consensus'] as const;
@@ -25,7 +26,7 @@ export const modeCmd = new Command('mode')
     if (!VALID_MODES.includes(normalized as typeof VALID_MODES[number])) {
       logger.error(`Invalid mode: ${mode}`);
       logger.info(`Valid modes: ${VALID_MODES.join(', ')}`);
-      process.exit(1);
+      throw new VectaHubError(`Invalid mode: ${mode}`, ErrorType.RUNTIME);
     }
 
     const sandboxMode = normalized.toUpperCase() as 'STRICT' | 'RELAXED' | 'CONSENSUS';

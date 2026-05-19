@@ -1,20 +1,20 @@
 import { Command } from 'commander';
-import { existsSync } from 'fs';
 import { join } from 'path';
 import { execSync } from 'child_process';
+import { VectaHubError, ErrorType, getDefaultContext } from '../infrastructure/index.js';
 
 export const build = new Command('build')
   .description('Build the project')
   .option('--watch', 'Watch mode for development')
   .action(async (options) => {
+    const environment = getDefaultContext().environment;
     console.log('\n🔨 Building VectaHub...\n');
 
     const entryFile = 'src/cli.ts';
     const outDir = 'dist';
 
-    if (!existsSync(entryFile)) {
-      console.error(`❌ Entry file not found: ${entryFile}`);
-      process.exit(1);
+    if (!environment.exists(entryFile)) {
+      throw new VectaHubError(`Entry file not found: ${entryFile}`, ErrorType.RUNTIME);
     }
 
     try {
@@ -28,7 +28,6 @@ export const build = new Command('build')
       console.log('\n✅ Build complete!');
       console.log(`   Output: ${outDir}/`);
     } catch (error) {
-      console.error('\n❌ Build failed');
-      process.exit(1);
+      throw new VectaHubError('Build failed', ErrorType.RUNTIME);
     }
   });

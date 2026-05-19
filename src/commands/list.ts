@@ -1,10 +1,9 @@
 import { Command } from 'commander';
-import { join } from 'path';
-import { writeFileSync } from 'fs';
 import { getVectaHubPath } from '../utils/paths.js';
 import { createStorage } from '../workflow/storage.js';
 import { getLogger } from '../utils/logger.js';
 import { listVersions, rollbackVersion } from '../workflow/versioning.js';
+import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
 
 const logger = getLogger('list');
 const VECTAHUB_DIR = getVectaHubPath();
@@ -33,7 +32,11 @@ listCmd
       logger.info(`\nTotal: ${workflows.length} workflow(s)`);
     } catch (error) {
       logger.error(`Error listing workflows: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      process.exit(1);
+      throw new VectaHubError(
+        `Error listing workflows: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        ErrorType.RUNTIME,
+        error
+      );
     }
   });
 
@@ -65,12 +68,13 @@ export const rollbackCmd = new Command('rollback')
   .argument('<version>', 'Version number (0 = latest)')
   .option('-o, --output <file>', 'Output YAML file path')
   .action((workflowId: string, versionStr: string, options: { output?: string }) => {
+    const env = getDefaultContext().environment;
     try {
       const version = parseInt(versionStr, 10);
       const yaml = rollbackVersion(VECTAHUB_DIR, workflowId, version);
 
       if (options.output) {
-        writeFileSync(options.output, yaml, 'utf-8');
+        env.writeFile(options.output, yaml);
         logger.info(`Rolled back to version ${version || 'latest'}, saved to ${options.output}`);
       } else {
         logger.info(`\nRolled back to version ${version || 'latest'}:\n`);
@@ -78,6 +82,10 @@ export const rollbackCmd = new Command('rollback')
       }
     } catch (error) {
       logger.error(`Rollback failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      process.exit(1);
+      throw new VectaHubError(
+        `Rollback failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        ErrorType.RUNTIME,
+        error
+      );
     }
   });

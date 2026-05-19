@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { createArchiver } from '../execution/archiver.js';
 import { getLogger } from '../utils/logger.js';
+import { VectaHubError, ErrorType } from '../infrastructure/index.js';
 
 const logger = getLogger('archive');
 
@@ -53,8 +54,7 @@ export const archiveCmd = new Command('archive')
     if (options.before) {
       const cutoffDate = new Date(options.before);
       if (isNaN(cutoffDate.getTime())) {
-        logger.error(`Invalid date: ${options.before}`);
-        process.exit(1);
+        throw new VectaHubError(`Invalid date: ${options.before}`, ErrorType.RUNTIME);
       }
 
       logger.info(`\nArchiving records before ${options.before}...`);

@@ -1,15 +1,13 @@
 import { Command } from 'commander';
-import { existsSync, mkdirSync, rmSync, statSync, readdirSync, copyFileSync, writeFileSync, readFileSync } from 'fs';
-import { join, relative } from 'path';
+import { join } from 'path';
 import { platform } from 'os';
-import { execSync } from 'child_process';
-import { getVectaHubPath } from '../utils/paths.js';
-import { getLogger } from '../utils/logger.js';
-import { createRecordManager } from '../execution/record-manager.js';
+import { VectaHubError, ErrorType, getDefaultContext } from '../infrastructure/index.js';
 
-const logger = getLogger('export');
+const ctx = getDefaultContext();
+const environment = ctx.environment;
+const logger = ctx.logger;
 
-const VECTAHUB_DIR = getVectaHubPath();
+const VECTAHUB_DIR = environment.getHomePath();
 
 interface ExportOptions {
   output: string;
@@ -27,17 +25,15 @@ interface ImportOptions {
 }
 
 function copyDirRecursive(src: string, dest: string): void {
-  if (!existsSync(dest)) {
-    mkdirSync(dest, { recursive: true });
-  }
-  const entries = readdirSync(src, { withFileTypes: true });
+  environment.ensureDir(dest);
+  const entries = environment.readDirObjects(src);
   for (const entry of entries) {
     const srcPath = join(src, entry.name);
     const destPath = join(dest, entry.name);
     if (entry.isDirectory()) {
       copyDirRecursive(srcPath, destPath);
     } else {
-      copyFileSync(srcPath, destPath);
+      environment.copyFile(srcPath, destPath);
     }
   }
 }
@@ -51,25 +47,25 @@ function getExportManifest(): Record<string, string[]> {
   };
   
   const configFile = join(VECTAHUB_DIR, 'config.yaml');
-  if (existsSync(configFile)) {
+  if (environment.exists(configFile)) {
     manifest.config.push('config.yaml');
   }
   
   const workflowsDir = join(VECTAHUB_DIR, 'workflows');
-  if (existsSync(workflowsDir)) {
-    const files = readdirSync(workflowsDir).filter(f => f.endsWith('.yaml') || f.endsWith('.json'));
+  if (environment.exists(workflowsDir)) {
+    const files = environment.readDir(workflowsDir).filter(f => f.endsWith('.yaml') || f.endsWith('.json'));
     manifest.workflows = files;
   }
   
   const executionsDir = join(VECTAHUB_DIR, 'executions');
-  if (existsSync(executionsDir)) {
-    const files = readdirSync(executionsDir).filter(f => f.endsWith('.json'));
+  if (environment.exists(executionsDir)) {
+    const files = environment.readDir(executionsDir).filter(f => f.endsWith('.json'));
     manifest.executions = files;
   }
   
   const sessionsDir = join(VECTAHUB_DIR, 'sessions');
-  if (existsSync(sessionsDir)) {
-    const files = readdirSync(sessionsDir);
+  if (environment.exists(sessionsDir)) {
+    const files = environment.readDir(sessionsDir);
     manifest.sessions = files;
   }
   
@@ -77,20 +73,18 @@ function getExportManifest(): Record<string, string[]> {
 }
 
 async function createExportArchive(options: ExportOptions): Promise<void> {
-  const outputDir = options.output || process.cwd();
+  const outputDir = options.output || environment.getCwd();
   const exportDir = join(outputDir, `vectahub-export-${Date.now()}`);
   
-  if (!existsSync(outputDir)) {
-    mkdirSync(outputDir, { recursive: true });
-  }
+  environment.ensureDir(outputDir);
 
-  if (existsSync(exportDir)) {
-    rmSync(exportDir, { recursive: true });
+  if (environment.exists(exportDir)) {
+    environment.rm(exportDir, { recursive: true });
   }
-  mkdirSync(exportDir, { recursive: true });
+  environment.ensureDir(exportDir);
 
   const dataDir = join(exportDir, 'data');
-  mkdirSync(dataDir, { recursive: true });
+  environment.ensureDir(dataDir);
 
   try {
     const manifest: Record<string, string[]> = {};
@@ -98,12 +92,12 @@ async function createExportArchive(options: ExportOptions): Promise<void> {
 
     if (options.config) {
       const configFile = join(VECTAHUB_DIR, 'config.yaml');
-      if (existsSync(configFile)) {
-        let content = readFileSync(configFile, 'utf-8');
+      if (environment.exists(configFile)) {
+        let content = environment.readFile(configFile);
         if (!options.includeSecrets) {
           content = redactSecrets(content);
         }
-        writeFileSync(join(dataDir, 'config.yaml'), content);
+        environment.writeFile(join(dataDir, 'config.yaml'), content);
         manifest['config'] = ['config.yaml'];
         totalFiles++;
       }
@@ -111,11 +105,10 @@ async function createExportArchive(options: ExportOptions): Promise<void> {
 
     if (options.workflows) {
       const srcDir = join(VECTAHUB_DIR, 'workflows');
-      if (existsSync(srcDir)) {
+      if (environment.exists(srcDir)) {
         const destDir = join(dataDir, 'workflows');
-        mkdirSync(destDir, { recursive: true });
         copyDirRecursive(srcDir, destDir);
-        const files = readdirSync(destDir).filter(f => f.endsWith('.yaml') || f.endsWith('.json'));
+        const files = environment.readDir(destDir).filter(f => f.endsWith('.yaml') || f.endsWith('.json'));
         manifest['workflows'] = files;
         totalFiles += files.length;
       }
@@ -123,11 +116,10 @@ async function createExportArchive(options: ExportOptions): Promise<void> {
 
     if (options.executions) {
       const srcDir = join(VECTAHUB_DIR, 'executions');
-      if (existsSync(srcDir)) {
+      if (environment.exists(srcDir)) {
         const destDir = join(dataDir, 'executions');
-        mkdirSync(destDir, { recursive: true });
         copyDirRecursive(srcDir, destDir);
-        const files = readdirSync(destDir).filter(f => f.endsWith('.json'));
+        const files = environment.readDir(destDir).filter(f => f.endsWith('.json'));
         manifest['executions'] = files;
         totalFiles += files.length;
       }
@@ -135,11 +127,10 @@ async function createExportArchive(options: ExportOptions): Promise<void> {
 
     if (options.sessions) {
       const srcDir = join(VECTAHUB_DIR, 'sessions');
-      if (existsSync(srcDir)) {
+      if (environment.exists(srcDir)) {
         const destDir = join(dataDir, 'sessions');
-        mkdirSync(destDir, { recursive: true });
         copyDirRecursive(srcDir, destDir);
-        const files = readdirSync(destDir);
+        const files = environment.readDir(destDir);
         manifest['sessions'] = files;
         totalFiles += files.length;
       }
@@ -147,11 +138,11 @@ async function createExportArchive(options: ExportOptions): Promise<void> {
 
     if (totalFiles === 0) {
       logger.warn('没有可导出的数据');
-      rmSync(exportDir, { recursive: true });
+      environment.rm(exportDir, { recursive: true });
       return;
     }
 
-    writeFileSync(
+    environment.writeFile(
       join(dataDir, 'manifest.json'),
       JSON.stringify({
         version: '1.0.0',
@@ -172,10 +163,10 @@ async function createExportArchive(options: ExportOptions): Promise<void> {
     }
 
     try {
-      execSync(`tar -czf "${tarPath}" -C "${exportDir}" .`, { stdio: 'pipe' });
-      rmSync(exportDir, { recursive: true });
+      await environment.exec(`tar -czf "${tarPath}" -C "${exportDir}" .`);
+      environment.rm(exportDir, { recursive: true });
       
-      const stats = statSync(tarPath);
+      const stats = environment.stat(tarPath);
       const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
       logger.info(`✅ 导出完成: ${tarPath} (${sizeMB} MB)`);
     } catch {
@@ -184,8 +175,8 @@ async function createExportArchive(options: ExportOptions): Promise<void> {
     }
   } catch (error) {
     logger.error(`导出失败: ${(error as Error).message}`);
-    if (existsSync(exportDir)) {
-      rmSync(exportDir, { recursive: true });
+    if (environment.exists(exportDir)) {
+      environment.rm(exportDir, { recursive: true });
     }
     throw error;
   }
@@ -210,20 +201,20 @@ function redactSecrets(content: string): string {
 async function importFromArchive(options: ImportOptions): Promise<void> {
   const inputPath = options.input;
   
-  if (!existsSync(inputPath)) {
+  if (!environment.exists(inputPath)) {
     logger.error(`文件不存在: ${inputPath}`);
-    process.exit(1);
+    throw new VectaHubError(`File not found: ${inputPath}`, ErrorType.RUNTIME);
   }
 
-  const stats = statSync(inputPath);
+  const stats = environment.stat(inputPath);
   const isDir = stats.isDirectory();
   
   if (options.dryRun) {
     logger.info('🔍 干运行模式 - 将导入以下内容:');
     if (isDir) {
       const manifestFile = join(inputPath, 'manifest.json');
-      if (existsSync(manifestFile)) {
-        const manifest = JSON.parse(readFileSync(manifestFile, 'utf-8'));
+      if (environment.exists(manifestFile)) {
+        const manifest = JSON.parse(environment.readFile(manifestFile));
         logger.info(`导出日期: ${manifest.exportDate}`);
         logger.info(`包含密钥: ${manifest.includeSecrets}`);
         for (const [category, files] of Object.entries(manifest.manifest)) {
@@ -253,24 +244,24 @@ async function importFromArchive(options: ImportOptions): Promise<void> {
   
   try {
     if (!isDir && inputPath.endsWith('.tar.gz')) {
-      mkdirSync(tempExtractDir, { recursive: true });
-      execSync(`tar -xzf "${inputPath}" -C "${tempExtractDir}"`, { stdio: 'pipe' });
+      environment.ensureDir(tempExtractDir);
+      await environment.exec(`tar -xzf "${inputPath}" -C "${tempExtractDir}"`);
       sourceDir = tempExtractDir;
     }
 
     const manifestFile = join(sourceDir, 'manifest.json');
-    if (existsSync(manifestFile)) {
-      const manifest = JSON.parse(readFileSync(manifestFile, 'utf-8'));
+    if (environment.exists(manifestFile)) {
+      const manifest = JSON.parse(environment.readFile(manifestFile));
       logger.info(`导入日期: ${manifest.exportDate}`);
     }
 
-    const dataDir = existsSync(join(sourceDir, 'data')) ? join(sourceDir, 'data') : sourceDir;
+    const dataDir = environment.exists(join(sourceDir, 'data')) ? join(sourceDir, 'data') : sourceDir;
 
     const configFile = join(dataDir, 'config.yaml');
-    if (existsSync(configFile)) {
+    if (environment.exists(configFile)) {
       const destFile = join(VECTAHUB_DIR, 'config.yaml');
-      if (options.overwrite || !existsSync(destFile)) {
-        copyFileSync(configFile, destFile);
+      if (options.overwrite || !environment.exists(destFile)) {
+        environment.copyFile(configFile, destFile);
         logger.info('  ✅ config.yaml');
       } else {
         logger.info('  ⏭️  config.yaml (已存在，跳过)');
@@ -279,31 +270,31 @@ async function importFromArchive(options: ImportOptions): Promise<void> {
 
     for (const subdir of ['workflows', 'executions', 'sessions']) {
       const srcDir = join(dataDir, subdir);
-      if (existsSync(srcDir)) {
+      if (environment.exists(srcDir)) {
         const destDir = join(VECTAHUB_DIR, subdir);
-        if (options.overwrite && existsSync(destDir)) {
-          rmSync(destDir, { recursive: true });
+        if (options.overwrite && environment.exists(destDir)) {
+          environment.rm(destDir, { recursive: true });
         }
-        if (!existsSync(destDir)) {
-          mkdirSync(destDir, { recursive: true });
+        if (!environment.exists(destDir)) {
+          environment.ensureDir(destDir);
         }
         copyDirRecursive(srcDir, destDir);
-        const count = readdirSync(destDir).length;
+        const count = environment.readDir(destDir).length;
         logger.info(`  ✅ ${subdir}/ (${count} 个文件)`);
       }
     }
 
     logger.info('✅ 导入完成');
   } finally {
-    if (existsSync(tempExtractDir)) {
-      rmSync(tempExtractDir, { recursive: true });
+    if (environment.exists(tempExtractDir)) {
+      environment.rm(tempExtractDir, { recursive: true });
     }
   }
 }
 
 export const exportCmd = new Command('export')
   .description('导出 VectaHub 数据')
-  .option('-o, --output <dir>', '输出目录', process.cwd())
+  .option('-o, --output <dir>', '输出目录', environment.getCwd())
   .option('--include-secrets', '包含敏感信息（API密钥）', false)
   .option('--no-workflows', '不导出工作流')
   .option('--no-executions', '不导出执行记录')
@@ -330,7 +321,7 @@ export const exportCmd = new Command('export')
     try {
       await createExportArchive(exportOptions);
     } catch (error) {
-      process.exit(1);
+      throw new VectaHubError(`Export failed: ${(error as Error).message}`, ErrorType.RUNTIME);
     }
   });
 
@@ -344,7 +335,7 @@ async function exportExecutionsAsData(options: { output: string; status?: string
     filtered = records.filter(r => r.status === options.status!.toUpperCase());
   }
 
-  const outputDir = options.output || process.cwd();
+  const outputDir = options.output || environment.getCwd();
 
   if (options.format === 'csv') {
     const csvPath = join(outputDir, `executions-${Date.now()}.csv`);
@@ -354,11 +345,11 @@ async function exportExecutionsAsData(options: { output: string; status?: string
       const safeError = `"${(r.error || '').replace(/"/g, '""')}"`;
       return `${r.executionId},${r.workflowId},${safeName},${r.status},${r.startedAt},${r.duration || ''},${r.steps.length},${safeError}`;
     }).join('\n');
-    writeFileSync(csvPath, headers + rows, 'utf-8');
+    environment.writeFile(csvPath, headers + rows);
     logger.info(`✅ 导出 CSV: ${csvPath} (${filtered.length} 条记录)`);
   } else {
     const jsonPath = join(outputDir, `executions-${Date.now()}.json`);
-    writeFileSync(jsonPath, JSON.stringify(filtered, null, 2), 'utf-8');
+    environment.writeFile(jsonPath, JSON.stringify(filtered, null, 2));
     logger.info(`✅ 导出 JSON: ${jsonPath} (${filtered.length} 条记录)`);
   }
 }
@@ -378,6 +369,7 @@ export const importCmd = new Command('import')
     try {
       await importFromArchive(importOptions);
     } catch (error) {
-      process.exit(1);
+      throw new VectaHubError(`Import failed: ${(error as Error).message}`, ErrorType.RUNTIME);
     }
   });
+

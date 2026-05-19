@@ -1,17 +1,14 @@
 import { Command } from 'commander';
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { getLogger, setMuted } from '../utils/logger.js';
 import { createLLMConfig, LLMClient } from '../nl/llm.js';
 import { DOC_TASK_PARSER_ID } from '../nl/prompt-manager.js';
 import type { DocTask } from '../types/index.js';
+import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
 
 const logger = getLogger('parse-doc');
 
 const DEFAULT_MAX_DOC_LENGTH = 50000;
-const MAX_DOC_LENGTH = parseInt(process.env.PARSE_DOC_MAX_LENGTH || '', 10) || DEFAULT_MAX_DOC_LENGTH;
 const DEFAULT_MAX_RETRIES = 2;
-const MAX_RETRIES = parseInt(process.env.PARSE_DOC_MAX_RETRIES || '', 10) || DEFAULT_MAX_RETRIES;
 const CHUNK_BOUNDARY_SEARCH_RATIO = 0.2;
 
 const CONTINUATION_SUFFIX = '\n（接下一段）';
@@ -34,12 +31,12 @@ const GAP_TRIGGER_PATTERNS: Array<{ pattern: RegExp; verb?: string }> = [
 const STATUS_TABLE_HEADER_PATTERN = /状态/;
 const MARKDOWN_TABLE_DIVIDER_PATTERN = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/;
 
-export function findChunkBoundary(content: string, target: number): number {
+export function findChunkBoundary(content: string, target: number, maxDocLength: number): number {
   if (target <= 0 || target >= content.length) {
     return target;
   }
 
-  const searchRange = Math.floor(MAX_DOC_LENGTH * CHUNK_BOUNDARY_SEARCH_RATIO);
+  const searchRange = Math.floor(maxDocLength * CHUNK_BOUNDARY_SEARCH_RATIO);
   const start = Math.max(0, target - searchRange);
 
   let searchPos = target;
@@ -66,7 +63,7 @@ export function splitDocIntoChunks(content: string, maxLength: number): string[]
   let remaining = content;
 
   while (remaining.length > maxLength) {
-    const boundary = findChunkBoundary(remaining, maxLength);
+    const boundary = findChunkBoundary(remaining, maxLength, maxLength);
     const chunk = remaining.substring(0, boundary);
     chunks.push(chunk);
     remaining = remaining.substring(boundary);
@@ -306,14 +303,18 @@ export function fallbackParseByRegex(content: string): DocTask[] {
 }
 
 export async function parseDocTasks(filePath: string): Promise<DocTask[]> {
-  const absolutePath = resolve(filePath);
-  if (!existsSync(absolutePath)) {
-    throw new Error(`文件不存在: ${absolutePath}`);
+  const ctx = getDefaultContext();
+  const maxDocLength = ctx.environment.getEnvNumber('PARSE_DOC_MAX_LENGTH') || DEFAULT_MAX_DOC_LENGTH;
+  const maxRetries = ctx.environment.getEnvNumber('PARSE_DOC_MAX_RETRIES') || DEFAULT_MAX_RETRIES;
+
+  const absolutePath = ctx.environment.resolvePath(filePath);
+  if (!ctx.environment.exists(absolutePath)) {
+    throw new VectaHubError(`文件不存在: ${absolutePath}`, ErrorType.FILESYSTEM);
   }
 
-  const docContent = readFileSync(absolutePath, 'utf-8');
+  const docContent = ctx.environment.readFile(absolutePath);
   if (docContent.length === 0) {
-    throw new Error('文档内容为空');
+    throw new VectaHubError('文档内容为空', ErrorType.RUNTIME);
   }
   const roadmap = parseRoadmapTableTasks(docContent);
   if (roadmap.detected) {
@@ -326,7 +327,7 @@ export async function parseDocTasks(filePath: string): Promise<DocTask[]> {
     logger.warn('LLM 未配置，使用正则 fallback 解析');
     const fallbackTasks = fallbackParseByRegex(docContent);
     if (fallbackTasks.length === 0) {
-      throw new Error('LLM 未配置且正则解析未提取到任务，请先运行 vectahub setup 配置 AI 提供商');
+      throw new VectaHubError('LLM 未配置且正则解析未提取到任务，请先运行 vectahub setup 配置 AI 提供商', ErrorType.CONFIGURATION);
     }
     logger.info(`正则 fallback 解析到 ${fallbackTasks.length} 个任务`);
     return fallbackTasks;
@@ -334,12 +335,12 @@ export async function parseDocTasks(filePath: string): Promise<DocTask[]> {
 
   const client = new LLMClient(llmConfig);
 
-  if (docContent.length <= MAX_DOC_LENGTH) {
-    return callLLMWithRetry(client, docContent);
+  if (docContent.length <= maxDocLength) {
+    return callLLMWithRetry(client, docContent, maxRetries);
   }
 
-  logger.info(`文档长度 ${docContent.length} 超出限制 ${MAX_DOC_LENGTH}，启用分段解析`);
-  const chunks = splitDocIntoChunks(docContent, MAX_DOC_LENGTH);
+  logger.info(`文档长度 ${docContent.length} 超出限制 ${maxDocLength}，启用分段解析`);
+  const chunks = splitDocIntoChunks(docContent, maxDocLength);
   logger.info(`文档分为 ${chunks.length} 段`);
 
   const allTasks: DocTask[][] = [];
@@ -356,7 +357,7 @@ export async function parseDocTasks(filePath: string): Promise<DocTask[]> {
     logger.info(`正在解析第 ${i + 1}/${chunks.length} 段 (${content.length} 字符)...`);
 
     try {
-      const tasks = await callLLMWithRetry(client, content);
+      const tasks = await callLLMWithRetry(client, content, maxRetries);
       allTasks.push(tasks);
       logger.info(`第 ${i + 1}/${chunks.length} 段解析成功，得到 ${tasks.length} 个任务`);
     } catch (error) {
@@ -369,12 +370,13 @@ export async function parseDocTasks(filePath: string): Promise<DocTask[]> {
     logger.warn('所有分段 LLM 解析均失败，尝试正则 fallback');
     const fallbackTasks = fallbackParseByRegex(docContent);
     if (fallbackTasks.length === 0) {
-      throw new Error(
+      throw new VectaHubError(
         `所有分段解析均失败且正则 fallback 未提取到任务。\n` +
         `  文档路径: ${absolutePath}\n` +
         `  文档大小: ${docContent.length} 字节\n` +
         `  分段数: ${chunks.length}\n` +
-        `  LLM 提供商: ${llmConfig.provider}/${llmConfig.model}`
+        `  LLM 提供商: ${llmConfig.provider}/${llmConfig.model}`,
+        ErrorType.RUNTIME
       );
     }
     logger.info(`正则 fallback 解析到 ${fallbackTasks.length} 个任务`);
@@ -387,13 +389,13 @@ export async function parseDocTasks(filePath: string): Promise<DocTask[]> {
   return merged;
 }
 
-async function callLLMWithRetry(client: LLMClient, docContent: string): Promise<DocTask[]> {
+async function callLLMWithRetry(client: LLMClient, docContent: string, maxRetries: number): Promise<DocTask[]> {
   let lastError: Error | null = null;
 
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       if (attempt > 0) {
-        logger.info(`第 ${attempt + 1} 次尝试 (共 ${MAX_RETRIES + 1} 次)...`);
+        logger.info(`第 ${attempt + 1} 次尝试 (共 ${maxRetries + 1} 次)...`);
       }
       const rawOutput = await client.completeRaw(DOC_TASK_PARSER_ID, '请只提取尚需开发或补齐的任务缺口', {
         docContent,
@@ -401,7 +403,7 @@ async function callLLMWithRetry(client: LLMClient, docContent: string): Promise<
       return parseTasksFromLLMOutput(rawOutput);
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      if (attempt < MAX_RETRIES) {
+      if (attempt < maxRetries) {
         logger.warn(`第 ${attempt + 1} 次 LLM 解析失败: ${lastError.message}，将重试`);
       }
     }
@@ -461,6 +463,7 @@ export const parseDocCmd = new Command('parse-doc')
   .argument('<path>', '文档文件路径')
   .option('--json', '以 JSON 格式输出')
   .action(async (filePath: string, options: { json?: boolean }) => {
+    const ctx = getDefaultContext();
     if (options.json) {
       setMuted(true);
     }
@@ -471,7 +474,7 @@ export const parseDocCmd = new Command('parse-doc')
 
       if (options.json) {
         console.log(JSON.stringify({ ok: true, tasks }, null, 2));
-        process.exit(0);
+        return;
       } else {
         console.log(`\n📋 解析到 ${tasks.length} 个任务:\n`);
         console.log('─'.repeat(60));
@@ -488,6 +491,6 @@ export const parseDocCmd = new Command('parse-doc')
       } else {
         logger.error(`解析失败: ${message}`);
       }
-      process.exit(1);
+      throw new VectaHubError(`解析失败: ${message}`, ErrorType.RUNTIME, error);
     }
   });

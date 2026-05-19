@@ -1,14 +1,15 @@
 import { Command } from 'commander';
 import { createConnection } from 'net';
-import { join } from 'path';
-import { tmpdir } from 'os';
 import type { SandboxMode } from '../types/index.js';
 import { audit, getCurrentSessionId, AuditEventType } from '../utils/audit.js';
 import { globalEventManager } from '../utils/event-manager.js';
 import { SocketServer } from '../daemon/socket-server.js';
+import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
 
-const SOCKET_PATH = join(tmpdir(), 'vectahub.sock');
-const QUEUE_DIR = join(tmpdir(), 'vectahub');
+const ctx = getDefaultContext();
+
+const SOCKET_PATH = ctx.environment.getPath(ctx.environment.getTmpDir(), 'vectahub.sock');
+const QUEUE_DIR = ctx.environment.getPath(ctx.environment.getTmpDir(), 'vectahub');
 
 let socketServer: SocketServer | null = null;
 
@@ -80,17 +81,17 @@ export const serveCmd = new Command('serve')
         success: false,
         error: (err as Error).message,
       });
-      process.exit(1);
+      throw new VectaHubError('Server error', ErrorType.RUNTIME, err);
     }
 
     globalEventManager.on('SIGINT', () => {
       handleShutdown('SIGINT');
-      process.exit(0);
+      return;
     });
 
     globalEventManager.on('SIGTERM', () => {
       handleShutdown('SIGTERM');
-      process.exit(0);
+      return;
     });
   });
 
@@ -133,7 +134,7 @@ export const clientCmd = new Command('client')
           success: false,
           error: 'Cannot connect to service',
         });
-        process.exit(1);
+        throw new VectaHubError('Cannot connect to service', ErrorType.RUNTIME);
       });
     })
   )
@@ -176,7 +177,7 @@ export const clientCmd = new Command('client')
 
       socket.on('error', () => {
         console.error('❌ Cannot connect to service. Is it running?');
-        process.exit(1);
+        throw new VectaHubError('Cannot connect to service', ErrorType.RUNTIME);
       });
     })
   )
@@ -218,7 +219,7 @@ export const clientCmd = new Command('client')
 
       socket.on('error', () => {
         console.error('❌ Cannot connect to service. Is it running?');
-        process.exit(1);
+        throw new VectaHubError('Cannot connect to service', ErrorType.RUNTIME);
       });
     })
   )
@@ -235,8 +236,7 @@ export const clientCmd = new Command('client')
           if (!['STRICT', 'RELAXED', 'CONSENSUS'].includes(upperMode)) {
             console.error('❌ Invalid mode. Use: STRICT | RELAXED | CONSENSUS');
             socket.end();
-            process.exit(1);
-            return;
+            throw new VectaHubError('Invalid mode', ErrorType.CONFIGURATION);
           }
           socket.write(JSON.stringify({
             type: 'setMode',
@@ -261,7 +261,7 @@ export const clientCmd = new Command('client')
 
       socket.on('error', () => {
         console.error('❌ Cannot connect to service. Is it running?');
-        process.exit(1);
+        throw new VectaHubError('Cannot connect to service', ErrorType.RUNTIME);
       });
     })
   )
@@ -295,7 +295,7 @@ export const clientCmd = new Command('client')
 
       socket.on('error', () => {
         console.error('❌ Cannot connect to service. Is it running?');
-        process.exit(1);
+        throw new VectaHubError('Cannot connect to service', ErrorType.RUNTIME);
       });
     })
   )
@@ -320,7 +320,7 @@ export const clientCmd = new Command('client')
 
       socket.on('error', () => {
         console.error('❌ Cannot connect to service. Is it running?');
-        process.exit(1);
+        throw new VectaHubError('Cannot connect to service', ErrorType.RUNTIME);
       });
     })
   );

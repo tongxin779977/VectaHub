@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { createRecordManager } from '../execution/record-manager.js';
 import { createWorkflowEngine } from '../workflow/engine.js';
 import { getLogger } from '../utils/logger.js';
+import { VectaHubError, ErrorType } from '../infrastructure/index.js';
 
 const logger = getLogger('resume');
 
@@ -44,6 +45,6 @@ export const resumeCmd = new Command('resume')
       logger.info(`Duration: ${result.duration ? `${result.duration}ms` : 'N/A'}`);
     } catch (error) {
       logger.error(`Resume failed: ${(error as Error).message}`);
-      process.exit(1);
+      throw new VectaHubError(`Resume failed: ${(error as Error).message}`, ErrorType.RUNTIME, error);
     }
   });

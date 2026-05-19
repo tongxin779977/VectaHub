@@ -1,6 +1,9 @@
 import { Command } from 'commander';
 import { getSecurityManager } from '../security-protocol/index.js';
 import { audit, getCurrentSessionId, AuditEventType } from '../utils/audit.js';
+import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+
+const _ctx = getDefaultContext();
 
 export const securityCmd = new Command('security')
   .description('Security protocol management commands');
@@ -54,7 +57,7 @@ securityCmd
   .description('List all security rules')
   .option('--enabled', 'Show only enabled rules')
   .option('--disabled', 'Show only disabled rules')
-  .action(async (options) => {
+  .action(async (options: { enabled?: boolean; disabled?: boolean }) => {
     const sessionId = getCurrentSessionId();
     const manager = getSecurityManager();
     let rules;
@@ -112,12 +115,19 @@ securityCmd
   .option('--severity <sev>', 'Severity: critical|high|medium|low', 'medium')
   .option('--pattern <pattern>', 'Regex pattern (can use multiple times)')
   .option('--cli-tool <tool>', 'CLI tool this rule applies to (can use multiple times)')
-  .action(async (options) => {
+  .action(async (options: {
+    name: string;
+    description: string;
+    category: 'system' | 'filesystem' | 'network' | 'resource' | 'custom';
+    severity: 'critical' | 'high' | 'medium' | 'low';
+    pattern: string | string[];
+    cliTool?: string | string[];
+  }) => {
     const sessionId = getCurrentSessionId();
 
     if (!options.name || !options.pattern) {
-      const error = 'Name and at least one pattern are required';
-      console.error(`❌ ${error}`);
+      const errorMessage = 'Name and at least one pattern are required';
+      console.error(`❌ ${errorMessage}`);
       audit.log({
         event: AuditEventType.SECURITY_ACTION,
         timestamp: new Date().toISOString(),
@@ -126,9 +136,9 @@ securityCmd
         action: 'add_rule',
         input: { name: options.name },
         success: false,
-        error,
+        error: errorMessage,
       });
-      process.exit(1);
+      throw new VectaHubError(errorMessage, ErrorType.CONFIGURATION);
     }
 
     const patterns = Array.isArray(options.pattern) ? options.pattern : [options.pattern];
@@ -138,8 +148,8 @@ securityCmd
     const rule = manager.addRule({
       name: options.name,
       description: options.description,
-      category: options.category as any,
-      severity: options.severity as any,
+      category: options.category,
+      severity: options.severity,
       patterns,
       cliTools,
       enabled: true,
@@ -169,13 +179,21 @@ securityCmd
   .option('--severity <sev>', 'Update severity')
   .option('--add-pattern <pattern>', 'Add new pattern (can use multiple times)')
   .option('--remove-pattern <pattern>', 'Remove pattern (can use multiple times)')
-  .action(async (ruleId, options) => {
+  .action(async (ruleId: string, options: {
+    name?: string;
+    description?: string;
+    category?: 'system' | 'filesystem' | 'network' | 'resource' | 'custom';
+    severity?: 'critical' | 'high' | 'medium' | 'low';
+    addPattern?: string | string[];
+    removePattern?: string | string[];
+  }) => {
     const sessionId = getCurrentSessionId();
     const manager = getSecurityManager();
     const existing = manager.getRuleById(ruleId);
 
     if (!existing) {
-      console.error(`❌ Rule not found: ${ruleId}`);
+      const errorMessage = `Rule not found: ${ruleId}`;
+      console.error(`❌ ${errorMessage}`);
       audit.log({
         event: AuditEventType.SECURITY_ACTION,
         timestamp: new Date().toISOString(),
@@ -184,12 +202,18 @@ securityCmd
         action: 'update_rule',
         input: { ruleId },
         success: false,
-        error: 'Rule not found',
+        error: errorMessage,
       });
-      process.exit(1);
+      throw new VectaHubError(errorMessage, ErrorType.CONFIGURATION);
     }
 
-    const updates: any = {};
+    const updates: Partial<{
+      name: string;
+      description: string;
+      category: 'system' | 'filesystem' | 'network' | 'resource' | 'custom';
+      severity: 'critical' | 'high' | 'medium' | 'low';
+      patterns: string[];
+    }> = {};
     if (options.name) updates.name = options.name;
     if (options.description !== undefined) updates.description = options.description;
     if (options.category) updates.category = options.category;
@@ -223,15 +247,16 @@ securityCmd
         success: true,
       });
     } else {
-      console.error(`❌ Failed to update rule\n`);
-      process.exit(1);
+      const errorMessage = 'Failed to update rule';
+      console.error(`❌ ${errorMessage}\n`);
+      throw new VectaHubError(errorMessage, ErrorType.RUNTIME);
     }
   });
 
 securityCmd
   .command('delete <ruleId>')
   .description('Delete a security rule')
-  .action(async (ruleId) => {
+  .action(async (ruleId: string) => {
     const sessionId = getCurrentSessionId();
     const manager = getSecurityManager();
     const success = manager.deleteRule(ruleId);
@@ -248,15 +273,16 @@ securityCmd
         success: true,
       });
     } else {
-      console.error(`❌ Rule not found: ${ruleId}\n`);
-      process.exit(1);
+      const errorMessage = `Rule not found: ${ruleId}`;
+      console.error(`❌ ${errorMessage}\n`);
+      throw new VectaHubError(errorMessage, ErrorType.CONFIGURATION);
     }
   });
 
 securityCmd
   .command('enable <ruleId>')
   .description('Enable a security rule')
-  .action(async (ruleId) => {
+  .action(async (ruleId: string) => {
     const sessionId = getCurrentSessionId();
     const manager = getSecurityManager();
     const success = manager.enableRule(ruleId);
@@ -274,15 +300,16 @@ securityCmd
         success: true,
       });
     } else {
-      console.error(`❌ Rule not found: ${ruleId}\n`);
-      process.exit(1);
+      const errorMessage = `Rule not found: ${ruleId}`;
+      console.error(`❌ ${errorMessage}\n`);
+      throw new VectaHubError(errorMessage, ErrorType.CONFIGURATION);
     }
   });
 
 securityCmd
   .command('disable <ruleId>')
   .description('Disable a security rule')
-  .action(async (ruleId) => {
+  .action(async (ruleId: string) => {
     const sessionId = getCurrentSessionId();
     const manager = getSecurityManager();
     const success = manager.disableRule(ruleId);
@@ -300,15 +327,16 @@ securityCmd
         success: true,
       });
     } else {
-      console.error(`❌ Rule not found: ${ruleId}\n`);
-      process.exit(1);
+      const errorMessage = `Rule not found: ${ruleId}`;
+      console.error(`❌ ${errorMessage}\n`);
+      throw new VectaHubError(errorMessage, ErrorType.CONFIGURATION);
     }
   });
 
 securityCmd
   .command('import <filePath>')
   .description('Import security rules from a JSON file')
-  .action(async (filePath) => {
+  .action(async (filePath: string) => {
     const sessionId = getCurrentSessionId();
     try {
       const manager = getSecurityManager();
@@ -324,8 +352,9 @@ securityCmd
         output: { count: imported },
         success: true,
       });
-    } catch (e: any) {
-      console.error(`❌ Import failed:`, e.message);
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.error(`❌ Import failed:`, errorMessage);
       audit.log({
         event: AuditEventType.SECURITY_ACTION,
         timestamp: new Date().toISOString(),
@@ -334,9 +363,9 @@ securityCmd
         action: 'import_rules',
         input: { filePath },
         success: false,
-        error: e.message,
+        error: errorMessage,
       });
-      process.exit(1);
+      throw new VectaHubError(`Import failed: ${errorMessage}`, ErrorType.RUNTIME);
     }
   });
 
@@ -344,7 +373,7 @@ securityCmd
   .command('export <filePath>')
   .description('Export security rules to a JSON file')
   .option('--include-disabled', 'Include disabled rules')
-  .action(async (filePath, options) => {
+  .action(async (filePath: string, options: { includeDisabled?: boolean }) => {
     const sessionId = getCurrentSessionId();
     try {
       const manager = getSecurityManager();
@@ -359,8 +388,9 @@ securityCmd
         input: { filePath, includeDisabled: options.includeDisabled },
         success: true,
       });
-    } catch (e: any) {
-      console.error(`❌ Export failed:`, e.message);
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.error(`❌ Export failed:`, errorMessage);
       audit.log({
         event: AuditEventType.SECURITY_ACTION,
         timestamp: new Date().toISOString(),
@@ -369,9 +399,9 @@ securityCmd
         action: 'export_rules',
         input: { filePath },
         success: false,
-        error: e.message,
+        error: errorMessage,
       });
-      process.exit(1);
+      throw new VectaHubError(`Export failed: ${errorMessage}`, ErrorType.RUNTIME);
     }
   });
 
@@ -380,7 +410,7 @@ securityCmd
   .description('Test if a command is dangerous')
   .option('--cli-tool <tool>', 'CLI tool to test against')
   .option('--json', 'Output results in JSON format')
-  .action(async (command, options) => {
+  .action(async (command: string, options: { cliTool?: string; json?: boolean }) => {
     const sessionId = getCurrentSessionId();
     const manager = getSecurityManager();
     const result = manager.detectCommand(command, options.cliTool);
@@ -436,14 +466,14 @@ securityCmd
   .command('reset')
   .description('Reset all rules to defaults')
   .option('--force', 'Skip confirmation')
-  .action(async (options) => {
+  .action(async (options: { force?: boolean }) => {
     const sessionId = getCurrentSessionId();
 
     if (!options.force) {
       console.warn('⚠️ This will reset all security rules to defaults!');
       console.warn('⚠️ Custom rules will be lost!');
       console.warn('Use --force to skip this warning.\n');
-      process.exit(1);
+      throw new VectaHubError('Confirmation required. Use --force to skip.', ErrorType.CONFIGURATION);
     }
 
     const manager = getSecurityManager();

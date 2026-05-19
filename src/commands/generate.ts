@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { getLogger } from '../utils/logger.js';
 import { createStorage } from '../workflow/storage.js';
-import { writeFileSync } from 'fs';
+import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
 import { Workflow } from '../types/index.js';
 import YAML from 'yaml';
 import createLLMDialogControlSkill from '../skills/llm-dialog-control/index.js';
@@ -76,21 +76,24 @@ export const generateCmd = new Command('generate')
   .option('-s, --save', '保存到工作流库')
   .option('-e, --execute', '生成后立即执行')
   .action(async (description: string, options: { output?: string; save?: boolean; execute?: boolean }) => {
+    const ctx = getDefaultContext();
+    const env = ctx.environment;
+    
     try {
-      const provider = process.env.VECTAHUB_LLM_PROVIDER as 'openai' | 'anthropic' | 'ollama' | 'groq' || 'openai';
-      const model = process.env.VECTAHUB_LLM_MODEL || 'gpt-4o-mini';
-      const baseUrl = process.env.VECTAHUB_LLM_BASE_URL;
+      const provider = env.getEnv('VECTAHUB_LLM_PROVIDER') as 'openai' | 'anthropic' | 'ollama' | 'groq' || 'openai';
+      const model = env.getEnv('VECTAHUB_LLM_MODEL') || 'gpt-4o-mini';
+      const baseUrl = env.getEnv('VECTAHUB_LLM_BASE_URL');
       
-      const hasOpenAI = !!process.env.OPENAI_API_KEY;
-      const hasAnthropic = !!process.env.ANTHROPIC_API_KEY;
-      const hasOllama = !!process.env.OLLAMA_API_KEY;
+      const hasOpenAI = !!env.getEnv('OPENAI_API_KEY');
+      const hasAnthropic = !!env.getEnv('ANTHROPIC_API_KEY');
+      const hasOllama = !!env.getEnv('OLLAMA_API_KEY');
       
       if (!hasOpenAI && !hasAnthropic && !hasOllama) {
         logger.error('LLM 不可用，请先配置环境变量');
         logger.info('   - OpenAI: OPENAI_API_KEY');
         logger.info('   - Anthropic: ANTHROPIC_API_KEY');
         logger.info('   - Ollama: OLLAMA_API_KEY 和 VECTAHUB_LLM_BASE_URL');
-        process.exit(1);
+        throw new VectaHubError('LLM providers not configured', ErrorType.RUNTIME);
       }
 
       const skill = createLLMDialogControlSkill({
@@ -111,7 +114,7 @@ export const generateCmd = new Command('generate')
       if (!response.success) {
         logger.error(`生成失败: ${response.error}`);
         logger.info(`尝试次数: ${response.attemptCount}`);
-        process.exit(1);
+        throw new VectaHubError(`Generation failed: ${response.error}`, ErrorType.RUNTIME);
       }
       
       logger.info(`生成成功！(尝试次数: ${response.attemptCount})`);
@@ -122,7 +125,7 @@ export const generateCmd = new Command('generate')
       } catch (e) {
         logger.error('生成的 YAML 无效');
         console.log('\n' + response.output);
-        process.exit(1);
+        throw new VectaHubError('Generated YAML is invalid', ErrorType.RUNTIME, e);
       }
 
       logger.info('生成的工作流:');
@@ -136,7 +139,7 @@ export const generateCmd = new Command('generate')
         outputPath = `./${safeName}.yaml`;
       }
 
-      writeFileSync(outputPath, response.output, 'utf-8');
+      env.writeFile(outputPath, response.output);
       logger.info(`工作流已保存到: ${outputPath}`);
 
       if (options.save) {
@@ -153,8 +156,15 @@ export const generateCmd = new Command('generate')
       logger.info('提示: 使用 vectahub run --file ' + outputPath + ' 执行工作流');
       
     } catch (error) {
+      if (error instanceof VectaHubError) {
+        throw error;
+      }
       logger.error(`生成失败: ${error instanceof Error ? error.message : String(error)}`);
       logger.debug(error instanceof Error ? error.stack : String(error));
-      process.exit(1);
+      throw new VectaHubError(
+        `Generation failed: ${error instanceof Error ? error.message : String(error)}`,
+        ErrorType.RUNTIME,
+        error
+      );
     }
   });

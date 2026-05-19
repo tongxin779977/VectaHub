@@ -1,12 +1,13 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { parse, stringify } from 'yaml';
 import { createInterface, type Interface } from 'readline';
 import { getLogger } from '../utils/logger.js';
 import type { StepResult } from './priority-installer.js';
 import { getVectaHubPath } from '../utils/paths.js';
+import { getDefaultContext } from '../infrastructure/context.js';
 
 const logger = getLogger('setup');
+const ctx = getDefaultContext();
 
 let sharedRl: Interface | null = null;
 let nonInteractiveMode = false;
@@ -112,11 +113,11 @@ export async function createConfigDir(): Promise<StepResult> {
   const configDir = getConfigDir();
 
   try {
-    if (existsSync(configDir)) {
+    if (ctx.environment.exists(configDir)) {
       return { success: true };
     }
 
-    mkdirSync(configDir, { recursive: true });
+    ctx.environment.ensureDir(configDir);
     return { success: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'unknown error';
@@ -129,12 +130,12 @@ export async function initConfigFile(): Promise<StepResult> {
   const configPath = getConfigPath();
 
   try {
-    if (existsSync(configPath)) {
+    if (ctx.environment.exists(configPath)) {
       return { success: true };
     }
 
     const content = stringify(DEFAULT_CONFIG);
-    writeFileSync(configPath, content, 'utf-8');
+    ctx.environment.writeFile(configPath, content);
     return { success: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'unknown error';
@@ -193,11 +194,11 @@ export async function configureLLMProvider(): Promise<StepResult> {
 
 export function isFirstRun(): boolean {
   const configPath = getConfigPath();
-  if (!existsSync(configPath)) {
+  if (!ctx.environment.exists(configPath)) {
     return true;
   }
   try {
-    const content = readFileSync(configPath, 'utf-8');
+    const content = ctx.environment.readFile(configPath);
     const config = parse(content) as VectaHubConfig;
     return !config.first_run_completed;
   } catch {
@@ -207,11 +208,11 @@ export function isFirstRun(): boolean {
 
 export function loadConfig(): VectaHubConfig {
   const configPath = getConfigPath();
-  if (!existsSync(configPath)) {
+  if (!ctx.environment.exists(configPath)) {
     return { ...DEFAULT_CONFIG };
   }
   try {
-    const content = readFileSync(configPath, 'utf-8');
+    const content = ctx.environment.readFile(configPath);
     const parsed = parse(content);
     return { ...DEFAULT_CONFIG, ...parsed };
   } catch {
@@ -223,12 +224,12 @@ export function saveConfig(config: VectaHubConfig): void {
   const configPath = getConfigPath();
   const configDir = dirname(configPath);
 
-  if (!existsSync(configDir)) {
-    mkdirSync(configDir, { recursive: true });
+  if (!ctx.environment.exists(configDir)) {
+    ctx.environment.ensureDir(configDir);
   }
 
   const content = stringify(config);
-  writeFileSync(configPath, content, 'utf-8');
+  ctx.environment.writeFile(configPath, content);
 }
 
 export async function runFirstRunWizard(): Promise<boolean> {

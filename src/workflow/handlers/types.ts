@@ -5,6 +5,7 @@ import type { Detector } from '../../sandbox/detector.js';
 import type { SemanticDetector } from '../../sandbox/semantic-detector.js';
 import type { SandboxManager } from '../../sandbox/sandbox.js';
 import type { AuditHelper } from '../../infrastructure/audit/index.js';
+import type { SecurityGuard } from '../../types/security.js';
 
 export interface ExecutorOptions {
   mode: SandboxMode;
@@ -56,6 +57,7 @@ export interface HandlerDependencies {
   detector: Detector;
   semanticDetector?: SemanticDetector;
   audit: AuditHelper;
+  securityGuard: SecurityGuard;
   sandboxManager?: SandboxManager;
   exec: (cli: string, args: string[], options: ExecutorOptions) => Promise<CLIResult>;
   execInSandbox: (cli: string, args: string[], options: ExecutorOptions) => Promise<CLIResult>;

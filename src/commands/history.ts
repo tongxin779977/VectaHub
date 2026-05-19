@@ -2,8 +2,10 @@ import { Command } from 'commander';
 import { createRecordManager } from '../execution/record-manager.js';
 import { createStorage } from '../workflow/storage.js';
 import { getLogger } from '../utils/logger.js';
+import { getDefaultContext } from '../infrastructure/index.js';
 
 const logger = getLogger('history');
+const _ctx = getDefaultContext();
 
 function formatStatus(status: string): string {
   switch (status) {
@@ -24,6 +26,16 @@ function formatDuration(ms: number): string {
   return `${m}m ${s % 60}s`;
 }
 
+interface ExtendedStepRecord extends StepRecord {
+  outputSummary?: string;
+  command?: string;
+}
+
+interface ExtendedExecutionRecord extends ExecutionRecord {
+  metadata?: Record<string, unknown>;
+  error?: string;
+}
+
 export const historyCmd = new Command('history')
   .description('List execution history with search capabilities')
   .option('--status <status>', 'Filter by status (COMPLETED|FAILED|PAUSED|ABORTED)')
@@ -36,13 +48,13 @@ export const historyCmd = new Command('history')
     const recordManager = createRecordManager();
     const limit = parseInt(options.limit, 10) || 20;
 
-    let records;
+    let records: ExtendedExecutionRecord[];
     if (options.query) {
       const result = await recordManager.search(options.query, {
         limit,
         status: options.status,
       });
-      records = result.records;
+      records = result.records as ExtendedExecutionRecord[];
 
       logger.info('');
       logger.info(`Search results for "${options.query}" (${result.total} total, showing ${records.length}):`);
@@ -50,7 +62,7 @@ export const historyCmd = new Command('history')
         logger.info('Use --limit to see more results.');
       }
     } else {
-      records = await storage.list();
+      records = await storage.list() as ExtendedExecutionRecord[];
 
       if (options.status) {
         records = records.filter(r => r.status === options.status!.toUpperCase());
@@ -73,8 +85,7 @@ export const historyCmd = new Command('history')
     for (const record of records) {
       const duration = record.duration ? formatDuration(record.duration) : 'N/A';
       const stepCount = record.steps ? record.steps.length : 0;
-      const rec = record as unknown as Record<string, unknown>;
-      const metadata = rec.metadata as Record<string, unknown> | undefined;
+      const metadata = record.metadata;
       const source = metadata?.source ? ` [${metadata.source}]` : '';
 
       if (options.verbose) {
@@ -84,7 +95,7 @@ export const historyCmd = new Command('history')
         logger.info(`  Status:    ${formatStatus(record.status)}`);
         logger.info(`  Duration:  ${duration}`);
         logger.info(`  Steps:     ${stepCount}`);
-        logger.info(`  Started:   ${(rec.startedAt as string) || 'N/A'}`);
+        logger.info(`  Started:   ${record.startedAt ? String(record.startedAt) : 'N/A'}`);
         if (source) logger.info(`  Source:    ${metadata!.source}`);
         if (metadata?.cwd) logger.info(`  CWD:       ${metadata.cwd}`);
 
@@ -92,17 +103,17 @@ export const historyCmd = new Command('history')
           logger.info('  Steps:');
           for (const step of record.steps.slice(0, 5)) {
             const stepStatus = step.status === 'COMPLETED' ? '✅' : step.status === 'FAILED' ? '❌' : '⏸️';
-            const stepRec = step as unknown as Record<string, unknown>;
-            const summary = stepRec.outputSummary ? ` - ${stepRec.outputSummary}` : '';
-            logger.info(`    ${stepStatus} ${step.stepId}: ${(stepRec.command as string) || ''}${summary}`);
+            const extendedStep = step as ExtendedStepRecord;
+            const summary = extendedStep.outputSummary ? ` - ${extendedStep.outputSummary}` : '';
+            logger.info(`    ${stepStatus} ${step.stepId}: ${extendedStep.command || ''}${summary}`);
           }
           if (record.steps.length > 5) {
             logger.info(`    ... and ${record.steps.length - 5} more steps`);
           }
         }
 
-        if (rec.error) {
-          logger.info(`  Error:     ${rec.error}`);
+        if (record.error) {
+          logger.info(`  Error:     ${record.error}`);
         }
         logger.info('');
       } else {

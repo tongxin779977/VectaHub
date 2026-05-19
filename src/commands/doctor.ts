@@ -1,11 +1,11 @@
 import { Command } from 'commander';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { readFile, readdir } from 'fs/promises';
 import { join } from 'path';
-import { existsSync } from 'fs';
+import { getDefaultContext } from '../infrastructure/index.js';
 
 const execAsync = promisify(exec);
+const environment = getDefaultContext().environment;
 
 async function execWithTimeout(command: string, timeoutMs = 5000): Promise<{ stdout: string; stderr: string }> {
   const controller = new AbortController();
@@ -54,7 +54,7 @@ type DoctorCheck = { name: string; status: 'pass' | 'fail' | 'warn'; message: st
 
 async function hasPackageDependency(name: string): Promise<boolean> {
   try {
-    const packageJson = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf-8'));
+    const packageJson = JSON.parse(environment.readFile(join(environment.getCwd(), 'package.json')));
     return Boolean(packageJson.dependencies?.[name] || packageJson.devDependencies?.[name]);
   } catch {
     return false;
@@ -84,7 +84,7 @@ export async function runChecks(verbose = false): Promise<DoctorCheck[]> {
       checks.push({
         name: '  Node Env',
         status: 'pass',
-        message: `NODE_ENV=${process.env.NODE_ENV || 'undefined'}`,
+        message: `NODE_ENV=${environment.getEnv('NODE_ENV') || 'undefined'}`,
       });
     }
   } catch {
@@ -96,8 +96,8 @@ export async function runChecks(verbose = false): Promise<DoctorCheck[]> {
     checks.push({ name: 'TypeScript', status: 'pass', message: stdout.trim() });
 
     if (verbose) {
-      const tsConfigPath = join(process.cwd(), 'tsconfig.json');
-      const tsConfigExists = existsSync(tsConfigPath);
+      const tsConfigPath = join(environment.getCwd(), 'tsconfig.json');
+      const tsConfigExists = environment.exists(tsConfigPath);
       checks.push({
         name: '  tsconfig.json',
         status: tsConfigExists ? 'pass' : 'warn',
@@ -112,8 +112,8 @@ export async function runChecks(verbose = false): Promise<DoctorCheck[]> {
     const { stdout } = await execWithTimeout('npx tsx --version');
     checks.push({ name: 'tsx', status: 'pass', message: stdout.trim() });
   } catch {
-    const packageExists = existsSync(join(process.cwd(), 'package.json'));
-    const srcExists = existsSync(join(process.cwd(), 'src'));
+    const packageExists = environment.exists(join(environment.getCwd(), 'package.json'));
+    const srcExists = environment.exists(join(environment.getCwd(), 'src'));
     const hasLocalTsx = packageExists && await hasPackageDependency('tsx');
 
     if (hasLocalTsx && srcExists) {
@@ -132,8 +132,8 @@ export async function runChecks(verbose = false): Promise<DoctorCheck[]> {
     checks.push({ name: 'Vitest', status: 'pass', message: stdout.trim() });
 
     if (verbose) {
-      const vitestConfigPath = join(process.cwd(), 'vitest.config.ts');
-      const vitestConfigExists = existsSync(vitestConfigPath);
+      const vitestConfigPath = join(environment.getCwd(), 'vitest.config.ts');
+      const vitestConfigExists = environment.exists(vitestConfigPath);
       checks.push({
         name: '  vitest.config',
         status: vitestConfigExists ? 'pass' : 'warn',
@@ -144,9 +144,9 @@ export async function runChecks(verbose = false): Promise<DoctorCheck[]> {
     checks.push({ name: 'Vitest', status: 'warn', message: 'Not found (optional)' });
   }
 
-  const srcExists = existsSync(join(process.cwd(), 'src'));
-  const docsExists = existsSync(join(process.cwd(), 'docs'));
-  const packageExists = existsSync(join(process.cwd(), 'package.json'));
+  const srcExists = environment.exists(join(environment.getCwd(), 'src'));
+  const docsExists = environment.exists(join(environment.getCwd(), 'docs'));
+  const packageExists = environment.exists(join(environment.getCwd(), 'package.json'));
 
   checks.push({
     name: 'Directory structure',
@@ -162,15 +162,14 @@ export async function runChecks(verbose = false): Promise<DoctorCheck[]> {
     });
 
     if (verbose) {
-      const srcFiles = await readdir(join(process.cwd(), 'src'));
+      const srcFiles = environment.readDir(join(environment.getCwd(), 'src'));
       checks.push({
         name: '  Source modules',
         status: 'pass',
         message: `${srcFiles.length} top-level modules`,
       });
 
-      const { readFileSync } = await import('fs');
-      const packageJson = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf-8'));
+      const packageJson = JSON.parse(environment.readFile(join(environment.getCwd(), 'package.json')));
       checks.push({
         name: '  Package version',
         status: 'pass',
@@ -216,5 +215,4 @@ export const doctorCmd = new Command('doctor')
     } else {
       console.log(formatDoctorResults(checks));
     }
-    process.exit(0);
   });

@@ -1,5 +1,3 @@
-import { createReadStream } from 'node:fs';
-import readline from 'node:readline';
 import {
   computeInstructionHash as sharedComputeInstructionHash,
   deriveAgentTaskBoundary as sharedDeriveAgentTaskBoundary,
@@ -9,6 +7,8 @@ import {
   decideAgentTaskConcurrency as sharedDecideAgentTaskConcurrency,
 } from '@vectahub/doc-task-contract-core';
 import type { AgentTaskBoundary, AgentTaskConcurrencyDecision, AgentTaskContract } from '../types/doc-task.js';
+import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+
 export function computeInstructionHash(
   taskId: string,
   label: string,
@@ -39,18 +39,14 @@ export async function deriveDocExcerpt(input: {
   truncated: boolean;
   strategy: 'task-heading' | 'task-id-window' | 'label-window' | 'head-fallback';
 }> {
-  const stream = createReadStream(input.docPath, { encoding: 'utf8' });
-  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
-  try {
-    return await sharedDeriveDocExcerptFromLines(rl, {
-      taskId: input.taskId,
-      label: input.label,
-      maxChars: input.maxChars,
-    });
-  } finally {
-    rl.close();
-    stream.destroy();
-  }
+  const ctx = getDefaultContext();
+  const lineIterator = ctx.environment.readLines(input.docPath);
+  
+  return await sharedDeriveDocExcerptFromLines(lineIterator, {
+    taskId: input.taskId,
+    label: input.label,
+    maxChars: input.maxChars,
+  });
 }
 
 export function normalizeAgentTaskFiles(input: {

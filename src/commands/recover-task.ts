@@ -11,11 +11,11 @@
 
 import { Command } from 'commander';
 import { getLogger } from '../utils/logger.js';
-import { startSpan, createChildEnv, getTraceContextFromEnv } from '../infrastructure/trace/index.js';
+import { startSpan, createChildEnv } from '../infrastructure/trace/index.js';
 import { runTask, formatRunTaskJson, type RunTaskResult } from './run-task.js';
+import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
 import {
   decideRecovery,
-  buildRecoveryInputFromRecord,
   createRecoveryRecord,
   type DocTaskRecoveryInput,
   type RecoveryDecision,
@@ -25,6 +25,7 @@ import {
 import type { DocTaskFailureKind, DocTaskRunStatus } from '../types/doc-task.js';
 
 const logger = getLogger('recover-task');
+const ctx = getDefaultContext();
 
 export interface RecoverTaskOptions {
   runId: string;
@@ -61,7 +62,6 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
   const sourceRunId = options.runId;
 
   // Build a minimal recovery input from the provided CLI arguments.
-  // In the full flow, the plugin builds this from the DocTaskRunRecord.
   const failureKind: DocTaskFailureKind = isValidFailureKind(options.sourceFailureKind)
     ? options.sourceFailureKind!
     : 'unknown';
@@ -81,13 +81,10 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
   };
 
   const localDecision = decideRecovery(input);
-  // Stale task context must block recovery even when the plugin passes a
-  // precomputed decision. This keeps the standalone CLI contract enforceable.
   let decision: RecoveryDecision;
   if (localDecision.kind === 'blocked' && localDecision.reason === 'instruction-changed') {
     decision = localDecision;
   } else if (options.decisionKind && isValidDecisionKind(options.decisionKind)) {
-    // Plugin pre-computed the decision; reconstruct a minimal RecoveryDecision
     decision = buildDecisionFromKind(options.decisionKind as RecoveryDecisionKind, failureKind);
   } else {
     decision = localDecision;
@@ -96,7 +93,6 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
   logger.info(`恢复决策: kind=${decision.kind}, mode=${decision.mode}, reason=${decision.reason}`);
   logger.info(`恢复摘要: ${decision.summary}`);
 
-  // Start a new recovery trace with source association
   const recoverySpan = startSpan('cli.recover-task', {
     source: 'cli',
     attributes: {
@@ -122,7 +118,6 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
     retryOfRunId: sourceRunId,
   });
 
-  // ── Handle blocked ──
   if (decision.kind === 'blocked') {
     recoveryRecord.status = 'blocked';
     recoveryRecord.updatedAt = new Date().toISOString();
@@ -149,7 +144,6 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
     };
   }
 
-  // ── Handle suggest_fix (P6 V1: guidance only, no auto-fix execution) ──
   if (decision.kind === 'suggest_fix') {
     recoveryRecord.status = 'planned';
     recoveryRecord.updatedAt = new Date().toISOString();
@@ -175,7 +169,6 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
     };
   }
 
-  // ── Handle retry_direct ──
   if (decision.kind === 'retry_direct') {
     recoveryRecord.status = 'running';
     recoveryRecord.updatedAt = new Date().toISOString();
@@ -183,8 +176,6 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
     logger.info(`正在重新执行任务 ${options.taskId}...`);
 
     try {
-      // Inject recovery trace context into env so runTask() can pick it up
-      // via getTraceContextFromEnv() and create child spans under the recovery span.
       const recoveryTraceContext = {
         traceId: recoverySpan.traceId,
         parentSpanId: recoverySpan.spanId,
@@ -192,10 +183,12 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
       };
       const childEnv = createChildEnv(recoveryTraceContext, recoverySpan.spanId);
       const originalEnv: Record<string, string | undefined> = {};
+      const allEnv = ctx.environment.getAllEnv();
+      
       for (const [key, value] of Object.entries(childEnv)) {
-        originalEnv[key] = process.env[key];
+        originalEnv[key] = allEnv[key];
         if (value !== undefined) {
-          process.env[key] = value;
+          ctx.environment.setEnv(key, value);
         }
       }
 
@@ -208,12 +201,11 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
           doc: options.doc,
         });
       } finally {
-        // Restore original env
         for (const [key, value] of Object.entries(originalEnv)) {
           if (value === undefined) {
-            delete process.env[key];
+            ctx.environment.deleteEnv(key);
           } else {
-            process.env[key] = value;
+            ctx.environment.setEnv(key, value);
           }
         }
       }
@@ -267,7 +259,6 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
     }
   }
 
-  // ── Fallback: unsupported decision kind ──
   recoveryRecord.status = 'blocked';
   recoveryRecord.updatedAt = new Date().toISOString();
   recoveryRecord.endedAt = recoveryRecord.updatedAt;
@@ -287,8 +278,6 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
     error: `不支持的恢复类型: ${decision.kind}`,
   };
 }
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const VALID_FAILURE_KINDS: DocTaskFailureKind[] = [
   'config', 'agent', 'json_protocol', 'timeout', 'test', 'conflict', 'system_internal', 'cancelled', 'unknown',
@@ -405,8 +394,6 @@ function classifyFailureFromErrorMessage(errorMessage: string): ClassifiedFailur
   return { kind: 'agent', status: 'failed_agent' };
 }
 
-// ─── CLI Command Registration ────────────────────────────────────────────────
-
 export const recoverTaskCmd = new Command('recover-task')
   .description('恢复失败的文档任务')
   .requiredOption('--run-id <id>', '原始失败运行 ID')
@@ -421,20 +408,7 @@ export const recoverTaskCmd = new Command('recover-task')
   .option('--previous-instruction-hash <hash>', '原始失败运行的 instructionHash')
   .option('--current-instruction-hash <hash>', '当前恢复时计算的 instructionHash')
   .option('--json', '以 JSON 格式输出')
-  .action(async (options: {
-    runId: string;
-    taskId: string;
-    taskLabel: string;
-    tool: string;
-    doc?: string;
-    traceId?: string;
-    sourceFailureKind?: string;
-    decisionKind?: string;
-    command?: string;
-    previousInstructionHash?: string;
-    currentInstructionHash?: string;
-    json?: boolean;
-  }) => {
+  .action(async (options: RecoverTaskOptions) => {
     try {
       const result = await recoverTask(options);
 
@@ -470,7 +444,7 @@ export const recoverTaskCmd = new Command('recover-task')
             logger.info(`  → ${action}`);
           }
         }
-        process.exit(1);
+        throw new VectaHubError(`恢复失败${result.error ? `: ${result.error}` : ''}`, ErrorType.RUNTIME);
       } else {
         logger.info(`恢复成功: 任务 ${result.taskId}`);
         if (result.runResult) {
@@ -478,12 +452,15 @@ export const recoverTaskCmd = new Command('recover-task')
         }
       }
     } catch (error) {
+      if (error instanceof VectaHubError) {
+        throw error;
+      }
       const message = error instanceof Error ? error.message : String(error);
       if (options.json) {
         console.log(JSON.stringify({ ok: false, error: message }, null, 2));
       } else {
         logger.error(`恢复执行失败: ${message}`);
       }
-      process.exit(1);
+      throw new VectaHubError(`恢复执行失败: ${message}`, ErrorType.RUNTIME, error);
     }
   });

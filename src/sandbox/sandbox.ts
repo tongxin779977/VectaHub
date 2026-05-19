@@ -7,9 +7,11 @@ import { createHash, timingSafeEqual } from 'crypto';
 import { createDetector, type Detector } from './detector.js';
 import { CommandRuleEngine, createCommandRuleEngine, loadGlobalBlocklist, loadGlobalAllowlist, loadProjectBlocklist, loadProjectAllowlist } from '../command-rules/index.js';
 import { SANDBOX_EXEC_PATH, BWRAP_PATH, UNSHARE_PATH, SUDOERS_PATH, FALLBACK_PATH, DEFAULT_PROTECTED_DIRS } from './constants.js';
-import type { SandboxMode, CommandDetection } from '../types/index.js';
+import type { Step, SandboxMode, CommandDetection } from '../types/index.js';
 import type { DefaultPolicy } from '../command-rules/types.js';
 import { performEnvAudit, audit as globalAudit, AuditEventType, getCurrentSessionId, type AuditHelper } from '../infrastructure/audit/index.js';
+import { createSecurityGuard } from '../security-protocol/factory.js';
+import type { SecurityGuard } from '../types/security.js';
 
 const DEFAULT_POLICY: DefaultPolicy = 'passthrough';
 
@@ -92,6 +94,7 @@ export interface SandboxManagerDeps {
   detector?: Detector;
   ruleEngine?: CommandRuleEngine;
   audit?: AuditHelper;
+  securityGuard?: SecurityGuard;
 }
 
 export class SandboxManager {
@@ -99,6 +102,7 @@ export class SandboxManager {
   private detector: Detector;
   private ruleEngine: CommandRuleEngine;
   private auditHelper: AuditHelper;
+  private securityGuard: SecurityGuard;
   private projectPath: string | undefined;
 
   private isolationStrategy: IsolationStrategy | null = null;
@@ -122,6 +126,7 @@ export class SandboxManager {
       defaultPolicy: this.config.defaultPolicy || 'passthrough',
     });
     this.auditHelper = deps.audit ?? globalAudit;
+    this.securityGuard = deps.securityGuard ?? createSecurityGuard();
     this.ensureDirectories();
   }
 
@@ -915,8 +920,11 @@ ${denyRules}
   }
 }
 
-export function createSandboxManager(config?: Partial<SandboxConfig>): SandboxManager {
-  return new SandboxManager(config);
+export function createSandboxManager(
+  config?: Partial<SandboxConfig>,
+  deps?: SandboxManagerDeps
+): SandboxManager {
+  return new SandboxManager(config, deps);
 }
 
 export interface Sandbox {
