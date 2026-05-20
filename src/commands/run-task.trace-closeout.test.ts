@@ -6,7 +6,11 @@ vi.mock('../infrastructure/trace/writer.js', () => ({
   writeTraceSpan: writeTraceSpanMock,
 }));
 
-import { runTaskCmd } from './run-task.js';
+async function createTestRunTaskCmd() {
+  const { createRunTaskCmd } = await import('./run-task.js');
+  const { getDefaultContext } = await import('../infrastructure/context.js');
+  return createRunTaskCmd(getDefaultContext());
+}
 
 describe('runTask trace closeout', () => {
   beforeEach(() => {
@@ -16,6 +20,7 @@ describe('runTask trace closeout', () => {
 
   it('emits cli.run-task.formatJson as a child span on JSON contract preview path', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const runTaskCmd = await createTestRunTaskCmd();
 
     await runTaskCmd.parseAsync([
       '--task-id', 'TRACE-1',
@@ -47,12 +52,12 @@ describe('runTask trace closeout', () => {
 
   it('emits cli.run-task.formatJson on JSON error path before failing the root span', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    const runTaskCmd = await createTestRunTaskCmd();
 
-    await runTaskCmd.parseAsync([
+    await expect(runTaskCmd.parseAsync([
       '--task-id', 'TRACE-ERR',
       '--json',
-    ], { from: 'user' });
+    ], { from: 'user' })).rejects.toThrow('缺少 Agent CLI 工具名称');
 
     const records = writeTraceSpanMock.mock.calls.map(([record]) => record as {
       name: string;
@@ -68,7 +73,6 @@ describe('runTask trace closeout', () => {
     expect(formatJsonSpan).toBeDefined();
     expect(formatJsonSpan?.parentSpanId).toBe(rootSpan?.spanId);
     expect(formatJsonSpan?.status).toBe('completed');
-    expect(exitSpy).toHaveBeenCalledWith(1);
 
     const payload = String(logSpy.mock.calls.at(-1)?.[0] ?? '');
     expect(payload).toContain('"ok": false');

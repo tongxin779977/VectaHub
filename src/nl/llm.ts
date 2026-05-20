@@ -1,4 +1,5 @@
-import { audit, type AuditHelper } from '../infrastructure/audit/index.js';
+import type { AuditHelper } from '../infrastructure/audit/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
 import { getAllIntentNames, buildKeywordSummary } from './templates/index.js';
 import createLLMDialogControlSkill from '../skills/llm-dialog-control/index.js';
 import { loadConfig } from '../setup/first-run-wizard.js';
@@ -7,6 +8,7 @@ import {
   DEFAULT_INTENT_PARSER_ID,
   DEFAULT_WORKFLOW_YAML_ID,
 } from './prompt-manager.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import type {
   LLMConfig,
   LLMTool,
@@ -36,6 +38,14 @@ interface ResolvedLLMConfigSource {
   timeout?: number;
 }
 
+export type LLMConfigState = 'unconfigured' | 'configured' | 'invalid';
+
+export interface LLMConfigResolution {
+  state: LLMConfigState;
+  config: LLMConfig | null;
+  error?: VectaHubError;
+}
+
 function normalizeLLMProvider(provider: string | undefined): LLMConfig['provider'] | null {
   const normalized = provider?.toLowerCase();
   if (!normalized) return null;
@@ -56,7 +66,12 @@ function resolveConfigFileLLMSource(): ResolvedLLMConfigSource | null {
 
   if (!llmConfig?.enabled) return null;
   const provider = normalizeLLMProvider(llmConfig.provider);
-  if (!provider) return null;
+  if (!provider) {
+    throw new VectaHubError(
+      `Unsupported LLM provider in config: ${llmConfig.provider || '(empty)'}`,
+      ErrorType.CONFIGURATION,
+    );
+  }
 
   let apiKey = llmConfig.apiKey;
   let baseUrl = llmConfig.baseUrl;
@@ -98,7 +113,12 @@ function resolveConfigFileLLMSource(): ResolvedLLMConfigSource | null {
 function resolveEnvLLMSource(): ResolvedLLMConfigSource | null {
   const explicitProvider = process.env.VECTAHUB_LLM_PROVIDER;
   const normalizedExplicitProvider = normalizeLLMProvider(explicitProvider);
-  if (explicitProvider && !normalizedExplicitProvider) return null;
+  if (explicitProvider && !normalizedExplicitProvider) {
+    throw new VectaHubError(
+      `Unsupported LLM provider: ${explicitProvider}`,
+      ErrorType.CONFIGURATION,
+    );
+  }
 
   const hasEnvSignal = Boolean(
     explicitProvider
@@ -135,11 +155,33 @@ function resolveEnvLLMSource(): ResolvedLLMConfigSource | null {
 }
 
 function resolveLLMConfigSource(): ResolvedLLMConfigSource | null {
-  try {
-    return resolveConfigFileLLMSource() || resolveEnvLLMSource();
-  } catch {
-    return resolveEnvLLMSource();
+  return resolveConfigFileLLMSource() || resolveEnvLLMSource();
+}
+
+export function resolveLLMConfig(): LLMConfigResolution {
+  const resolved = resolveLLMConfigSource();
+  if (!resolved) {
+    return {
+      state: 'unconfigured',
+      config: null,
+    };
   }
+
+  if ((resolved.provider === 'openai' || resolved.provider === 'groq' || resolved.provider === 'anthropic') && !resolved.apiKey) {
+    return {
+      state: 'invalid',
+      config: null,
+      error: new VectaHubError(
+        `Missing API key for LLM provider: ${resolved.provider}`,
+        ErrorType.CONFIGURATION,
+      ),
+    };
+  }
+
+  return {
+    state: 'configured',
+    config: resolved,
+  };
 }
 
 export function createLLMConfigDigestSource(): {
@@ -166,7 +208,7 @@ export class LLMClient {
   constructor(config: LLMConfig, deps: LLMClientDeps = {}) {
     this.config = config;
     this.promptManager = createPromptManager();
-    this.auditHelper = deps.auditHelper ?? audit;
+    this.auditHelper = deps.auditHelper ?? getDefaultContext().audit.getHelper();
   }
 
   setSessionId(sessionId: string): void {
@@ -181,8 +223,6 @@ export class LLMClient {
   }
 
   async complete(promptId: string, userInput: string, context?: Record<string, string>, options?: { tools?: LLMTool[]; toolChoice?: string }): Promise<LLMResponse> {
-    const startTime = Date.now();
-
     try {
       const systemPrompt = this.promptManager.buildSystemPrompt(promptId, context, this.sessionId);
       // 记录用户消息
@@ -200,13 +240,10 @@ export class LLMClient {
       }
 
       const data = await response.json();
-      const duration = Date.now() - startTime;
-
       this.auditHelper.securityAction('LLM_CALL', `${this.config.provider}/${this.config.model}`, 'COMPLETED', this.sessionId || 'unknown');
 
       return this.parseResponse(data);
     } catch (error) {
-      const duration = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : String(error);
 
       this.auditHelper.securityAction('LLM_CALL', `${this.config.provider}/${this.config.model}`, 'FAILED', this.sessionId || 'unknown');
@@ -582,8 +619,6 @@ export class LLMClient {
       content: string;
     }>
   ): Promise<LLMResponse> {
-    const startTime = Date.now();
-
     try {
       let response: Response;
 
@@ -596,13 +631,10 @@ export class LLMClient {
       }
 
       const data = await response.json();
-      const duration = Date.now() - startTime;
-
       this.auditHelper.securityAction('LLM_CHAT', `${this.config.provider}/${this.config.model}`, 'COMPLETED', this.sessionId || 'unknown');
 
       return this.parseResponse(data);
     } catch (error) {
-      const duration = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : String(error);
 
       this.auditHelper.securityAction('LLM_CHAT', `${this.config.provider}/${this.config.model}`, 'FAILED', this.sessionId || 'unknown');
@@ -727,15 +759,11 @@ export function createLLMEnhancedParser(config: LLMConfig): NLParserWithLLM {
 }
 
 export function createLLMConfig(): LLMConfig | null {
-  const resolved = resolveLLMConfigSource();
-  if (!resolved) {
-    return null;
+  const resolution = resolveLLMConfig();
+  if (resolution.state === 'invalid') {
+    throw resolution.error;
   }
-  if ((resolved.provider === 'openai' || resolved.provider === 'groq' || resolved.provider === 'anthropic') && !resolved.apiKey) {
-    return null;
-  }
-
-  return resolved;
+  return resolution.config;
 }
 
 function getDefaultModel(provider: string): string {

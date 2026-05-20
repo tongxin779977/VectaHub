@@ -110,6 +110,12 @@ vi.mock('../nl/templates/index.js', () => ({
   INTENT_TEMPLATES: [],
 }));
 
+async function createTestRunCmd() {
+  const { createRunCmd } = await import('./run.js');
+  const { getDefaultContext } = await import('../infrastructure/context.js');
+  return createRunCmd(getDefaultContext());
+}
+
 describe('run command dry-run first run behavior', () => {
   let exitSpy: { mockRestore: () => void };
 
@@ -126,14 +132,14 @@ describe('run command dry-run first run behavior', () => {
   });
 
   it('skips first-run installer and execution in dry-run mode', async () => {
-    const { runCmd } = await import('./run.js');
+    const runCmd = await createTestRunCmd();
 
     await runCmd.parseAsync(['node', 'test', '--dry-run', '查看 git 状态']);
 
     expect(installerRun).not.toHaveBeenCalled();
     expect(createWorkflow).not.toHaveBeenCalled();
     expect(executeWorkflow).not.toHaveBeenCalled();
-    expect(process.exit).toHaveBeenCalledWith(0);
+    expect(process.exit).not.toHaveBeenCalled();
   });
 
   it('skips workflow execution when dry-running a workflow file', async () => {
@@ -144,14 +150,14 @@ describe('run command dry-run first run behavior', () => {
       createdAt: new Date(),
     });
 
-    const { runCmd } = await import('./run.js');
+    const runCmd = await createTestRunCmd();
 
     await runCmd.parseAsync(['node', 'test', '--dry-run', '--file', 'workflow.yaml']);
 
     expect(loadWorkflowFromFile).toHaveBeenCalled();
     expect(createWorkflow).not.toHaveBeenCalled();
     expect(executeWorkflow).not.toHaveBeenCalled();
-    expect(process.exit).toHaveBeenCalledWith(0);
+    expect(process.exit).not.toHaveBeenCalled();
   });
 
   it('creates an ephemeral workflow by default for natural language execution', async () => {
@@ -175,7 +181,7 @@ describe('run command dry-run first run behavior', () => {
       logs: [],
     });
 
-    const { runCmd } = await import('./run.js');
+    const runCmd = await createTestRunCmd();
 
     await runCmd.parseAsync(['node', 'test', '查看 git 状态']);
 
@@ -207,7 +213,7 @@ describe('run command dry-run first run behavior', () => {
       logs: [],
     });
 
-    const { runCmd } = await import('./run.js');
+    const runCmd = await createTestRunCmd();
 
     await runCmd.parseAsync(['node', 'test', '--save', '查看 git 状态']);
 

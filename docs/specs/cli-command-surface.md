@@ -70,6 +70,18 @@
 - 迁移期旧字段可以保留；`executionMode`、`status`、`issues`、`capabilities`、`constraints` 和 `llmSummary` 是目标字段，调用方接入前必须检查当前 JSON 是否已经提供。
 - `tools agents --json` 是 `Agent Runtime Catalog` 的主要机器接口之一，供 CLI、插件、chat 和 LLM Context Pack 共用。
 
+### `parse-doc`
+
+当前实现以 `src/commands/parse-doc.ts` 为准：
+
+- `parse-doc --json` 返回 `ok` 与 `tasks[]`。
+- 当解析来源不是主 LLM 路径，或分段 LLM 只有部分成功时，返回体会额外显式标记：
+  - `source`: `roadmap-table` | `llm` | `regex-fallback`
+  - `degraded`: 是否发生降级
+  - `warnings`: 降级原因或部分失败说明
+- `LLM 未配置` 时允许降级到正则解析，但该降级必须在结果中显式暴露。
+- 路线图状态表是独立的高优先级解析路径，不视为降级。
+
 ### `run-task` 预览与合同语义
 
 `run-task` 的完整执行合同、完成边界、`dry-run` 权威语义、`needs_confirmation` 双来源、Agent execution mode 和 LLM 调用协议边界，以 [Run-Task 执行合同规格](./run-task-execution-contract.md) 为准。
@@ -84,6 +96,10 @@
 - `--dry-run` 也会先构建 `agentTaskContract` 摘要，但在该分支中不会加载 LLM、不会做 tool help discovery、不会执行 Agent。
 - 两个分支的 `--json` 输出都保留 `ok`、`command`、`output`、`outputTruncated` 和 `agentTaskContract` 字段；`--contract-preview` 的 `command` 与 `output` 为空字符串。
 - 正常执行分支的 `--json` 在兼容旧字段的前提下，可追加返回 `failureKind`、`unclosedExecution`、`completionSignal`、`recoveryDecision`。
+- `run-task` 默认只在内存中保留 Agent 脱敏输出；成功执行不会持久化 `.stdout/.stderr` 快照。
+- 只有失败执行才会把当前失败的脱敏输出写入 `VECTAHUB_HOME/outputs/run-task/<cwdHash>/`。
+- 每次执行 `run-task` 前，系统会自动清理当前工作目录哈希下超过 7 天的失败日志。
+- `run-task-clean-logs` 可手动清理当前工作目录哈希下的全部 `run-task` 失败日志。
 - 这些新增字段都是可选字段；旧调用方只能依赖已有 `ok`、`error`、`gitChanges`、`verification` 语义，新调用方可优先消费新增结构化字段。
 - 正常执行路径才会继续进入命令生成、安全检查、Agent preflight、Agent 执行、git 变更收集和验证命令执行。
 - Agent 执行模式应按执行合同文档理解：
@@ -103,7 +119,7 @@
 - 验证阶段与 Agent 执行阶段分离；即使 Agent 已启动成功，项目本地验证命令仍可能因环境缺失失败，例如 `vue-tsc` 不存在导致 `npm run type-check` 返回系统类错误。
 - 只有在 Agent 真正完成执行且未命中上述软失败短路条件时，才允许进入 verification。
 - 正常执行路径的 `--json` 输出在迁移期仍可能保留 `commandGenerationPath`、`fallbackUsed` 等旧诊断字段。目标语义应收敛到 registry renderer、mediated runner、onboarding fallback 和 manual blocked；安全拦截等失败结果应继续保留结构化失败原因。
-- 审计日志写入失败采用告警降级，不改变命令返回结构；可能看到 `Failed to write audit log: ...` 的 stderr/console 告警。
+- 默认基础设施审计服务采用 fail-open；但 CLI 主入口的命令审计和审计初始化采用 fail-closed。若 CLI 命令审计写入失败，命令会直接失败并返回错误。
 
 ### LLM 能力上下文命令面
 
@@ -152,7 +168,7 @@ LLM 调用不应依赖手写长 prompt 来熟悉 VectaHub。CLI 命令面必须�
 | `debug` | 调试工作流。 |
 | `export` / `import` | 数据导入导出。 |
 | `verify` | 验证工作流。 |
-| `dev` | 隐藏开发命令集合：`status`、`module`、`validate`、`test`、`build`。 |
+| `dev` | 隐藏开发命令集合：`status`、`module`、`validate`、`test`、`build`。其中 `dev module` 当前仅保留合同入口，脚手架生成已禁用。 |
 
 生成、模板、调度、服务和导入导出细节见：
 

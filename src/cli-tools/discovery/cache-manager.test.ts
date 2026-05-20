@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { ToolCacheManager, createToolCacheManager } from './cache-manager.js';
-
+import { getDefaultContext } from '../../infrastructure/context.js';
 describe('ToolCacheManager', () => {
   let tempDir: string;
   let manager: ToolCacheManager;
@@ -11,7 +11,7 @@ describe('ToolCacheManager', () => {
   beforeEach(() => {
     tempDir = join(tmpdir(), `cache-manager-test-${Date.now()}`);
     mkdirSync(tempDir, { recursive: true });
-    manager = createToolCacheManager(tempDir);
+    manager = createToolCacheManager({ cacheDir: tempDir, context: getDefaultContext() });
   });
 
   afterEach(() => {
@@ -67,7 +67,7 @@ describe('ToolCacheManager', () => {
     });
 
     it('should return empty array when no cache exists', async () => {
-      const emptyManager = createToolCacheManager(join(tempDir, 'empty'));
+      const emptyManager = createToolCacheManager({ cacheDir: join(tempDir, 'empty'), context: getDefaultContext() });
       expect(await emptyManager.listCached()).toEqual([]);
     });
   });

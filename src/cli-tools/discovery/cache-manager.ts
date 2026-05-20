@@ -2,12 +2,10 @@ import { readFile, writeFile, mkdir, readdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { getVectaHubPath } from '../../utils/paths.js';
-import { audit } from '../../infrastructure/audit/index.js';
-import { getLogger } from '../../utils/logger.js';
+import { getVectaHubPath } from '../../infrastructure/paths/index.js';
+import { getDefaultContext, type InfrastructureContext } from '../../infrastructure/context.js';
 import { createLLMConfig, LLMClient } from '../../nl/llm.js';
 import { TOOL_CAPABILITY_PARSER_ID } from '../../nl/prompt-manager.js';
-import { loadConfig } from '../../infrastructure/config/index.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -15,7 +13,6 @@ const MAX_HELP_OUTPUT_LENGTH = 8000;
 const CACHE_DIR_NAME = 'cache';
 const TOOL_NAME_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const DEFAULT_AGENT_CLIS = ['aider', 'claude', 'codex', 'cursor', 'gemini', 'cline', 'copilot', 'devika', 'swe-agent', 'openhands'];
-const cacheLogger = getLogger('cache-manager');
 
 export interface ToolCacheEntry {
   toolName: string;
@@ -25,11 +22,25 @@ export interface ToolCacheEntry {
   discoveredAt: string;
 }
 
+interface ToolCacheManagerOptions {
+  cacheDir?: string;
+  context?: InfrastructureContext;
+}
+
 export class ToolCacheManager {
   private cacheDir: string;
+  private context: InfrastructureContext;
 
-  constructor(cacheDir?: string) {
-    this.cacheDir = cacheDir ?? getVectaHubPath(CACHE_DIR_NAME);
+  constructor(options: ToolCacheManagerOptions = {}) {
+    if (!options.context) {
+      throw new Error('InfrastructureContext must be explicitly provided to ToolCacheManager');
+    }
+    this.context = options.context;
+    this.cacheDir = options.cacheDir ?? getVectaHubPath(CACHE_DIR_NAME);
+  }
+
+  private getLogger() {
+    return this.context.logger.getLogger('cache-manager');
   }
 
   private async ensureCacheDir(): Promise<void> {
@@ -42,7 +53,7 @@ export class ToolCacheManager {
 
   private getAllowedTools(): string[] {
     try {
-      const config = loadConfig();
+      const config = this.context.config.getConfig();
       const configTools = Object.keys(config.external_cli);
       return [...new Set([...DEFAULT_AGENT_CLIS, ...configTools])];
     } catch {
@@ -56,7 +67,7 @@ export class ToolCacheManager {
       const raw = await readFile(cachePath, 'utf-8');
       return JSON.parse(raw) as ToolCacheEntry;
     } catch {
-      cacheLogger.warn(`缓存文件损坏: ${toolName}，将重新发现`);
+      this.getLogger().warn(`缓存文件损坏: ${toolName}，将重新发现`);
       return null;
     }
   }
@@ -113,7 +124,7 @@ export class ToolCacheManager {
       version = 'unknown';
     }
 
-    audit.securityAction('TOOL_DISCOVERY', toolName, 'COMPLETED', 'cache-manager');
+    this.context.audit.getHelper().securityAction('TOOL_DISCOVERY', toolName, 'COMPLETED', 'cache-manager');
 
     let capabilities: string[] = [];
     if (!options?.skipCapabilityInference) {
@@ -128,7 +139,7 @@ export class ToolCacheManager {
   private async inferCapabilities(toolName: string, helpOutput: string): Promise<string[]> {
     const llmConfig = createLLMConfig();
     if (!llmConfig) {
-      cacheLogger.warn('LLM 未配置，跳过 capabilities 推断');
+      this.getLogger().warn('LLM 未配置，跳过 capabilities 推断');
       return [];
     }
 
@@ -143,7 +154,7 @@ export class ToolCacheManager {
       const cleaned = rawOutput.trim();
       const jsonStr = this.extractJsonArray(cleaned);
       if (!jsonStr) {
-        cacheLogger.warn(`capabilities 推断失败: 未找到 JSON 数组，原始输出: ${cleaned.substring(0, 200)}`);
+        this.getLogger().warn(`capabilities 推断失败: 未找到 JSON 数组，原始输出: ${cleaned.substring(0, 200)}`);
         return [];
       }
 
@@ -155,7 +166,7 @@ export class ToolCacheManager {
       return parsed.filter((c: unknown) => typeof c === 'string').map((c: string) => c.toLowerCase());
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      cacheLogger.warn(`capabilities 推断异常: ${msg}`);
+      this.getLogger().warn(`capabilities 推断异常: ${msg}`);
       return [];
     }
   }
@@ -192,13 +203,16 @@ export class ToolCacheManager {
 
 let globalCacheManager: ToolCacheManager | null = null;
 
-export function createToolCacheManager(cacheDir?: string): ToolCacheManager {
-  return new ToolCacheManager(cacheDir);
+export function createToolCacheManager(options: ToolCacheManagerOptions = {}): ToolCacheManager {
+  return new ToolCacheManager(options);
 }
 
-export function getToolCacheManager(): ToolCacheManager {
+export function getToolCacheManager(context?: InfrastructureContext): ToolCacheManager {
   if (!globalCacheManager) {
-    globalCacheManager = new ToolCacheManager();
+    if (!context) {
+      throw new Error('InfrastructureContext must be explicitly provided to initialize ToolCacheManager');
+    }
+    globalCacheManager = new ToolCacheManager({ context });
   }
   return globalCacheManager;
 }

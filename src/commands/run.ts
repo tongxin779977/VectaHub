@@ -1,5 +1,4 @@
 import { Command } from 'commander';
-import { getLogger as getSharedLogger, setMuted, isLoggerMuted } from '../utils/logger.js';
 import { createWorkflowEngine, type ProgressInfo } from '../workflow/engine.js';
 import { createStorage } from '../workflow/storage.js';
 import { isFirstRun, loadConfig, saveConfig } from '../setup/first-run-wizard.js';
@@ -7,23 +6,23 @@ import { createDefaultInstaller } from '../setup/priority-installer.js';
 import { createLLMConfig } from '../nl/llm.js';
 import { orchestrateIntent } from '../nl/orchestrator.js';
 import { formatDryRunText, formatJsonReport, formatExecutionResultText } from '../nl/capabilities/user-report.js';
-import type { Workflow, Step } from '../types/index.js';
+import type { Workflow } from '../types/index.js';
 import type { ExecutionPlan } from '../nl/capabilities/types.js';
 import type { ExecutionMetadata, ExecutionRecord as ExecRecord } from '../execution/types.js';
-import { SYSTEM_WORKFLOWS } from '../workflow/system-workflows.js';
+import { createSystemWorkflows } from '../workflow/system-workflows.js';
 
-import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { getDefaultContext, type InfrastructureContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import { createRecordManager } from '../execution/record-manager.js';
 import { runSelfHealingLoop } from './self-healing.js';
-import { getVectaHubPath } from '../utils/paths.js';
+import { getVectaHubPath } from '../infrastructure/paths/index.js';
 
-const ctx = getDefaultContext();
-
-function getLogger() {
-  return getSharedLogger('run');
-}
-
-function exitWithError(message: string, code: string, jsonMode?: boolean): never {
+function exitWithError(
+  logger: ReturnType<InfrastructureContext['logger']['getLogger']>,
+  message: string,
+  code: string,
+  jsonMode?: boolean,
+): never {
   if (jsonMode) {
     console.log(JSON.stringify({
       ok: false,
@@ -33,16 +32,16 @@ function exitWithError(message: string, code: string, jsonMode?: boolean): never
       }
     }, null, 2));
   } else {
-    getLogger().error(message);
+    logger.error(message);
   }
   throw new VectaHubError(message, ErrorType.RUNTIME, { code });
 }
 
-function restoreEnvValue(name: string, previousValue: string | undefined): void {
+function restoreEnvValue(context: InfrastructureContext, name: string, previousValue: string | undefined): void {
   if (previousValue === undefined) {
-    ctx.environment.deleteEnv(name);
+    context.environment.deleteEnv(name);
   } else {
-    ctx.environment.setEnv(name, previousValue);
+    context.environment.setEnv(name, previousValue);
   }
 }
 
@@ -75,96 +74,99 @@ interface RunCommandOptions {
   variable?: string[];
 }
 
-export const runCmd = new Command('run')
-  .description('Run a workflow from natural language or file')
-  .argument('[intent...]', 'Natural language description')
-  .option('-f, --file <file>', 'Run workflow from YAML/JSON file')
-  .option('-m, --mode <mode>', 'Execution mode (strict|relaxed|consensus)', 'relaxed')
-  .option('-s, --save', 'Save workflow after execution')
-  .option('-y, --yes', 'Skip confirmation')
-  .option('--no-edit', 'Skip command review')
-  .option('--dry-run', 'Show what would be executed without running')
-  .option('--json', 'Output results in JSON format')
-  .option('--variable <key=value>', 'Pass initial variables to the workflow (multiple allowed)', (val, memo: string[]) => {
-    memo.push(val);
-    return memo;
-  }, [])
-  .action(async (intent: string[], options: RunCommandOptions & { json?: boolean }) => {
-    const wasMuted = isLoggerMuted();
-    const previousAuditDisabled = ctx.environment.getEnv('VECTAHUB_AUDIT_DISABLED');
-    try {
-      if (options.json) {
-        setMuted(true);
-      }
+export function createRunCmd(context: InfrastructureContext): Command {
+  const logger = context.logger.getLogger('run');
 
-      // Validate mode
-      if (options.mode && !['strict', 'relaxed', 'consensus'].includes(options.mode)) {
-        exitWithError(`❌ 无效的运行模式: ${options.mode}。可选值为: strict, relaxed, consensus`, 'INVALID_MODE', options.json);
-      }
+  return new Command('run')
+    .description('Run a workflow from natural language or file')
+    .argument('[intent...]', 'Natural language description')
+    .option('-f, --file <file>', 'Run workflow from YAML/JSON file')
+    .option('-m, --mode <mode>', 'Execution mode (strict|relaxed|consensus)', 'relaxed')
+    .option('-s, --save', 'Save workflow after execution')
+    .option('-y, --yes', 'Skip confirmation')
+    .option('--no-edit', 'Skip command review')
+    .option('--dry-run', 'Show what would be executed without running')
+    .option('--json', 'Output results in JSON format')
+    .option('--variable <key=value>', 'Pass initial variables to the workflow (multiple allowed)', (val, memo: string[]) => {
+      memo.push(val);
+      return memo;
+    }, [])
+    .action(async (intent: string[], options: RunCommandOptions & { json?: boolean }) => {
+      const wasMuted = context.logger.isMuted();
+      const previousAuditDisabled = context.environment.getEnv('VECTAHUB_AUDIT_DISABLED');
+      try {
+        if (options.json) {
+          context.logger.setMuted(true);
+        }
 
-      if (options.dryRun) {
-        ctx.environment.setEnv('VECTAHUB_AUDIT_DISABLED', '1');
-      }
+        // Validate mode
+        if (options.mode && !['strict', 'relaxed', 'consensus'].includes(options.mode)) {
+          exitWithError(logger, `❌ 无效的运行模式: ${options.mode}。可选值为: strict, relaxed, consensus`, 'INVALID_MODE', options.json);
+        }
 
-      if (!options.dryRun && isFirstRun()) {
-        getLogger().info('首次运行，启动优先级安装流程...');
-        const installer = createDefaultInstaller();
-        if (installer) {
-          const summary = await installer.run();
-          if (summary.overallSuccess) {
-            const config = loadConfig();
-            config.first_run_completed = true;
-            saveConfig(config);
-          } else {
-            getLogger().warn('安装未完全成功，部分功能可能不可用');
+        if (options.dryRun) {
+          context.environment.setEnv('VECTAHUB_AUDIT_DISABLED', '1');
+        }
+
+        if (!options.dryRun && isFirstRun()) {
+          logger.info('首次运行，启动优先级安装流程...');
+          const installer = createDefaultInstaller();
+          if (installer) {
+            const summary = await installer.run();
+            if (summary.overallSuccess) {
+              const config = loadConfig();
+              config.first_run_completed = true;
+              saveConfig(config);
+            } else {
+              logger.warn('安装未完全成功，部分功能可能不可用');
+            }
           }
         }
-      }
 
-      let workflow: Workflow | null = null;
-      let currentPlan: ExecutionPlan | null = null;
-      let storage: ReturnType<typeof createStorage> | null = null;
-      let workflowEngine: ReturnType<typeof createWorkflowEngine> | null = null;
+        let workflow: Workflow | null = null;
+        let currentPlan: ExecutionPlan | null = null;
+        let storage: ReturnType<typeof createStorage> | null = null;
+        let workflowEngine: ReturnType<typeof createWorkflowEngine> | null = null;
 
       const getStorage = (): ReturnType<typeof createStorage> => {
-        storage ??= createStorage();
+        storage ??= createStorage({ environment: getDefaultContext().environment });
         return storage;
       };
 
       const getWorkflowEngine = async (): Promise<ReturnType<typeof createWorkflowEngine>> => {
         if (!workflowEngine) {
-          workflowEngine = createWorkflowEngine();
+          workflowEngine = createWorkflowEngine({ audit: context.audit.getHelper(), environment: context.environment });
           await workflowEngine.loadWorkflows();
         }
         return workflowEngine;
       };
 
       if (options.file) {
-        // 首先检查是否是系统工作流
-        if (SYSTEM_WORKFLOWS[options.file]) {
-          getLogger().info(`加载系统工作流: ${options.file}`);
-          workflow = SYSTEM_WORKFLOWS[options.file];
+        const systemWorkflows = createSystemWorkflows(context.environment);
+        if (systemWorkflows[options.file]) {
+          logger.info(`加载系统工作流: ${options.file}`);
+          workflow = systemWorkflows[options.file];
         } else {
           // 否则尝试从文件加载
-          let filepath = ctx.environment.resolvePath(options.file);
+          let filepath = context.environment.resolvePath(options.file);
           
-          if (!ctx.environment.exists(filepath)) {
+          if (!context.environment.exists(filepath)) {
             const workflowsDir = getVectaHubPath('workflows');
-            const fallbackPath = ctx.environment.resolvePath(workflowsDir, options.file);
-            if (ctx.environment.exists(fallbackPath)) {
+            const fallbackPath = context.environment.resolvePath(workflowsDir, options.file);
+            if (context.environment.exists(fallbackPath)) {
               filepath = fallbackPath;
             }
           }
           
-          getLogger().info(`从文件加载工作流: ${filepath}`);
+          logger.info(`从文件加载工作流: ${filepath}`);
           workflow = await getStorage().loadWorkflowFromFile(filepath);
           
           if (!workflow) {
-            exitWithError(`❌ 无法加载工作流: ${options.file}`, 'WORKFLOW_LOAD_FAILED', options.json);
+            exitWithError(logger, `❌ 无法加载工作流: ${options.file}`, 'WORKFLOW_LOAD_FAILED', options.json);
           }
         }
         
-        getLogger().info(`✅ 工作流加载成功: ${workflow.name}`);
+        logger.info(`✅ 工作流加载成功: ${workflow.name}`);
 
         if (options.dryRun) {
           if (options.json) {
@@ -180,24 +182,24 @@ export const runCmd = new Command('run')
               }
             }, null, 2));
           } else {
-            getLogger().info('\n📋 将要执行的命令:');
+            logger.info('\n📋 将要执行的命令:');
             for (const step of workflow.steps) {
-              getLogger().info(`  ${step.cli || step.type} ${(step.args ?? []).join(' ')}`);
+              logger.info(`  ${step.cli || step.type} ${(step.args ?? []).join(' ')}`);
             }
-            getLogger().info('\nDry-run: 未执行任何命令。');
+            logger.info('\nDry-run: 未执行任何命令。');
           }
-          restoreEnvValue('VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+          restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
           return;
         }
       } else if (intent.length > 0) {
         const text = intent.join(' ');
-        getLogger().info(`解析意图: "${text}"`);
+        logger.info(`解析意图: "${text}"`);
 
-        const result = await orchestrateIntent(text, { cwd: ctx.environment.getCwd() });
+        const result = await orchestrateIntent(text, { cwd: context.environment.getCwd() });
         const { steps: orchestrateSteps, plan, intentRecognitionMethod, matchedCapability, score, recognizedIntent } = result;
         
         if (intentRecognitionMethod === 'capability' && plan) {
-          getLogger().info(`能力路由: ${matchedCapability} (score=${score?.toFixed(2)})`);
+          logger.info(`能力路由: ${matchedCapability} (score=${score?.toFixed(2)})`);
           currentPlan = plan;
 
           if (options.dryRun) {
@@ -208,19 +210,19 @@ export const runCmd = new Command('run')
                 ...formatJsonReport(plan),
               }, null, 2));
             } else {
-              getLogger().info(formatDryRunText(plan));
+              logger.info(formatDryRunText(plan));
             }
-            restoreEnvValue('VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+            restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
             return;
           }
         } else if (intentRecognitionMethod !== 'none') {
           if (intentRecognitionMethod === 'llm') {
             const llmConfig = createLLMConfig();
-            getLogger().info(`意图解析模式: 优先 LLM (provider=${llmConfig?.provider}, model=${llmConfig?.model})`);
+            logger.info(`意图解析模式: 优先 LLM (provider=${llmConfig?.provider}, model=${llmConfig?.model})`);
           } else {
-            getLogger().info(`意图解析模式: 规则匹配 (LLM 未配置)`);
+            logger.info(`意图解析模式: 规则匹配 (LLM 未配置)`);
           }
-          getLogger().info(`识别到意图: ${recognizedIntent}`);
+          logger.info(`识别到意图: ${recognizedIntent}`);
         }
 
         if (result.reply) {
@@ -231,21 +233,21 @@ export const runCmd = new Command('run')
                 reply: result.reply,
                 intent: recognizedIntent,
               }, null, 2));
-              restoreEnvValue('VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+              restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
               return;
             }
           } else {
-            getLogger().info(`\n🤖 VectaHub Expert:\n\n${result.reply}\n`);
+            logger.info(`\n🤖 VectaHub Expert:\n\n${result.reply}\n`);
           }
         }
 
         if (orchestrateSteps.length === 0) {
           if (result.reply) {
             // 已显示回复，直接退出
-            restoreEnvValue('VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+            restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
             return;
           }
-          exitWithError('❌ 无法解析意图，请尝试更明确的输入！', 'INTENT_PARSE_FAILED', options.json);
+          exitWithError(logger, '❌ 无法解析意图，请尝试更明确的输入！', 'INTENT_PARSE_FAILED', options.json);
         }
 
         if (options.dryRun) {
@@ -259,13 +261,13 @@ export const runCmd = new Command('run')
               }))
             }, null, 2));
           } else {
-            getLogger().info('\n📋 将要执行的命令:');
+            logger.info('\n📋 将要执行的命令:');
             for (const s of orchestrateSteps) {
-              getLogger().info(`  ${s.cli} ${(s.args ?? []).join(' ')}`);
+              logger.info(`  ${s.cli} ${(s.args ?? []).join(' ')}`);
             }
-            getLogger().info('\nDry-run: 未执行任何命令。');
+            logger.info('\nDry-run: 未执行任何命令。');
           }
-          restoreEnvValue('VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+          restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
           return;
         }
 
@@ -275,13 +277,13 @@ export const runCmd = new Command('run')
           { persist: options.save === true }
         );
 
-        getLogger().info(`创建工作流，包含 ${orchestrateSteps.length} 个步骤`);
+        logger.info(`创建工作流，包含 ${orchestrateSteps.length} 个步骤`);
 
         if (options.save) {
-          getLogger().info('工作流已保存');
+          logger.info('工作流已保存');
         }
       } else {
-        exitWithError('❌ 请提供自然语言描述或使用 --file 选项指定工作流文件', 'NO_INPUT', options.json);
+        exitWithError(logger, '❌ 请提供自然语言描述或使用 --file 选项指定工作流文件', 'NO_INPUT', options.json);
       }
 
       // 处理初始变量
@@ -299,7 +301,7 @@ export const runCmd = new Command('run')
       let shouldRetry = true;
       while (shouldRetry) {
         shouldRetry = false;
-        getLogger().info('执行工作流...');
+        logger.info('执行工作流...');
         const result = await (await getWorkflowEngine()).execute(workflow!, { 
           mode: options.mode, 
           dryRun: options.dryRun,
@@ -310,8 +312,8 @@ export const runCmd = new Command('run')
         const metadata: ExecutionMetadata = {
           source: options.file ? 'file' : 'nl',
           nlInput: options.file ? undefined : (intent.length > 0 ? intent.join(' ') : undefined),
-          sourceFile: options.file ? ctx.environment.resolvePath(options.file) : undefined,
-          cwd: ctx.environment.getCwd(),
+          sourceFile: options.file ? context.environment.resolvePath(options.file) : undefined,
+          cwd: context.environment.getCwd(),
         };
         const recordToSave: Record<string, unknown> = { ...result };
         recordToSave.startedAt = (recordToSave.startedAt as Date).toISOString();
@@ -334,8 +336,8 @@ export const runCmd = new Command('run')
             }))
           }, null, 2));
         } else {
-          getLogger().info(`\n执行${result.status === 'COMPLETED' ? '✅ 成功' : '❌ 失败'}`);
-          getLogger().info(`耗时: ${result.duration}ms`);
+          logger.info(`\n执行${result.status === 'COMPLETED' ? '✅ 成功' : '❌ 失败'}`);
+          logger.info(`耗时: ${result.duration}ms`);
 
           if (currentPlan) {
             const reportText = formatExecutionResultText(currentPlan, result.steps.map(s => ({
@@ -344,19 +346,19 @@ export const runCmd = new Command('run')
               output: s.output?.map(l => String(l)),
               error: s.error,
             })));
-            getLogger().info(`\n${reportText}`);
+            logger.info(`\n${reportText}`);
           } else if (result.steps.length > 0) {
-            getLogger().info('\n📊 步骤结果:');
+            logger.info('\n📊 步骤结果:');
             for (const step of result.steps) {
-              getLogger().info(`  ${step.stepId}: ${step.status}`);
+              logger.info(`  ${step.stepId}: ${step.status}`);
               if (step.output && step.output.length > 0) {
-                getLogger().info(`  输出:`);
+                logger.info(`  输出:`);
                 for (const line of step.output) {
-                  getLogger().info(`    ${String(line).trim()}`);
+                  logger.info(`    ${String(line).trim()}`);
                 }
               }
               if (step.error) {
-                getLogger().error(`  错误: ${step.error}`);
+                logger.error(`  错误: ${step.error}`);
               }
             }
           }
@@ -364,41 +366,61 @@ export const runCmd = new Command('run')
 
         if (result.status === 'FAILED') {
           const llmConfig = createLLMConfig();
-          if (llmConfig && !options.dryRun && !options.json && ctx.environment.getEnv('CI') !== '1') {
+          if (llmConfig && !options.dryRun && !options.json && context.environment.getEnv('CI') !== '1') {
             shouldRetry = await runSelfHealingLoop(result, workflow!, llmConfig);
             if (shouldRetry) {
-              getLogger().info('🔄 正在重试工作流...');
+              logger.info('🔄 正在重试工作流...');
               continue;
             }
           }
-          restoreEnvValue('VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+          restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
           throw new VectaHubError('Workflow execution failed', ErrorType.RUNTIME);
         }
         break;
       }
     
-      restoreEnvValue('VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+      restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
     
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '未知错误';
-      const stackTrace = error instanceof Error ? error.stack : String(error);
-      
-      if (options.json) {
-        console.log(JSON.stringify({
-          ok: false,
-          error: {
-            code: 'RUNTIME_ERROR',
-            message,
-            stack: stackTrace
-          }
-        }, null, 2));
-      } else {
-        getLogger().error(`错误: ${message}`);
-        getLogger().debug(stackTrace);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '未知错误';
+        const stackTrace = error instanceof Error ? error.stack : String(error);
+        
+        if (options.json) {
+          console.log(JSON.stringify({
+            ok: false,
+            error: {
+              code: 'RUNTIME_ERROR',
+              message,
+              stack: stackTrace
+            }
+          }, null, 2));
+        } else {
+          logger.error(`错误: ${message}`);
+          logger.debug(stackTrace);
+        }
+        restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+        throw error;
+      } finally {
+        context.logger.setMuted(wasMuted);
       }
-      restoreEnvValue('VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
-      throw error;
-    } finally {
-      setMuted(wasMuted);
-    }
-  });
+    });
+}
+
+let boundRunCmd: Command | null = null;
+
+export function getRunCmd(): Command {
+  if (!boundRunCmd) {
+    throw new Error('Run command context is not bound. Use createRunCmd(context) instead.');
+  }
+  return boundRunCmd;
+}
+
+/**
+ * @deprecated Legacy static export. Kept for backwards compatibility.
+ * Use createRunCmd(context) through composition root instead.
+ */
+export const runCmd = new Proxy({} as Command, {
+  get(target, prop) {
+    return Reflect.get(getRunCmd(), prop);
+  }
+});

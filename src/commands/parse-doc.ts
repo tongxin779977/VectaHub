@@ -1,11 +1,11 @@
 import { Command } from 'commander';
-import { getLogger, setMuted } from '../utils/logger.js';
 import { createLLMConfig, LLMClient } from '../nl/llm.js';
 import { DOC_TASK_PARSER_ID } from '../nl/prompt-manager.js';
 import type { DocTask } from '../types/index.js';
-import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
-const logger = getLogger('parse-doc');
+const logger = getDefaultContext().logger.getLogger('parse-doc');
 
 const DEFAULT_MAX_DOC_LENGTH = 50000;
 const DEFAULT_MAX_RETRIES = 2;
@@ -31,7 +31,16 @@ const GAP_TRIGGER_PATTERNS: Array<{ pattern: RegExp; verb?: string }> = [
 const STATUS_TABLE_HEADER_PATTERN = /状态/;
 const MARKDOWN_TABLE_DIVIDER_PATTERN = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/;
 
-export function findChunkBoundary(content: string, target: number, maxDocLength: number): number {
+export type ParseDocSource = 'roadmap-table' | 'llm' | 'regex-fallback';
+
+export interface ParseDocResult {
+  tasks: DocTask[];
+  source: ParseDocSource;
+  degraded: boolean;
+  warnings: string[];
+}
+
+export function findChunkBoundary(content: string, target: number, maxDocLength: number = target): number {
   if (target <= 0 || target >= content.length) {
     return target;
   }
@@ -302,10 +311,10 @@ export function fallbackParseByRegex(content: string): DocTask[] {
   return tasks;
 }
 
-export async function parseDocTasks(filePath: string): Promise<DocTask[]> {
+export async function parseDocTaskResult(filePath: string): Promise<ParseDocResult> {
   const ctx = getDefaultContext();
-  const maxDocLength = ctx.environment.getEnvNumber('PARSE_DOC_MAX_LENGTH') || DEFAULT_MAX_DOC_LENGTH;
-  const maxRetries = ctx.environment.getEnvNumber('PARSE_DOC_MAX_RETRIES') || DEFAULT_MAX_RETRIES;
+  const maxDocLength = ctx.environment.getEnvNumber('PARSE_DOC_MAX_LENGTH', DEFAULT_MAX_DOC_LENGTH) ?? DEFAULT_MAX_DOC_LENGTH;
+  const maxRetries = ctx.environment.getEnvNumber('PARSE_DOC_MAX_RETRIES', DEFAULT_MAX_RETRIES) ?? DEFAULT_MAX_RETRIES;
 
   const absolutePath = ctx.environment.resolvePath(filePath);
   if (!ctx.environment.exists(absolutePath)) {
@@ -319,24 +328,40 @@ export async function parseDocTasks(filePath: string): Promise<DocTask[]> {
   const roadmap = parseRoadmapTableTasks(docContent);
   if (roadmap.detected) {
     logger.info(`检测到路线图状态表格，按状态语义提取 ${roadmap.tasks.length} 个待开发任务`);
-    return roadmap.tasks;
+    return {
+      tasks: roadmap.tasks,
+      source: 'roadmap-table',
+      degraded: false,
+      warnings: [],
+    };
   }
 
   const llmConfig = createLLMConfig();
   if (!llmConfig) {
-    logger.warn('LLM 未配置，使用正则 fallback 解析');
+    const warning = 'LLM 未配置，已降级为正则解析';
+    logger.warn(warning);
     const fallbackTasks = fallbackParseByRegex(docContent);
     if (fallbackTasks.length === 0) {
       throw new VectaHubError('LLM 未配置且正则解析未提取到任务，请先运行 vectahub setup 配置 AI 提供商', ErrorType.CONFIGURATION);
     }
     logger.info(`正则 fallback 解析到 ${fallbackTasks.length} 个任务`);
-    return fallbackTasks;
+    return {
+      tasks: fallbackTasks,
+      source: 'regex-fallback',
+      degraded: true,
+      warnings: [warning],
+    };
   }
 
   const client = new LLMClient(llmConfig);
 
   if (docContent.length <= maxDocLength) {
-    return callLLMWithRetry(client, docContent, maxRetries);
+    return {
+      tasks: await callLLMWithRetry(client, docContent, maxRetries),
+      source: 'llm',
+      degraded: false,
+      warnings: [],
+    };
   }
 
   logger.info(`文档长度 ${docContent.length} 超出限制 ${maxDocLength}，启用分段解析`);
@@ -367,7 +392,8 @@ export async function parseDocTasks(filePath: string): Promise<DocTask[]> {
   }
 
   if (allTasks.length === 0) {
-    logger.warn('所有分段 LLM 解析均失败，尝试正则 fallback');
+    const warning = '所有分段 LLM 解析均失败，已降级为正则解析';
+    logger.warn(warning);
     const fallbackTasks = fallbackParseByRegex(docContent);
     if (fallbackTasks.length === 0) {
       throw new VectaHubError(
@@ -380,13 +406,32 @@ export async function parseDocTasks(filePath: string): Promise<DocTask[]> {
       );
     }
     logger.info(`正则 fallback 解析到 ${fallbackTasks.length} 个任务`);
-    return fallbackTasks;
+    return {
+      tasks: fallbackTasks,
+      source: 'regex-fallback',
+      degraded: true,
+      warnings: [warning],
+    };
   }
 
   const merged = mergeAndDeduplicateDocTasks(allTasks);
   logger.info(`分段解析完成：${allTasks.length} 段共解析 ${merged.length} 个任务（已去重）`);
 
-  return merged;
+  const warnings = allTasks.length < chunks.length
+    ? [`部分分段 LLM 解析失败，已基于 ${allTasks.length}/${chunks.length} 个成功分段汇总任务`]
+    : [];
+
+  return {
+    tasks: merged,
+    source: 'llm',
+    degraded: warnings.length > 0,
+    warnings,
+  };
+}
+
+export async function parseDocTasks(filePath: string): Promise<DocTask[]> {
+  const result = await parseDocTaskResult(filePath);
+  return result.tasks;
 }
 
 async function callLLMWithRetry(client: LLMClient, docContent: string, maxRetries: number): Promise<DocTask[]> {
@@ -465,18 +510,31 @@ export const parseDocCmd = new Command('parse-doc')
   .action(async (filePath: string, options: { json?: boolean }) => {
     const ctx = getDefaultContext();
     if (options.json) {
-      setMuted(true);
+      ctx.logger.setMuted(true);
     }
     try {
       logger.info(`正在解析文档: ${filePath}`);
 
-      const tasks = await parseDocTasks(filePath);
+      const result = await parseDocTaskResult(filePath);
+      const { tasks } = result;
 
       if (options.json) {
-        console.log(JSON.stringify({ ok: true, tasks }, null, 2));
+        console.log(JSON.stringify({
+          ok: true,
+          tasks,
+          source: result.source,
+          degraded: result.degraded,
+          warnings: result.warnings,
+        }, null, 2));
         return;
       } else {
         console.log(`\n📋 解析到 ${tasks.length} 个任务:\n`);
+        if (result.degraded) {
+          for (const warning of result.warnings) {
+            console.log(`  [warning] ${warning}`);
+          }
+          console.log('');
+        }
         console.log('─'.repeat(60));
         for (const task of tasks) {
           console.log(`  ${task.id.padEnd(10)} ${task.label}`);

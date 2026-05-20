@@ -1,30 +1,51 @@
 import { Command } from 'commander';
-import { Transform } from 'node:stream';
-import { getDefaultContext } from '../infrastructure/context.js';
+import { Transform, type TransformOptions } from 'node:stream';
+import { getDefaultContext, type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
-import { getLogger } from '../utils/logger.js';
 import { getSecurityGuard } from '../security-protocol/factory.js';
 import type { SecurityContext, CommandIntention } from '../types/security.js';
 import { createLLMConfig, createLLMConfigDigestSource, LLMClient } from '../nl/llm.js';
 import { AGENT_CMD_GENERATOR_ID } from '../nl/prompt-manager.js';
 import { getToolCacheManager } from '../cli-tools/discovery/cache-manager.js';
 import { getSecurityManager } from '../security-protocol/manager.js';
-import { audit } from '../infrastructure/audit/index.js';
+import { assessCommandRisk } from '../security-protocol/engine.js';
 import { createChildEnv, getTraceContextFromEnv, startSpan, withSpan, type SpanHandle } from '../infrastructure/trace/index.js';
 import { deriveAgentTaskBoundary, deriveDocExcerpt, computeInstructionHash } from './agent-task-contract.js';
 import { buildGlobalConfigDigest } from '@vectahub/doc-task-contract-core';
 import type { AgentTaskContract } from '../types/doc-task.js';
 import { splitPosixArgs } from '../utils/shell.js';
 import { createRedactor } from '../security-protocol/redactor.js';
-import { getVectaHubPath, djb2Hash } from '../utils/paths.js';
+import { getVectaHubPath, djb2Hash } from '../infrastructure/paths/index.js';
 import { getAgentAdapterById, getAgentDescriptorById } from './agent-cli-adapter.js';
 import { bootstrapAgentRuntime } from './agent-runtime-bootstrap.js';
 import { decideRecovery, type RecoveryDecision, type RecoveryDecisionKind, type RecoveryDecisionMode } from '../types/recovery.js';
 import type { DocTaskFailureKind } from '../types/doc-task.js';
 
-const ctx = getDefaultContext();
+let boundContext: InfrastructureContext | null = null;
 
-const logger = getLogger('run-task');
+function getContext() {
+  if (!boundContext) {
+    throw new Error('run-task context is not bound. Use bindRunTaskContext(context) first.');
+  }
+  return boundContext;
+}
+
+export function bindRunTaskContext(context: InfrastructureContext): void {
+  boundContext = context;
+}
+
+function getLogger() {
+  return getContext().logger.getLogger('run-task');
+}
+
+function getAuditHelper() {
+  return getContext().audit.getHelper();
+}
+
+function createBoundRunTaskLogger(context: InfrastructureContext) {
+  return context.logger.getLogger('run-task');
+}
+
 const IDE_ENV_PATTERNS = [
   /^CODEX_(?!HOME$)/,
   /^TERM_PROGRAM$/,
@@ -37,7 +58,7 @@ const IDE_ENV_PATTERNS = [
 
 function stripIDEEnv(): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = {};
-  for (const [key, value] of Object.entries(ctx.environment.getAllEnv())) {
+  for (const [key, value] of Object.entries(getContext().environment.getAllEnv())) {
     if (!IDE_ENV_PATTERNS.some(p => p.test(key))) {
       env[key] = value;
     }
@@ -46,11 +67,17 @@ function stripIDEEnv(): Record<string, string | undefined> {
 }
 
 const DEFAULT_AGENT_CLI_TIMEOUT = 600000;
-const agentCliTimeout = ctx.environment.getEnvNumber('AGENT_CLI_TIMEOUT', DEFAULT_AGENT_CLI_TIMEOUT) ?? DEFAULT_AGENT_CLI_TIMEOUT;
+function getAgentCliTimeout(): number {
+  return getContext().environment.getEnvNumber('AGENT_CLI_TIMEOUT', DEFAULT_AGENT_CLI_TIMEOUT) ?? DEFAULT_AGENT_CLI_TIMEOUT;
+}
 const DEFAULT_AGENT_EXIT_FLUSH_GRACE_MS = 1500;
-const agentExitFlushGraceMs = ctx.environment.getEnvNumber('AGENT_EXIT_FLUSH_GRACE_MS', DEFAULT_AGENT_EXIT_FLUSH_GRACE_MS) ?? DEFAULT_AGENT_EXIT_FLUSH_GRACE_MS;
+function getAgentExitFlushGraceMs(): number {
+  return getContext().environment.getEnvNumber('AGENT_EXIT_FLUSH_GRACE_MS', DEFAULT_AGENT_EXIT_FLUSH_GRACE_MS) ?? DEFAULT_AGENT_EXIT_FLUSH_GRACE_MS;
+}
 const DEFAULT_MAX_JSON_OUTPUT_LENGTH = 50000;
-const MAX_JSON_OUTPUT_LENGTH = ctx.environment.getEnvNumber('RUN_TASK_MAX_JSON_OUTPUT_LENGTH', DEFAULT_MAX_JSON_OUTPUT_LENGTH) ?? DEFAULT_MAX_JSON_OUTPUT_LENGTH;
+function getMaxJsonOutputLength(): number {
+  return getContext().environment.getEnvNumber('RUN_TASK_MAX_JSON_OUTPUT_LENGTH', DEFAULT_MAX_JSON_OUTPUT_LENGTH) ?? DEFAULT_MAX_JSON_OUTPUT_LENGTH;
+}
 const TRUNCATED_OUTPUT_MARKER = '\n... (output truncated)';
 const NOISY_OUTPUT_PATTERNS = [
   /YOLO mode is enabled\..*/i,
@@ -67,16 +94,24 @@ const NOISY_OUTPUT_PATTERNS = [
 const TRACE_TEXT_MAX_LENGTH = 500;
 const PROMPT_CONTRACT_MAX_LENGTH = 12000;
 const MAX_VERIFICATION_COMMANDS = 10;
-const DEFAULT_VERIFICATION_TIMEOUT = 120000;
-const verificationTimeout = ctx.environment.getEnvNumber('VERIFICATION_TIMEOUT_MS', DEFAULT_VERIFICATION_TIMEOUT);
 const VERIFICATION_SUMMARY_MAX_LENGTH = 600;
+const RUN_TASK_FAILURE_LOG_RETENTION_DAYS = 7;
 const redactor = createRedactor();
+
+interface CommandExecutionError extends Error {
+  stdout?: string | Buffer;
+  stderr?: string | Buffer;
+  status?: number | null;
+  code?: string | number | null;
+  killed?: boolean;
+  completionSignal?: SpawnCompletionSignal;
+}
 
 class RedactionTransform extends Transform {
   private carry = '';
   private onTokenUsage?: (usage: TokenUsage) => void;
 
-  constructor(options?: any, onTokenUsage?: (usage: TokenUsage) => void) {
+  constructor(options?: TransformOptions, onTokenUsage?: (usage: TokenUsage) => void) {
     super(options);
     this.onTokenUsage = onTokenUsage;
   }
@@ -398,10 +433,10 @@ export function buildDefaultPrompt(taskId: string, taskLabel: string, docPath: s
 
 async function readGitDiffSnapshot(): Promise<GitDiffSnapshot | null> {
   try {
-    const { stdout: shortStat } = await ctx.environment.exec('git diff --shortstat');
+    const { stdout: shortStat } = await getContext().environment.exec('git diff --shortstat');
     if (!shortStat.trim()) return null;
 
-    const { stdout: diffStat } = await ctx.environment.exec('git diff --stat');
+    const { stdout: diffStat } = await getContext().environment.exec('git diff --stat');
     const changedFiles = diffStat.split('\n')
       .map(line => {
         const parts = line.split('|');
@@ -445,12 +480,12 @@ function compactAgentOutput(output: string): { output: string; truncated: boolea
     .filter(line => !NOISY_OUTPUT_PATTERNS.some(pattern => pattern.test(line)));
 
   const compacted = cleanedLines.join('\n').trim();
-  if (compacted.length <= MAX_JSON_OUTPUT_LENGTH) {
+  if (compacted.length <= getMaxJsonOutputLength()) {
     return { output: compacted, truncated: compacted.length !== output.trim().length };
   }
 
   return {
-    output: truncateAtLineBoundary(compacted, MAX_JSON_OUTPUT_LENGTH),
+    output: truncateAtLineBoundary(compacted, getMaxJsonOutputLength()),
     truncated: true,
   };
 }
@@ -533,7 +568,7 @@ function buildUserVisibleSummary(output: string): { output: string; truncated: b
     return compacted;
   }
 
-  const maxSummaryLength = Math.min(MAX_JSON_OUTPUT_LENGTH, 1200);
+  const maxSummaryLength = Math.min(getMaxJsonOutputLength(), 1200);
   const omittedLines = selectedLines.length < uniqueLines.length;
   const summary = summarySource.length > maxSummaryLength
     ? truncateAtLineBoundary(summarySource, maxSummaryLength)
@@ -596,7 +631,7 @@ async function buildAgentTaskContract(input: {
   let excerptStrategy: AgentTaskContractSummary['excerptStrategy'] = 'none';
   const notes: string[] = [];
 
-  if (input.docPath && ctx.environment.exists(input.docPath)) {
+  if (input.docPath && getContext().environment.exists(input.docPath)) {
     const excerpt = await deriveDocExcerpt({
       docPath: input.docPath,
       taskId: input.taskId,
@@ -638,7 +673,7 @@ async function buildAgentTaskContract(input: {
     allowedFiles: boundary.allowedFiles,
     forbiddenFiles: boundary.forbiddenFiles,
     validationCommands: boundary.validationCommands,
-    timeoutMs: agentCliTimeout,
+    timeoutMs: getAgentCliTimeout(),
     executionMode,
     boundaryConfidence: boundary.boundaryConfidence,
     notes: boundary.reason ? [...notes, boundary.reason] : notes,
@@ -660,8 +695,8 @@ async function buildAgentTaskContract(input: {
 
 function readPackageScripts(projectRoot: string): string[] {
   try {
-    const packageJsonPath = ctx.environment.resolvePath(projectRoot, 'package.json');
-    const packageJson = JSON.parse(ctx.environment.readFile(packageJsonPath)) as {
+    const packageJsonPath = getContext().environment.resolvePath(projectRoot, 'package.json');
+    const packageJson = JSON.parse(getContext().environment.readFile(packageJsonPath)) as {
       scripts?: Record<string, unknown>;
     };
     return Object.keys(packageJson.scripts ?? {});
@@ -718,24 +753,30 @@ function truncateVerificationSummary(value: string | undefined): string | undefi
 }
 
 export function splitCommandArgs(cmd: string): string[] {
+  if (/[^\s]/.test(cmd) && (cmd.match(/(?<!\\)"/g)?.length ?? 0) % 2 !== 0) {
+    throw new VectaHubError('Unclosed double quote in command', ErrorType.RUNTIME);
+  }
+  if (/[^\s]/.test(cmd) && (cmd.match(/(?<!\\)'/g)?.length ?? 0) % 2 !== 0) {
+    throw new VectaHubError('Unclosed single quote in command', ErrorType.RUNTIME);
+  }
   return splitPosixArgs(cmd);
 }
 
 function getRunTaskOutputDir(): string {
-  return getVectaHubPath('outputs', 'run-task', djb2Hash(ctx.environment.getCwd()));
+  return getVectaHubPath('outputs', 'run-task', djb2Hash(getContext().environment.getCwd()));
 }
 
 function getRunTaskOutputDirCandidates(): string[] {
   const preferredDir = getRunTaskOutputDir();
-  const fallbackDir = ctx.environment.resolvePath(ctx.environment.getTmpDir(), 'vectahub', 'outputs', 'run-task', djb2Hash(ctx.environment.getCwd()));
-  return preferredDir === fallbackDir ? [preferredDir] : [preferredDir, fallbackDir];
+  const fallbackDir = getContext().environment.resolvePath(getContext().environment.getTmpDir(), 'vectahub', 'outputs', 'run-task', djb2Hash(getContext().environment.getCwd()));
+  return Array.from(new Set(preferredDir === fallbackDir ? [preferredDir] : [preferredDir, fallbackDir]));
 }
 
 async function ensureRunTaskOutputDir(): Promise<string> {
   let lastError: unknown;
   for (const outputDir of getRunTaskOutputDirCandidates()) {
     try {
-      await ctx.environment.mkdirAsync(outputDir, { recursive: true });
+      await getContext().environment.mkdirAsync(outputDir, { recursive: true });
       return outputDir;
     } catch (error) {
       lastError = error;
@@ -747,43 +788,90 @@ async function ensureRunTaskOutputDir(): Promise<string> {
     : new Error('Unable to create run-task output directory');
 }
 
-async function safeReadTextFile(filePath: string): Promise<string> {
-  try {
-    return await ctx.environment.readFileAsync(filePath);
-  } catch {
-    return '';
-  }
+type RunTaskOutputStreamKind = 'stdout' | 'stderr';
+
+interface RunTaskOutputEntry {
+  path: string;
+  timestamp: number;
+  taskId: string;
+  stream: RunTaskOutputStreamKind;
 }
 
-function findLatestRunTaskOutputFiles(taskId: string): { stdoutPath?: string; stderrPath?: string } | null {
-  const stdoutEntries: string[] = [];
-  const stderrEntries: string[] = [];
+export interface RunTaskLogCleanupResult {
+  removedFiles: number;
+}
 
-  for (const outputDir of getRunTaskOutputDirCandidates()) {
-    if (!ctx.environment.exists(outputDir)) {
-      continue;
-    }
-
-    stdoutEntries.push(...globOutputCandidates(outputDir, `${taskId}-`, '.stdout'));
-    stderrEntries.push(...globOutputCandidates(outputDir, `${taskId}-`, '.stderr'));
+function parseRunTaskOutputEntry(outputDir: string, fileName: string): RunTaskOutputEntry | null {
+  const match = /^(.*)-(\d+)\.(stdout|stderr)$/.exec(fileName);
+  if (!match) {
+    return null;
   }
-  if (stdoutEntries.length === 0 && stderrEntries.length === 0) {
+
+  const timestamp = Number(match[2]);
+  if (!Number.isFinite(timestamp)) {
     return null;
   }
 
   return {
-    stdoutPath: Array.from(new Set(stdoutEntries)).sort().at(-1),
-    stderrPath: Array.from(new Set(stderrEntries)).sort().at(-1),
+    path: getContext().environment.resolvePath(outputDir, fileName),
+    timestamp,
+    taskId: match[1],
+    stream: match[3] as RunTaskOutputStreamKind,
   };
 }
 
-function globOutputCandidates(outputDir: string, prefix: string, suffix: string): string[] {
-  try {
-    return ctx.environment.readDir(outputDir)
-      .filter(name => name.startsWith(prefix) && name.endsWith(suffix))
-      .map(name => ctx.environment.resolvePath(outputDir, name));
-  } catch {
-    return [];
+function listRunTaskOutputEntries(outputDir: string): RunTaskOutputEntry[] {
+  return getContext().environment.readDir(outputDir)
+    .map(fileName => parseRunTaskOutputEntry(outputDir, fileName))
+    .filter((entry): entry is RunTaskOutputEntry => entry !== null);
+}
+
+function getRunTaskFailureLogRetentionCutoff(now: number = Date.now()): number {
+  return now - (RUN_TASK_FAILURE_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+}
+
+export async function cleanRunTaskLogs(options?: { olderThanMs?: number }): Promise<RunTaskLogCleanupResult> {
+  let removedFiles = 0;
+
+  for (const outputDir of getRunTaskOutputDirCandidates()) {
+    if (!getContext().environment.exists(outputDir)) {
+      continue;
+    }
+
+    const removableEntries = listRunTaskOutputEntries(outputDir)
+      .filter(entry => options?.olderThanMs === undefined || entry.timestamp < options.olderThanMs);
+
+    for (const entry of removableEntries) {
+      getContext().environment.rm(entry.path, { force: true });
+      removedFiles += 1;
+    }
+  }
+
+  return { removedFiles };
+}
+
+async function pruneExpiredRunTaskLogs(): Promise<RunTaskLogCleanupResult> {
+  return cleanRunTaskLogs({
+    olderThanMs: getRunTaskFailureLogRetentionCutoff(),
+  });
+}
+
+async function persistRunTaskFailureLogs(taskId: string, output: { stdout?: string; stderr?: string }): Promise<void> {
+  const stdout = output.stdout ?? '';
+  const stderr = output.stderr ?? '';
+  if (!stdout && !stderr) {
+    return;
+  }
+
+  const outputDir = await ensureRunTaskOutputDir();
+  const timestamp = Date.now();
+  if (stdout) {
+    const stdoutPath = getContext().environment.resolvePath(outputDir, `${taskId}-${timestamp}.stdout`);
+    getContext().environment.writeFile(stdoutPath, stdout);
+  }
+  if (stderr) {
+    const stderrPath = getContext().environment.resolvePath(outputDir, `${taskId}-${timestamp}.stderr`);
+    getContext().environment.writeFile(stderrPath, stderr);
   }
 }
 
@@ -958,6 +1046,18 @@ async function detectValidationPreflightRisk(
       return {
         level: decision.riskLevel,
         ruleName: decision.ruleName,
+        needsConfirmation: true,
+        enforcement: 'confirm_required',
+        phase: 'verification',
+        confirmationSource: 'preflight',
+        blockedCommand: limitText(cmd),
+      };
+    }
+    const risk = await assessCommandRisk(cmd);
+    if (risk.needsConfirmation || risk.level === 'critical' || risk.level === 'high') {
+      return {
+        level: risk.level,
+        ruleName: risk.ruleName,
         needsConfirmation: true,
         enforcement: 'confirm_required',
         phase: 'verification',
@@ -1195,7 +1295,7 @@ export async function runVerificationCommands(
     const decision = await guard.assess(intention, securityContext);
     
     if (decision.decision === 'BLOCKED') {
-      logger.warn(`验证命令被安全策略阻断 (critical): ${cmd} — ${decision.reason || ''}`);
+      getLogger().warn(`验证命令被安全策略阻断 (critical): ${cmd} — ${decision.reason || ''}`);
       results.push({ command: cmd, ok: false, exitCode: null, durationMs: 0 });
       overallOk = false;
       continue;
@@ -1203,7 +1303,7 @@ export async function runVerificationCommands(
 
     if (decision.decision === 'REQUIRES_CONFIRMATION') {
       // 在自动验证流程中，如果不具备交互能力，高风险命令视为阻断
-      logger.warn(`验证命令需要人工确认，在自动流程中已被跳过: ${cmd}`);
+      getLogger().warn(`验证命令需要人工确认，在自动流程中已被跳过: ${cmd}`);
       results.push({ command: cmd, ok: false, exitCode: null, durationMs: 0 });
       overallOk = false;
       continue;
@@ -1211,7 +1311,7 @@ export async function runVerificationCommands(
 
     const startMs = Date.now();
     try {
-      const { stdout, stderr } = await ctx.environment.exec(cmd, {
+      const { stdout, stderr } = await getContext().environment.exec(cmd, {
         cwd,
       });
       const durationMs = Date.now() - startMs;
@@ -1229,12 +1329,14 @@ export async function runVerificationCommands(
       });
     } catch (error) {
       const durationMs = Date.now() - startMs;
-      const execError = error as any;
+      const execError = error as CommandExecutionError;
       
       const stdoutStr = execError.stdout?.toString?.() || '';
       const stderrStr = execError.stderr?.toString?.() || '';
-      const exitCode: number | null = execError.killed ? null : (execError.status ?? execError.code ?? null);
-      const isSystem = ['ENOENT', 'EACCES', 'EPERM'].includes(execError.code)
+      const rawExitCode = execError.status ?? execError.code ?? null;
+      const exitCode: number | null = execError.killed ? null : (typeof rawExitCode === 'number' ? rawExitCode : null);
+      const errorCode = typeof execError.code === 'string' ? execError.code : undefined;
+      const isSystem = ['ENOENT', 'EACCES', 'EPERM'].includes(errorCode || '')
         || exitCode === 127
         || /command not found/i.test(stderrStr)
         || /missing script/i.test(stderrStr);
@@ -1329,6 +1431,7 @@ export async function runTask(options: {
   const { taskId, taskLabel, doc, dryRun, contractPreview } = options;
   const tool = options.tool || '';
   const deferTraceCloseout = options.deferTraceCloseout === true;
+  await pruneExpiredRunTaskLogs();
   const baseAttributes = { taskId, tool, dryRun: Boolean(dryRun), contractPreview: Boolean(contractPreview) };
   const incomingContext = getTraceContextFromEnv();
   const knownAgentDescriptor = tool ? getAgentDescriptorById(tool) : null;
@@ -1349,7 +1452,7 @@ export async function runTask(options: {
   const traceContext = { traceId: rootSpan.traceId, source: 'cli' as const };
 
   const execute = async (): Promise<RunTaskResult> => {
-    const docPath = doc ? ctx.environment.resolvePath(doc) : '(未指定文档)';
+    const docPath = doc ? getContext().environment.resolvePath(doc) : '(未指定文档)';
     const label = taskLabel || `任务 ${taskId}`;
     const contractSpan = startSpan('cli.run-task.buildAgentTaskContract', {
       context: traceContext,
@@ -1363,7 +1466,7 @@ export async function runTask(options: {
         taskId,
         label,
         docPath: doc ? docPath : undefined,
-        projectRoot: ctx.environment.getCwd(),
+        projectRoot: getContext().environment.getCwd(),
         tool: tool || undefined,
         globalConfigDigest: precomputedGlobalConfigDigest,
       });
@@ -1406,7 +1509,7 @@ export async function runTask(options: {
       const dryRunGenerated = knownAgentDescriptor && knownAgentAdapter
         ? knownAgentAdapter.render({
           descriptor: knownAgentDescriptor,
-          workspaceRoot: ctx.environment.getCwd(),
+          workspaceRoot: getContext().environment.getCwd(),
           taskPrompt: dryRunPrompt,
           mode: 'dry-run',
           outputMode: 'text',
@@ -1417,7 +1520,7 @@ export async function runTask(options: {
           preview: '',
         };
       const dryRunCommand = buildCommandString(dryRunGenerated.command, dryRunGenerated.args);
-      logger.info(`[dry-run] 将预览: ${dryRunCommand}`);
+      getLogger().info(`[dry-run] 将预览: ${dryRunCommand}`);
       return {
         success: true,
         output: '',
@@ -1435,7 +1538,7 @@ export async function runTask(options: {
     if (knownAgentDescriptor && knownAgentAdapter) {
       const adapterOutput = knownAgentAdapter.render({
         descriptor: knownAgentDescriptor,
-        workspaceRoot: ctx.environment.getCwd(),
+        workspaceRoot: getContext().environment.getCwd(),
         taskPrompt: buildDefaultPrompt(taskId, label, docPath, agentTaskContract),
         mode: 'run',
         outputMode: 'text',
@@ -1484,7 +1587,7 @@ export async function runTask(options: {
       );
       agentTaskContractSummary.instructionHash = agentTaskContract.instructionHash;
 
-      const cacheManager = getToolCacheManager();
+      const cacheManager = getToolCacheManager(getContext());
       const discoverSpan = startSpan('cli.run-task.discoverToolHelp', {
         context: traceContext,
         parentSpanId: rootSpan.spanId,
@@ -1509,7 +1612,8 @@ export async function runTask(options: {
           commandGenerationPath,
         },
       });
-      const { summary: _summary, ...agentTaskContractForPrompt } = agentTaskContract;
+      const { summary, ...agentTaskContractForPrompt } = agentTaskContract;
+      void summary;
       let rawOutput: string;
       try {
         const llmOutput = await client.completeRaw(AGENT_CMD_GENERATOR_ID, `任务 ${taskId}: ${label}，请基于工具用法和任务边界合同生成执行命令。`, {
@@ -1536,7 +1640,7 @@ export async function runTask(options: {
         generated = JSON.parse(jsonStr) as GeneratedCommand;
       } catch {
         fallbackUsed = true;
-        logger.warn(`LLM 命令生成失败，使用默认提示词模式。原始输出: ${rawOutput.substring(0, 200)}`);
+        getLogger().warn(`LLM 命令生成失败，使用默认提示词模式。原始输出: ${rawOutput.substring(0, 200)}`);
         generated = {
           command: tool,
           args: ['--message', buildDefaultPrompt(taskId, label, docPath, agentTaskContract)],
@@ -1556,7 +1660,7 @@ export async function runTask(options: {
       const invocationValidation = validateGeneratedInvocation(tool, generated);
       if (!invocationValidation.valid) {
         const validationErrorMessage = `${invocationValidation.message}；已阻断执行`;
-        logger.error(validationErrorMessage);
+        getLogger().error(validationErrorMessage);
         return {
           success: false,
           output: validationErrorMessage,
@@ -1574,7 +1678,7 @@ export async function runTask(options: {
 
     const guard = getSecurityGuard();
     const securityContext: SecurityContext = {
-      cwd: ctx.environment.getCwd(),
+      cwd: getContext().environment.getCwd(),
       sessionId: traceContext.traceId,
       taskId: taskId,
       isDryRun: Boolean(dryRun)
@@ -1607,11 +1711,65 @@ export async function runTask(options: {
 
     // Build risk assessment for the main command
     let riskAssessment: RunTaskRiskAssessment | undefined;
+    const legacyDetection = getSecurityManager().detectCommand(fullCommand, generated.command);
+    if (legacyDetection.isDangerous && legacyDetection.severity === 'critical') {
+      const ruleName = legacyDetection.rule?.name || 'Unknown Rule';
+      getLogger().error(`安全策略拦截: 命令匹配规则 "${ruleName}" (risk: critical)`);
+      getAuditHelper().securityAction('RUN_TASK', `${tool}:${taskId}`, 'BLOCKED', 'run-task');
+      return {
+        success: false,
+        output: `命令被安全策略拦截: ${legacyDetection.rule?.description || '未授权操作'}`,
+        command: fullCommand,
+        commandGenerationPath,
+        fallbackUsed,
+        riskAssessment: {
+          level: 'critical',
+          ruleName,
+          needsConfirmation: true,
+          enforcement: 'blocked',
+          phase: 'command',
+          confirmationSource: 'preflight',
+          blockedCommand: limitText(fullCommand),
+        },
+        error: {
+          code: 'SECURITY_BLOCKED',
+          message: `安全策略拦截: ${ruleName}`,
+        },
+        agentTaskContract: agentTaskContractSummary,
+      };
+    }
+    if (legacyDetection.isDangerous && legacyDetection.severity === 'high') {
+      riskAssessment = {
+        level: 'high',
+        ruleName: legacyDetection.rule?.name,
+        needsConfirmation: true,
+        enforcement: 'confirm_required',
+        phase: 'command',
+        confirmationSource: 'preflight',
+        blockedCommand: limitText(fullCommand),
+      };
+      getLogger().warn(`命令风险评级: ${riskAssessment.level} (${riskAssessment.ruleName || 'unknown'}) — 无确认能力，执行前阻断`);
+      getAuditHelper().securityAction('RUN_TASK', `${tool}:${taskId}`, 'BLOCKED', 'run-task');
+      return {
+        success: false,
+        output: `高风险命令需确认，当前调用链无确认能力: ${riskAssessment.ruleName || 'unknown'}`,
+        command: fullCommand,
+        commandGenerationPath,
+        fallbackUsed,
+        riskAssessment,
+        error: {
+          code: 'SECURITY_BLOCKED',
+          message: `高风险命令需确认: ${riskAssessment.ruleName || 'unknown'}`,
+        },
+        agentTaskContract: agentTaskContractSummary,
+      };
+    }
+
     if (decision.decision === 'BLOCKED') {
       const ruleName = decision.ruleName || 'Unknown Rule';
-      logger.error(`安全策略拦截: 命令匹配规则 "${ruleName}" (risk: ${decision.riskLevel})`);
-      logger.error(`拦截原因: ${decision.reason || '无'}`);
-      audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'BLOCKED', 'run-task');
+      getLogger().error(`安全策略拦截: 命令匹配规则 "${ruleName}" (risk: ${decision.riskLevel})`);
+      getLogger().error(`拦截原因: ${decision.reason || '无'}`);
+      getAuditHelper().securityAction('RUN_TASK', `${tool}:${taskId}`, 'BLOCKED', 'run-task');
       return {
         success: false,
         output: `命令被安全策略拦截: ${decision.reason || '未授权操作'}`,
@@ -1645,8 +1803,8 @@ export async function runTask(options: {
         confirmationSource: 'preflight',
         blockedCommand: limitText(fullCommand),
       };
-      logger.warn(`命令风险评级: ${riskAssessment.level} (${riskAssessment.ruleName || 'unknown'}) — 无确认能力，执行前阻断`);
-      audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'BLOCKED', 'run-task');
+      getLogger().warn(`命令风险评级: ${riskAssessment.level} (${riskAssessment.ruleName || 'unknown'}) — 无确认能力，执行前阻断`);
+      getAuditHelper().securityAction('RUN_TASK', `${tool}:${taskId}`, 'BLOCKED', 'run-task');
       return {
         success: false,
         output: `高风险命令需确认，当前调用链无确认能力: ${riskAssessment.ruleName || 'unknown'}`,
@@ -1669,13 +1827,13 @@ export async function runTask(options: {
         needsConfirmation: false,
         phase: 'command',
       };
-      logger.warn(`命令风险提示: ${riskAssessment.level} (${riskAssessment.ruleName || 'unknown'})`);
+      getLogger().warn(`命令风险提示: ${riskAssessment.level} (${riskAssessment.ruleName || 'unknown'})`);
     }
 
     const validationRisk = await detectValidationPreflightRisk(agentTaskContractSummary.validationCommands, securityContext);
     if (validationRisk) {
-      logger.warn(`验证命令风险评级: ${validationRisk.level} (${validationRisk.ruleName || 'unknown'}) — 无确认能力，执行前阻断`);
-      audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'BLOCKED', 'run-task');
+      getLogger().warn(`验证命令风险评级: ${validationRisk.level} (${validationRisk.ruleName || 'unknown'}) — 无确认能力，执行前阻断`);
+      getAuditHelper().securityAction('RUN_TASK', `${tool}:${taskId}`, 'BLOCKED', 'run-task');
       return {
         success: false,
         output: `验证命令存在高风险，需确认后才能执行: ${validationRisk.blockedCommand || 'unknown'}`,
@@ -1691,22 +1849,22 @@ export async function runTask(options: {
       };
     }
 
-    audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'EXECUTING', 'run-task');
+    getAuditHelper().securityAction('RUN_TASK', `${tool}:${taskId}`, 'EXECUTING', 'run-task');
 
     let runtimeEnvPatch: Record<string, string> | undefined;
     if (knownAgentDescriptor) {
       try {
         const bootstrapResult = await bootstrapAgentRuntime({
           descriptor: knownAgentDescriptor,
-          workspaceRoot: ctx.environment.getCwd(),
+          workspaceRoot: getContext().environment.getCwd(),
         });
         runtimeEnvPatch = bootstrapResult.envPatch;
       } catch (bootstrapError) {
         const message = bootstrapError instanceof Error
           ? `Agent runtime bootstrap 失败: ${bootstrapError.message}`
           : 'Agent runtime bootstrap 失败';
-        logger.error(message);
-        audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'PREFLIGHT_FAILED', 'run-task');
+        getLogger().error(message);
+        getAuditHelper().securityAction('RUN_TASK', `${tool}:${taskId}`, 'PREFLIGHT_FAILED', 'run-task');
         return {
           success: false,
           output: message,
@@ -1748,9 +1906,9 @@ export async function runTask(options: {
         ? '就绪检查'
         : '入口检查';
       try {
-        await ctx.environment.exec([generated.command, ...preflightArgs].join(' '), {
+        await getContext().environment.exec([generated.command, ...preflightArgs].join(' '), {
           timeout: 10000,
-          cwd: ctx.environment.getCwd(),
+          cwd: getContext().environment.getCwd(),
           env: childEnv,
         });
         await preflightSpan.end({ agentAvailable: true });
@@ -1758,8 +1916,8 @@ export async function runTask(options: {
         const preflightMsg = `Agent CLI "${generated.command}" 未通过${preflightCheckLabel}`;
         const preflightErrorCode = classifyAgentFailureCode(preflightError, preflightMsg);
         await preflightSpan.fail(preflightError, { agentAvailable: false });
-        logger.error(preflightMsg);
-        audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'PREFLIGHT_FAILED', 'run-task');
+        getLogger().error(preflightMsg);
+        getAuditHelper().securityAction('RUN_TASK', `${tool}:${taskId}`, 'PREFLIGHT_FAILED', 'run-task');
         return {
           success: false,
           output: preflightMsg,
@@ -1775,9 +1933,9 @@ export async function runTask(options: {
       }
     }
 
-    logger.info(`执行: ${fullCommand}`);
+    getLogger().info(`执行: ${fullCommand}`);
     if (generated.explanation) {
-      logger.info(`说明: ${generated.explanation}`);
+      getLogger().info(`说明: ${generated.explanation}`);
     }
 
     const gitDiffBefore = await readGitDiffSnapshot();
@@ -1791,16 +1949,12 @@ export async function runTask(options: {
           commandGenerationPath,
           fallbackUsed,
           command: limitText(fullCommand),
-          timeoutMs: agentCliTimeout,
+          timeoutMs: getAgentCliTimeout(),
         },
       });
-      const outputDir = await ensureRunTaskOutputDir();
-      const ts = Date.now();
-      const redactedStdoutPath = ctx.environment.resolvePath(outputDir, `${taskId}-${ts}.stdout`);
-      const redactedStderrPath = ctx.environment.resolvePath(outputDir, `${taskId}-${ts}.stderr`);
 
-      const child = ctx.environment.spawn(generated.command, generated.args, {
-        cwd: ctx.environment.getCwd(),
+      const child = getContext().environment.spawn(generated.command, generated.args, {
+        cwd: getContext().environment.getCwd(),
         env: childEnv,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -1818,15 +1972,12 @@ export async function runTask(options: {
 
       const stdoutRedactor = new RedactionTransform(undefined, onToken);
       const stderrRedactor = new RedactionTransform(undefined, onToken);
-      const stdoutRedactedWriter = ctx.environment.createWriteStream(redactedStdoutPath, { encoding: 'utf8' });
-      const stderrRedactedWriter = ctx.environment.createWriteStream(redactedStderrPath, { encoding: 'utf8' });
 
       let redactedStdout = '';
       let redactedStderr = '';
 
-      // Required pipeline: spawn -> redactor -> writer (file)
-      child.stdout?.pipe(stdoutRedactor).pipe(stdoutRedactedWriter);
-      child.stderr?.pipe(stderrRedactor).pipe(stderrRedactedWriter);
+      child.stdout?.pipe(stdoutRedactor);
+      child.stderr?.pipe(stderrRedactor);
 
       stdoutRedactor.on('data', (chunk: Buffer | string) => {
         redactedStdout += chunk.toString();
@@ -1836,8 +1987,8 @@ export async function runTask(options: {
       });
 
       const streamDrainPromise = Promise.all([
-        waitForWriterSettled(stdoutRedactedWriter),
-        waitForWriterSettled(stderrRedactedWriter),
+        waitForWriterSettled(stdoutRedactor),
+        waitForWriterSettled(stderrRedactor),
       ]);
       const completion = await new Promise<SpawnCompletionResult>((resolvePromise, rejectPromise) => {
         let settled = false;
@@ -1854,8 +2005,8 @@ export async function runTask(options: {
           child.off('error', onErr);
           child.off('exit', onExit);
           child.off('close', onClose);
-          stdoutRedactedWriter.off('error', onErr);
-          stderrRedactedWriter.off('error', onErr);
+          stdoutRedactor.off('error', onErr);
+          stderrRedactor.off('error', onErr);
         };
         const resolveOnce = (value: SpawnCompletionResult) => {
           if (settled) return;
@@ -1890,13 +2041,28 @@ export async function runTask(options: {
 
         const timer = setTimeout(() => {
           child.kill('SIGKILL');
-          const timeoutError = new Error(`Agent CLI timeout after ${agentCliTimeout}ms`);
-          (timeoutError as Error & { code?: string; completionSignal?: SpawnCompletionSignal }).code = 'TIMEOUT';
-          (timeoutError as Error & { code?: string; completionSignal?: SpawnCompletionSignal }).completionSignal = 'timeout';
+          const timeoutError = new Error(`Agent CLI timeout after ${getAgentCliTimeout()}ms`);
+          const enrichedTimeoutError = timeoutError as Error & {
+            code?: string;
+            completionSignal?: SpawnCompletionSignal;
+            stdout?: string;
+            stderr?: string;
+          };
+          enrichedTimeoutError.code = 'TIMEOUT';
+          enrichedTimeoutError.completionSignal = 'timeout';
+          enrichedTimeoutError.stdout = redactedStdout;
+          enrichedTimeoutError.stderr = redactedStderr;
           rejectOnce(timeoutError);
-        }, agentCliTimeout);
+        }, getAgentCliTimeout());
         const onErr = (err: unknown) => {
-          rejectOnce(err as Error);
+          const executionError = err as CommandExecutionError;
+          if (executionError.stdout === undefined) {
+            executionError.stdout = redactedStdout;
+          }
+          if (executionError.stderr === undefined) {
+            executionError.stderr = redactedStderr;
+          }
+          rejectOnce(executionError);
         };
         const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
           exitCode = code;
@@ -1915,7 +2081,7 @@ export async function runTask(options: {
           exitFlushTimer = setTimeout(() => {
             if (settled || closeObserved) return;
             settleWithExit(exitCode, exitSignal, 'exit-flush-grace');
-          }, agentExitFlushGraceMs);
+          }, getAgentExitFlushGraceMs());
         };
         const onClose = (code: number | null, signal: NodeJS.Signals | null) => {
           closeObserved = true;
@@ -1932,15 +2098,15 @@ export async function runTask(options: {
           exitFlushTimer = setTimeout(() => {
             if (settled) return;
             settleWithExit(code, signal, 'close');
-          }, agentExitFlushGraceMs);
+          }, getAgentExitFlushGraceMs());
         };
 
         streamDrainPromise.catch(onErr);
         child.on('error', onErr);
         child.on('exit', onExit);
         child.on('close', onClose);
-        stdoutRedactedWriter.on('error', onErr);
-        stderrRedactedWriter.on('error', onErr);
+        stdoutRedactor.on('error', onErr);
+        stderrRedactor.on('error', onErr);
       });
 
       await spawnSpan.end({
@@ -1968,8 +2134,12 @@ export async function runTask(options: {
         forbiddenFiles: agentTaskContractSummary.forbiddenFiles,
       });
       if (postExecutionConfirmation) {
-        audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'COMPLETED', 'run-task');
-        logger.warn(`检测到执行后确认: ${postExecutionConfirmation.reason} (${postExecutionConfirmation.matchedFiles.join(', ')})`);
+        await persistRunTaskFailureLogs(taskId, {
+          stdout: redactedStdout,
+          stderr: redactedStderr,
+        });
+        getAuditHelper().securityAction('RUN_TASK', `${tool}:${taskId}`, 'COMPLETED', 'run-task');
+        getLogger().warn(`检测到执行后确认: ${postExecutionConfirmation.reason} (${postExecutionConfirmation.matchedFiles.join(', ')})`);
         const failureKind = 'agent';
         const unclosedExecution = isUnclosedExecutionFailure({
           success: false,
@@ -2024,7 +2194,7 @@ export async function runTask(options: {
           },
         });
         try {
-          verification = await runVerificationCommands(validationCommands, ctx.environment.getCwd());
+          verification = await runVerificationCommands(validationCommands, getContext().environment.getCwd());
           await verificationSpan.end({
             verificationOk: verification.ok,
             verificationIsSystemError: !!verification.isSystemError,
@@ -2033,11 +2203,11 @@ export async function runTask(options: {
             verificationFailedCommands: verification.commands.filter(c => !c.ok).length,
             verificationTotalDurationMs: verification.commands.reduce((sum, c) => sum + c.durationMs, 0),
           });
-          logger.info(`验证完成: ${verification.ok ? '通过' : '失败'} (${verification.commands.length} 条命令)${verification.isSystemError ? ' [系统错误]' : ''}`);
+          getLogger().info(`验证完成: ${verification.ok ? '通过' : '失败'} (${verification.commands.length} 条命令)${verification.isSystemError ? ' [系统错误]' : ''}`);
         } catch (error) {
           verification = { ok: false, commands: [], isSystemError: true };
           await verificationSpan.fail(error);
-          logger.error('验证执行异常');
+          getLogger().error('验证执行异常');
         }
       }
 
@@ -2050,26 +2220,32 @@ export async function runTask(options: {
         verification,
       });
       if (softSystemFailureMessage) {
-        logger.warn('任务 Agent 输出环境受限，按系统错误处理');
+        getLogger().warn('任务 Agent 输出环境受限，按系统错误处理');
       } else if (!finalSuccess && verification?.ok) {
-        logger.warn('任务 Agent 成功但验证发生系统错误');
+        getLogger().warn('任务 Agent 成功但验证发生系统错误');
       } else if (!finalSuccess) {
-        logger.warn('任务 Agent 成功但验证失败');
+        getLogger().warn('任务 Agent 成功但验证失败');
       }
       if (unclosedExecution) {
-        logger.warn('检测到未收口执行：失败 + 已有 gitChanges + verification 缺失');
+        getLogger().warn('检测到未收口执行：失败 + 已有 gitChanges + verification 缺失');
       }
 
       // Usage is now captured in real-time
       const usage = capturedUsage;
       if (usage) {
-        logger.info(`Token 消耗 (实时捕获): prompt=${usage.promptTokens}, completion=${usage.completionTokens}, total=${usage.totalTokens}`);
+        getLogger().info(`Token 消耗 (实时捕获): prompt=${usage.promptTokens}, completion=${usage.completionTokens}, total=${usage.totalTokens}`);
       }
 
-      audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'COMPLETED', 'run-task');
-      logger.info(finalSuccess ? '任务执行成功' : '任务执行完成（验证失败或系统错误）');
+      getAuditHelper().securityAction('RUN_TASK', `${tool}:${taskId}`, 'COMPLETED', 'run-task');
+      getLogger().info(finalSuccess ? '任务执行成功' : '任务执行完成（验证失败或系统错误）');
       if (gitChanges) {
-        logger.info(`变更文件: ${gitChanges.changedFiles.length} 个`);
+        getLogger().info(`变更文件: ${gitChanges.changedFiles.length} 个`);
+      }
+      if (!finalSuccess) {
+        await persistRunTaskFailureLogs(taskId, {
+          stdout: redactedStdout,
+          stderr: redactedStderr,
+        });
       }
       return {
         success: finalSuccess,
@@ -2108,14 +2284,15 @@ export async function runTask(options: {
           : undefined,
       };
     } catch (error) {
-      const execError = error as any;
-      const latestOutputFiles = findLatestRunTaskOutputFiles(taskId);
-      const fileStdout = latestOutputFiles?.stdoutPath ? await safeReadTextFile(latestOutputFiles.stdoutPath) : '';
-      const fileStderr = latestOutputFiles?.stderrPath ? await safeReadTextFile(latestOutputFiles.stderrPath) : '';
-      const errStdout = execError.stdout?.toString?.() || fileStdout;
-      const errStderr = execError.stderr?.toString?.() || fileStderr;
+      const execError = error as CommandExecutionError;
+      const errStdout = execError.stdout?.toString?.() || '';
+      const errStderr = execError.stderr?.toString?.() || '';
       const errOutput = errStdout + (errStderr ? '\n' + errStderr : '') || execError.message || String(error);
       const rawErrOutputForUsage = errStdout + (errStderr ? '\n' + errStderr : '');
+      await persistRunTaskFailureLogs(taskId, {
+        stdout: errStdout,
+        stderr: errStderr,
+      });
       const spawnFailSpan = startSpan('cli.run-task.spawnAgent', {
         context: traceContext,
         parentSpanId: rootSpan.spanId,
@@ -2124,10 +2301,10 @@ export async function runTask(options: {
           ...baseAttributes,
           fallbackUsed,
           command: limitText(fullCommand),
-          timeoutMs: agentCliTimeout,
+          timeoutMs: getAgentCliTimeout(),
         },
       });
-      const completionSignal = (execError?.completionSignal as SpawnCompletionSignal | undefined) || undefined;
+      const completionSignal = execError.completionSignal;
       const gitChanges = await collectGitChanges(gitDiffBefore) ?? undefined;
       const unclosedExecution = isUnclosedExecutionFailure({
         success: false,
@@ -2141,10 +2318,10 @@ export async function runTask(options: {
         completionSignal,
         unclosedExecution,
       });
-      audit.securityAction('RUN_TASK', `${tool}:${taskId}`, 'FAILED', 'run-task');
-      logger.error(`任务执行失败: ${errOutput}`);
+      getAuditHelper().securityAction('RUN_TASK', `${tool}:${taskId}`, 'FAILED', 'run-task');
+      getLogger().error(`任务执行失败: ${errOutput}`);
       if (unclosedExecution) {
-        logger.warn('检测到未收口执行：失败 + 已有 gitChanges + verification 缺失');
+        getLogger().warn('检测到未收口执行：失败 + 已有 gitChanges + verification 缺失');
       }
       const errUsage = parseTokenUsage(rawErrOutputForUsage || errOutput);
       const errorCode = classifyAgentFailureCode(execError, errOutput);
@@ -2206,97 +2383,156 @@ export async function runTask(options: {
   }
 }
 
-export const runTaskCmd = new Command('run-task')
-  .description('执行文档任务：根据任务描述和 Agent CLI 工具生成并执行命令')
-  .option('--tool <name>', 'Agent CLI 工具名称（如 aider、claude）')
-  .requiredOption('--task-id <id>', '任务编号')
-  .option('--task-label <label>', '任务描述')
-  .option('--doc <path>', '参考文档路径')
-  .option('--dry-run', '仅生成命令，不实际执行')
-  .option('--contract-preview', '只生成任务边界合同摘要，不加载 LLM、不执行 Agent')
-  .option('--json', '以 JSON 格式输出')
-  .action(async (options: {
-    tool?: string;
-    taskId: string;
-    taskLabel?: string;
-    doc?: string;
-    dryRun?: boolean;
-    contractPreview?: boolean;
-    json?: boolean;
-  }) => {
-    let deferredTraceCloseout: RunTaskTraceCloseout | undefined;
-    try {
-      const result = await runTask({
-        ...options,
-        deferTraceCloseout: Boolean(options.json),
-      });
-      deferredTraceCloseout = getRunTaskTraceCloseout(result);
+export function createRunTaskCmd(_context: InfrastructureContext): Command {
+  bindRunTaskContext(_context);
+  return new Command('run-task')
+    .description('执行文档任务：根据任务描述和 Agent CLI 工具生成并执行命令')
+    .option('--tool <name>', 'Agent CLI 工具名称（如 aider、claude）')
+    .requiredOption('--task-id <id>', '任务编号')
+    .option('--task-label <label>', '任务描述')
+    .option('--doc <path>', '参考文档路径')
+    .option('--dry-run', '仅生成命令，不实际执行')
+    .option('--contract-preview', '只生成任务边界合同摘要，不加载 LLM、不执行 Agent')
+    .option('--json', '以 JSON 格式输出')
+    .action(async (options: {
+      tool?: string;
+      taskId: string;
+      taskLabel?: string;
+      doc?: string;
+      dryRun?: boolean;
+      contractPreview?: boolean;
+      json?: boolean;
+    }) => {
+      let deferredTraceCloseout: RunTaskTraceCloseout | undefined;
+      try {
+        const result = await runTask({
+          ...options,
+          deferTraceCloseout: Boolean(options.json),
+        });
+        deferredTraceCloseout = getRunTaskTraceCloseout(result);
 
-      if (options.json) {
-        const jsonOutput = formatRunTaskJson(result);
-        if (!deferredTraceCloseout) {
-          console.log(JSON.stringify(jsonOutput, null, 2));
-        } else {
-          const traceCloseout = deferredTraceCloseout;
-          const formatJsonSpan = startSpan('cli.run-task.formatJson', {
-            context: traceCloseout.traceContext,
-            parentSpanId: traceCloseout.rootSpan.spanId,
-            source: 'cli',
-            attributes: traceCloseout.baseAttributes,
-          });
-          try {
-            const rendered = JSON.stringify(jsonOutput, null, 2);
-            console.log(rendered);
-            await formatJsonSpan.end({ outputLength: rendered.length });
-            await traceCloseout.rootSpan.end();
-            deferredTraceCloseout = undefined;
-          } catch (error) {
-            await formatJsonSpan.fail(error);
-            await traceCloseout.rootSpan.fail(error);
-            deferredTraceCloseout = undefined;
-            throw error;
+        if (options.json) {
+          const jsonOutput = formatRunTaskJson(result);
+          if (!deferredTraceCloseout) {
+            console.log(JSON.stringify(jsonOutput, null, 2));
+          } else {
+            const traceCloseout = deferredTraceCloseout;
+            const formatJsonSpan = startSpan('cli.run-task.formatJson', {
+              context: traceCloseout.traceContext,
+              parentSpanId: traceCloseout.rootSpan.spanId,
+              source: 'cli',
+              attributes: traceCloseout.baseAttributes,
+            });
+            try {
+              const rendered = JSON.stringify(jsonOutput, null, 2);
+              console.log(rendered);
+              await formatJsonSpan.end({ outputLength: rendered.length });
+              await traceCloseout.rootSpan.end();
+              deferredTraceCloseout = undefined;
+            } catch (error) {
+              await formatJsonSpan.fail(error);
+              await traceCloseout.rootSpan.fail(error);
+              deferredTraceCloseout = undefined;
+              throw error;
+            }
           }
-        }
-      } else if (!result.success) {
-        console.log(result.output);
-        throw new VectaHubError('Task execution failed', ErrorType.RUNTIME);
-      } else {
-        console.log(result.output);
-      }
-    } catch (error) {
-      if (!deferredTraceCloseout && typeof error === 'object' && error !== null) {
-        deferredTraceCloseout = getRunTaskTraceCloseout(error);
-      }
-      const message = error instanceof Error ? error.message : String(error);
-      if (options.json) {
-        const errorJson = { ok: false, error: { code: 'CLI_ERROR', message } };
-        if (!deferredTraceCloseout) {
-          console.log(JSON.stringify(errorJson, null, 2));
+        } else if (!result.success) {
+          console.log(result.output);
+          throw new VectaHubError('Task execution failed', ErrorType.RUNTIME);
         } else {
-          const traceCloseout = deferredTraceCloseout;
-          const formatJsonSpan = startSpan('cli.run-task.formatJson', {
-            context: traceCloseout.traceContext,
-            parentSpanId: traceCloseout.rootSpan.spanId,
-            source: 'cli',
-            attributes: traceCloseout.baseAttributes,
-          });
-          try {
-            const rendered = JSON.stringify(errorJson, null, 2);
-            console.log(rendered);
-            await formatJsonSpan.end({ outputLength: rendered.length });
-            await traceCloseout.rootSpan.fail(error);
-          } catch (formatError) {
-            await formatJsonSpan.fail(formatError);
-            await traceCloseout.rootSpan.fail(formatError);
-            throw formatError;
+          console.log(result.output);
+        }
+      } catch (error) {
+        if (!deferredTraceCloseout && typeof error === 'object' && error !== null) {
+          deferredTraceCloseout = getRunTaskTraceCloseout(error);
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        if (options.json) {
+          const errorJson = { ok: false, error: { code: 'CLI_ERROR', message } };
+          if (!deferredTraceCloseout) {
+            console.log(JSON.stringify(errorJson, null, 2));
+          } else {
+            const traceCloseout = deferredTraceCloseout;
+            const formatJsonSpan = startSpan('cli.run-task.formatJson', {
+              context: traceCloseout.traceContext,
+              parentSpanId: traceCloseout.rootSpan.spanId,
+              source: 'cli',
+              attributes: traceCloseout.baseAttributes,
+            });
+            try {
+              const rendered = JSON.stringify(errorJson, null, 2);
+              console.log(rendered);
+              await formatJsonSpan.end({ outputLength: rendered.length });
+              await traceCloseout.rootSpan.fail(error);
+            } catch (formatError) {
+              await formatJsonSpan.fail(formatError);
+              await traceCloseout.rootSpan.fail(formatError);
+              throw formatError;
+            }
           }
+        } else {
+          if (deferredTraceCloseout) {
+            await deferredTraceCloseout.rootSpan.fail(error);
+          }
+          createBoundRunTaskLogger(_context).error(`执行失败: ${message}`);
         }
-      } else {
-        if (deferredTraceCloseout) {
-          await deferredTraceCloseout.rootSpan.fail(error);
-        }
-        logger.error(`执行失败: ${message}`);
+        throw error instanceof VectaHubError ? error : new VectaHubError(message, ErrorType.RUNTIME, error);
       }
-      throw error instanceof VectaHubError ? error : new VectaHubError(message, ErrorType.RUNTIME, error);
-    }
-  });
+    });
+}
+
+export function createRunTaskCleanLogsCmd(_context: InfrastructureContext): Command {
+  bindRunTaskContext(_context);
+  return new Command('run-task-clean-logs')
+    .description('清理当前工作目录下的 run-task 失败日志')
+    .option('--json', '以 JSON 格式输出')
+    .action(async (options: { json?: boolean }) => {
+      const cleanupResult = await cleanRunTaskLogs();
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: true,
+          removedFiles: cleanupResult.removedFiles,
+        }, null, 2));
+        return;
+      }
+
+      console.log(`Cleared ${cleanupResult.removedFiles} run-task failure log files.`);
+    });
+}
+
+let boundRunTaskCmd: Command | null = null;
+let boundRunTaskCleanLogsCmd: Command | null = null;
+
+export function getRunTaskCmd(): Command {
+  if (!boundRunTaskCmd) {
+    throw new Error('RunTask command context is not bound. Use createRunTaskCmd(context) instead.');
+  }
+  return boundRunTaskCmd;
+}
+
+export function getRunTaskCleanLogsCmd(): Command {
+  if (!boundRunTaskCleanLogsCmd) {
+    throw new Error('RunTaskCleanLogs command context is not bound. Use createRunTaskCleanLogsCmd(context) instead.');
+  }
+  return boundRunTaskCleanLogsCmd;
+}
+
+/**
+ * @deprecated Legacy static export. Kept for backwards compatibility.
+ * Use createRunTaskCmd(context) through composition root instead.
+ */
+export const runTaskCmd = new Proxy({} as Command, {
+  get(target, prop) {
+    return Reflect.get(getRunTaskCmd(), prop);
+  }
+});
+
+/**
+ * @deprecated Legacy static export. Kept for backwards compatibility.
+ * Use createRunTaskCleanLogsCmd(context) through composition root instead.
+ */
+export const runTaskCleanLogsCmd = new Proxy({} as Command, {
+  get(target, prop) {
+    return Reflect.get(getRunTaskCleanLogsCmd(), prop);
+  }
+});

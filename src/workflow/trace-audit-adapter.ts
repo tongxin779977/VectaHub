@@ -42,6 +42,7 @@ type AlertQueryOptions = {
 };
 
 type TraceMetricsQueryOptions = Pick<TraceQueryOptions, 'moduleName' | 'startTimeFrom' | 'startTimeTo'>;
+type TraceSystemStats = ReturnType<TraceAuditSystem['getSystemStats']>;
 
 const EMPTY_TRACE_QUERY_RESULT: TraceQueryResult = {
   total: 0,
@@ -62,6 +63,35 @@ const EMPTY_TRACE_METRICS: TraceMetrics = {
   maxDuration: 0,
   minDuration: 0,
   byModule: {},
+};
+
+const EMPTY_TRACE_SYSTEM_STATS: TraceSystemStats = {
+  activeTraces: 0,
+  spanIndexSize: 0,
+  queryIndex: {
+    traceCount: 0,
+    spanCount: 0,
+    moduleCount: 0,
+  },
+  alerts: {
+    totalAlerts: 0,
+    unresolvedAlerts: 0,
+    criticalAlerts: 0,
+    warningAlerts: 0,
+    infoAlerts: 0,
+  },
+  storage: {
+    logDirSize: 0,
+    archiveDirSize: 0,
+    logFileCount: 0,
+    archiveFileCount: 0,
+  },
+  writer: {
+    queueLength: 0,
+    isFlushing: false,
+    isDestroyed: false,
+    bufferSize: 0,
+  },
 };
 
 const EXECUTION_STATUSES: ReadonlySet<ExecutionStatus> = new Set([
@@ -254,9 +284,9 @@ export class WorkflowTraceAuditAdapter {
   }
 
   /** 获取系统统计 */
-  getSystemStats() {
+  getSystemStats(): TraceSystemStats {
     if (!this.traceSystem) {
-      return null;
+      return EMPTY_TRACE_SYSTEM_STATS;
     }
     return this.traceSystem.getSystemStats();
   }
