@@ -1,10 +1,5 @@
 import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 
-function getExtName(filepath: string): string {
-  const match = filepath.match(/\.([^./\\]+)$/);
-  return match ? '.' + match[1] : '';
-}
-
 export interface WorkflowVersion {
   version: number;
   workflowId: string;

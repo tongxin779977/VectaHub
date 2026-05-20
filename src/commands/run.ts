@@ -11,7 +11,7 @@ import type { ExecutionPlan } from '../nl/capabilities/types.js';
 import type { ExecutionMetadata, ExecutionRecord as ExecRecord } from '../execution/types.js';
 import { createSystemWorkflows } from '../workflow/system-workflows.js';
 
-import { getDefaultContext, type InfrastructureContext } from '../infrastructure/context.js';
+import { type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import { createRecordManager } from '../execution/record-manager.js';
 import { runSelfHealingLoop } from './self-healing.js';
@@ -129,7 +129,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
         let workflowEngine: ReturnType<typeof createWorkflowEngine> | null = null;
 
       const getStorage = (): ReturnType<typeof createStorage> => {
-        storage ??= createStorage({ environment: getDefaultContext().environment });
+        storage ??= createStorage({ environment: context.environment });
         return storage;
       };
 
@@ -406,7 +406,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
     });
 }
 
-let boundRunCmd: Command | null = null;
+const boundRunCmd: Command | null = null;
 
 export function getRunCmd(): Command {
   if (!boundRunCmd) {

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getVectaHubPath } from '../../infrastructure/paths/index.js';
-import { getDefaultContext, type InfrastructureContext } from '../../infrastructure/context.js';
+import { type InfrastructureContext } from '../../infrastructure/context.js';
 import { createLLMConfig, LLMClient } from '../../nl/llm.js';
 import { TOOL_CAPABILITY_PARSER_ID } from '../../nl/prompt-manager.js';
 

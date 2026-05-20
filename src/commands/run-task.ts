@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { Transform, type TransformOptions } from 'node:stream';
-import { getDefaultContext, type InfrastructureContext } from '../infrastructure/context.js';
+import { type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import { getSecurityGuard } from '../security-protocol/factory.js';
 import type { SecurityContext, CommandIntention } from '../types/security.js';
@@ -2500,8 +2500,8 @@ export function createRunTaskCleanLogsCmd(_context: InfrastructureContext): Comm
     });
 }
 
-let boundRunTaskCmd: Command | null = null;
-let boundRunTaskCleanLogsCmd: Command | null = null;
+const boundRunTaskCmd: Command | null = null;
+const boundRunTaskCleanLogsCmd: Command | null = null;
 
 export function getRunTaskCmd(): Command {
   if (!boundRunTaskCmd) {
