@@ -38,6 +38,20 @@ export interface IEnvironmentService {
    */
   resolvePath(...segments: string[]): string;
 
+  /**
+   * 拼接路径片段
+   * @param segments - 路径分段
+   * @returns 拼接后的路径
+   */
+  joinPath(...segments: string[]): string;
+
+  /**
+   * 获取路径的目录名
+   * @param path - 路径
+   * @returns 目录名
+   */
+  getDirname(path: string): string;
+
   // ==========================================
   // 文件系统操作
   // ==========================================
@@ -227,6 +241,12 @@ export interface IEnvironmentService {
    * @returns 当前工作目录的绝对路径
    */
   getCwd(): string;
+
+  /**
+   * 获取当前操作系统平台（如 'win32', 'darwin', 'linux'）
+   * @returns 平台标识
+   */
+  getPlatform(): string;
 
   // ==========================================
   // 事件监听与管理

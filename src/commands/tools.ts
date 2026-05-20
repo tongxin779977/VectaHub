@@ -15,7 +15,8 @@ import type { KnownTool } from '../cli-tools/discovery/types.js';
 import { loadConfig as loadSetupConfig } from '../setup/first-run-wizard.js';
 import { scanSingleTool, syncCLIToolPermissionState } from '../setup/cli-scanner.js';
 import { getBuiltInAgentDescriptors } from './agent-cli-adapter.js';
-import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
 const ctx = getDefaultContext();
 export const toolsCmd = new Command('tools')

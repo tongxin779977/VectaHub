@@ -1,26 +1,11 @@
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-
-function readOptionalEnvPath(name: string): string | undefined {
-  const raw = process.env[name];
-  if (raw == null) {
-    return undefined;
-  }
-
-  const value = raw.trim();
-  if (!value || value === 'undefined' || value === 'null') {
-    return undefined;
-  }
-
-  return value;
-}
+import { getDefaultContext } from '../infrastructure/context.js';
 
 export function getVectaHubHome(): string {
-  return readOptionalEnvPath('VECTAHUB_HOME') || join(homedir(), '.vectahub');
+  return getDefaultContext().environment.getHomePath();
 }
 
 export function getVectaHubPath(...segments: string[]): string {
-  return join(getVectaHubHome(), ...segments);
+  return getDefaultContext().environment.getPath(...segments);
 }
 
 export function djb2Hash(input: string): string {

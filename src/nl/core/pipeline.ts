@@ -1,26 +1,18 @@
 import type { NLProcessor, NLContext, NLResult } from './types.js';
 import type { IntentName } from '../../types/index.js';
-import type { ILLMClient, LLMConfig } from '../interfaces.js';
+import type { ILLMClient } from '../interfaces.js';
 import type { AuditHelper } from '../../infrastructure/audit/index.js';
 import YAML from 'yaml';
-import { getLogger } from '../../utils/logger.js';
+import { getDefaultContext } from '../../infrastructure/context.js';
 import { splitPosixArgs } from '../../utils/shell.js';
 import { LLMClient, createLLMConfig } from '../llm.js';
 import { buildAllTools, convertToolCallToSteps } from '../tool-calling.js';
 import { createSemanticDetector } from '../../sandbox/semantic-detector.js';
 
-const logger = getLogger('nl-pipeline');
+const logger = getDefaultContext().logger.getLogger('nl-pipeline');
 
 export interface NLProcessorOptions {
   useLLM?: boolean;
-}
-
-interface SkillResult<T = unknown> {
-  success: boolean;
-  data?: T;
-  confidence?: number;
-  error?: string;
-  metadata?: Record<string, unknown>;
 }
 
 /**

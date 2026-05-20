@@ -1,27 +1,16 @@
 import { Command } from 'commander';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import { join } from 'path';
-import { getDefaultContext } from '../infrastructure/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { createCliOutput } from '../infrastructure/cli-output.js';
 
-const execAsync = promisify(exec);
 const environment = getDefaultContext().environment;
+const join = (...args: string[]) => environment.joinPath(...args);
 
 async function execWithTimeout(command: string, timeoutMs = 5000): Promise<{ stdout: string; stderr: string }> {
-  const controller = new AbortController();
-  const { signal } = controller;
-  
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  
-  try {
-    const result = await execAsync(command, { signal } as any);
-    return {
-      stdout: String(result.stdout),
-      stderr: String(result.stderr),
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
+  const result = await environment.exec(command, { timeout: timeoutMs });
+  return {
+    stdout: String(result.stdout),
+    stderr: String(result.stderr),
+  };
 }
 
 function formatDoctorResults(checks: { name: string; status: 'pass' | 'fail' | 'warn'; message: string }[]): string {
@@ -201,9 +190,10 @@ export const doctorCmd = new Command('doctor')
   .option('--verbose', 'Show detailed diagnostic information')
   .option('--json', 'Output results in JSON format')
   .action(async (options: { verbose?: boolean; json?: boolean }) => {
+    const output = createCliOutput({ json: Boolean(options.json) });
     const checks = await runChecks(options.verbose || false);
     if (options.json) {
-      console.log(JSON.stringify({
+      output.json({
         ok: checks.every(c => c.status !== 'fail'),
         checks,
         summary: {
@@ -211,8 +201,8 @@ export const doctorCmd = new Command('doctor')
           failed: checks.filter(c => c.status === 'fail').length,
           warnings: checks.filter(c => c.status === 'warn').length
         }
-      }, null, 2));
+      }, { space: 2 });
     } else {
-      console.log(formatDoctorResults(checks));
+      output.text(formatDoctorResults(checks));
     }
   });

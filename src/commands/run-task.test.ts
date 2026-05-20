@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdir as mkdirAsync } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
@@ -65,6 +66,112 @@ vi.mock('../infrastructure/audit/index.js', () => ({
   audit: {
     securityAction: vi.fn(),
   },
+  AuditEventType: {
+    CLI_COMMAND: 'CLI_COMMAND',
+    CLI_OUTPUT: 'CLI_OUTPUT',
+    WORKFLOW_START: 'WORKFLOW_START',
+    WORKFLOW_END: 'WORKFLOW_END',
+    WORKFLOW_STEP: 'WORKFLOW_STEP',
+    SANDBOX_DETECT: 'SANDBOX_DETECT',
+    SECURITY_ALERT: 'SECURITY_ALERT',
+    SECURITY_ACTION: 'SECURITY_ACTION',
+    CONFIG_CHANGE: 'CONFIG_CHANGE',
+    FILE_OPERATION: 'FILE_OPERATION',
+    INTENT_MATCH: 'INTENT_MATCH',
+    EXECUTOR_RESULT: 'EXECUTOR_RESULT',
+    ENV_AUDIT: 'ENV_AUDIT',
+  },
+}));
+
+const mockContextAuditHelper = {
+  securityAction: vi.fn(),
+  log: vi.fn(),
+};
+
+vi.mock('../infrastructure/context.js', () => ({
+  getDefaultContext: vi.fn(() => ({
+    environment: {
+      getAllEnv: () => process.env,
+      getCwd: () => process.cwd(),
+      getPath: (...segments: string[]) => join(process.env.VECTAHUB_HOME ?? process.cwd(), ...segments),
+      resolvePath: (...segments: string[]) => join(...segments),
+      getHomePath: () => process.env.VECTAHUB_HOME ?? process.cwd(),
+      getTmpDir: () => tmpdir(),
+      exists: (path: string) => existsSync(path),
+      readFile: (path: string) => readFileSync(path, 'utf-8'),
+      writeFile: (path: string, content: string) => writeFileSync(path, content, 'utf-8'),
+      async *readLines(path: string) {
+        const content = readFileSync(path, 'utf-8');
+        for (const line of content.split(/\r?\n/)) {
+          yield line;
+        }
+      },
+      mkdirAsync: (path: string, options?: { recursive?: boolean }) => mkdirAsync(path, options),
+      readDir: (path: string) => readdirSync(path),
+      rm: (path: string, options?: { recursive?: boolean; force?: boolean }) => rmSync(path, options),
+      copyFile: (src: string, dest: string) => copyFileSync(src, dest),
+      createWriteStream: (path: string, options?: { encoding?: string; flags?: string }) => createWriteStream(path, options as never),
+      stat: (path: string) => {
+        const stat = statSync(path);
+        return {
+          size: stat.size,
+          isDirectory: () => stat.isDirectory(),
+        };
+      },
+      getEnv: (name: string, defaultValue?: string) => process.env[name] ?? defaultValue,
+      getEnvNumber: (name: string, defaultValue?: number) => {
+        const value = process.env[name];
+        if (value === undefined || value === '') return defaultValue;
+        const parsed = Number(value);
+        return Number.isNaN(parsed) ? defaultValue : parsed;
+      },
+      exec: vi.fn(async (command: string) => {
+        const childProcess = await import('node:child_process');
+        const [file, ...args] = command.split(' ');
+        const normalizedArgs = file === 'node' && args[0] === '-e'
+          ? ['-e', args.slice(1).join(' ').replace(/^(['"])(.*)\1$/, '$2')]
+          : args;
+        return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+          childProcess.execFile(file, normalizedArgs, (error, stdout, stderr) => {
+            const result = typeof stdout === 'object' && stdout !== null && 'stdout' in stdout
+              ? stdout as { stdout?: string | Buffer; stderr?: string | Buffer }
+              : { stdout, stderr };
+            if (error) {
+              if (result.stdout !== undefined) {
+                (error as Error & { stdout?: string | Buffer }).stdout = result.stdout;
+              }
+              if (result.stderr !== undefined) {
+                (error as Error & { stderr?: string | Buffer }).stderr = result.stderr;
+              }
+              reject(error);
+              return;
+            }
+            resolve({ stdout: String(result.stdout ?? ''), stderr: String(result.stderr ?? '') });
+          });
+        });
+      }),
+      spawn: (command: string, args: string[], options?: Record<string, unknown>) => {
+        return vi.mocked(spawn)(command, args, options as never);
+      },
+    },
+    logger: {
+      getLogger: () => ({
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      }),
+    },
+    audit: {
+      getHelper: () => mockContextAuditHelper,
+      getLogger: () => ({
+        getSessionId: () => 'test-session',
+        query: vi.fn(() => []),
+        write: vi.fn(),
+        export: vi.fn(() => ''),
+      }),
+    },
+  })),
 }));
 
 vi.mock('../security-protocol/factory.js', () => ({
@@ -74,6 +181,13 @@ vi.mock('../security-protocol/factory.js', () => ({
       riskLevel: 'none',
     })),
     redactOutput: vi.fn((out) => out),
+  })),
+}));
+
+vi.mock('../security-protocol/engine.js', () => ({
+  assessCommandRisk: vi.fn(async () => ({
+    level: 'safe',
+    needsConfirmation: false,
   })),
 }));
 
@@ -92,16 +206,32 @@ vi.mock('../utils/logger.js', () => ({
   })),
 }));
 
-import { runTask, collectGitChanges, formatRunTaskJson, runVerificationCommands, splitCommandArgs, buildDefaultPrompt, type RunTaskResult } from './run-task.js';
+import { runTask, runTaskCleanLogsCmd, collectGitChanges, formatRunTaskJson, runVerificationCommands, splitCommandArgs, buildDefaultPrompt, type RunTaskResult } from './run-task.js';
 import { createLLMConfig, createLLMConfigDigestSource } from '../nl/llm.js';
+import { assessCommandRisk } from '../security-protocol/engine.js';
 import { execFile, spawn } from 'node:child_process';
 import type { AgentTaskContract } from '../types/doc-task.js';
 import { getAgentDescriptorById } from './agent-cli-adapter.js';
 import { computeInstructionHash } from './agent-task-contract.js';
 import { initializeBuiltInAgents } from '../agent-runtime/factory.js';
+import { djb2Hash } from '../infrastructure/paths/index.js';
 
 const defaultExecFileImpl = vi.mocked(execFile).getMockImplementation();
 const defaultSpawnImpl = vi.mocked(spawn).getMockImplementation();
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(assessCommandRisk).mockImplementation(async () => ({
+    level: 'safe',
+    needsConfirmation: false,
+  }));
+  if (defaultExecFileImpl) {
+    vi.mocked(execFile).mockImplementation(defaultExecFileImpl as any);
+  }
+  if (defaultSpawnImpl) {
+    vi.mocked(spawn).mockImplementation(defaultSpawnImpl as any);
+  }
+});
 
 function restoreEnvVar(name: string, value: string | undefined): void {
   if (value === undefined) {
@@ -119,18 +249,14 @@ function seedCodexUserHome(rootDir: string): string {
   return codexHome;
 }
 
+function getRunTaskFailureLogDir(vectaHubHome: string): string {
+  const resolvedHome = process.env.VECTAHUB_HOME ?? vectaHubHome;
+  return join(resolvedHome, 'outputs', 'run-task', djb2Hash(process.cwd()));
+}
+
 describe('runTask', () => {
   beforeAll(() => {
     initializeBuiltInAgents();
-  });
-  beforeEach(() => {
-    vi.clearAllMocks();
-    if (defaultExecFileImpl) {
-      vi.mocked(execFile).mockImplementation(defaultExecFileImpl as any);
-    }
-    if (defaultSpawnImpl) {
-      vi.mocked(spawn).mockImplementation(defaultSpawnImpl as any);
-    }
   });
 
   it('should return success with dryRun mode', async () => {
@@ -599,6 +725,211 @@ describe('runTask', () => {
       rmSync(tempVectaHubHome, { recursive: true, force: true });
       rmSync(tempConfigRoot, { recursive: true, force: true });
       rmSync(tempDocDir, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+    }
+  });
+
+  it('should not persist run-task failure logs on successful execution', async () => {
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
+        cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --shortstat') {
+        cb(null, { stdout: '', stderr: '' });
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+
+    vi.mocked(spawn).mockImplementation((() => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      process.nextTick(() => {
+        child.stdout.write('implemented\n');
+        child.stdout.end();
+        child.stderr.end();
+        child.emit('close', 0);
+      });
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'P2-SUCCESS-NO-LOGS',
+        taskLabel: 'success without persisted logs',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+
+      const outputDir = getRunTaskFailureLogDir(tempVectaHubHome);
+      expect(result.success).toBe(true);
+      expect(existsSync(outputDir)).toBe(false);
+    } finally {
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+    }
+  });
+
+  it('should persist run-task failure logs on failed execution', async () => {
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
+        cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --shortstat') {
+        cb(null, { stdout: '', stderr: '' });
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+
+    vi.mocked(spawn).mockImplementation((() => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      process.nextTick(() => {
+        child.stderr.write('failing stderr output\n');
+        child.stdout.end();
+        child.stderr.end();
+        child.emit('close', 2);
+      });
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'P2-FAIL-WITH-LOGS',
+        taskLabel: 'failure with persisted logs',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+
+      const outputDir = getRunTaskFailureLogDir(tempVectaHubHome);
+      const files = readdirSync(outputDir);
+      expect(result.success).toBe(false);
+      expect(files.some(name => name.startsWith('P2-FAIL-WITH-LOGS-') && name.endsWith('.stderr'))).toBe(true);
+      const stderrFile = files.find(name => name.startsWith('P2-FAIL-WITH-LOGS-') && name.endsWith('.stderr'));
+      expect(stderrFile).toBeDefined();
+      expect(readFileSync(join(outputDir, stderrFile!), 'utf-8')).toContain('failing stderr output');
+    } finally {
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+    }
+  });
+
+  it('should prune expired run-task failure logs before execution', async () => {
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const originalDateNow = Date.now;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+
+    const outputDir = getRunTaskFailureLogDir(tempVectaHubHome);
+    mkdirSync(outputDir, { recursive: true });
+    writeFileSync(join(outputDir, 'P2-OLD-1000.stdout'), 'old');
+    writeFileSync(join(outputDir, 'P2-NEW-2000000000000.stderr'), 'new');
+
+    Date.now = vi.fn(() => 2000000000000) as unknown as typeof Date.now;
+
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
+        cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --shortstat') {
+        cb(null, { stdout: '', stderr: '' });
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+
+    vi.mocked(spawn).mockImplementation((() => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      process.nextTick(() => {
+        child.stdout.write('implemented\n');
+        child.stdout.end();
+        child.stderr.end();
+        child.emit('close', 0);
+      });
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'P2-PRUNE',
+        taskLabel: 'prune expired logs',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+
+      expect(result.success).toBe(true);
+      expect(existsSync(join(outputDir, 'P2-OLD-1000.stdout'))).toBe(false);
+      expect(existsSync(join(outputDir, 'P2-NEW-2000000000000.stderr'))).toBe(true);
+    } finally {
+      Date.now = originalDateNow;
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
       if (originalExecFileImpl) {
         vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
       }

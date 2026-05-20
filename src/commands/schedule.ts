@@ -1,10 +1,10 @@
 import { Command } from 'commander';
 import { createScheduleManager } from '../workflow/scheduler.js';
-import { getLogger } from '../utils/logger.js';
-import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
 const ctx = getDefaultContext();
-const logger = getLogger('schedule');
+const logger = ctx.logger.getLogger('schedule');
 
 export const scheduleCmd = new Command('schedule')
   .description('Manage scheduled tasks')
@@ -24,7 +24,7 @@ scheduleCmd
   .option('-e, --command <command>', 'Command to execute')
   .option('-a, --args <args>', 'Command arguments (comma separated)', (v) => v.split(','))
   .action(async (opts) => {
-    const manager = createScheduleManager();
+    const manager = createScheduleManager({ audit: ctx.audit.getHelper(), environment: ctx.environment });
     const entry = await manager.add({
       name: opts.name,
       cron: opts.cron,
@@ -42,7 +42,7 @@ scheduleCmd
   .description('Remove a scheduled task')
   .requiredOption('--id <id>', 'Schedule ID')
   .action(async (opts) => {
-    const manager = createScheduleManager();
+    const manager = createScheduleManager({ audit: ctx.audit.getHelper(), environment: ctx.environment });
     const removed = await manager.remove(opts.id);
     if (removed) {
       logger.info(`Schedule removed: ${opts.id}`);
@@ -55,7 +55,7 @@ scheduleCmd
   .command('list')
   .description('List all scheduled tasks')
   .action(async () => {
-    const manager = createScheduleManager();
+    const manager = createScheduleManager({ audit: ctx.audit.getHelper(), environment: ctx.environment });
     const schedules = await manager.list();
     
     if (schedules.length === 0) {
@@ -67,7 +67,6 @@ scheduleCmd
     logger.info('─'.repeat(90));
 
     for (const s of schedules) {
-      const status = s.lastStatus || 'PENDING';
       const runs = String(s.runCount || 0);
       const lastRun = s.lastRun ? new Date(s.lastRun).toLocaleString() : 'Never';
       const enabled = s.enabled ? 'ENABLED' : 'DISABLED';

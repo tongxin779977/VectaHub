@@ -1,5 +1,10 @@
 import { Command } from 'commander';
-import { queryAuditLogs } from '../utils/audit.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import type { AuditQueryOptions } from '../infrastructure/interfaces/audit-service.js';
+
+function queryAuditLogs(options: AuditQueryOptions = {}) {
+  return getDefaultContext().audit.getLogger().query(options);
+}
 
 export const auditCmd = new Command('audit')
   .description('Audit log management commands');

@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { createParallelExecutor } from './parallel-executor.js';
+import { createNoopAuditHelper } from '../infrastructure/audit/index.js';
+import { createEnvironmentService } from '../infrastructure/environment/index.js';
 import type { Step } from '../types/index.js';
+
+const environment = createEnvironmentService();
 
 describe('ParallelExecutor', () => {
   it('should execute independent steps in parallel', async () => {
-    const executor = createParallelExecutor({ maxWorkers: 2 });
+    const executor = createParallelExecutor({ maxWorkers: 2, audit: createNoopAuditHelper(), environment });
     
     const steps: Step[] = [
       { id: 'step1', type: 'exec', cli: 'echo', args: ['hello step1'] },
@@ -18,7 +22,7 @@ describe('ParallelExecutor', () => {
   });
 
   it('should respect dependencies between steps', async () => {
-    const executor = createParallelExecutor({ maxWorkers: 2 });
+    const executor = createParallelExecutor({ maxWorkers: 2, audit: createNoopAuditHelper(), environment });
     
     const steps: Step[] = [
       { id: 'step1', type: 'exec', cli: 'echo', args: ['hello step1'] },
@@ -42,7 +46,7 @@ describe('ParallelExecutor', () => {
   });
 
   it('should handle failures correctly', async () => {
-    const executor = createParallelExecutor({ maxWorkers: 2 });
+    const executor = createParallelExecutor({ maxWorkers: 2, audit: createNoopAuditHelper(), environment });
     
     const steps: Step[] = [
       { id: 'step1', type: 'exec', cli: 'false', args: [] },
@@ -54,7 +58,7 @@ describe('ParallelExecutor', () => {
   });
 
   it('should fail fast on missing dependency target', async () => {
-    const executor = createParallelExecutor({ maxWorkers: 2 });
+    const executor = createParallelExecutor({ maxWorkers: 2, audit: createNoopAuditHelper(), environment });
     const steps: Step[] = [
       { id: 'step1', type: 'exec', cli: 'echo', args: ['hello'], dependsOn: ['missing'] },
     ];
@@ -63,7 +67,7 @@ describe('ParallelExecutor', () => {
   });
 
   it('should fail fast on cyclic dependencies', async () => {
-    const executor = createParallelExecutor({ maxWorkers: 2 });
+    const executor = createParallelExecutor({ maxWorkers: 2, audit: createNoopAuditHelper(), environment });
     const steps: Step[] = [
       { id: 'step1', type: 'exec', cli: 'echo', args: ['1'], dependsOn: ['step2'] },
       { id: 'step2', type: 'exec', cli: 'echo', args: ['2'], dependsOn: ['step1'] },

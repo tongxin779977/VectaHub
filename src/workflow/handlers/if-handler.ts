@@ -69,7 +69,7 @@ function buildExpressionData(context: ExecutionContext): ExpressionData {
 
   return {
     steps,
-    env: { ...process.env } as Record<string, string>,
+    env: { ...context.expressionData?.env } as Record<string, string>,
     vars,
     config: {},
   };

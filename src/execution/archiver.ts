@@ -1,10 +1,10 @@
 import { join } from 'node:path';
-import { mkdir, readFile, writeFile, readdir, rm, stat } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { createGzip, createGunzip } from 'node:zlib';
 import { pipeline } from 'node:stream/promises';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
-import { getVectaHubPath } from '../utils/paths.js';
+import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import type { ArchiveInfo, ArchiveResult } from './types.js';
 
 export interface Archiver {

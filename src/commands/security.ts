@@ -1,9 +1,24 @@
 import { Command } from 'commander';
 import { getSecurityManager } from '../security-protocol/index.js';
-import { audit, getCurrentSessionId, AuditEventType } from '../utils/audit.js';
-import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { AuditEventType } from '../infrastructure/audit/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
-const _ctx = getDefaultContext();
+function getSecurityManagerOrThrow(action: string) {
+  try {
+    return getSecurityManager();
+  } catch (error) {
+    throw new VectaHubError(`Failed to initialize security manager for ${action}`, ErrorType.FILESYSTEM, error);
+  }
+}
+
+function getAuditHelper() {
+  return getDefaultContext().audit.getHelper();
+}
+
+function getCurrentSessionId(): string {
+  return getDefaultContext().audit.getLogger().getSessionId();
+}
 
 export const securityCmd = new Command('security')
   .description('Security protocol management commands');
@@ -13,7 +28,7 @@ securityCmd
   .description('Show current security status')
   .action(async () => {
     const sessionId = getCurrentSessionId();
-    const manager = getSecurityManager();
+    const manager = getSecurityManagerOrThrow('security status');
     const config = manager.getConfig();
     const db = manager.getDatabase();
     const enabledRules = manager.getEnabledRules();
@@ -30,7 +45,7 @@ securityCmd
     output.push('');
 
     console.log(output.join('\n'));
-    audit.cliOutput('security status', output.join('\n'), sessionId);
+    getAuditHelper().cliOutput('security status', output.join('\n'), sessionId);
   });
 
 securityCmd
@@ -38,7 +53,7 @@ securityCmd
   .description('Show current security policy details')
   .action(async () => {
     const sessionId = getCurrentSessionId();
-    const manager = getSecurityManager();
+    const manager = getSecurityManagerOrThrow('security policy');
     const config = manager.getConfig();
 
     const output: string[] = [];
@@ -49,7 +64,7 @@ securityCmd
     output.push('');
 
     console.log(output.join('\n'));
-    audit.cliOutput('security policy', output.join('\n'), sessionId);
+    getAuditHelper().cliOutput('security policy', output.join('\n'), sessionId);
   });
 
 securityCmd
@@ -59,7 +74,7 @@ securityCmd
   .option('--disabled', 'Show only disabled rules')
   .action(async (options: { enabled?: boolean; disabled?: boolean }) => {
     const sessionId = getCurrentSessionId();
-    const manager = getSecurityManager();
+    const manager = getSecurityManagerOrThrow('security list');
     let rules;
 
     if (options.enabled) {
@@ -93,8 +108,8 @@ securityCmd
     output.push(`\nTotal: ${rules.length} rules\n`);
 
     console.log(output.join('\n'));
-    audit.cliOutput('security list', output.join('\n'), sessionId);
-    audit.log({
+    getAuditHelper().cliOutput('security list', output.join('\n'), sessionId);
+    getAuditHelper().log({
       event: AuditEventType.SECURITY_ACTION,
       timestamp: new Date().toISOString(),
       sessionId,
@@ -128,7 +143,7 @@ securityCmd
     if (!options.name || !options.pattern) {
       const errorMessage = 'Name and at least one pattern are required';
       console.error(`❌ ${errorMessage}`);
-      audit.log({
+      getAuditHelper().log({
         event: AuditEventType.SECURITY_ACTION,
         timestamp: new Date().toISOString(),
         sessionId,
@@ -144,7 +159,7 @@ securityCmd
     const patterns = Array.isArray(options.pattern) ? options.pattern : [options.pattern];
     const cliTools = options.cliTool ? (Array.isArray(options.cliTool) ? options.cliTool : [options.cliTool]) : undefined;
 
-    const manager = getSecurityManager();
+    const manager = getSecurityManagerOrThrow('security add');
     const rule = manager.addRule({
       name: options.name,
       description: options.description,
@@ -158,7 +173,7 @@ securityCmd
     const output = `\n✅ Rule added successfully!\nID: ${rule.id}\nName: ${rule.name}\nSeverity: ${rule.severity}\n`;
     console.log(output);
 
-    audit.log({
+    getAuditHelper().log({
       event: AuditEventType.SECURITY_ACTION,
       timestamp: new Date().toISOString(),
       sessionId,
@@ -188,13 +203,13 @@ securityCmd
     removePattern?: string | string[];
   }) => {
     const sessionId = getCurrentSessionId();
-    const manager = getSecurityManager();
+    const manager = getSecurityManagerOrThrow('security update');
     const existing = manager.getRuleById(ruleId);
 
     if (!existing) {
       const errorMessage = `Rule not found: ${ruleId}`;
       console.error(`❌ ${errorMessage}`);
-      audit.log({
+      getAuditHelper().log({
         event: AuditEventType.SECURITY_ACTION,
         timestamp: new Date().toISOString(),
         sessionId,
@@ -236,7 +251,7 @@ securityCmd
 
     if (updated) {
       console.log(`\n✅ Rule updated successfully!\n`);
-      audit.log({
+      getAuditHelper().log({
         event: AuditEventType.SECURITY_ACTION,
         timestamp: new Date().toISOString(),
         sessionId,
@@ -258,12 +273,12 @@ securityCmd
   .description('Delete a security rule')
   .action(async (ruleId: string) => {
     const sessionId = getCurrentSessionId();
-    const manager = getSecurityManager();
+    const manager = getSecurityManagerOrThrow('security delete');
     const success = manager.deleteRule(ruleId);
 
     if (success) {
       console.log(`\n✅ Rule deleted successfully: ${ruleId}\n`);
-      audit.log({
+      getAuditHelper().log({
         event: AuditEventType.SECURITY_ACTION,
         timestamp: new Date().toISOString(),
         sessionId,
@@ -284,12 +299,12 @@ securityCmd
   .description('Enable a security rule')
   .action(async (ruleId: string) => {
     const sessionId = getCurrentSessionId();
-    const manager = getSecurityManager();
+    const manager = getSecurityManagerOrThrow('security enable');
     const success = manager.enableRule(ruleId);
 
     if (success) {
       console.log(`\n✅ Rule enabled: ${ruleId}\n`);
-      audit.log({
+      getAuditHelper().log({
         event: AuditEventType.SECURITY_ACTION,
         timestamp: new Date().toISOString(),
         sessionId,
@@ -311,12 +326,12 @@ securityCmd
   .description('Disable a security rule')
   .action(async (ruleId: string) => {
     const sessionId = getCurrentSessionId();
-    const manager = getSecurityManager();
+    const manager = getSecurityManagerOrThrow('security disable');
     const success = manager.disableRule(ruleId);
 
     if (success) {
       console.log(`\n✅ Rule disabled: ${ruleId}\n`);
-      audit.log({
+      getAuditHelper().log({
         event: AuditEventType.SECURITY_ACTION,
         timestamp: new Date().toISOString(),
         sessionId,
@@ -338,11 +353,11 @@ securityCmd
   .description('Import security rules from a JSON file')
   .action(async (filePath: string) => {
     const sessionId = getCurrentSessionId();
+    const manager = getSecurityManagerOrThrow('security import');
     try {
-      const manager = getSecurityManager();
       const imported = await manager.importRulesFromFile(filePath);
       console.log(`\n✅ Imported ${imported} rules successfully!\n`);
-      audit.log({
+      getAuditHelper().log({
         event: AuditEventType.SECURITY_ACTION,
         timestamp: new Date().toISOString(),
         sessionId,
@@ -355,7 +370,7 @@ securityCmd
     } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(`❌ Import failed:`, errorMessage);
-      audit.log({
+      getAuditHelper().log({
         event: AuditEventType.SECURITY_ACTION,
         timestamp: new Date().toISOString(),
         sessionId,
@@ -375,11 +390,11 @@ securityCmd
   .option('--include-disabled', 'Include disabled rules')
   .action(async (filePath: string, options: { includeDisabled?: boolean }) => {
     const sessionId = getCurrentSessionId();
+    const manager = getSecurityManagerOrThrow('security export');
     try {
-      const manager = getSecurityManager();
       manager.exportRulesToFile(filePath, { includeDisabled: options.includeDisabled });
       console.log(`\n✅ Rules exported to: ${filePath}\n`);
-      audit.log({
+      getAuditHelper().log({
         event: AuditEventType.SECURITY_ACTION,
         timestamp: new Date().toISOString(),
         sessionId,
@@ -391,7 +406,7 @@ securityCmd
     } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(`❌ Export failed:`, errorMessage);
-      audit.log({
+      getAuditHelper().log({
         event: AuditEventType.SECURITY_ACTION,
         timestamp: new Date().toISOString(),
         sessionId,
@@ -412,7 +427,7 @@ securityCmd
   .option('--json', 'Output results in JSON format')
   .action(async (command: string, options: { cliTool?: string; json?: boolean }) => {
     const sessionId = getCurrentSessionId();
-    const manager = getSecurityManager();
+    const manager = getSecurityManagerOrThrow('security test');
     const result = manager.detectCommand(command, options.cliTool);
 
     if (options.json) {
@@ -450,16 +465,16 @@ securityCmd
         output.push(`Pattern: ${result.matchedPattern}`);
       }
 
-      audit.securityAlert(result.rule?.id || 'unknown', command, result.severity || 'unknown', sessionId);
-      audit.securityAction('test_command', command, 'DANGEROUS', sessionId);
+      getAuditHelper().securityAlert(result.rule?.id || 'unknown', command, result.severity || 'unknown', sessionId);
+      getAuditHelper().securityAction('test_command', command, 'DANGEROUS', sessionId);
     } else {
       output.push(`\n✅ SAFE`);
-      audit.securityAction('test_command', command, 'SAFE', sessionId);
+      getAuditHelper().securityAction('test_command', command, 'SAFE', sessionId);
     }
     output.push('');
 
     console.log(output.join('\n'));
-    audit.cliOutput('security test', output.join('\n'), sessionId);
+    getAuditHelper().cliOutput('security test', output.join('\n'), sessionId);
   });
 
 securityCmd
@@ -476,11 +491,11 @@ securityCmd
       throw new VectaHubError('Confirmation required. Use --force to skip.', ErrorType.CONFIGURATION);
     }
 
-    const manager = getSecurityManager();
+    const manager = getSecurityManagerOrThrow('security reset');
     manager.resetToDefaults();
     console.log(`\n✅ All rules reset to defaults!\n`);
 
-    audit.log({
+    getAuditHelper().log({
       event: AuditEventType.SECURITY_ACTION,
       timestamp: new Date().toISOString(),
       sessionId,
@@ -496,7 +511,7 @@ securityCmd
   .description('Show current security configuration')
   .action(async () => {
     const sessionId = getCurrentSessionId();
-    const manager = getSecurityManager();
+    const manager = getSecurityManagerOrThrow('security config');
     const config = manager.getConfig();
     const db = manager.getDatabase();
 
@@ -511,8 +526,8 @@ securityCmd
     output.push('');
 
     console.log(output.join('\n'));
-    audit.cliOutput('security config', output.join('\n'), sessionId);
-    audit.log({
+    getAuditHelper().cliOutput('security config', output.join('\n'), sessionId);
+    getAuditHelper().log({
       event: AuditEventType.SECURITY_ACTION,
       timestamp: new Date().toISOString(),
       sessionId,

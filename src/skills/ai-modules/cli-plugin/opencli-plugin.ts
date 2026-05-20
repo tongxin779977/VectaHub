@@ -33,7 +33,7 @@ export function createOpenCliPlugin(): CliPlugin {
       };
     },
 
-    async execute(input: string, context: AIModuleContext): Promise<AIModuleResult<CliPluginResult>> {
+    async execute(input: string, _context: AIModuleContext): Promise<AIModuleResult<CliPluginResult>> {
       const startTime = Date.now();
       const args = input.split(/\s+/).filter(Boolean);
 

@@ -1,5 +1,5 @@
 import type { ExecutionPlan, ExecutionPlanStep } from './types.js';
-import type { Step, StepType } from '../../types/workflow.js';
+import type { Step } from '../../types/workflow.js';
 import type { TaskList, IntentName } from '../../types/nl.js';
 
 function planStepToStep(planStep: ExecutionPlanStep): Step | null {

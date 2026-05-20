@@ -1,6 +1,13 @@
 import type { CommandRuleAuditEntry, CommandAnalysis, CommandRuleResult } from './types.js';
-import { audit } from '../../utils/audit.js';
-import { getCurrentSessionId } from '../../utils/audit.js';
+import { getDefaultContext } from '../../infrastructure/context.js';
+
+function getAuditHelper() {
+  return getDefaultContext().audit.getHelper();
+}
+
+function getCurrentSessionId(): string {
+  return getDefaultContext().audit.getLogger().getSessionId();
+}
 
 export class CommandRuleAuditLogger {
   private logs: CommandRuleAuditEntry[];
@@ -40,7 +47,7 @@ export class CommandRuleAuditLogger {
   }
 
   private _emitAudit(entry: CommandRuleAuditEntry): void {
-    audit.cliCommand('cli-tools:rule-decision', [entry.command], entry.context.sessionId);
+    getAuditHelper().cliCommand('cli-tools:rule-decision', [entry.command], entry.context.sessionId);
   }
 
   getLogs(): CommandRuleAuditEntry[] {

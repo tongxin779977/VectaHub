@@ -1,40 +1,22 @@
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-
-/**
- * 从环境变量读取可选的路径配置
- * @param name 环境变量名
- * @returns 路径字符串或 undefined
- */
-function readOptionalEnvPath(name: string): string | undefined {
-  const raw = process.env[name];
-  if (raw == null) {
-    return undefined;
-  }
-
-  const value = raw.trim();
-  if (!value || value === 'undefined' || value === 'null') {
-    return undefined;
-  }
-
-  return value;
-}
+import { getDefaultContext } from '../context.js';
 
 /**
  * 获取 VectaHub 主目录路径
+ * 权威来源：infrastructure environment 层
  * @returns VectaHub 主目录绝对路径
  */
 export function getVectaHubHome(): string {
-  return readOptionalEnvPath('VECTAHUB_HOME') || join(homedir(), '.vectahub');
+  return getDefaultContext().environment.getHomePath();
 }
 
 /**
  * 基于 VectaHub 主目录构建路径
+ * 权威来源：infrastructure environment 层
  * @param segments 路径分段
  * @returns 完整路径
  */
 export function getVectaHubPath(...segments: string[]): string {
-  return join(getVectaHubHome(), ...segments);
+  return getDefaultContext().environment.getPath(...segments);
 }
 
 /**

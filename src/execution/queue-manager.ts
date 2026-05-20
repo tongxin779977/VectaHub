@@ -1,13 +1,16 @@
 import { promises as fs, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { getVectaHubPath, getVectaHubHome, getProjectQueuePath } from '../utils/paths.js';
+import { getVectaHubPath, getProjectQueuePath } from '../infrastructure/paths/index.js';
 import type { DiagnosticTask, DiagnosticTaskStatus } from '../types/diagnostic.js';
 import { validateDiagnosticQueue } from '../types/diagnostic.js';
-import { getLogger } from '../utils/logger.js';
+import { getDefaultContext } from '../infrastructure/context.js';
 
-const logger = getLogger('queue-manager');
-const QUEUE_FILE = getVectaHubPath('diagnostic-queue.json');
+const logger = getDefaultContext().logger.getLogger('queue-manager');
 const MAX_QUEUE_SIZE = 100;
+
+function getDefaultQueueFile(): string {
+  return getVectaHubPath('diagnostic-queue.json');
+}
 
 export class QueueManager {
   private static instance: QueueManager;
@@ -15,12 +18,13 @@ export class QueueManager {
   private readonly queueFile: string;
 
   private constructor(queueFilePath?: string) {
-    this.queueFile = queueFilePath || QUEUE_FILE;
+    this.queueFile = queueFilePath || getDefaultQueueFile();
     this.ensureDirectory();
   }
 
   static getInstance(): QueueManager {
-    if (!QueueManager.instance) {
+    const queueFile = getDefaultQueueFile();
+    if (!QueueManager.instance || QueueManager.instance.queueFile !== queueFile) {
       QueueManager.instance = new QueueManager();
     }
     return QueueManager.instance;
@@ -60,12 +64,12 @@ export class QueueManager {
 
       const validTasks = validateDiagnosticQueue(data);
       if (Array.isArray(data) && validTasks.length !== data.length) {
-        logger.warn(`Filtered out ${data.length - validTasks.length} invalid tasks from queue`);
+        throw new Error(`Diagnostic queue contains ${data.length - validTasks.length} invalid task entries`);
       }
       return validTasks;
     } catch (error) {
       logger.error(`Failed to load diagnostic queue: ${error}`);
-      return [];
+      throw new Error(`Failed to load diagnostic queue from ${this.queueFile}`, { cause: error });
     } finally {
       release();
     }

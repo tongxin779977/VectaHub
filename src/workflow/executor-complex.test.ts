@@ -1,12 +1,16 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createExecutor } from './executor.js';
 import { contextManager } from './context-manager.js';
+import { createNoopAuditHelper } from '../infrastructure/audit/index.js';
+import { createEnvironmentService } from '../infrastructure/environment/index.js';
 import type { Step } from '../types/index.js';
 import type { ExecutionContext } from './handlers/types.js';
 
+const environment = createEnvironmentService();
+
 describe('Executor Complex Conditions', () => {
   const executionId = 'test-exec-if';
-  const executor = createExecutor();
+  const executor = createExecutor({ audit: createNoopAuditHelper(), environment });
 
   beforeEach(() => {
     contextManager.clear();

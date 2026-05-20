@@ -1,5 +1,11 @@
 import { Command } from 'commander';
 import { getQueueManager, getQueueManagerForProject } from '../execution/queue-manager.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
+
+function wrapQueueError(error: unknown, action: string): VectaHubError {
+  const message = error instanceof Error ? error.message : String(error);
+  return new VectaHubError(`Failed to ${action} diagnostic queue: ${message}`, ErrorType.FILESYSTEM, error);
+}
 
 export const queueCmd = new Command('queue')
   .description('管理诊断队列');
@@ -13,8 +19,13 @@ queueCmd
     const manager = options.project 
       ? getQueueManagerForProject(options.project)
       : getQueueManager();
-    
-    const tasks = await manager.loadTasks();
+
+    let tasks;
+    try {
+      tasks = await manager.loadTasks();
+    } catch (error) {
+      throw wrapQueueError(error, 'list');
+    }
     
     if (options.json) {
       console.log(JSON.stringify({ ok: true, tasks }));
@@ -48,8 +59,12 @@ queueCmd
     const manager = options.project 
       ? getQueueManagerForProject(options.project)
       : getQueueManager();
-    
-    await manager.removeTask(id);
+
+    try {
+      await manager.removeTask(id);
+    } catch (error) {
+      throw wrapQueueError(error, 'remove');
+    }
     
     if (options.json) {
       console.log(JSON.stringify({ ok: true, message: `任务 ${id} 已移除` }));
@@ -68,8 +83,13 @@ queueCmd
     const manager = options.project 
       ? getQueueManagerForProject(options.project)
       : getQueueManager();
-    
-    const tasks = await manager.loadTasks();
+
+    let tasks;
+    try {
+      tasks = await manager.loadTasks();
+    } catch (error) {
+      throw wrapQueueError(error, 'clear');
+    }
     if (tasks.length === 0) {
       if (options.json) {
         console.log(JSON.stringify({ ok: true, message: '队列为空，无需清空' }));
@@ -99,7 +119,11 @@ queueCmd
       }
     }
     
-    await manager.clearAll();
+    try {
+      await manager.clearAll();
+    } catch (error) {
+      throw wrapQueueError(error, 'clear');
+    }
     
     if (options.json) {
       console.log(JSON.stringify({ ok: true, message: '队列已清空' }));

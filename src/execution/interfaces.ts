@@ -3,7 +3,7 @@
  * 遵循 Interface-first 原则，不包含实现代码
  */
 
-import type { ExecutionRecord, StepExecution, ExecutionFilter, ExecutionSearchResult } from './types.js';
+import type { ExecutionRecord, ExecutionFilter, ExecutionSearchResult } from './types.js';
 
 /**
  * 记录管理器接口

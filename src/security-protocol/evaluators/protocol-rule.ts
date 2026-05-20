@@ -18,9 +18,14 @@ export class ProtocolRuleEvaluator implements SecurityEvaluator {
   /**
    * 执行评估逻辑
    */
-  public async evaluate(intention: CommandIntention, context: SecurityContext): Promise<SecurityDecision> {
-    const manager = getSecurityManager();
-    const result = manager.detectCommand(intention.rawCommand, intention.tool);
+  public async evaluate(intention: CommandIntention, _context: SecurityContext): Promise<SecurityDecision> {
+    let result;
+    try {
+      const manager = getSecurityManager();
+      result = manager.detectCommand(intention.rawCommand, intention.tool);
+    } catch (error) {
+      throw new Error('Security protocol rule evaluation failed', { cause: error });
+    }
 
     let decision: SecurityDecisionType = 'PASSED';
     let riskLevel: SecurityRiskLevel = 'none';

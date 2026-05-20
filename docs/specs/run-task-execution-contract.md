@@ -326,6 +326,16 @@ Agent 输出不是最终状态真相源，只是执行材料。最终状态由 V
 - `verification` 必须缺失
 - 禁止把该次执行描述为“未执行”
 
+### 5.4 失败日志持久化
+
+`run-task` 的 Agent 输出持久化遵循以下合同：
+
+- 脱敏后的 `stdout/stderr` 默认只在当前执行内存中保留。
+- 成功执行不得持久化 `.stdout/.stderr` 快照文件。
+- 失败执行必须允许保留当前失败的脱敏输出，写入 `VECTAHUB_HOME/outputs/run-task/<cwdHash>/`。
+- 自动清理只作用于该失败日志目录，不影响 workflow 正式 execution output store。
+- 每次执行 `run-task` 前，必须清理当前工作目录哈希下超过 7 天的失败日志。
+
 ## 6. 失败分类合同
 
 ### 6.1 `failed_agent`

@@ -1,8 +1,8 @@
-import { loadConfig as loadAppConfig } from '../../utils/config.js';
 import { writeFileSync, existsSync, mkdirSync } from 'fs';
 import * as path from 'path';
 import { stringify } from 'yaml';
-import { getVectaHubPath } from '../../utils/paths.js';
+import { getDefaultContext } from '../../infrastructure/context.js';
+import { getVectaHubPath } from '../../infrastructure/paths/index.js';
 
 export interface RegistrationConfig {
   version: string;
@@ -25,6 +25,10 @@ interface ToolRegistrationCandidate {
 
 function getConfigPath(): string {
   return getVectaHubPath('config.yaml');
+}
+
+function loadAppConfig() {
+  return getDefaultContext().config.getConfig();
 }
 
 let testMode = false;

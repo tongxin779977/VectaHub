@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createWorkflowEngine, type WorkflowEngine } from './engine.js';
 import { contextManager } from './context-manager.js';
+import { createNoopAuditHelper } from '../infrastructure/audit/index.js';
+import { createEnvironmentService } from '../infrastructure/environment/index.js';
 import type { Step, ExecutionRecord } from '../types/index.js';
+
+const environment = createEnvironmentService();
 
 const mockSave = vi.fn().mockResolvedValue(undefined);
 const mockGet = vi.fn().mockResolvedValue(undefined);
@@ -88,7 +92,7 @@ describe('WorkflowEngine', () => {
     mockState.applyDefaultImplementation();
     mockState.resetShouldFail();
     contextManager.clear();
-    engine = await createWorkflowEngine();
+    engine = await createWorkflowEngine({ audit: createNoopAuditHelper(), environment });
   });
 
   it('should create a workflow', async () => {
@@ -751,6 +755,33 @@ describe('WorkflowEngine', () => {
 
       expect(r1.status).toBe('COMPLETED');
       expect(r2.status).toBe('COMPLETED');
+    });
+
+    it('should isolate default context managers across engine instances', async () => {
+      const auditOne = {
+        ...createNoopAuditHelper(),
+        securityAction: vi.fn(),
+      };
+      const auditTwo = {
+        ...createNoopAuditHelper(),
+        securityAction: vi.fn(),
+      };
+      const engineOne = createWorkflowEngine({ audit: auditOne, environment });
+      const engineTwo = createWorkflowEngine({ audit: auditTwo, environment });
+      const workflowOne = await engineOne.createWorkflow('wf-audit-1', [
+        { id: 's1', type: 'if', condition: 'false', body: [] },
+      ]);
+      const workflowTwo = await engineTwo.createWorkflow('wf-audit-2', [
+        { id: 's1', type: 'if', condition: 'false', body: [] },
+      ]);
+
+      await engineOne.execute(workflowOne, { sessionId: 'sess-one' });
+      await engineTwo.execute(workflowTwo, { sessionId: 'sess-two' });
+
+      expect(auditOne.securityAction).toHaveBeenCalledWith('CONTEXT', expect.any(String), 'CREATED', 'sess-one');
+      expect(auditTwo.securityAction).toHaveBeenCalledWith('CONTEXT', expect.any(String), 'CREATED', 'sess-two');
+      expect(auditOne.securityAction).not.toHaveBeenCalledWith('CONTEXT', expect.any(String), 'CREATED', 'sess-two');
+      expect(auditTwo.securityAction).not.toHaveBeenCalledWith('CONTEXT', expect.any(String), 'CREATED', 'sess-one');
     });
   });
 

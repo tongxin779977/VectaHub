@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -73,6 +73,17 @@ describe('process-diagnostic-queue', () => {
 
     expect(pending).toHaveLength(1);
     expect(pending[0]?.id).toBe('pending-1');
+  });
+
+  it('fails loudly when queue file is malformed', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'vectahub-queue-'));
+    const queueFile = join(tempDir, 'diagnostic-queue.json');
+    writeFileSync(queueFile, '{bad json', 'utf-8');
+    const manager = QueueManager.createForPath(queueFile);
+
+    await expect(listPendingDiagnosticTasks(manager)).rejects.toThrow(
+      `Failed to load diagnostic queue from ${queueFile}`
+    );
   });
 
   it('marks a task completed after a successful command run', async () => {

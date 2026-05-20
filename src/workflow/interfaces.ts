@@ -7,8 +7,6 @@ import type {
   Workflow,
   Step,
   ExecutionRecord,
-  StepRecord,
-  ExecutionStatus,
 } from '../types/index.js';
 
 /**

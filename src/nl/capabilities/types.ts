@@ -1,4 +1,4 @@
-import type { ParsedGoal, ProjectContext, GoalAction, GoalScope } from '../core/goal-types.js';
+import type { ParsedGoal, ProjectContext } from '../core/goal-types.js';
 
 export interface CapabilityMatch {
   capabilityId: string;

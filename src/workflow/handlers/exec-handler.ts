@@ -32,7 +32,7 @@ export const createExecHandler = (deps: HandlerDependencies): StepHandler => {
       fullCommand,
       detection.isDangerous,
       detection.level || 'none',
-      'unknown'
+      options.sessionId || 'unknown'
     );
 
     if (!deps.shouldAllow(detection, options.mode)) {
@@ -61,7 +61,7 @@ export const createExecHandler = (deps: HandlerDependencies): StepHandler => {
         interpolatedCli,
         result.exitCode,
         result.duration,
-        'unknown',
+        options.sessionId || 'unknown',
         { stdoutLength: result.stdout.length, stderrLength: result.stderr.length }
       );
 

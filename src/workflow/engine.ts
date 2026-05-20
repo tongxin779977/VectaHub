@@ -3,14 +3,16 @@ import { createExecutor, type Executor, type ExecutorOptions } from './executor.
 import { createStorage, type Storage } from './storage.js';
 import { interpolateStep, type InterpolationContext } from './interpolation.js';
 import { createExecutionStateManager, type ExecutionStateManager } from './state-manager.js';
-import { contextManager as sharedContextManager, type ContextManager, type ExecutorContext } from './context-manager.js';
+import { createContextManager, type ContextManager, type ExecutorContext } from './context-manager.js';
 import { topologicalSort, validateDependencies } from './dag.js';
-import { audit as globalAudit, type AuditHelper, type AuditLogger } from '../infrastructure/audit/index.js';
+import type { AuditHelper } from '../infrastructure/audit/index.js';
 import { createSecurityGuard } from '../security-protocol/factory.js';
 import type { SecurityGuard } from '../types/security.js';
 import { createRetryManager } from '../skills/iterative-refinement/retry-manager.js';
 import { generateId } from '../execution/id-generator.js';
-import { SYSTEM_WORKFLOWS } from './system-workflows.js';
+import { createSystemWorkflows } from './system-workflows.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
+import type pino from 'pino';
 
 export interface RetryOptions {
   maxAttempts?: number;
@@ -33,6 +35,7 @@ export interface ExecuteOptions {
   retry?: RetryOptions;
   onProgress?: (info: ProgressInfo) => void;
   initialVariables?: Record<string, unknown>;
+  sessionId?: string;
 }
 
 export interface CreateWorkflowOptions {
@@ -48,8 +51,10 @@ export interface WorkflowEngineDeps {
   storage?: Storage;
   contextManager?: ContextManager;
   stateManager?: ExecutionStateManager;
-  audit?: AuditHelper;
+  audit: AuditHelper;
   securityGuard?: SecurityGuard;
+  environment: IEnvironmentService;
+  logger?: pino.Logger;
 }
 
 export interface WorkflowEngine {
@@ -86,6 +91,7 @@ interface RunLoopOptions {
   sessionId?: string;
   onProgress?: (info: ProgressInfo) => void;
   auditHelper: AuditHelper;
+  environment: IEnvironmentService;
 }
 
 function toInterpolationContext(executorCtx: ExecutorContext, executionId?: string): InterpolationContext {
@@ -116,6 +122,7 @@ async function runExecutionLoop(
     sessionId = 'unknown',
     onProgress,
     auditHelper,
+    environment,
   } = options;
   const isDryRun = Boolean(executorOptions.dryRun);
 
@@ -127,7 +134,7 @@ async function runExecutionLoop(
     newExecutionId,
     sessionId,
     initialVariables || {},
-    process.cwd(),
+    environment.getCwd(),
     { auditEnabled: !isDryRun }
   );
 
@@ -335,14 +342,16 @@ async function runExecutionLoop(
   return currentExecution;
 }
 
-export function createWorkflowEngine(deps: WorkflowEngineDeps = {}): WorkflowEngine {
+export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
   const workflows = new Map<string, Workflow>();
+  const environment = deps.environment;
   const securityGuard: SecurityGuard = deps.securityGuard ?? createSecurityGuard();
-  const executor = deps.executor ?? createExecutor({ securityGuard });
-  const storage = deps.storage ?? createStorage();
+  const executor = deps.executor ?? createExecutor({ environment, audit: deps.audit, securityGuard });
+  const storage = deps.storage ?? createStorage({ environment, logger: deps.logger });
   const sm = deps.stateManager ?? createExecutionStateManager();
-  const contextManager: ContextManager = deps.contextManager ?? sharedContextManager;
-  const auditHelper: AuditHelper = deps.audit ?? globalAudit;
+  const contextManager: ContextManager = deps.contextManager ?? createContextManager({ audit: deps.audit, environment });
+  const auditHelper: AuditHelper = deps.audit;
+  const systemWorkflows = createSystemWorkflows(environment);
 
   function buildExecutorOptions(
     workflow: Workflow,
@@ -354,6 +363,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps = {}): WorkflowEng
       mode,
       dryRun: options.dryRun,
       timeout: options.timeout || 30000,
+      sessionId: options.sessionId,
     };
   }
 
@@ -368,7 +378,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps = {}): WorkflowEng
   }
 
   async function resolveWorkflow(id: string): Promise<Workflow | undefined> {
-    const systemWorkflow = SYSTEM_WORKFLOWS[id];
+    const systemWorkflow = systemWorkflows[id];
     if (systemWorkflow) {
       return systemWorkflow;
     }
@@ -397,7 +407,9 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps = {}): WorkflowEng
       contextManager,
       initialVariables,
       onProgress: options.onProgress,
+      sessionId: options.sessionId,
       auditHelper,
+      environment,
     });
   }
 
@@ -442,7 +454,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps = {}): WorkflowEng
     },
 
     async getSystemWorkflow(id: string): Promise<Workflow | undefined> {
-      return SYSTEM_WORKFLOWS[id];
+      return systemWorkflows[id];
     },
 
     async listWorkflows(): Promise<Workflow[]> {
@@ -482,7 +494,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps = {}): WorkflowEng
         }
       }
       // 加载系统工作流
-      for (const [id, wf] of Object.entries(SYSTEM_WORKFLOWS)) {
+      for (const [id, wf] of Object.entries(systemWorkflows)) {
         workflows.set(id, wf);
       }
     },
@@ -650,7 +662,9 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps = {}): WorkflowEng
         seedOutputs,
         satisfiedDependencyIds,
         initialWarnings: [...resumedWarnings],
+        sessionId: options?.sessionId,
         auditHelper,
+        environment,
       });
     },
   };

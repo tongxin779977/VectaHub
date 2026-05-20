@@ -1,17 +1,30 @@
 import { createInterface } from 'readline';
-import { getLogger } from '../utils/logger.js';
+import { getDefaultContext } from '../infrastructure/context.js';
 import { createIntelligentDiagnosisModule } from '../skills/ai-modules/intelligent-diagnosis/diagnoser.js';
-import { createLLMConfig, LLMClient } from '../nl/llm.js';
+import { LLMClient, type LLMConfig } from '../nl/llm.js';
 import { contextManager } from '../workflow/context-manager.js';
 import { createWorkflowEngine } from '../workflow/engine.js';
 import type { ExecutionRecord, Workflow, Step, StepRecord } from '../types/index.js';
 
-const logger = getLogger('self-healing');
+const ctx = getDefaultContext();
+const logger = ctx.logger.getLogger('self-healing');
+
+type OpenAICompatibleCaller = {
+  callOpenAICompatible(userInput: string, systemPrompt: string): Promise<Response>;
+};
+
+interface OpenAICompatibleResponseBody {
+  choices?: Array<{
+    message?: {
+      content?: string;
+    };
+  }>;
+}
 
 export async function runSelfHealingLoop(
   result: ExecutionRecord,
   workflow: Workflow,
-  llmConfig: any
+  llmConfig: LLMConfig
 ): Promise<boolean> {
   if (result.status !== 'FAILED') return true;
 
@@ -26,8 +39,8 @@ export async function runSelfHealingLoop(
     llmClient: {
       complete: async (system, user) => {
         // We use a simplified version for diagnosis that returns raw JSON
-        const response = await (llmClient as any).callOpenAICompatible(user, system);
-        const data = await response.json();
+        const response = await (llmClient as unknown as OpenAICompatibleCaller).callOpenAICompatible(user, system);
+        const data = await response.json() as OpenAICompatibleResponseBody;
         return data.choices?.[0]?.message?.content || '';
       }
     }
@@ -74,7 +87,7 @@ export async function runSelfHealingLoop(
     logger.info(`\n🚀 正在尝试修复: ${suggestion.command}`);
     
     // Create a temporary workflow for the fix
-    const engine = createWorkflowEngine();
+    const engine = createWorkflowEngine({ audit: ctx.audit.getHelper(), environment: ctx.environment });
     const fixStep: Step = {
       id: `fix_${Date.now()}`,
       type: 'exec',

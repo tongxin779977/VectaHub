@@ -86,7 +86,6 @@ export function createCategoryRouter(): CategoryRouter {
   function route(intent: IntentName, context: NLContext): NLResult {
     const template = INTENT_TEMPLATES.find(t => t.intent === intent);
     const category = getCategory(intent);
-    const categoryMeta = CATEGORY_METADATA[category];
 
     if (!template) {
       return {
@@ -147,7 +146,7 @@ export function createCategoryRouter(): CategoryRouter {
     };
   }
 
-  function createDialogResult(intent: IntentName, userInput: string): NLResult {
+  function createDialogResult(intent: IntentName, _userInput: string): NLResult {
     return {
       success: true,
       intent,

@@ -2,10 +2,14 @@ import { createExecutor, type ExecutorOptions } from './executor.js';
 import { createContextManager } from './context-manager.js';
 import { buildDependencyGraph, getReadyNodes, updateDependency, validateDependencies } from './dag.js';
 import type { Step, StepRecord, SandboxMode } from '../types/index.js';
+import type { AuditHelper } from '../infrastructure/audit/index.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 
 export interface ParallelExecutorOptions {
   maxWorkers?: number;
   mode?: SandboxMode;
+  audit: AuditHelper;
+  environment: IEnvironmentService;
 }
 
 export interface ParallelExecutionResult {
@@ -17,11 +21,11 @@ export interface ParallelExecutor {
   execute(steps: Step[], options?: ExecutorOptions): Promise<ParallelExecutionResult>;
 }
 
-export function createParallelExecutor(options: ParallelExecutorOptions = {}): ParallelExecutor {
+export function createParallelExecutor(options: ParallelExecutorOptions): ParallelExecutor {
   const maxWorkers = options.maxWorkers || 4;
   const defaultMode = options.mode || 'RELAXED';
-  const executor = createExecutor();
-  const contextManager = createContextManager();
+  const executor = createExecutor({ environment: options.environment, audit: options.audit });
+  const contextManager = createContextManager({ audit: options.audit, environment: options.environment });
   let executionId: string | null = null;
   let sessionIdCounter = 0;
 
@@ -34,7 +38,8 @@ export function createParallelExecutor(options: ParallelExecutorOptions = {}): P
     const results = new Map<string, StepRecord>();
     
     executionId = `parallel_exec_${++sessionIdCounter}`;
-    contextManager.createContext('parallel_wf', executionId, 'parallel_session');
+    const sessionId = `parallel_session_${sessionIdCounter}`;
+    contextManager.createContext('parallel_wf', executionId, sessionId);
     
     let failed = false;
 
@@ -50,7 +55,7 @@ export function createParallelExecutor(options: ParallelExecutorOptions = {}): P
 
       try {
         const executorContext = contextManager.toExecutorContext(executionId!);
-        const result = await executor.execute(step, execOptions, executorContext);
+        const result = await executor.execute(step, { ...execOptions, sessionId }, executorContext);
         
         const stepRecord: StepRecord = {
           stepId: step.id,

@@ -1,22 +1,83 @@
 import { homedir, tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync, copyFileSync, statSync, createReadStream, createWriteStream } from 'node:fs';
 import { readFile, mkdir } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
-import { exec, spawn } from 'node:child_process';
+import { exec, execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
+import { parse } from 'shell-quote';
 import type { IEnvironmentService } from '../interfaces/index.js';
 import { Signal } from '../interfaces/environment-service.js';
 import { VectaHubError, ErrorType } from '../errors/index.js';
 
 const execAsync = promisify(exec);
+const SHELL_OPERATORS = new Set(['&&', '||', '|', ';', '&', '>', '>>', '<', '2>', '2>>']);
+
+function commandPartToText(part: string | { op: string } | { pattern: string }): string {
+  if (typeof part === 'string') {
+    return part;
+  }
+  if ('op' in part) {
+    return part.op;
+  }
+  return String(part.pattern);
+}
+
+function splitExecutableCommand(command: string): { file: string; args: string[] } | null {
+  const parsed = parse(command);
+  const normalized = parsed.map(commandPartToText);
+  if (normalized.length >= 4 && normalized[0] === 'node' && normalized[1] === '-e') {
+    return { file: normalized[0], args: [normalized[1], normalized.slice(2).join('')] };
+  }
+  if (parsed.length === 0 || parsed.some(part => typeof part !== 'string' || SHELL_OPERATORS.has(part))) {
+    return null;
+  }
+
+  const [file, ...args] = parsed;
+  return { file: file as string, args: args as string[] };
+}
+
+function copyExecutionErrorDetails(target: Error, source: unknown): void {
+  if (!source || typeof source !== 'object') {
+    return;
+  }
+  const details = source as Record<string, unknown>;
+  for (const key of ['stdout', 'stderr', 'status', 'code', 'signal', 'killed', 'cmd'] as const) {
+    if (key in details) {
+      (target as unknown as Record<string, unknown>)[key] = details[key];
+    }
+  }
+}
+
+function runExecFile(
+  file: string,
+  args: string[],
+  options?: { cwd?: string; env?: Record<string, string | undefined>; timeout?: number },
+): Promise<{ stdout: string | Buffer; stderr: string | Buffer }> {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, options ?? {}, (error, stdout, stderr) => {
+      const result = typeof stdout === 'object' && stdout !== null && 'stdout' in stdout
+        ? stdout as { stdout?: string | Buffer; stderr?: string | Buffer }
+        : { stdout, stderr };
+      if (error) {
+        copyExecutionErrorDetails(error, result);
+        reject(error);
+        return;
+      }
+      resolve({
+        stdout: result.stdout ?? '',
+        stderr: result.stderr ?? '',
+      });
+    });
+  });
+}
 
 /**
  * 环境服务实现
  * 统一管理环境变量和路径计算
  */
 export class EnvironmentService implements IEnvironmentService {
-  private homePath: string;
+  private readonly explicitHomePath?: string;
   private signalListeners: Map<Signal, Set<() => void | Promise<void>>>;
   private uncaughtExceptionListeners: Set<(error: Error) => void | Promise<void>>;
   private unhandledRejectionListeners: Set<(reason: unknown) => void | Promise<void>>;
@@ -24,7 +85,7 @@ export class EnvironmentService implements IEnvironmentService {
   private listenersAttached: boolean;
 
   constructor(homePath?: string) {
-    this.homePath = homePath ?? this.detectHomePath();
+    this.explicitHomePath = homePath;
     this.signalListeners = new Map();
     this.uncaughtExceptionListeners = new Set();
     this.unhandledRejectionListeners = new Set();
@@ -45,15 +106,23 @@ export class EnvironmentService implements IEnvironmentService {
   // ==========================================
 
   getHomePath(): string {
-    return this.homePath;
+    return this.explicitHomePath ?? this.detectHomePath();
   }
 
   getPath(...segments: string[]): string {
-    return join(this.homePath, ...segments);
+    return join(this.getHomePath(), ...segments);
   }
 
   resolvePath(...segments: string[]): string {
     return resolve(...segments);
+  }
+
+  joinPath(...segments: string[]): string {
+    return join(...segments);
+  }
+
+  getDirname(path: string): string {
+    return dirname(path);
   }
 
   // ==========================================
@@ -272,17 +341,22 @@ export class EnvironmentService implements IEnvironmentService {
 
   async exec(command: string, options?: { cwd?: string; env?: Record<string, string | undefined>; timeout?: number }): Promise<{ stdout: string; stderr: string }> {
     try {
-      const { stdout, stderr } = await execAsync(command, options);
+      const executable = splitExecutableCommand(command);
+      const { stdout, stderr } = executable
+        ? await runExecFile(executable.file, executable.args, options)
+        : await execAsync(command, options);
       return {
         stdout: stdout.toString(),
         stderr: stderr.toString(),
       };
     } catch (error) {
-      throw new VectaHubError(
+      const wrapped = new VectaHubError(
         `Failed to execute command: ${command}`,
         ErrorType.RUNTIME,
         error
       );
+      copyExecutionErrorDetails(wrapped, error);
+      throw wrapped;
     }
   }
 
@@ -308,6 +382,10 @@ export class EnvironmentService implements IEnvironmentService {
 
   getCwd(): string {
     return process.cwd();
+  }
+
+  getPlatform(): string {
+    return process.platform;
   }
 
   // ==========================================

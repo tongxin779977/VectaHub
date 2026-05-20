@@ -40,16 +40,33 @@ const planRunner_js_1 = require("../execution/planRunner.js");
 const detector_js_1 = require("../project/detector.js");
 const devPipeline_js_1 = require("../execution/devPipeline.js");
 const taskHistory_js_1 = require("../project/taskHistory.js");
-async function runPlansSequentially(plans, runner, token) {
-    for (const plan of plans) {
+const runProjectTask_js_1 = require("./runProjectTask.js");
+async function runPlansSequentially(plans, tasks, runner, token, tasksProvider) {
+    for (let i = 0; i < plans.length; i++) {
+        const plan = plans[i];
+        const task = tasks[i];
         if (token.isCancellationRequested) {
             throw new Error('cancelled');
         }
-        await runner.run(plan, { silent: true });
+        if (task) {
+            (0, runProjectTask_js_1.markTaskRunning)(task.id, tasksProvider);
+        }
+        try {
+            await runner.run(plan, { silent: true });
+        }
+        finally {
+            if (task) {
+                (0, runProjectTask_js_1.markTaskFinished)(task.id, tasksProvider);
+            }
+        }
     }
 }
 function registerRunVerifyAllCommand(context, tasksProvider) {
     const disposable = vscode.commands.registerCommand('vectahubTasks.runVerifyAll', async () => {
+        if (tasksProvider.getIsPipelineRunning?.()) {
+            vscode.window.showWarningMessage('验证流水线正在运行中...');
+            return;
+        }
         const tasks = await (0, detector_js_1.detectProjectTasks)();
         const result = (0, devPipeline_js_1.createVerifyPipeline)(tasks);
         if (result.plans.length === 0) {
@@ -62,42 +79,48 @@ function registerRunVerifyAllCommand(context, tasksProvider) {
         }
         const startedAt = new Date();
         let status = 'success';
-        await vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title: 'VectaHub 一键验证全部...',
-            cancellable: true
-        }, async (_progress, token) => {
-            const runner = new planRunner_js_1.PlanRunner((0, output_js_1.getOutputChannel)());
-            try {
-                await runPlansSequentially(result.plans, runner, token);
-            }
-            catch (err) {
-                const message = err instanceof Error ? err.message : String(err);
-                if (message.includes('cancelled')) {
-                    status = 'cancelled';
-                    vscode.window.showInformationMessage('⏸ 一键验证已取消');
+        tasksProvider.setIsPipelineRunning?.(true);
+        try {
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'VectaHub 一键验证全部...',
+                cancellable: true
+            }, async (_progress, token) => {
+                const runner = new planRunner_js_1.PlanRunner((0, output_js_1.getOutputChannel)());
+                try {
+                    await runPlansSequentially(result.plans, result.included, runner, token, tasksProvider);
                 }
-                else {
-                    status = 'failed';
-                    vscode.window.showErrorMessage(`❌ 验证链在某步失败: ${message}`);
+                catch (err) {
+                    const message = err instanceof Error ? err.message : String(err);
+                    if (message.includes('cancelled')) {
+                        status = 'cancelled';
+                        vscode.window.showInformationMessage('⏸ 一键验证已取消');
+                    }
+                    else {
+                        status = 'failed';
+                        vscode.window.showErrorMessage(`❌ 验证链在某步失败: ${message}`);
+                    }
                 }
+            });
+        }
+        finally {
+            tasksProvider.setIsPipelineRunning?.(false);
+            const endedAt = new Date();
+            const summary = `验证链: ${result.included.map(t => t.label).join(' → ')}`;
+            (0, taskHistory_js_1.addTaskRecord)({
+                id: `verify-pipeline-${Date.now()}`,
+                label: '一键验证全部',
+                kind: 'verify-pipeline',
+                source: 'vectahub',
+                status,
+                command: summary,
+                startedAt,
+                endedAt
+            });
+            tasksProvider.refresh();
+            if (status === 'success') {
+                vscode.window.showInformationMessage('✅ 一键验证全部完成');
             }
-        });
-        const endedAt = new Date();
-        const summary = `验证链: ${result.included.map(t => t.label).join(' → ')}`;
-        (0, taskHistory_js_1.addTaskRecord)({
-            id: `verify-pipeline-${Date.now()}`,
-            label: '一键验证全部',
-            kind: 'verify-pipeline',
-            source: 'vectahub',
-            status,
-            command: summary,
-            startedAt,
-            endedAt
-        });
-        tasksProvider.refresh();
-        if (status === 'success') {
-            vscode.window.showInformationMessage('✅ 一键验证全部完成');
         }
     });
     context.subscriptions.push(disposable);

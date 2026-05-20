@@ -1,12 +1,12 @@
 import { Command } from 'commander';
-import { getLogger } from '../utils/logger.js';
 import { createStorage } from '../workflow/storage.js';
-import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import { Workflow } from '../types/index.js';
 import YAML from 'yaml';
 import createLLMDialogControlSkill from '../skills/llm-dialog-control/index.js';
 
-const logger = getLogger('generate');
+const logger = getDefaultContext().logger.getLogger('generate');
 
 const YAML_WORKFLOW_SYSTEM_PROMPT = `
 你是一个专业的工作流 YAML 生成专家，专门为 VectaHub 平台生成工作流。
@@ -143,7 +143,7 @@ export const generateCmd = new Command('generate')
       logger.info(`工作流已保存到: ${outputPath}`);
 
       if (options.save) {
-        const storage = createStorage();
+        const storage = createStorage({ environment: getDefaultContext().environment });
         await storage.saveWorkflow(workflow, 'yaml');
         logger.info('工作流已保存到工作流库');
       }

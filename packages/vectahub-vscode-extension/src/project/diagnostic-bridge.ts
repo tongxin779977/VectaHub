@@ -2,11 +2,8 @@ import * as vscode from 'vscode';
 import { createServer, Server } from 'node:http';
 import { writeFile, unlink } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
-
-const VECTAHUB_HOME = process.env.VECTAHUB_HOME || join(homedir(), '.vectahub');
-const BRIDGE_PORT_FILE = join(VECTAHUB_HOME, 'bridge-port');
+import { getVectaHubHome } from '../cli/adapter.js';
 
 export interface DiagnosticBridgeResult {
   uri: string;
@@ -90,6 +87,10 @@ function serializeDiagnostics(results: DiagnosticBridgeResult[]) {
   }));
 }
 
+function getBridgePortFile(): string {
+  return join(getVectaHubHome(), 'bridge-port');
+}
+
 export class DiagnosticBridge implements vscode.Disposable {
   private server: Server | null = null;
   private port: number = 0;
@@ -141,7 +142,7 @@ export class DiagnosticBridge implements vscode.Disposable {
         if (typeof addr === 'object' && addr) {
           this.port = addr.port;
           try {
-            await writeFile(BRIDGE_PORT_FILE, JSON.stringify({ port: this.port, token: this.token }), 'utf-8');
+            await writeFile(getBridgePortFile(), JSON.stringify({ port: this.port, token: this.token }), 'utf-8');
           } catch {
             // directory may not exist
           }
@@ -170,7 +171,7 @@ export class DiagnosticBridge implements vscode.Disposable {
       this.server = null;
     }
     try {
-      await unlink(BRIDGE_PORT_FILE);
+      await unlink(getBridgePortFile());
     } catch {
       // file may not exist
     }

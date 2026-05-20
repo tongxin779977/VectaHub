@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { djb2Hash } from '../utils/paths.js';
+import { djb2Hash } from '../infrastructure/paths/index.js';
 import { docTaskRunsCmd, listRecentRuns, readLatestRuns, findRunById } from './doc-task-runs.js';
+import { resetDefaultContext } from '../infrastructure/context.js';
 
 function dateFileName(offsetDays: number): string {
   const d = new Date();
@@ -31,6 +32,7 @@ describe('doc-task-runs command', () => {
     tempHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
     projectRoot = mkdtempSync(join(tmpdir(), 'vectahub-project-'));
     process.env.VECTAHUB_HOME = tempHome;
+    resetDefaultContext();
   });
 
   afterEach(() => {
@@ -41,6 +43,7 @@ describe('doc-task-runs command', () => {
     }
     rmSync(tempHome, { recursive: true, force: true });
     rmSync(projectRoot, { recursive: true, force: true });
+    resetDefaultContext();
     vi.restoreAllMocks();
   });
 
@@ -66,11 +69,12 @@ describe('doc-task-runs command', () => {
     const showResult = findRunById('run-1', projectRoot);
     expect(showResult?.taskId).toBe('P1-1');
 
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     await docTaskRunsCmd.parseAsync(['latest', '--project', projectRoot, '--json'], { from: 'user' });
-    expect(logSpy).toHaveBeenCalledTimes(1);
-    expect(logSpy.mock.calls[0][0]).toContain('"ok":true');
-    expect(logSpy.mock.calls[0][0]).toContain('"tasks"');
+    expect(stdoutSpy).toHaveBeenCalled();
+    const payload = stdoutSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
+    expect(payload).toContain('"ok":true');
+    expect(payload).toContain('"tasks"');
   });
 
   it('list 的 limit 与 status/failure-kind 过滤生效', () => {

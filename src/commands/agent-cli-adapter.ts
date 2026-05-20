@@ -1,9 +1,7 @@
 import { getAgentRegistry } from '../agent-runtime/registry.js';
 import type { 
   AgentDescriptor, 
-  AgentAdapter, 
-  AgentAdapterInput, 
-  AgentAdapterOutput 
+  AgentAdapter
 } from '../types/agent.js';
 
 // Re-export types for backward compatibility

@@ -1,8 +1,8 @@
-import { getLogger } from '../utils/logger.js';
+import { getDefaultContext } from '../infrastructure/context.js';
 import type { ChatOutput } from './types.js';
 import type { ChatConfig } from './config.js';
 
-const logger = getLogger('chat-ui');
+const logger = getDefaultContext().logger.getLogger('chat-ui');
 
 export interface UIRenderer {
   render(output: ChatOutput): void;

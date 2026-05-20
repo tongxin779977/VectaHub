@@ -1,12 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createIntentMatcher, type LegacyIntentPattern } from './intent-matcher.js';
-import { audit } from '../utils/audit.js';
+import { getDefaultContext } from '../infrastructure/context.js';
 
-vi.mock('../utils/audit.js', () => ({
-  audit: {
-    intentMatch: vi.fn(),
-  },
+const intentMatchMock = vi.fn();
+
+vi.mock('../infrastructure/context.js', () => ({
+  getDefaultContext: vi.fn(() => ({
+    audit: {
+      getHelper: () => ({
+        intentMatch: intentMatchMock,
+      }),
+    },
+  })),
 }));
+
+function getAuditIntentMatchMock() {
+  return getDefaultContext().audit.getHelper().intentMatch as ReturnType<typeof vi.fn>;
+}
+
+beforeEach(() => {
+  intentMatchMock.mockReset();
+});
 
 describe('Intent Matcher', () => {
   const patterns: LegacyIntentPattern[] = [
@@ -97,7 +111,7 @@ describe('Intent Matcher', () => {
 
     it('records audit log when sessionId provided', () => {
       matcher.match('查找文件', 'session-123');
-      expect(audit.intentMatch).toHaveBeenCalledWith(
+      expect(getAuditIntentMatchMock()).toHaveBeenCalledWith(
         expect.any(String),
         expect.any(Number),
         expect.any(Object),

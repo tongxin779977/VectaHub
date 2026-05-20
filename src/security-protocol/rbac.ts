@@ -1,8 +1,6 @@
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'fs';
-import { getVectaHubPath, getVectaHubHome } from '../utils/paths.js';
+import { getVectaHubPath, getVectaHubHome } from '../infrastructure/paths/index.js';
 import { ShellTokenizer } from '../utils/shell-tokenizer.js';
-
-const RBAC_FILE = getVectaHubPath('rbac.json');
 
 export type RoleName = 'developer' | 'ci-runner' | 'admin';
 
@@ -55,6 +53,10 @@ function ensureRbacDir(): void {
   }
 }
 
+function getRbacFile(): string {
+  return getVectaHubPath('rbac.json');
+}
+
 /**
  * Detect variable injection attempts that could bypass RBAC.
  * E.g., CMD="rm -rf /"; $CMD or alias rm='malicious'
@@ -69,8 +71,6 @@ const ALIAS_PATTERNS = [
   /^alias\s+/i,
   /^unalias\s+/i,
 ];
-
-const SHELL_SEPARATORS = /[;&|]{1,2}/;
 
 function detectBypassAttempt(command: string): boolean {
   // Check for variable injection
@@ -292,12 +292,13 @@ function matchBlockedCommand(command: string, blockedPattern: string): boolean {
 
 export function createRBACManager(): RBACManager {
   function loadConfig(): RoleConfig[] {
+    const rbacFile = getRbacFile();
     ensureRbacDir();
-    if (!existsSync(RBAC_FILE)) {
+    if (!existsSync(rbacFile)) {
       return DEFAULT_ROLES;
     }
     try {
-      const raw = readFileSync(RBAC_FILE, 'utf-8');
+      const raw = readFileSync(rbacFile, 'utf-8');
       return JSON.parse(raw) as RoleConfig[];
     } catch {
       return DEFAULT_ROLES;
@@ -305,8 +306,9 @@ export function createRBACManager(): RBACManager {
   }
 
   function saveConfig(roles: RoleConfig[]): void {
+    const rbacFile = getRbacFile();
     ensureRbacDir();
-    writeFileSync(RBAC_FILE, JSON.stringify(roles, null, 2), 'utf-8');
+    writeFileSync(rbacFile, JSON.stringify(roles, null, 2), 'utf-8');
   }
 
   function getRole(name: RoleName): RoleConfig {
@@ -319,7 +321,7 @@ export function createRBACManager(): RBACManager {
     return loadConfig();
   }
 
-  function canExecute(role: RoleName, command: string, tool?: string): boolean {
+  function canExecute(role: RoleName, command: string, _tool?: string): boolean {
     const roleConfig = getRole(role);
 
     // 0. Block variable injection and alias bypass attempts

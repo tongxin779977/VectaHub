@@ -3,9 +3,9 @@ import type { SessionManager } from './session-manager.js';
 import type { LLMConfig, LLMTool, LLMToolCall, LLMResponse as LLMClientResponse } from './llm.js';
 import { LLMClient } from './llm.js';
 import { DEFAULT_INTENT_PARSER_ID } from './prompt-manager.js';
-import { getLogger } from '../utils/logger.js';
+import { getDefaultContext } from '../infrastructure/context.js';
 
-const logger = getLogger('llm-orchestrator');
+const logger = getDefaultContext().logger.getLogger('llm-orchestrator');
 
 export interface LLMOrchestratorOptions {
   promptManager: PromptManager;

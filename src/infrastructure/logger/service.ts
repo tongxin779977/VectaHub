@@ -88,7 +88,7 @@ export class LoggerService implements ILoggerService {
             },
           },
         });
-      } catch (_e) {
+      } catch {
         // 如果 pino-pretty 加载失败，回退到普通日志（写入 stderr）
         return pino(baseOptions, pino.destination(2));
       }

@@ -1,7 +1,8 @@
 import { Command } from 'commander';
-import { getVectaHubPath } from '../utils/paths.js';
+import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { TraceSpanRecord } from '../infrastructure/trace/types.js';
-import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
 interface TraceSummary {
   traceId: string;

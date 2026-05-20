@@ -1,9 +1,11 @@
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
-import { getLogger } from '../logger/index.js';
+import { getDefaultContext } from '../context.js';
 import { getVectaHubPath } from '../paths/index.js';
 
-const logger = getLogger('config-security');
+function getModuleLogger() {
+  return getDefaultContext().logger.getLogger('config-security');
+}
 
 /**
  * 配置安全选项接口
@@ -47,7 +49,9 @@ export interface SecurityIssue {
 /**
  * 默认配置文件路径
  */
-const DEFAULT_CONFIG_PATH = getVectaHubPath('config.yaml');
+function getDefaultConfigPath(): string {
+  return getVectaHubPath('config.yaml');
+}
 
 /**
  * 配置安全管理类
@@ -61,7 +65,7 @@ export class ConfigSecurity {
   private hashStore: Map<string, string> = new Map();
 
   constructor(options?: ConfigSecurityOptions) {
-    this.configPath = options?.configPath || DEFAULT_CONFIG_PATH;
+    this.configPath = options?.configPath || getDefaultConfigPath();
     this.enableChecksums = options?.enableChecksums ?? true;
     this.enablePermissions = options?.enablePermissions ?? true;
     this.loadHashes();
@@ -148,9 +152,9 @@ export class ConfigSecurity {
       const hash = this.computeHash(content);
       this.hashStore.set(targetPath, hash);
       await this.saveHashes();
-      logger.debug(`Updated hash for ${targetPath}`);
+      getModuleLogger().debug(`Updated hash for ${targetPath}`);
     } catch (error) {
-      logger.error(`Failed to update config hash: ${(error as Error).message}`);
+      getModuleLogger().error(`Failed to update config hash: ${(error as Error).message}`);
     }
   }
 
@@ -214,10 +218,10 @@ export class ConfigSecurity {
 
     try {
       await fs.chmod(targetPath, 0o600);
-      logger.info(`Set secure permissions (600) for ${targetPath}`);
+      getModuleLogger().info(`Set secure permissions (600) for ${targetPath}`);
       return true;
     } catch (error) {
-      logger.error(`Failed to set permissions: ${(error as Error).message}`);
+      getModuleLogger().error(`Failed to set permissions: ${(error as Error).message}`);
       return false;
     }
   }
@@ -295,10 +299,10 @@ export class ConfigSecurity {
     try {
       await fs.copyFile(this.configPath, dest);
       await this.enforceSecurePermissions(dest);
-      logger.info(`Config backed up to ${dest}`);
+      getModuleLogger().info(`Config backed up to ${dest}`);
       return dest;
     } catch (error) {
-      logger.error(`Failed to backup config: ${(error as Error).message}`);
+      getModuleLogger().error(`Failed to backup config: ${(error as Error).message}`);
       throw error;
     }
   }
@@ -312,9 +316,9 @@ export class ConfigSecurity {
       await fs.copyFile(backupPath, this.configPath);
       await this.enforceSecurePermissions();
       await this.updateConfigHash();
-      logger.info(`Config restored from ${backupPath}`);
+      getModuleLogger().info(`Config restored from ${backupPath}`);
     } catch (error) {
-      logger.error(`Failed to restore config: ${(error as Error).message}`);
+      getModuleLogger().error(`Failed to restore config: ${(error as Error).message}`);
       throw error;
     }
   }

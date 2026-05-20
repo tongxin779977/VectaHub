@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { parse } from 'yaml';
-import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
 
 interface ModuleStatus {
   name: string;

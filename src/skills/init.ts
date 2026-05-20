@@ -94,7 +94,7 @@ async function discoverAIModules(): Promise<AIModuleRegistration[]> {
       if (factory) {
         registrations.push({ id, factory });
       }
-    } catch (err) {
+    } catch {
       // console.debug(`Failed to load module ${relPath}:`, err);
     }
   }

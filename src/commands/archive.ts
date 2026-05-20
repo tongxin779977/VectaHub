@@ -1,9 +1,9 @@
 import { Command } from 'commander';
 import { createArchiver } from '../execution/archiver.js';
-import { getLogger } from '../utils/logger.js';
-import { VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
-const logger = getLogger('archive');
+const logger = getDefaultContext().logger.getLogger('archive');
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

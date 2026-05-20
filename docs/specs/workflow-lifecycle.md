@@ -87,4 +87,4 @@ vectahub archive --delete <archiveId>
 - workflow 文件加载失败时 `run` 返回错误。
 - `resume` 找不到失败或暂停步骤时不会执行。
 - `rerun` 找不到 workflow 时不会执行。
-- 输出文件缺失时回退到 summary，不应导致整个记录不可读。
+- 如果执行记录包含 `outputRef` / `outputSummary`，但 `outputRef` 缺失或目标 stdout 文件不存在，系统会将其视为存储损坏并显式失败，而不是回退到 summary。

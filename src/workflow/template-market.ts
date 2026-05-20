@@ -1,8 +1,5 @@
-import { join, basename } from 'path';
-import { promises as fs } from 'fs';
-import { spawn } from 'child_process';
 import { type WorkflowTemplate, listTemplates } from './template.js';
-import { getVectaHubPath } from '../utils/paths.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 
 export interface TemplateSource {
   id: string;
@@ -20,12 +17,18 @@ export interface TemplateMetadata {
   localPath: string;
 }
 
-const SOURCES_FILE = getVectaHubPath('sources.json');
-const CACHE_DIR = getVectaHubPath('template-cache');
+function getSourcesFile(environment: IEnvironmentService): string {
+  return environment.getPath('sources.json');
+}
 
-export async function getSources(): Promise<TemplateSource[]> {
+function getTemplateCacheDir(environment: IEnvironmentService): string {
+  return environment.getPath('template-cache');
+}
+
+export async function getSources(environment: IEnvironmentService): Promise<TemplateSource[]> {
+  const sourcesFile = getSourcesFile(environment);
   try {
-    const content = await fs.readFile(SOURCES_FILE, 'utf-8');
+    const content = await environment.readFileAsync(sourcesFile);
     return JSON.parse(content);
   } catch {
     return getDefaultSources();
@@ -44,8 +47,9 @@ function getDefaultSources(): TemplateSource[] {
   ];
 }
 
-export async function addSource(source: Omit<TemplateSource, 'id' | 'lastUpdate'>): Promise<void> {
-  const sources = await getSources();
+export async function addSource(environment: IEnvironmentService, source: Omit<TemplateSource, 'id' | 'lastUpdate'>): Promise<void> {
+  const sourcesFile = getSourcesFile(environment);
+  const sources = await getSources(environment);
   const newSource: TemplateSource = {
     ...source,
     id: source.name.toLowerCase().replace(/[^a-z0-9]/g, '-'),
@@ -59,43 +63,47 @@ export async function addSource(source: Omit<TemplateSource, 'id' | 'lastUpdate'
     sources.push(newSource);
   }
   
-  await fs.writeFile(SOURCES_FILE, JSON.stringify(sources, null, 2), 'utf-8');
+  environment.writeFile(sourcesFile, JSON.stringify(sources, null, 2));
 }
 
-export async function removeSource(sourceId: string): Promise<void> {
-  const sources = await getSources();
+export async function removeSource(environment: IEnvironmentService, sourceId: string): Promise<void> {
+  const sourcesFile = getSourcesFile(environment);
+  const sources = await getSources(environment);
   const filtered = sources.filter(s => s.id !== sourceId);
-  await fs.writeFile(SOURCES_FILE, JSON.stringify(filtered, null, 2), 'utf-8');
+  environment.writeFile(sourcesFile, JSON.stringify(filtered, null, 2));
 }
 
-export async function updateSource(sourceId: string): Promise<void> {
-  const sources = await getSources();
+export async function updateSource(environment: IEnvironmentService, sourceId: string): Promise<void> {
+  const sourcesFile = getSourcesFile(environment);
+  const sources = await getSources(environment);
   const source = sources.find(s => s.id === sourceId);
   if (!source) {
     throw new Error(`Source ${sourceId} not found`);
   }
   
-  await pullSource(source);
+  await pullSource(environment, source);
   source.lastUpdate = new Date();
-  await fs.writeFile(SOURCES_FILE, JSON.stringify(sources, null, 2), 'utf-8');
+  environment.writeFile(sourcesFile, JSON.stringify(sources, null, 2));
 }
 
-export async function updateAllSources(): Promise<void> {
-  const sources = await getSources();
+export async function updateAllSources(environment: IEnvironmentService): Promise<void> {
+  const sourcesFile = getSourcesFile(environment);
+  const sources = await getSources(environment);
   for (const source of sources) {
     try {
-      await pullSource(source);
+      await pullSource(environment, source);
       source.lastUpdate = new Date();
     } catch (error) {
       console.warn(`Failed to update source ${source.name}: ${(error as Error).message}`);
     }
   }
-  await fs.writeFile(SOURCES_FILE, JSON.stringify(sources, null, 2), 'utf-8');
+  environment.writeFile(sourcesFile, JSON.stringify(sources, null, 2));
 }
 
-async function cloneSource(source: TemplateSource): Promise<string> {
-  const targetDir = join(CACHE_DIR, source.id);
-  await fs.mkdir(CACHE_DIR, { recursive: true });
+async function cloneSource(environment: IEnvironmentService, source: TemplateSource): Promise<string> {
+  const cacheDir = getTemplateCacheDir(environment);
+  const targetDir = environment.joinPath(cacheDir, source.id);
+  await environment.mkdirAsync(cacheDir, { recursive: true });
   
   if (source.type === 'git' || source.type === 'github') {
     return new Promise((resolve, reject) => {
@@ -104,14 +112,14 @@ async function cloneSource(source: TemplateSource): Promise<string> {
         args.push('--branch', source.branch);
       }
       
-      const child = spawn('git', args, { stdio: 'pipe' });
+      const child = environment.spawn('git', args, { stdio: 'pipe' });
       
       let errorOutput = '';
-      child.stderr.on('data', (data) => {
+      child.stderr.on('data', (data: Buffer) => {
         errorOutput += data.toString();
       });
       
-      child.on('close', (code) => {
+      child.on('close', (code: number) => {
         if (code === 0) {
           resolve(targetDir);
         } else {
@@ -124,28 +132,26 @@ async function cloneSource(source: TemplateSource): Promise<string> {
   throw new Error(`Unsupported source type: ${source.type}`);
 }
 
-async function pullSource(source: TemplateSource): Promise<void> {
-  const targetDir = join(CACHE_DIR, source.id);
+async function pullSource(environment: IEnvironmentService, source: TemplateSource): Promise<void> {
+  const targetDir = environment.joinPath(getTemplateCacheDir(environment), source.id);
   
-  try {
-    await fs.access(targetDir);
-  } catch {
-    await cloneSource(source);
+  if (!environment.exists(targetDir)) {
+    await cloneSource(environment, source);
     return;
   }
   
   return new Promise((resolve, reject) => {
-    const child = spawn('git', ['pull'], { 
+    const child = environment.spawn('git', ['pull'], { 
       cwd: targetDir, 
       stdio: 'pipe' 
     });
     
     let errorOutput = '';
-    child.stderr.on('data', (data) => {
+    child.stderr.on('data', (data: Buffer) => {
       errorOutput += data.toString();
     });
     
-    child.on('close', (code) => {
+    child.on('close', (code: number) => {
       if (code === 0) {
         resolve();
       } else {
@@ -156,18 +162,19 @@ async function pullSource(source: TemplateSource): Promise<void> {
 }
 
 export async function searchTemplates(
+  environment: IEnvironmentService,
   keyword?: string,
   category?: string,
   tag?: string
 ): Promise<TemplateMetadata[]> {
-  const sources = await getSources();
+  const sources = await getSources(environment);
   const results: TemplateMetadata[] = [];
   
   for (const source of sources) {
     try {
-      await pullSource(source);
-      const sourceDir = join(CACHE_DIR, source.id, source.path || '');
-      const templates = listTemplates(sourceDir, category, tag);
+      await pullSource(environment, source);
+      const sourceDir = environment.joinPath(getTemplateCacheDir(environment), source.id, source.path || '');
+      const templates = listTemplates(environment, sourceDir, category, tag);
       
       for (const template of templates) {
         if (keyword) {
@@ -184,7 +191,7 @@ export async function searchTemplates(
         results.push({
           sourceId: source.id,
           template,
-          localPath: join(sourceDir, `${template.name}.yaml`),
+          localPath: environment.joinPath(sourceDir, `${template.name}.yaml`),
         });
       }
     } catch (error) {
@@ -195,23 +202,23 @@ export async function searchTemplates(
   return results;
 }
 
-export async function installTemplate(metadata: TemplateMetadata, targetDir?: string): Promise<string> {
-  const target = targetDir || getVectaHubPath('templates');
-  await fs.mkdir(target, { recursive: true });
+export async function installTemplate(environment: IEnvironmentService, metadata: TemplateMetadata, targetDir?: string): Promise<string> {
+  const target = targetDir || environment.getPath('templates');
+  await environment.mkdirAsync(target, { recursive: true });
   
-  const destPath = join(target, `${metadata.template.name}.yaml`);
-  await fs.copyFile(metadata.localPath, destPath);
+  const destPath = environment.joinPath(target, `${metadata.template.name}.yaml`);
+  environment.copyFile(metadata.localPath, destPath);
   
   return destPath;
 }
 
-export async function installTemplateByName(name: string, targetDir?: string): Promise<string> {
-  const templates = await searchTemplates(name);
+export async function installTemplateByName(environment: IEnvironmentService, name: string, targetDir?: string): Promise<string> {
+  const templates = await searchTemplates(environment, name);
   const match = templates.find(t => t.template.name === name);
   
   if (!match) {
     throw new Error(`Template "${name}" not found in any source`);
   }
   
-  return installTemplate(match, targetDir);
+  return installTemplate(environment, match, targetDir);
 }

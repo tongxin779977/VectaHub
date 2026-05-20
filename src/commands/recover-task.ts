@@ -10,10 +10,10 @@
  */
 
 import { Command } from 'commander';
-import { getLogger } from '../utils/logger.js';
 import { startSpan, createChildEnv } from '../infrastructure/trace/index.js';
 import { runTask, formatRunTaskJson, type RunTaskResult } from './run-task.js';
-import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import {
   decideRecovery,
   createRecoveryRecord,
@@ -24,8 +24,8 @@ import {
 } from '../types/recovery.js';
 import type { DocTaskFailureKind, DocTaskRunStatus } from '../types/doc-task.js';
 
-const logger = getLogger('recover-task');
 const ctx = getDefaultContext();
+const logger = ctx.logger.getLogger('recover-task');
 
 export interface RecoverTaskOptions {
   runId: string;
@@ -310,7 +310,7 @@ function failureKindToStatus(kind: DocTaskFailureKind): DocTaskRunStatus {
   return map[kind] ?? 'failed_agent';
 }
 
-function buildDecisionFromKind(kind: RecoveryDecisionKind, failureKind: DocTaskFailureKind): RecoveryDecision {
+function buildDecisionFromKind(kind: RecoveryDecisionKind, _failureKind: DocTaskFailureKind): RecoveryDecision {
   const templates: Record<RecoveryDecisionKind, RecoveryDecision> = {
     retry_direct: {
       kind: 'retry_direct',

@@ -40,6 +40,8 @@ export class MockEnvironmentService implements IEnvironmentService {
   getHomePath(): string { return this.home; }
   getPath(...segments: string[]): string { return [this.home, ...segments].join('/'); }
   resolvePath(...segments: string[]): string { return segments.join('/'); }
+  joinPath(...segments: string[]): string { return segments.join('/'); }
+  getDirname(path: string): string { return path.split('/').slice(0, -1).join('/') || '.'; }
 
   readFile(path: string): string {
     const content = this.files.get(path);
@@ -52,14 +54,23 @@ export class MockEnvironmentService implements IEnvironmentService {
     for (const line of lines) yield line;
   }
   writeFile(path: string, content: string): void { this.files.set(path, content); }
-  exists(path: string): boolean { return this.files.has(path); }
+  exists(path: string): boolean {
+    if (this.files.has(path)) return true;
+    const normalizedPath = path.endsWith('/') ? path : path + '/';
+    return Array.from(this.files.keys()).some(p => p.startsWith(normalizedPath));
+  }
   ensureDir(_path: string): void {}
   async mkdirAsync(_path: string): Promise<void> {}
   readDir(path: string): string[] {
-    return Array.from(this.files.keys())
-      .filter(p => p.startsWith(path))
-      .map(p => p.slice(path.length).split('/')[1])
-      .filter(Boolean);
+    const normalizedPath = path.endsWith('/') ? path : path + '/';
+    const entries = new Set<string>();
+    for (const p of this.files.keys()) {
+      if (p.startsWith(normalizedPath)) {
+        const entry = p.slice(normalizedPath.length).split('/')[0];
+        if (entry) entries.add(entry);
+      }
+    }
+    return Array.from(entries);
   }
   readDirObjects(_path: string): any[] { return []; }
   rm(path: string): void { this.files.delete(path); }
@@ -90,6 +101,7 @@ export class MockEnvironmentService implements IEnvironmentService {
   exit(code = 0): never { throw new Error(`Process exited with code ${code}`); }
   getArgv(): string[] { return []; }
   getCwd(): string { return this.cwd; }
+  getPlatform(): string { return 'darwin'; }
 
   onSignal(_sig: Signal, _l: any): void {}
   onUncaughtException(_l: any): void {}

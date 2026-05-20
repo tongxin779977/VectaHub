@@ -5,8 +5,9 @@ import { createLLMConfig, createLLMEnhancedParser } from '../nl/llm.js';
 import { createWorkflowEngine } from '../workflow/engine.js';
 import { createStorage } from '../workflow/storage.js';
 import { createScheduleManager } from '../workflow/scheduler.js';
-import { audit, getCurrentSessionId, AuditEventType, queryAuditLogs } from '../utils/audit.js';
-import { getVectaHubPath } from '../utils/paths.js';
+import { AuditEventType, type AuditHelper, type AuditLogger } from '../infrastructure/audit/index.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
+import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import type { Step } from '../types/index.js';
 import type { LLMWorkflowStepInline } from '../nl/llm.js';
 
@@ -18,6 +19,12 @@ interface APIResponse {
   success: boolean;
   data?: unknown;
   error?: string;
+}
+
+interface APIServerDeps {
+  audit: AuditHelper;
+  auditLogger: Pick<AuditLogger, 'getSessionId' | 'query'>;
+  environment: IEnvironmentService;
 }
 
 interface APIExecutionSummary {
@@ -147,29 +154,32 @@ function listWorkflows(): { id: string; name: string; steps: unknown[] }[] {
     });
 }
 
-export async function createAPIServer(port = 3000): Promise<ReturnType<typeof createServer>> {
-  const engine = createWorkflowEngine();
-  const scheduler = createScheduleManager({ engine });
+export async function createAPIServer(
+  port = 3000,
+  deps: APIServerDeps
+): Promise<ReturnType<typeof createServer>> {
+  const engine = createWorkflowEngine({ audit: deps.audit, environment: deps.environment });
+  const scheduler = createScheduleManager({ engine, audit: deps.audit, environment: deps.environment });
   await scheduler.start();
 
   const server = createServer(async (req, res) => {
-    const sessionId = getCurrentSessionId();
+    const sessionId = deps.auditLogger.getSessionId();
     const url = new URL(req.url || '/', `http://localhost:${port}`);
     const method = req.method || 'GET';
 
-    audit.cliCommand(`${method} ${url.pathname}`, [], sessionId);
+    deps.audit.cliCommand(`${method} ${url.pathname}`, [], sessionId);
 
     try {
       if (method === 'GET' && url.pathname === '/api/workflows') {
         const workflows = listWorkflows();
         jsonResponse(res, 200, { success: true, data: workflows });
       } else if (method === 'GET' && url.pathname === '/api/executions') {
-        const storage = createStorage();
+        const storage = createStorage({ environment: deps.environment });
         const executions = await storage.list();
         jsonResponse(res, 200, { success: true, data: executions });
       } else if (method === 'GET' && url.pathname === '/api/audit') {
         const limit = parseInt(url.searchParams.get('limit') || '100', 10);
-        const logs = queryAuditLogs({ limit });
+        const logs = deps.auditLogger.query({ limit });
         jsonResponse(res, 200, { success: true, data: logs });
       } else if (method === 'POST' && url.pathname === '/api/workflows') {
         const body = await parseRequestBody(req);
@@ -185,7 +195,7 @@ export async function createAPIServer(port = 3000): Promise<ReturnType<typeof cr
         if (workflowFile && existsSync(workflowFile)) {
           const content = readFileSync(workflowFile, 'utf-8');
           const workflow = JSON.parse(content);
-          const result = await engine.execute(workflow);
+          const result = await engine.execute(workflow, { sessionId });
           executionResult = toExecutionSummary(result);
         } else {
           const llmConfig = createLLMConfig();
@@ -198,7 +208,7 @@ export async function createAPIServer(port = 3000): Promise<ReturnType<typeof cr
             if (llmResult.confidence >= 0.7 && llmWorkflow && llmWorkflow.steps.length > 0) {
               const steps = mapLLMWorkflowSteps(llmWorkflow.steps);
               const workflow = await engine.createWorkflow(llmWorkflow.name || input, steps);
-              const result = await engine.execute(workflow);
+              const result = await engine.execute(workflow, { sessionId });
               executionResult = toExecutionSummary(result);
             } else {
               executionResult = { status: 'NEEDS_CLARIFICATION', steps: [], warnings: ['Low confidence, no workflow generated'] };
@@ -208,13 +218,13 @@ export async function createAPIServer(port = 3000): Promise<ReturnType<typeof cr
           }
         }
 
-        audit.workflowEnd('api', executionResult.status as AuditEventType, 0, sessionId);
+        deps.audit.workflowEnd('api', executionResult.status as AuditEventType, 0, sessionId);
         jsonResponse(res, 200, { success: true, data: executionResult });
       } else if (method === 'POST' && url.pathname === '/api/ai-delegate') {
         const body = await parseRequestBody(req);
         const input = (body.input as string) || '';
 
-        audit.workflowStart('ai-delegate', input, sessionId);
+        deps.audit.workflowStart('ai-delegate', input, sessionId);
 
         const llmConfig = createLLMConfig();
         if (!llmConfig) {
@@ -226,7 +236,7 @@ export async function createAPIServer(port = 3000): Promise<ReturnType<typeof cr
         const llmResult = await llmParser.parse(input);
         const llmWorkflow = llmResult.workflow;
 
-        audit.intentMatch(llmResult.intent, llmResult.confidence, llmResult.params, sessionId);
+        deps.audit.intentMatch(llmResult.intent, llmResult.confidence, llmResult.params, sessionId);
 
         if (llmResult.confidence < 0.5) {
           jsonResponse(res, 400, {
@@ -240,9 +250,9 @@ export async function createAPIServer(port = 3000): Promise<ReturnType<typeof cr
         if (llmWorkflow && llmWorkflow.steps.length > 0) {
           const steps = mapLLMWorkflowSteps(llmWorkflow.steps);
           const workflow = await engine.createWorkflow(llmWorkflow.name || input, steps);
-          const result = await engine.execute(workflow);
+          const result = await engine.execute(workflow, { sessionId });
 
-          audit.workflowEnd('ai-delegate', result.status as AuditEventType, result.duration || 0, sessionId);
+          deps.audit.workflowEnd('ai-delegate', result.status as AuditEventType, result.duration || 0, sessionId);
 
           jsonResponse(res, 200, {
             success: true,
@@ -268,7 +278,7 @@ export async function createAPIServer(port = 3000): Promise<ReturnType<typeof cr
       const statusCode = (err instanceof RequestBodyParseError)
         ? 400
         : (err instanceof BodyTooLargeError) ? 413 : 500;
-      audit.log({
+      deps.audit.log({
         event: AuditEventType.WORKFLOW_END,
         timestamp: new Date().toISOString(),
         sessionId,

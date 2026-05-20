@@ -159,7 +159,7 @@ async function main(): Promise<void> {
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   main().catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(message);
+    console.error(`Diagnostic queue command failed: ${message}`);
     process.exit(1);
   });
 }

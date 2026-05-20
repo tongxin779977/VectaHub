@@ -1,10 +1,10 @@
 import { Command } from 'commander';
 import { createConnection } from 'net';
 import type { SandboxMode } from '../types/index.js';
-import { audit, getCurrentSessionId, AuditEventType } from '../utils/audit.js';
-import { globalEventManager } from '../utils/event-manager.js';
+import { AuditEventType } from '../infrastructure/audit/index.js';
 import { SocketServer } from '../daemon/socket-server.js';
-import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
 const ctx = getDefaultContext();
 
@@ -13,10 +13,18 @@ const QUEUE_DIR = ctx.environment.getPath(ctx.environment.getTmpDir(), 'vectahub
 
 let socketServer: SocketServer | null = null;
 
+function getAuditHelper() {
+  return ctx.audit.getHelper();
+}
+
+function getCurrentSessionId(): string {
+  return ctx.audit.getLogger().getSessionId();
+}
+
 const handleShutdown = (signal: string) => {
   const sessionId = getCurrentSessionId();
   console.log('\n\n🛑 Shutting down...');
-  audit.log({
+  getAuditHelper().log({
     event: AuditEventType.CLI_COMMAND,
     timestamp: new Date().toISOString(),
     sessionId,
@@ -40,7 +48,7 @@ export const serveCmd = new Command('serve')
     console.log(`Socket: ${SOCKET_PATH}`);
     console.log(`Queue:  ${QUEUE_DIR}\n`);
 
-    audit.log({
+    getAuditHelper().log({
       event: AuditEventType.CLI_COMMAND,
       timestamp: new Date().toISOString(),
       sessionId,
@@ -64,14 +72,14 @@ export const serveCmd = new Command('serve')
       console.log('  vectahub client config');
       console.log('  vectahub client shutdown\n');
 
-      audit.cliOutput('serve', 'Service started on ' + SOCKET_PATH, sessionId);
+      getAuditHelper().cliOutput('serve', 'Service started on ' + SOCKET_PATH, sessionId);
 
       if (options.daemon) {
         console.log('Running in daemon mode. Use "vectahub client shutdown" to stop.\n');
       }
     } catch (err) {
       console.error('❌ Server error:', (err as Error).message);
-      audit.log({
+      getAuditHelper().log({
         event: AuditEventType.WORKFLOW_END,
         timestamp: new Date().toISOString(),
         sessionId,
@@ -84,12 +92,12 @@ export const serveCmd = new Command('serve')
       throw new VectaHubError('Server error', ErrorType.RUNTIME, err);
     }
 
-    globalEventManager.on('SIGINT', () => {
+    ctx.eventBus.on('SIGINT', () => {
       handleShutdown('SIGINT');
       return;
     });
 
-    globalEventManager.on('SIGTERM', () => {
+    ctx.eventBus.on('SIGTERM', () => {
       handleShutdown('SIGTERM');
       return;
     });
@@ -102,7 +110,7 @@ export const clientCmd = new Command('client')
     .argument('<input>', 'Natural language input')
     .action(async (input: string) => {
       const sessionId = getCurrentSessionId();
-      audit.cliCommand('client submit', [input], sessionId);
+      getAuditHelper().cliCommand('client submit', [input], sessionId);
 
       const socket = createConnection({ path: SOCKET_PATH }, () => {
         socket.write(JSON.stringify({
@@ -116,7 +124,7 @@ export const clientCmd = new Command('client')
         if (response.type === 'submitted') {
           const output = `\n✅ Task submitted: ${response.taskId}\nCheck status: vectahub client status ${response.taskId}\n`;
           console.log(output);
-          audit.cliOutput('client submit', output, sessionId);
+          getAuditHelper().cliOutput('client submit', output, sessionId);
         }
         socket.end();
       });
@@ -124,7 +132,7 @@ export const clientCmd = new Command('client')
       socket.on('error', () => {
         console.error('❌ Cannot connect to service. Is it running?');
         console.error(`Socket: ${SOCKET_PATH}`);
-        audit.log({
+        getAuditHelper().log({
           event: AuditEventType.CLI_OUTPUT,
           timestamp: new Date().toISOString(),
           sessionId,
@@ -143,7 +151,7 @@ export const clientCmd = new Command('client')
     .argument('<task-id>', 'Task ID')
     .action(async (taskId: string) => {
       const sessionId = getCurrentSessionId();
-      audit.cliCommand('client status', [taskId], sessionId);
+      getAuditHelper().cliCommand('client status', [taskId], sessionId);
 
       const socket = createConnection({ path: SOCKET_PATH }, () => {
         socket.write(JSON.stringify({
@@ -168,7 +176,7 @@ export const clientCmd = new Command('client')
 
           const output = outputParts.join('\n');
           console.log(output);
-          audit.cliOutput('client status', output, sessionId);
+          getAuditHelper().cliOutput('client status', output, sessionId);
         } else {
           console.error(`❌ ${response.message}`);
         }
@@ -185,7 +193,7 @@ export const clientCmd = new Command('client')
     .description('List all tasks')
     .action(async () => {
       const sessionId = getCurrentSessionId();
-      audit.cliCommand('client list', [], sessionId);
+      getAuditHelper().cliCommand('client list', [], sessionId);
 
       const socket = createConnection({ path: SOCKET_PATH }, () => {
         socket.write(JSON.stringify({
@@ -212,7 +220,7 @@ export const clientCmd = new Command('client')
 
           const output = outputParts.join('\n');
           console.log(output);
-          audit.cliOutput('client list', output, sessionId);
+          getAuditHelper().cliOutput('client list', output, sessionId);
         }
         socket.end();
       });
@@ -228,7 +236,7 @@ export const clientCmd = new Command('client')
     .argument('[mode]', 'Sandbox mode: STRICT | RELAXED | CONSENSUS')
     .action(async (mode?: string) => {
       const sessionId = getCurrentSessionId();
-      audit.cliCommand('client mode', mode ? [mode] : [], sessionId);
+      getAuditHelper().cliCommand('client mode', mode ? [mode] : [], sessionId);
 
       const socket = createConnection({ path: SOCKET_PATH }, () => {
         if (mode) {
@@ -254,7 +262,7 @@ export const clientCmd = new Command('client')
         if (response.type === 'mode' || response.type === 'modeChanged') {
           const output = `\n🔒 Sandbox Mode: ${response.mode}\n`;
           console.log(output);
-          audit.cliOutput('client mode', output, sessionId);
+          getAuditHelper().cliOutput('client mode', output, sessionId);
         }
         socket.end();
       });
@@ -269,7 +277,7 @@ export const clientCmd = new Command('client')
     .description('Get sandbox configuration')
     .action(async () => {
       const sessionId = getCurrentSessionId();
-      audit.cliCommand('client config', [], sessionId);
+      getAuditHelper().cliCommand('client config', [], sessionId);
 
       const socket = createConnection({ path: SOCKET_PATH }, () => {
         socket.write(JSON.stringify({
@@ -288,7 +296,7 @@ export const clientCmd = new Command('client')
 
           const output = outputParts.join('\n');
           console.log(output);
-          audit.cliOutput('client config', output, sessionId);
+          getAuditHelper().cliOutput('client config', output, sessionId);
         }
         socket.end();
       });
@@ -303,7 +311,7 @@ export const clientCmd = new Command('client')
     .description('Shutdown the service')
     .action(async () => {
       const sessionId = getCurrentSessionId();
-      audit.cliCommand('client shutdown', [], sessionId);
+      getAuditHelper().cliCommand('client shutdown', [], sessionId);
 
       const socket = createConnection({ path: SOCKET_PATH }, () => {
         socket.write(JSON.stringify({
@@ -314,7 +322,7 @@ export const clientCmd = new Command('client')
       socket.on('data', () => {
         const output = '\n🛑 Service shutting down...\n';
         console.log(output);
-        audit.cliOutput('client shutdown', output, sessionId);
+        getAuditHelper().cliOutput('client shutdown', output, sessionId);
         socket.end();
       });
 

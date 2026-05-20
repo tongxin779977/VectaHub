@@ -1,6 +1,8 @@
 import { Command } from 'commander';
-import { getVectaHubPath } from '../utils/paths.js';
-import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { getVectaHubPath } from '../infrastructure/paths/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
+import { createCliOutput, isCliOutputHandledError, markCliOutputHandled } from '../infrastructure/cli-output.js';
 
 const ctx = getDefaultContext();
 
@@ -100,6 +102,7 @@ vscodeDiagnosticCmd
   .option('-p, --port <number>', 'Override bridge port', parseInt)
   .option('--json', 'Output as JSON')
   .action(async (options: { file?: string; severity?: string; port?: number; json?: boolean }) => {
+    const output = createCliOutput({ json: Boolean(options.json) });
     try {
       const result = await fetchDiagnosticsFromBridge({
         file: options.file,
@@ -108,35 +111,40 @@ vscodeDiagnosticCmd
       });
 
       if (options.json) {
-        console.log(JSON.stringify(result, null, 2));
+        output.json(result, { space: 2 });
       } else {
         if (!result.ok) {
-          console.error(`❌ Bridge error: ${result.error}`);
-          throw new VectaHubError(`Bridge error: ${result.error}`, ErrorType.RUNTIME);
+          output.error(`❌ Bridge error: ${result.error}`);
+          throw markCliOutputHandled(new VectaHubError(`Bridge error: ${result.error}`, ErrorType.RUNTIME));
         }
 
-        console.log(`📋 VSCode Diagnostics: ${result.totalDiagnostics} issues across ${result.files} files\n`);
+        output.text(`📋 VSCode Diagnostics: ${result.totalDiagnostics} issues across ${result.files} files\n`);
         for (const file of result.data) {
-          console.log(`  📄 ${file.filePath}`);
+          output.text(`  📄 ${file.filePath}`);
           for (const d of file.diagnostics) {
             const loc = `${d.range.start.line + 1}:${d.range.start.character + 1}`;
             const src = d.source ? ` [${d.source}]` : '';
-            console.log(`    ${d.severity} ${loc}${src}: ${d.message}`);
+            output.text(`    ${d.severity} ${loc}${src}: ${d.message}`);
           }
-          console.log();
+          output.blank();
         }
       }
     } catch (err) {
-      if (err instanceof VectaHubError) {
+      if (isCliOutputHandledError(err)) {
         throw err;
       }
+
       const msg = err instanceof Error ? err.message : String(err);
+      ctx.logger.getLogger('vscode-diagnostic').error({ error: err }, 'VSCode diagnostic command failed');
       if (options.json) {
-        console.log(JSON.stringify({ ok: false, error: msg }));
+        output.json({ ok: false, error: msg });
       } else {
-        console.error(`❌ ${msg}`);
-        console.error('💡 Make sure VSCode is open with the VectaHub extension active.');
+        output.error(`❌ ${msg}`);
+        output.error('💡 Make sure VSCode is open with the VectaHub extension active.');
       }
-      throw new VectaHubError(`VSCode diagnostic failed: ${msg}`, ErrorType.RUNTIME);
+      if (err instanceof VectaHubError) {
+        throw markCliOutputHandled(err);
+      }
+      throw markCliOutputHandled(new VectaHubError(`VSCode diagnostic failed: ${msg}`, ErrorType.RUNTIME, err));
     }
   });

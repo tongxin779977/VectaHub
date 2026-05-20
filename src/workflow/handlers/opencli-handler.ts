@@ -22,7 +22,7 @@ export const createOpenCliHandler = (deps: HandlerDependencies): StepHandler => 
       `opencli ${site} ${command}`,
       detection.isDangerous,
       detection.level || 'none',
-      'unknown'
+      options.sessionId || 'unknown'
     );
 
     try {
@@ -35,7 +35,7 @@ export const createOpenCliHandler = (deps: HandlerDependencies): StepHandler => 
         'opencli',
         result.exitCode,
         result.duration,
-        'unknown',
+        options.sessionId || 'unknown',
         { stdoutLength: result.stdout.length, stderrLength: result.stderr.length }
       );
 

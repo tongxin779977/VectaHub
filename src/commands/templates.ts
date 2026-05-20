@@ -1,6 +1,5 @@
 import { Command } from 'commander';
 import { fileURLToPath } from 'url';
-import { getLogger } from '../utils/logger.js';
 import { createStorage } from '../workflow/storage.js';
 import { listTemplates, instantiateTemplate, type WorkflowTemplate } from '../workflow/template.js';
 import { loadConfig } from '../setup/first-run-wizard.js';
@@ -15,10 +14,11 @@ import {
   type TemplateSource,
   type TemplateMetadata,
 } from '../workflow/template-market.js';
-import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
-const logger = getLogger('templates');
 const ctx = getDefaultContext();
+const logger = ctx.logger.getLogger('templates');
 
 function getTemplatesDir(): string {
   const envDir = ctx.environment.getEnv('VECTAHUB_TEMPLATES_DIR');
@@ -103,7 +103,7 @@ export const templatesCmd = new Command('templates')
   .option('-c, --category <category>', 'Filter by category')
   .option('-t, --tag <tag>', 'Filter by tag')
   .action((options: { category?: string; tag?: string }) => {
-    const templates = listTemplates(BUILTIN_TEMPLATES_DIR, options.category, options.tag);
+    const templates = listTemplates(ctx.environment, BUILTIN_TEMPLATES_DIR, options.category, options.tag);
     logger.info('\nAvailable workflow templates:\n');
     formatTemplateTable(templates);
     console.log(`\nTotal: ${templates.length} template(s)`);
@@ -119,7 +119,7 @@ export const templatesCmd = new Command('templates')
     logger.info('正在连接模板仓库...\n');
     
     try {
-      const templates = await searchMarketTemplates(keyword, options.category, options.tag);
+      const templates = await searchMarketTemplates(ctx.environment, keyword, options.category, options.tag);
       formatMarketTemplateTable(templates);
       console.log(`\n找到 ${templates.length} 个模板`);
       logger.info('\n使用 `vectahub templates install <name>` 安装模板');
@@ -136,7 +136,7 @@ export const templatesCmd = new Command('templates')
     logger.info(`\n安装模板: ${name}`);
     
     try {
-      const path = await installTemplateByName(name, options.output);
+      const path = await installTemplateByName(ctx.environment, name, options.output);
       logger.info(`\n✅ 模板安装成功`);
       console.log(`  路径: ${path}`);
       logger.info(`\n使用: vectahub templates use ${name}`);
@@ -150,7 +150,7 @@ export const templatesCmd = new Command('templates')
   .command('list')
   .description('List configured template sources')
   .action(async () => {
-    const sources = await getSources();
+    const sources = await getSources(ctx.environment);
     logger.info('\n配置的模板源:\n');
     formatSourcesTable(sources);
   })
@@ -162,7 +162,7 @@ export const templatesCmd = new Command('templates')
   .option('-p, --path <path>', 'Path within repository')
   .action(async (name: string, url: string, options: { branch?: string; path?: string }) => {
     try {
-      await addSource({
+      await addSource(ctx.environment, {
         name,
         url,
         type: url.includes('github.com') ? 'github' : 'git',
@@ -180,7 +180,7 @@ export const templatesCmd = new Command('templates')
   .argument('<id>', 'Source ID')
   .action(async (id: string) => {
     try {
-      await removeSource(id);
+      await removeSource(ctx.environment, id);
       logger.info(`\n✅ 模板源已移除: ${id}`);
     } catch (error) {
       logger.error(`移除失败: ${(error as Error).message}`);
@@ -193,10 +193,10 @@ export const templatesCmd = new Command('templates')
   .action(async (id?: string) => {
     try {
       if (id) {
-        await updateSource(id);
+        await updateSource(ctx.environment, id);
         logger.info(`\n✅ 模板源已更新: ${id}`);
       } else {
-        await updateAllSources();
+        await updateAllSources(ctx.environment);
         logger.info('\n✅ 所有模板源已更新');
       }
     } catch (error) {
@@ -213,7 +213,7 @@ export const templatesSaveCmd = new Command('save')
   .option('-c, --category <category>', 'Template category', 'general')
   .option('-t, --tags <tags>', 'Comma-separated tags')
   .action(async (workflowId: string, options: { name?: string; description?: string; category?: string; tags?: string }) => {
-    const storage = createStorage();
+    const storage = createStorage({ environment: ctx.environment });
     const workflow = await storage.getWorkflow(workflowId);
 
     if (!workflow) {
@@ -260,7 +260,7 @@ export const templatesUseCmd = new Command('use')
   .option('-o, --output <file>', 'Output YAML file path')
   .option('-s, --save', 'Save to workflow library')
   .action(async (name: string, options: { param: Record<string, string>; output?: string; save?: boolean }) => {
-    const templates = listTemplates(BUILTIN_TEMPLATES_DIR);
+    const templates = listTemplates(ctx.environment, BUILTIN_TEMPLATES_DIR);
     const tmpl = templates.find(t => t.name === name);
     if (!tmpl) {
       const errorMessage = `Template "${name}" not found. Use "vectahub templates list" to see available templates.`;
@@ -270,7 +270,7 @@ export const templatesUseCmd = new Command('use')
 
     try {
       const path = ctx.environment.getPath(BUILTIN_TEMPLATES_DIR, `${name}.yaml`);
-      const workflow = instantiateTemplate(path, options.param);
+      const workflow = instantiateTemplate(ctx.environment, path, options.param);
 
       logger.info(`Instantiated template: ${tmpl.name}`);
       console.log(`  Name: ${workflow.name}`);
@@ -278,7 +278,7 @@ export const templatesUseCmd = new Command('use')
       console.log(`  Parameters: ${Object.keys(options.param).length}`);
 
       if (options.save) {
-        const storage = createStorage();
+        const storage = createStorage({ environment: ctx.environment });
         await storage.saveWorkflow(workflow);
         logger.info(`Workflow saved to library: ${workflow.id}`);
       }

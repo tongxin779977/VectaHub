@@ -1,8 +1,8 @@
 import type { CommandDiscovery } from '../discovery/command-discovery.js';
 import type { KnowledgeBase } from '../knowledge/knowledge-base.js';
-import { getLogger } from '../../utils/logger.js';
+import { getDefaultContext } from '../../infrastructure/context.js';
 
-const logger = getLogger('failure-handler');
+const logger = getDefaultContext().logger.getLogger('failure-handler');
 
 export interface FailureHandler {
   handle(command: string, error: string): Promise<void>;

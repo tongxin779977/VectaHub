@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { createStorage, type Storage } from '../workflow/storage.js';
 import { createRecordManager } from '../execution/record-manager.js';
 import type { ExecutionRecord } from '../execution/types.js';
+import { createEnvironmentService } from '../infrastructure/environment/index.js';
 
 function createTestRecord(overrides: Partial<ExecutionRecord> = {}): ExecutionRecord {
   return {
@@ -27,7 +28,7 @@ describe('Integration: Execution Lifecycle', () => {
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'integration-test-'));
-    storage = createStorage({ storageDir: tmpDir });
+    storage = createStorage({ storageDir: tmpDir, environment: createEnvironmentService(tmpDir) });
     recordManager = createRecordManager(tmpDir);
   });
 

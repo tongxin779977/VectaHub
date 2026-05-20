@@ -6,7 +6,6 @@ import type {
   PromptVariable,
   PromptExample,
   PromptConstraint,
-  PromptMetadata,
   PromptBuildResult,
   EvaluationResult,
   PromptRegistry,

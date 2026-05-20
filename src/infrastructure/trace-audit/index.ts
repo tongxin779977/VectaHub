@@ -34,9 +34,8 @@ export type {
   TopologyGraph,
 } from './types.js';
 
-import path from 'node:path';
-import { getVectaHubPath } from '../../utils/paths.js';
-import { getLogger } from '../../utils/logger.js';
+import { getVectaHubPath } from '../paths/index.js';
+import { getDefaultContext } from '../context.js';
 import { AsyncLogWriter } from './async-writer.js';
 import { TraceCore } from './trace-core.js';
 import { QueryEngine } from './query-engine.js';
@@ -44,7 +43,9 @@ import { LogRotationManager } from './log-rotation.js';
 import { AlertSystem } from './alert-system.js';
 import type { TraceAuditConfig, AlertRule } from './types.js';
 
-const logger = getLogger('trace-audit-system');
+function getModuleLogger() {
+  return getDefaultContext().logger.getLogger('trace-audit-system');
+}
 
 /** 默认配置 */
 const DEFAULT_CONFIG: Partial<TraceAuditConfig> = {
@@ -128,13 +129,13 @@ export class TraceAuditSystem {
 
     // 设置告警回调
     this.alertSystem.onAlert((alert) => {
-      logger.warn(`[告警] ${alert.level}: ${alert.message}`);
+      getModuleLogger().warn(`[告警] ${alert.level}: ${alert.message}`);
     });
 
     // 启动定时轮转（每天执行一次）
     this.startRotationTimer();
 
-    logger.info('链路审计系统初始化完成');
+    getModuleLogger().info('链路审计系统初始化完成');
   }
 
   /** 启动定时轮转 */
@@ -145,9 +146,9 @@ export class TraceAuditSystem {
     this.rotationTimer = setInterval(async () => {
       try {
         const result = await this.logRotation.rotate();
-        logger.info(`定时日志轮转完成: ${JSON.stringify(result)}`);
+        getModuleLogger().info(`定时日志轮转完成: ${JSON.stringify(result)}`);
       } catch (error) {
-        logger.error(`定时日志轮转失败: ${(error as Error).message}`);
+        getModuleLogger().error(`定时日志轮转失败: ${(error as Error).message}`);
       }
     }, 24 * 60 * 60 * 1000); // 24 小时
   }
@@ -259,7 +260,7 @@ export class TraceAuditSystem {
 
     await this.traceCore.destroy();
     await this.logWriter.destroy();
-    logger.info('链路审计系统已销毁');
+    getModuleLogger().info('链路审计系统已销毁');
   }
 }
 

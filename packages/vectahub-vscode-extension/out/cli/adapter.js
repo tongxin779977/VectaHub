@@ -62,7 +62,12 @@ function getActualCliPath() {
     return (0, settings_js_1.getCliPath)();
 }
 function getVectaHubHome() {
-    return process.env.VECTAHUB_HOME || path_1.default.join((0, os_1.homedir)(), '.vectahub');
+    const rawValue = process.env.VECTAHUB_HOME;
+    const trimmedValue = rawValue?.trim();
+    if (!trimmedValue || trimmedValue === 'undefined' || trimmedValue === 'null') {
+        return path_1.default.join((0, os_1.homedir)(), '.vectahub');
+    }
+    return trimmedValue;
 }
 function parseCliPath(cliPath) {
     const trimmed = cliPath.trim();

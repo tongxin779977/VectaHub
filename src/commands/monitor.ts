@@ -1,9 +1,9 @@
 import { Command } from 'commander';
 import { performanceMonitor } from '../monitoring/monitor.js';
-import { getLogger } from '../utils/logger.js';
-import { type Alert } from '../monitoring/metrics.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import type { Alert, AlertConfig } from '../monitoring/metrics.js';
 
-const logger = getLogger('monitor');
+const logger = getDefaultContext().logger.getLogger('monitor');
 
 function formatTimestamp(ts: number): string {
   return new Date(ts).toLocaleString();
@@ -113,7 +113,7 @@ export const monitorCmd = new Command('monitor')
   .option('--memory-warning <value>', 'Memory warning threshold (%)')
   .option('--memory-critical <value>', 'Memory critical threshold (%)')
   .action((options) => {
-    const config: Record<string, unknown> = {};
+    const config: Partial<AlertConfig> = {};
 
     if (options.enable !== undefined) {
       config.enabled = true;
@@ -122,6 +122,6 @@ export const monitorCmd = new Command('monitor')
       config.enabled = false;
     }
 
-    performanceMonitor.setConfig(config as any);
+    performanceMonitor.setConfig(config);
     logger.info('\n✅ Monitor configuration updated');
   });

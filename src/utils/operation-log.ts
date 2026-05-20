@@ -1,10 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { getLogger } from './logger.js';
+import { getDefaultContext } from '../infrastructure/context.js';
 import { redactSensitiveData } from './sensitive-data.js';
 import { getVectaHubPath } from './paths.js';
 
-const logger = getLogger('operation-log');
+function getModuleLogger() {
+  return getDefaultContext().logger.getLogger('operation-log');
+}
 
 export interface OperationLogEntry {
   id: string;
@@ -154,7 +156,7 @@ export class OperationLog {
       const lines = this.entries.map(entry => JSON.stringify(entry));
       await fs.writeFile(this.logFile, lines.join('\n') + '\n', 'utf-8');
     } catch (error) {
-      logger.error(`Failed to flush operation log: ${(error as Error).message}`);
+      getModuleLogger().error(`Failed to flush operation log: ${(error as Error).message}`);
     } finally {
       this.isFlushing = false;
     }
@@ -229,13 +231,13 @@ export class OperationLog {
   async clear(): Promise<void> {
     this.entries = [];
     await this.flush();
-    logger.info('Operation log cleared');
+    getModuleLogger().info('Operation log cleared');
   }
 
   async exportToFile(filePath: string): Promise<void> {
     const lines = this.entries.map(entry => JSON.stringify(entry));
     await fs.writeFile(filePath, lines.join('\n') + '\n', 'utf-8');
-    logger.info(`Operation log exported to ${filePath}`);
+    getModuleLogger().info(`Operation log exported to ${filePath}`);
   }
 
   isEnabled(): boolean {

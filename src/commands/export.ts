@@ -1,12 +1,14 @@
 import { Command } from 'commander';
-import { join } from 'path';
-import { platform } from 'os';
-import { VectaHubError, ErrorType, getDefaultContext } from '../infrastructure/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import { createRecordManager } from '../execution/record-manager.js';
 
 const ctx = getDefaultContext();
 const environment = ctx.environment;
 const logger = ctx.logger.getLogger('export');
+
+const join = (...args: string[]) => environment.joinPath(...args);
+const platform = () => environment.getPlatform();
 
 const VECTAHUB_DIR = environment.getHomePath();
 
@@ -37,40 +39,6 @@ function copyDirRecursive(src: string, dest: string): void {
       environment.copyFile(srcPath, destPath);
     }
   }
-}
-
-function getExportManifest(): Record<string, string[]> {
-  const manifest: Record<string, string[]> = {
-    config: [],
-    workflows: [],
-    executions: [],
-    sessions: [],
-  };
-  
-  const configFile = join(VECTAHUB_DIR, 'config.yaml');
-  if (environment.exists(configFile)) {
-    manifest.config.push('config.yaml');
-  }
-  
-  const workflowsDir = join(VECTAHUB_DIR, 'workflows');
-  if (environment.exists(workflowsDir)) {
-    const files = environment.readDir(workflowsDir).filter(f => f.endsWith('.yaml') || f.endsWith('.json'));
-    manifest.workflows = files;
-  }
-  
-  const executionsDir = join(VECTAHUB_DIR, 'executions');
-  if (environment.exists(executionsDir)) {
-    const files = environment.readDir(executionsDir).filter(f => f.endsWith('.json'));
-    manifest.executions = files;
-  }
-  
-  const sessionsDir = join(VECTAHUB_DIR, 'sessions');
-  if (environment.exists(sessionsDir)) {
-    const files = environment.readDir(sessionsDir);
-    manifest.sessions = files;
-  }
-  
-  return manifest;
 }
 
 async function createExportArchive(options: ExportOptions): Promise<void> {
@@ -373,4 +341,3 @@ export const importCmd = new Command('import')
       throw new VectaHubError(`Import failed: ${(error as Error).message}`, ErrorType.RUNTIME);
     }
   });
-

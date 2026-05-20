@@ -2,10 +2,11 @@ import { Command } from 'commander';
 import { createRecordManager } from '../execution/record-manager.js';
 import { createWorkflowEngine } from '../workflow/engine.js';
 import type { Workflow } from '../types/index.js';
-import { getLogger } from '../utils/logger.js';
-import { VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
-const logger = getLogger('rerun');
+const ctx = getDefaultContext();
+const logger = ctx.logger.getLogger('rerun');
 
 export const rerunCmd = new Command('rerun')
   .description('Re-run a previous workflow execution')
@@ -24,7 +25,7 @@ export const rerunCmd = new Command('rerun')
     logger.info(`\nRe-running workflow from execution ${executionId}...`);
 
     try {
-      const engine = createWorkflowEngine();
+      const engine = createWorkflowEngine({ audit: ctx.audit.getHelper(), environment: ctx.environment });
       const workflow = await engine.getWorkflow(record.workflowId);
       if (!workflow) {
         logger.error(`Workflow ${record.workflowId} not found.`);

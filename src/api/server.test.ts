@@ -1,6 +1,11 @@
 import { createServer } from 'http';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import { createAPIServer } from './server.js';
+import { createNoopAuditHelper } from '../infrastructure/audit/index.js';
+import { createEnvironmentService } from '../infrastructure/environment/index.js';
 import type { Server } from 'http';
 import type { TestContext } from 'vitest';
 
@@ -17,10 +22,12 @@ vi.mock('../nl/llm.js', async () => {
 
 describe('API Server', () => {
   const host = '127.0.0.1';
+  const originalVectaHubHome = process.env.VECTAHUB_HOME;
   let server: Server;
   let port: number;
   let canBindLoopback = true;
   let skipReason = '';
+  let vectahubHome: string;
 
   beforeAll(async () => {
     const probe = createServer();
@@ -41,6 +48,15 @@ describe('API Server', () => {
     if (server?.listening) {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
+    if (vectahubHome && existsSync(vectahubHome)) {
+      rmSync(vectahubHome, { recursive: true, force: true });
+    }
+    vectahubHome = '';
+    if (originalVectaHubHome === undefined) {
+      delete process.env.VECTAHUB_HOME;
+    } else {
+      process.env.VECTAHUB_HOME = originalVectaHubHome;
+    }
   });
 
   async function startServer(ctx: TestContext): Promise<void> {
@@ -50,7 +66,17 @@ describe('API Server', () => {
       );
     }
 
-    server = await createAPIServer();
+    vectahubHome = mkdtempSync(join(tmpdir(), 'vectahub-api-test-'));
+    process.env.VECTAHUB_HOME = vectahubHome;
+
+    server = await createAPIServer(3000, {
+      audit: createNoopAuditHelper(),
+      auditLogger: {
+        getSessionId: () => 'test-session',
+        query: () => [],
+      },
+      environment: createEnvironmentService(vectahubHome),
+    });
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
       server.listen(0, host, () => {
@@ -153,5 +179,70 @@ describe('API Server', () => {
     const result = await res.json() as { success: boolean; error: string };
     expect(result.success).toBe(false);
     expect(result.error).toContain('too large');
+  });
+
+  it('POST /api/workflows propagates sessionId into workflow audit events', async (ctx) => {
+    const auditEvents: Array<{ action: string; sessionId: string }> = [];
+    await startServer(ctx);
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+
+    server = await createAPIServer(3000, {
+      audit: {
+        ...createNoopAuditHelper(),
+        log(event) {
+          auditEvents.push({
+            action: event.action,
+            sessionId: event.sessionId,
+          });
+        },
+      },
+      auditLogger: {
+        getSessionId: () => 'api-session-123',
+        query: () => [],
+      },
+      environment: createEnvironmentService(vectahubHome),
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, host, () => {
+        const address = server.address();
+        if (address && typeof address === 'object') {
+          port = address.port;
+          resolve();
+          return;
+        }
+        reject(new Error('Could not determine API server port'));
+      });
+    });
+
+    const workflowFile = join(vectahubHome, 'api-workflow.json');
+    writeFileSync(workflowFile, JSON.stringify({
+      id: 'wf_api_session',
+      name: 'api-session-workflow',
+      mode: 'relaxed',
+      steps: [
+        {
+          id: 'branch',
+          type: 'if',
+          condition: 'false',
+          body: [
+            { id: 'noop', type: 'exec', cli: 'echo', args: ['never'] },
+          ],
+        },
+      ],
+      createdAt: new Date().toISOString(),
+    }), 'utf-8');
+
+    const result = await apiFetch('/api/workflows', 'POST', { workflowFile }) as { success: boolean; data: { status: string } };
+
+    expect(result.success).toBe(true);
+    expect(result.data.status).toBe('COMPLETED');
+    expect(
+      auditEvents.some(event => event.action === 'start' && event.sessionId === 'api-session-123')
+    ).toBe(true);
+    expect(
+      auditEvents.some(event => event.action === 'end' && event.sessionId === 'api-session-123')
+    ).toBe(true);
   });
 });

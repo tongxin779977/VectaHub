@@ -1,5 +1,6 @@
 import { Command } from 'commander';
-import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
 const ctx = getDefaultContext();
 

@@ -1,13 +1,13 @@
 import { Command } from 'commander';
-import { getLogger } from '../utils/logger.js';
-import { loadConfig, updateConfig } from '../infrastructure/config/index.js';
-import { VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
-const logger = getLogger('mode');
+const ctx = getDefaultContext();
+const logger = ctx.logger.getLogger('mode');
 const VALID_MODES = ['strict', 'relaxed', 'consensus'] as const;
 
 function loadCurrentMode(): string {
-  const config = loadConfig();
+  const config = ctx.config.getConfig();
   return config.sandbox.mode.toLowerCase();
 }
 
@@ -30,6 +30,6 @@ export const modeCmd = new Command('mode')
     }
 
     const sandboxMode = normalized.toUpperCase() as 'STRICT' | 'RELAXED' | 'CONSENSUS';
-    updateConfig({ sandbox: { ...loadConfig().sandbox, mode: sandboxMode } });
+    ctx.config.updateConfig({ sandbox: { ...ctx.config.getConfig().sandbox, mode: sandboxMode } });
     logger.info(`Mode set to: ${normalized}`);
   });

@@ -1,7 +1,7 @@
-import { dirname } from 'node:path';
-import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import type { AgentDescriptor, AgentWritableRuntimeHomePolicy } from './agent-cli-adapter.js';
-import { djb2Hash } from '../utils/paths.js';
+import { djb2Hash } from '../infrastructure/paths/index.js';
 
 export interface AgentRuntimeBootstrapResult {
   envPatch?: Record<string, string>;
@@ -40,7 +40,7 @@ async function copyBootstrapFile(sourceHome: string, targetHome: string, relativ
     throw new VectaHubError(`bootstrap source is not a file: ${sourcePath}`, ErrorType.FILESYSTEM);
   }
 
-  await ctx.environment.mkdirAsync(dirname(targetPath), { recursive: true });
+  await ctx.environment.mkdirAsync(ctx.environment.getDirname(targetPath), { recursive: true });
   ctx.environment.copyFile(sourcePath, targetPath);
   return true;
 }

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { getAgentDescriptorById } from './agent-cli-adapter.js';
 import { bootstrapAgentRuntime } from './agent-runtime-bootstrap.js';
 import { initializeBuiltInAgents } from '../agent-runtime/factory.js';
+import { resetDefaultContext } from '../infrastructure/context.js';
 
 const originalVectaHubHome = process.env.VECTAHUB_HOME;
 const originalCodexHome = process.env.CODEX_HOME;
@@ -40,6 +41,7 @@ afterEach(() => {
   } else {
     process.env.CLAUDE_HOME = originalClaudeHome;
   }
+  resetDefaultContext();
 });
 
 describe('bootstrapAgentRuntime', () => {
@@ -51,6 +53,7 @@ describe('bootstrapAgentRuntime', () => {
     const tempConfigRoot = makeTempDir('codex-home-');
     process.env.VECTAHUB_HOME = tempVectaHubHome;
     process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+    resetDefaultContext();
 
     try {
       const descriptor = getAgentDescriptorById('codex');
@@ -74,6 +77,7 @@ describe('bootstrapAgentRuntime', () => {
     process.env.VECTAHUB_HOME = tempVectaHubHome;
     const userHome = seedCodexUserHome(tempConfigRoot);
     process.env.CODEX_HOME = userHome;
+    resetDefaultContext();
 
     try {
       const descriptor = getAgentDescriptorById('codex');
@@ -104,6 +108,7 @@ describe('bootstrapAgentRuntime', () => {
     const tempClaudeHome = makeTempDir('claude-home-');
     process.env.VECTAHUB_HOME = tempVectaHubHome;
     process.env.CLAUDE_HOME = tempClaudeHome;
+    resetDefaultContext();
 
     try {
       const descriptor = getAgentDescriptorById('claude');
@@ -126,6 +131,7 @@ describe('bootstrapAgentRuntime', () => {
     process.env.VECTAHUB_HOME = tempVectaHubHome;
     process.env.CLAUDE_HOME = tempClaudeHome;
     writeFileSync(join(tempClaudeHome, 'settings.json'), '{"theme":"dark"}');
+    resetDefaultContext();
 
     try {
       const descriptor = getAgentDescriptorById('claude');

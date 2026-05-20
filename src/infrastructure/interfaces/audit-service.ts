@@ -17,6 +17,8 @@ export interface AuditLoggerInterface {
   getSessionId(): string;
 }
 
+export type AuditFailureMode = 'fail-open' | 'fail-closed';
+
 /**
  * 审计服务接口
  */
@@ -30,4 +32,9 @@ export interface IAuditService {
    * 获取审计便捷方法集
    */
   getHelper(): AuditHelper;
+
+  /**
+   * 获取审计失败策略
+   */
+  getFailureMode(): AuditFailureMode;
 }

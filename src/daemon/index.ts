@@ -62,13 +62,15 @@ export function createDaemon(options: DaemonOptions = {}): Daemon {
           response.data = getStatus();
           break;
 
-        case 'execute':
+        case 'execute': {
           // Simple execution logic without complex session management for now
           // In the future, this could be where AI tools are actually held open
+          const payload = message.payload as { input?: string } | undefined;
           response.success = true;
-          response.data = { message: 'Task executed', input: (message.payload as any)?.input };
+          response.data = { message: 'Task executed', input: payload?.input };
           processedTasks++;
           break;
+        }
 
         case 'shutdown':
           response.success = true;

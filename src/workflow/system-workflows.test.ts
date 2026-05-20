@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { createSemanticDetector } from '../sandbox/semantic-detector.js';
-import { SYSTEM_WORKFLOWS } from './system-workflows.js';
+import { createSystemWorkflows } from './system-workflows.js';
+import { createEnvironmentService } from '../infrastructure/environment/index.js';
+
+const environment = createEnvironmentService();
+const SYSTEM_WORKFLOWS = createSystemWorkflows(environment);
 
 describe('SYSTEM_WORKFLOWS', () => {
   it('uses formal script entries for diagnostic queue processing', () => {

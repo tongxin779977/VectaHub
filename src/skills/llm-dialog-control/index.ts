@@ -7,8 +7,7 @@ import { createDialogController } from './dialog-controller.js';
 import type {
   LLMConfig,
   LLMRequestOptions,
-  OutputFormat,
-  LLMResponse
+  LLMResponse,
 } from './types.js';
 
 const DEFAULT_CONFIG: LLMConfig = {

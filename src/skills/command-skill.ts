@@ -2,7 +2,7 @@ import type { Skill, SkillContext, SkillResult } from './types.js';
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import { join, extname } from 'path';
 import { execSync } from 'child_process';
-import { getVectaHubHome } from '../utils/paths.js';
+import { getVectaHubHome } from '../infrastructure/paths/index.js';
 
 const CORE_SKILLS = [
   {
@@ -61,7 +61,7 @@ export function createCommandSkill(): CommandSkill {
       return true;
     },
 
-    async execute(input: string, context: SkillContext): Promise<SkillResult> {
+    async execute(input: string, _context: SkillContext): Promise<SkillResult> {
       const skills = detectCoreSkills(input);
       const matchedSkills = skills.map(s => s.name);
 

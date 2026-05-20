@@ -3,7 +3,7 @@
  * 遵循 Interface-first 原则，不包含实现代码
  */
 
-import type { SandboxMode, CommandDetection, DangerCategory } from '../types/index.js';
+import type { SandboxMode, CommandDetection } from '../types/index.js';
 import type { DefaultPolicy } from '../command-rules/types.js';
 
 /**

@@ -1,6 +1,5 @@
 import type {
   LLMConfig,
-  LLMProvider,
   Message,
   LLMRequestOptions,
   LLMResponse,
@@ -27,7 +26,7 @@ export class LLMNetworkError extends LLMError {
 
 export function createDialogController(
   defaultConfig: LLMConfig,
-  defaultOptions?: Partial<LLMRequestOptions>
+  _defaultOptions?: Partial<LLMRequestOptions>
 ) {
   const activeSessions = new Map<string, ConversationContext>();
   
@@ -241,7 +240,7 @@ export function createDialogController(
         throw new Error(`API error: ${response.status} - ${errorText}`);
       }
       
-      const data = await response.json() as any;
+      const data = await response.json() as { content?: Array<{ text?: string }> };
       return data.content?.[0]?.text || '';
     } finally {
       clearTimeout(timeoutId);

@@ -40,10 +40,8 @@ const vscode = __importStar(require("vscode"));
 const node_http_1 = require("node:http");
 const promises_1 = require("node:fs/promises");
 const node_crypto_1 = require("node:crypto");
-const node_os_1 = require("node:os");
 const node_path_1 = require("node:path");
-const VECTAHUB_HOME = process.env.VECTAHUB_HOME || (0, node_path_1.join)((0, node_os_1.homedir)(), '.vectahub');
-const BRIDGE_PORT_FILE = (0, node_path_1.join)(VECTAHUB_HOME, 'bridge-port');
+const adapter_js_1 = require("../cli/adapter.js");
 function collectAllDiagnostics() {
     const results = [];
     const uris = vscode.languages.getDiagnostics();
@@ -105,6 +103,9 @@ function serializeDiagnostics(results) {
         })),
     }));
 }
+function getBridgePortFile() {
+    return (0, node_path_1.join)((0, adapter_js_1.getVectaHubHome)(), 'bridge-port');
+}
 class DiagnosticBridge {
     server = null;
     port = 0;
@@ -150,7 +151,7 @@ class DiagnosticBridge {
                 if (typeof addr === 'object' && addr) {
                     this.port = addr.port;
                     try {
-                        await (0, promises_1.writeFile)(BRIDGE_PORT_FILE, JSON.stringify({ port: this.port, token: this.token }), 'utf-8');
+                        await (0, promises_1.writeFile)(getBridgePortFile(), JSON.stringify({ port: this.port, token: this.token }), 'utf-8');
                     }
                     catch {
                         // directory may not exist
@@ -178,7 +179,7 @@ class DiagnosticBridge {
             this.server = null;
         }
         try {
-            await (0, promises_1.unlink)(BRIDGE_PORT_FILE);
+            await (0, promises_1.unlink)(getBridgePortFile());
         }
         catch {
             // file may not exist

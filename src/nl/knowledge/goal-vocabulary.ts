@@ -56,7 +56,7 @@ export const DOMAIN_KEYWORDS: Record<string, string[]> = {
   security: ['vulnerability', 'injection', 'xss', 'csrf', 'authentication', 'authorization', 'sanitization', 'encryption'],
 };
 
-export function resolveDomainConflicts(terms: string[], entities: Record<string, unknown>): string[] {
+export function resolveDomainConflicts(terms: string[], _entities: Record<string, unknown>): string[] {
   const domains: string[] = [];
   const lowerTerms = terms.map(t => t.toLowerCase());
 

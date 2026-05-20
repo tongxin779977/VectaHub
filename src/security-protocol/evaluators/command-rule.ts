@@ -13,7 +13,6 @@ import {
   loadProjectBlocklist, 
   loadProjectAllowlist 
 } from '../../command-rules/loader.js';
-import { loadConfig } from '../../utils/config.js';
 
 /**
  * 命令规则评估器
@@ -73,7 +72,7 @@ export class CommandRuleEvaluator implements SecurityEvaluator {
     return {
       decision,
       riskLevel,
-      ruleName: result.rule?.id || (result.rule as any)?.name,
+      ruleName: result.rule?.id || result.rule?.description,
       reason: result.message,
     };
   }

@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { traceCmd } from './trace.js';
+import { resetDefaultContext } from '../infrastructure/context.js';
 
 describe('trace command', () => {
   let oldHome: string | undefined;
@@ -12,6 +13,7 @@ describe('trace command', () => {
     oldHome = process.env.VECTAHUB_HOME;
     tempHome = mkdtempSync(join(tmpdir(), 'vectahub-trace-home-'));
     process.env.VECTAHUB_HOME = tempHome;
+    resetDefaultContext();
   });
 
   afterEach(() => {
@@ -21,6 +23,7 @@ describe('trace command', () => {
       process.env.VECTAHUB_HOME = oldHome;
     }
     rmSync(tempHome, { recursive: true, force: true });
+    resetDefaultContext();
     vi.useRealTimers();
     vi.restoreAllMocks();
   });

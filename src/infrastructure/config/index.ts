@@ -1,4 +1,3 @@
-import type { DefaultPolicy } from '../../command-rules/types.js';
 import { getDefaultContext } from '../context.js';
 import { ConfigService } from './service.js';
 import type { Config } from './schema.js';
@@ -49,7 +48,7 @@ export function updateConfig(patch: Partial<Config>, configPath?: string): Confi
     const current = service.loadConfig();
     // 创建临时服务来更新
     const tempService = new ConfigService(ctx.environment, configPath);
-    (tempService as any).cachedConfig = current;
+    (tempService as unknown as { cachedConfig: Config | null }).cachedConfig = current;
     return tempService.updateConfig(patch);
   }
   return ctx.config.updateConfig(patch);

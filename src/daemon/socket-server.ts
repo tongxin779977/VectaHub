@@ -5,7 +5,8 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { createSandboxManager, type SandboxManager } from '../sandbox/sandbox.js';
 import type { SandboxMode } from '../types/index.js';
-import { audit, getCurrentSessionId, AuditEventType } from '../utils/audit.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { AuditEventType } from '../infrastructure/audit/index.js';
 import { createSkillExecutor } from '../skills/executor.js';
 import { processInput } from '../nl/orchestrator.js';
 import { createLLMConfig } from '../nl/llm.js';
@@ -32,6 +33,14 @@ const DEFAULT_CONFIG: SocketServerConfig = {
 
 const VALID_SANDBOX_MODES: ReadonlySet<SandboxMode> = new Set(['STRICT', 'RELAXED', 'CONSENSUS']);
 
+function getAuditHelper() {
+  return getDefaultContext().audit.getHelper();
+}
+
+function getCurrentSessionId(): string {
+  return getDefaultContext().audit.getLogger().getSessionId();
+}
+
 export class SocketServer {
   private server: Server | null = null;
   private config: SocketServerConfig;
@@ -42,7 +51,10 @@ export class SocketServer {
 
   constructor(config: SocketServerConfig = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
-    this.sandbox = createSandboxManager({ mode: this.config.sandboxMode! });
+    this.sandbox = createSandboxManager(
+      { mode: this.config.sandboxMode! },
+      { audit: getAuditHelper() }
+    );
   }
 
   private get socketPath(): string {
@@ -54,7 +66,7 @@ export class SocketServer {
 
     try {
       const result = await processInput(input, createLLMConfig() ?? undefined);
-      audit.intentMatch(result.intent ?? 'UNKNOWN', result.confidence, result.params as Record<string, unknown> ?? {}, sessionId);
+      getAuditHelper().intentMatch(result.intent ?? 'UNKNOWN', result.confidence, result.params as Record<string, unknown> ?? {}, sessionId);
 
       const tasks = result.taskList?.tasks ?? [];
       if (tasks.length === 0) {
@@ -66,7 +78,7 @@ export class SocketServer {
       const intentLine = `Intent: ${result.intent ?? 'UNKNOWN'} (confidence: ${result.confidence.toFixed(2)})`;
       return `${intentLine}\nExecution delegated to Skill System.`;
     } catch (err) {
-      audit.intentMatch('UNKNOWN', 0, {}, sessionId);
+      getAuditHelper().intentMatch('UNKNOWN', 0, {}, sessionId);
       return `No match: ${err instanceof Error ? err.message : String(err)}`;
     }
   }
@@ -75,7 +87,7 @@ export class SocketServer {
     const sessionId = getCurrentSessionId();
     task.status = 'running';
 
-    audit.log({
+    getAuditHelper().log({
       event: AuditEventType.WORKFLOW_START,
       timestamp: new Date().toISOString(),
       sessionId,
@@ -93,13 +105,13 @@ export class SocketServer {
       task.status = 'completed';
       task.completedAt = Date.now();
 
-      audit.workflowEnd(task.id, 'COMPLETED', Date.now() - startTime, sessionId);
+      getAuditHelper().workflowEnd(task.id, 'COMPLETED', Date.now() - startTime, sessionId);
     } catch (error) {
       task.status = 'failed';
       task.error = error instanceof Error ? error.message : String(error);
       task.completedAt = Date.now();
 
-      audit.log({
+      getAuditHelper().log({
         event: AuditEventType.WORKFLOW_END,
         timestamp: new Date().toISOString(),
         sessionId,
@@ -131,7 +143,7 @@ export class SocketServer {
       try {
         const message = JSON.parse(messageStr);
         void this.handleMessage(socket, message);
-      } catch (err) {
+      } catch {
         socket.write(JSON.stringify({ type: 'error', message: 'Invalid JSON' }) + '\n');
       }
     }
@@ -150,7 +162,7 @@ export class SocketServer {
         };
         this.tasks.set(task.id, task);
 
-        audit.cliCommand('daemon submit', [String(message.input)], sessionId);
+        getAuditHelper().cliCommand('daemon submit', [String(message.input)], sessionId);
 
         socket.write(JSON.stringify({ type: 'submitted', taskId: task.id }) + '\n');
         setImmediate(() => this.processTask(task));
@@ -185,7 +197,7 @@ export class SocketServer {
         const validatedMode = mode as SandboxMode;
         const oldMode = this.sandbox.getConfig().mode;
         this.sandbox.setMode(validatedMode);
-        audit.configChange('Sandbox', 'mode', oldMode, validatedMode, sessionId);
+        getAuditHelper().configChange('Sandbox', 'mode', oldMode, validatedMode, sessionId);
         socket.write(JSON.stringify({ type: 'modeChanged', mode: validatedMode }) + '\n');
         break;
       }
@@ -198,7 +210,7 @@ export class SocketServer {
     const auditResult = await this.sandbox.getStatusSummary();
     const sessionId = getCurrentSessionId();
     
-    audit.log({
+    getAuditHelper().log({
       event: AuditEventType.ENV_AUDIT,
       timestamp: new Date().toISOString(),
       sessionId,

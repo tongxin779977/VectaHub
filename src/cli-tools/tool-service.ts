@@ -1,6 +1,5 @@
 import type { CliTool, CliToolRegistry } from './types.js';
 import { getCliToolRegistry } from './registry.js';
-import { KNOWN_TOOLS } from './discovery/index.js';
 import { gitTool } from './tools/git.js';
 import { npmTool } from './tools/npm.js';
 import { dockerTool } from './tools/docker.js';

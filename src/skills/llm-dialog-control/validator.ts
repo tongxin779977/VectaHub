@@ -1,8 +1,8 @@
 import YAML from 'yaml';
 import type { OutputFormat, ValidationResult } from './types.js';
-import { getLogger } from '../../utils/logger.js';
+import { getDefaultContext } from '../../infrastructure/context.js';
 
-const logger = getLogger('yaml-validator');
+const logger = getDefaultContext().logger.getLogger('yaml-validator');
 
 export function validateOutput(
   output: string,
@@ -37,7 +37,7 @@ function validateJSON(output: string): ValidationResult {
   try {
     JSON.parse(output);
     return { valid: true };
-  } catch (error) {
+  } catch {
     let cleaned = output.trim();
     
     if (cleaned.startsWith('```json')) {
@@ -69,7 +69,7 @@ function validateYAML(output: string): ValidationResult {
   try {
     YAML.parse(cleaned);
     return { valid: true };
-  } catch (error) {
+  } catch {
     logger.debug(`First parse failed, trying to clean markdown...`);
     logger.debug(`Original length: ${output.length}, Cleaned length: ${cleaned.length}`);
     
@@ -120,7 +120,7 @@ function validateText(output: string, format: OutputFormat): ValidationResult {
   return { valid: true };
 }
 
-export function extractCleanOutput(output: string, format: OutputFormat): string {
+export function extractCleanOutput(output: string, _format: OutputFormat): string {
   let cleaned = output.trim();
   
   if (cleaned.startsWith('```json') || cleaned.startsWith('```yaml') || cleaned.startsWith('```')) {

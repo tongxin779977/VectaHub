@@ -70,7 +70,7 @@ export function interpolateString(
         if (result !== undefined && result !== null) {
           return String(result);
         }
-      } catch (e) {
+      } catch {
         // Fallback to original match if evaluation fails
       }
     }

@@ -1,9 +1,8 @@
 import { Command } from 'commander';
 import { createDaemon } from '../daemon/index.js';
 import { createDaemonClient } from '../daemon/client.js';
-import { DaemonState } from '../daemon/types.js';
 import { DEFAULT_DAEMON_CONFIG } from '../daemon/types.js';
-import { VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
 export const daemonCmd = new Command('daemon')
   .description('Manage VectaHub AI daemon')

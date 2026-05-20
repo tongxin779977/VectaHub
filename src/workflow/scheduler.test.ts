@@ -5,6 +5,8 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { writeFile } from 'node:fs/promises';
 import { createDetector } from '../sandbox/detector.js';
+import { createNoopAuditHelper } from '../infrastructure/audit/index.js';
+import { createEnvironmentService } from '../infrastructure/environment/index.js';
 
 describe('scheduler', () => {
   let vectahubHome: string;
@@ -31,7 +33,7 @@ describe('scheduler', () => {
   });
 
   it('creates a new schedule entry', async () => {
-    const manager = createScheduleManager();
+    const manager = createScheduleManager({ audit: createNoopAuditHelper(), environment: createEnvironmentService(vectahubHome) });
     const entry = await manager.add({
       name: 'test schedule',
       cron: '*/5 * * * *',
@@ -47,7 +49,7 @@ describe('scheduler', () => {
   });
 
   it('lists all schedules', async () => {
-    const manager = createScheduleManager();
+    const manager = createScheduleManager({ audit: createNoopAuditHelper(), environment: createEnvironmentService(vectahubHome) });
     await manager.add({ name: 'schedule 1', cron: '*/5 * * * *', workflowId: 'wf_1' });
     await manager.add({ name: 'schedule 2', cron: '* * * * *', command: 'git status', args: [] });
 
@@ -56,7 +58,7 @@ describe('scheduler', () => {
   });
 
   it('removes a schedule', async () => {
-    const manager = createScheduleManager();
+    const manager = createScheduleManager({ audit: createNoopAuditHelper(), environment: createEnvironmentService(vectahubHome) });
     const entry = await manager.add({ name: 'to remove', cron: '* * * * *', workflowId: 'wf_1' });
 
     expect(await manager.remove(entry.id)).toBe(true);
@@ -66,7 +68,7 @@ describe('scheduler', () => {
   });
 
   it('start schedules existing entries', async () => {
-    const manager = createScheduleManager();
+    const manager = createScheduleManager({ audit: createNoopAuditHelper(), environment: createEnvironmentService(vectahubHome) });
     await manager.add({ name: 'running', cron: '* * * * *', workflowId: 'wf_1' });
     await manager.start();
 
@@ -75,7 +77,7 @@ describe('scheduler', () => {
   });
 
   it('stop clears all timers', async () => {
-    const manager = createScheduleManager();
+    const manager = createScheduleManager({ audit: createNoopAuditHelper(), environment: createEnvironmentService(vectahubHome) });
     await manager.add({ name: 'stopping', cron: '* * * * *', workflowId: 'wf_1' });
     await manager.start();
     manager.stop();
@@ -84,7 +86,7 @@ describe('scheduler', () => {
   });
 
   it('blocks critical dangerous commands from execution', async () => {
-    const manager = createScheduleManager();
+    const manager = createScheduleManager({ audit: createNoopAuditHelper(), environment: createEnvironmentService(vectahubHome) });
     const detector = createDetector();
     
     const dangerousCommand = 'sudo rm -rf /';
@@ -115,7 +117,7 @@ describe('scheduler', () => {
   });
 
   it('allows safe commands to execute', async () => {
-    const manager = createScheduleManager();
+    const manager = createScheduleManager({ audit: createNoopAuditHelper(), environment: createEnvironmentService(vectahubHome) });
     const detector = createDetector();
     
     const safeCommand = 'git';
@@ -145,7 +147,7 @@ describe('scheduler', () => {
 
   it('fails fast when schedules file contains malformed JSON', async () => {
     await writeFile(join(vectahubHome, 'schedules.json'), '{bad json', 'utf-8');
-    const manager = createScheduleManager();
+    const manager = createScheduleManager({ audit: createNoopAuditHelper(), environment: createEnvironmentService(vectahubHome) });
 
     await expect(manager.list()).rejects.toThrow();
     await expect(manager.start()).rejects.toThrow();
@@ -153,7 +155,7 @@ describe('scheduler', () => {
   });
 
   it('marks workflow schedule as failed when workflowId is set without workflowFile', async () => {
-    const manager = createScheduleManager();
+    const manager = createScheduleManager({ audit: createNoopAuditHelper(), environment: createEnvironmentService(vectahubHome) });
     const entry = await manager.add({
       name: 'workflow-id-only',
       cron: '* * * * *',

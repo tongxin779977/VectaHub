@@ -36,7 +36,7 @@ async function main() {
   console.log('示例 1: 文件不存在错误 (会触发 5Whys 分析)');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-  const result1 = await skill.execute(exampleFlakyTask, {
+  await skill.execute(exampleFlakyTask, {
     taskId: 'example_task_001',
     callbacks: {
       onAttempt: (attempt, context) => {

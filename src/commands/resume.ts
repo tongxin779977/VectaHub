@@ -1,10 +1,11 @@
 import { Command } from 'commander';
 import { createRecordManager } from '../execution/record-manager.js';
 import { createWorkflowEngine } from '../workflow/engine.js';
-import { getLogger } from '../utils/logger.js';
-import { VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
-const logger = getLogger('resume');
+const ctx = getDefaultContext();
+const logger = ctx.logger.getLogger('resume');
 
 export const resumeCmd = new Command('resume')
   .description('Resume a failed or paused workflow execution')
@@ -35,7 +36,7 @@ export const resumeCmd = new Command('resume')
     logger.info(`\nResuming execution from step #${targetStep}...`);
 
     try {
-      const engine = createWorkflowEngine();
+      const engine = createWorkflowEngine({ audit: ctx.audit.getHelper(), environment: ctx.environment });
       const result = await engine.resumeFromFailure(executionId, targetStep, {
         mode: options.mode as 'strict' | 'relaxed' | 'consensus',
       });

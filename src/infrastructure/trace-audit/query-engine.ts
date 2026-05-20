@@ -5,7 +5,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { getLogger } from '../../utils/logger.js';
+import { getDefaultContext } from '../context.js';
 import type {
   ExecutionTrace,
   TraceSpan,
@@ -18,7 +18,9 @@ import type {
   ExecutionStatus,
 } from './types.js';
 
-const logger = getLogger('query-engine');
+function getModuleLogger() {
+  return getDefaultContext().logger.getLogger('query-engine');
+}
 
 /**
  * 多维度查询引擎类
@@ -43,7 +45,7 @@ export class QueryEngine {
       this.loadLogFile(file);
     }
 
-    logger.info(`加载日志完成: ${files.length} 个文件, ${this.spanIndex.size} 个跨度`);
+    getModuleLogger().info(`加载日志完成: ${files.length} 个文件, ${this.spanIndex.size} 个跨度`);
   }
 
   /** 获取日志文件列表 */
@@ -73,7 +75,7 @@ export class QueryEngine {
         }
       }
     } catch (error) {
-      logger.warn(`加载日志文件失败: ${filePath}, ${(error as Error).message}`);
+      getModuleLogger().warn(`加载日志文件失败: ${filePath}, ${(error as Error).message}`);
     }
   }
 

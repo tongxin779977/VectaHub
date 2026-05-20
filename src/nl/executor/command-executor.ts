@@ -9,6 +9,10 @@ export interface CommandExecutor {
   execute(input: string): Promise<string>;
 }
 
+interface CommandExecutionError extends Error {
+  stderr?: string;
+}
+
 export function createCommandExecutor(
   knowledgeBase: KnowledgeBase,
   failureHandler: FailureHandler
@@ -56,11 +60,12 @@ class CommandExecutorImpl implements CommandExecutor {
         success: true,
         output: stdout.trim() || stderr.trim()
       };
-    } catch (err: any) {
+    } catch (error) {
+      const commandError = error as CommandExecutionError;
       return {
         success: false,
         output: '',
-        error: err.stderr?.trim() || err.message || 'Command execution failed'
+        error: commandError.stderr?.trim() || commandError.message || 'Command execution failed'
       };
     }
   }

@@ -1,11 +1,7 @@
 
 import type { Skill, SkillContext, SkillResult, CompositeSkill } from './types.js';
 import type { IntentSkillOutput } from './intent-skill.js';
-import type { WorkflowSkillOutput } from './workflow-skill.js';
-
-interface PipelineCommandResult {
-  commands: string[];
-}
+import type { WorkflowSkillInput, WorkflowSkillOutput } from './workflow-skill.js';
 
 export interface PipelineSkillInput {
   intent: string;
@@ -15,7 +11,7 @@ export interface PipelineSkillInput {
 
 export function createPipelineSkill(
   intentSkill: Skill<string, IntentSkillOutput>,
-  workflowSkill: Skill<any, WorkflowSkillOutput>
+  workflowSkill: Skill<WorkflowSkillInput, WorkflowSkillOutput>
 ): CompositeSkill {
   return {
     id: 'vectahub.pipeline',
@@ -26,7 +22,7 @@ export function createPipelineSkill(
     skills: [intentSkill, workflowSkill],
     strategy: 'sequential',
 
-    async canHandle(context: SkillContext): Promise<boolean> {
+    async canHandle(_context: SkillContext): Promise<boolean> {
       return true;
     },
 

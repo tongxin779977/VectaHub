@@ -1,19 +1,22 @@
 import { Command } from 'commander';
-import { getVectaHubPath } from '../utils/paths.js';
+import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { createStorage } from '../workflow/storage.js';
-import { getLogger } from '../utils/logger.js';
 import { listVersions, rollbackVersion } from '../workflow/versioning.js';
-import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
-const logger = getLogger('list');
-const VECTAHUB_DIR = getVectaHubPath();
+const logger = getDefaultContext().logger.getLogger('list');
+
+function getVectaHubDir(): string {
+  return getVectaHubPath();
+}
 
 export const listCmd = new Command('list')
   .description('List saved workflows and manage versions');
 
 listCmd
   .action(async () => {
-    const storage = createStorage();
+    const storage = createStorage({ environment: getDefaultContext().environment });
 
     try {
       const workflows = await storage.listWorkflows();
@@ -24,7 +27,7 @@ listCmd
       }
 
       logger.info('Saved workflows:');
-      workflows.forEach((w: any) => {
+      workflows.forEach((w) => {
         const date = new Date(w.createdAt).toLocaleDateString();
         logger.info(`  ${w.id}: ${w.name} (${w.steps?.length || 0} steps) - ${date}`);
       });
@@ -45,7 +48,8 @@ listCmd
   .description('List version history of a workflow')
   .argument('<workflowId>', 'Workflow ID')
   .action((workflowId: string) => {
-    const versions = listVersions(VECTAHUB_DIR, workflowId);
+    const env = getDefaultContext().environment;
+    const versions = listVersions(env, getVectaHubDir(), workflowId);
     if (versions.length === 0) {
       logger.info(`No versions found for workflow ${workflowId}`);
       return;
@@ -71,7 +75,7 @@ export const rollbackCmd = new Command('rollback')
     const env = getDefaultContext().environment;
     try {
       const version = parseInt(versionStr, 10);
-      const yaml = rollbackVersion(VECTAHUB_DIR, workflowId, version);
+      const yaml = rollbackVersion(env, getVectaHubDir(), workflowId, version);
 
       if (options.output) {
         env.writeFile(options.output, yaml);

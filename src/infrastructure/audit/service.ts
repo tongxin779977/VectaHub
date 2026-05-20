@@ -1,5 +1,5 @@
 import type { IEnvironmentService, IAuditService } from '../interfaces/index.js';
-import type { AuditQueryOptions } from '../interfaces/audit-service.js';
+import type { AuditFailureMode, AuditQueryOptions } from '../interfaces/audit-service.js';
 import {
   AuditLogger,
   createAuditHelper,
@@ -10,36 +10,49 @@ import {
 
 /**
  * 审计服务实现
- * 支持错误隔离：审计日志写入失败不会影响主流程
+ * 默认使用 fail-open 错误隔离。
+ * 对于必须保留审计完整性的入口，可显式切换为 fail-closed。
  */
 export class AuditService implements IAuditService {
   private readonly environment: IEnvironmentService;
   private readonly auditLogger: AuditLogger;
   private readonly auditHelper: AuditHelper;
   private readonly onError: (error: Error) => void;
+  private readonly failureMode: AuditFailureMode;
 
   constructor(
     environment: IEnvironmentService,
-    sessionId?: string,
-    onError?: (error: Error) => void,
+    options?: {
+      sessionId?: string;
+      onError?: (error: Error) => void;
+      failureMode?: AuditFailureMode;
+    },
   ) {
     this.environment = environment;
-    this.onError = onError || ((error) => {
+    this.failureMode = options?.failureMode ?? 'fail-open';
+    this.onError = options?.onError || ((error) => {
       console.error('[AUDIT] 审计日志写入失败:', error.message);
     });
 
     const baseDir = this.environment.getPath('logs', 'audit');
-    const actualSessionId = sessionId || generateSessionId();
+    const actualSessionId = options?.sessionId || generateSessionId();
     this.auditLogger = new AuditLogger(actualSessionId, baseDir);
 
     // 注入错误处理回调到审计日志记录器
-    (this.auditLogger as any).onError = this.onError;
+    (this.auditLogger as unknown as { onError?: (error: Error) => void }).onError = (error: Error) => {
+      this.handleAuditFailure(error);
+    };
 
     this.auditHelper = createAuditHelper(this.auditLogger);
   }
 
+  getFailureMode(): AuditFailureMode {
+    return this.failureMode;
+  }
+
   /**
-   * 获取审计日志记录器，带有错误隔离机制
+   * 获取审计日志记录器。
+   * fail-open 会记录错误并继续；fail-closed 会把写入异常抛回调用方。
    */
   getLogger(): {
     write(event: AuditEvent): void;
@@ -52,8 +65,7 @@ export class AuditService implements IAuditService {
         try {
           this.auditLogger.write(event);
         } catch (error) {
-          // 审计日志写入失败不应影响主流程
-          this.onError(error as Error);
+          this.handleAuditFailure(error as Error);
         }
       },
       query: (options?: AuditQueryOptions) => {
@@ -72,7 +84,7 @@ export class AuditService implements IAuditService {
    * 获取审计便捷方法集
    */
   getHelper(): AuditHelper {
-    // 包装所有方法，确保错误隔离
+    // 包装所有方法，并遵守当前服务的失败策略
     return this.wrapHelperWithErrorHandling(this.auditHelper);
   }
 
@@ -82,13 +94,21 @@ export class AuditService implements IAuditService {
     for (const [key, method] of Object.entries(helper)) {
       wrapped[key as keyof AuditHelper] = (...args: any[]) => {
         try {
-          (method as Function)(...args);
+          const auditMethod = method as (...args: unknown[]) => void;
+          auditMethod(...args);
         } catch (error) {
-          this.onError(error as Error);
+          this.handleAuditFailure(error as Error);
         }
       };
     }
 
     return wrapped as AuditHelper;
+  }
+
+  private handleAuditFailure(error: Error): void {
+    if (this.failureMode === 'fail-closed') {
+      throw error;
+    }
+    this.onError(error);
   }
 }

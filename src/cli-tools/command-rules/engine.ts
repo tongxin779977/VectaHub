@@ -1,4 +1,4 @@
-import type { CommandRule, CommandRuleAction, CommandAnalysis, CommandRuleResult } from './types.js';
+import type { CommandRule, CommandAnalysis, CommandRuleResult } from './types.js';
 import { getSecurityTemplate, DEFAULT_TEMPLATES } from './templates.js';
 
 export class CommandRuleEngine {

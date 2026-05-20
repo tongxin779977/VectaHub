@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWorkflowEngine, type WorkflowEngine } from './engine.js';
+import { createNoopAuditHelper } from '../infrastructure/audit/index.js';
+import { createEnvironmentService } from '../infrastructure/environment/index.js';
 import type { ExecutionRecord, Step } from '../types/index.js';
+
+const environment = createEnvironmentService();
 
 const mockSave = vi.fn().mockResolvedValue(undefined);
 const mockGet = vi.fn().mockResolvedValue(undefined);
@@ -51,6 +55,9 @@ vi.mock('./storage.js', () => ({
 
 vi.mock('./context-manager.js', () => ({
   contextManager: {
+    setAuditHelper() {
+      return this;
+    },
     createContext: (
       _workflowId: string,
       executionId: string,
@@ -79,6 +86,35 @@ vi.mock('./context-manager.js', () => ({
       contextState.contexts.delete(executionId);
     },
   },
+  createContextManager: () => ({
+    createContext: (
+      _workflowId: string,
+      executionId: string,
+      _sessionId: string,
+      initialVars: Record<string, unknown> = {}
+    ) => {
+      const variables: Record<string, string[]> = {};
+      for (const [key, value] of Object.entries(initialVars)) {
+        if (Array.isArray(value)) {
+          variables[key] = value.map(String);
+        } else {
+          variables[key] = [String(value)];
+        }
+      }
+      contextState.contexts.set(executionId, { variables, previousOutputs: {} });
+    },
+    toExecutorContext: (executionId: string) => {
+      const context = contextState.contexts.get(executionId);
+      if (!context) {
+        return { variables: {}, previousOutputs: {}, executionId };
+      }
+      return { variables: context.variables, previousOutputs: context.previousOutputs, executionId };
+    },
+    setStepOutput: contextState.setStepOutput,
+    deleteContext: (executionId: string) => {
+      contextState.contexts.delete(executionId);
+    },
+  }),
 }));
 
 vi.mock('./executor.js', () => ({
@@ -114,7 +150,7 @@ describe('WorkflowEngine exitCode propagation', () => {
     mockSaveWorkflow.mockResolvedValue(undefined);
     mockGetWorkflow.mockResolvedValue(undefined);
     mockListWorkflows.mockResolvedValue([]);
-    engine = await createWorkflowEngine();
+    engine = await createWorkflowEngine({ audit: createNoopAuditHelper(), environment });
   });
 
   it('should write handler exitCode into runtime step output metadata', async () => {

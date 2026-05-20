@@ -1,7 +1,6 @@
-import { readFileSync, readdirSync } from 'fs';
-import { join } from 'path';
 import { parse as parseYAML } from 'yaml';
 import type { Step, Workflow } from '../types/index.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 
 export interface TemplateParameter {
   name: string;
@@ -19,8 +18,8 @@ export interface WorkflowTemplate {
   steps: Step[];
 }
 
-export function loadTemplate(path: string): WorkflowTemplate {
-  const content = readFileSync(path, 'utf-8');
+export function loadTemplate(environment: IEnvironmentService, path: string): WorkflowTemplate {
+  const content = environment.readFile(path);
   const parsed = parseYAML(content) as Record<string, unknown>;
 
   return {
@@ -52,15 +51,15 @@ export function loadTemplate(path: string): WorkflowTemplate {
   };
 }
 
-export function listTemplates(dir: string, category?: string, tag?: string): WorkflowTemplate[] {
+export function listTemplates(environment: IEnvironmentService, dir: string, category?: string, tag?: string): WorkflowTemplate[] {
   let files: string[];
   try {
-    files = readdirSync(dir).filter(f => f.endsWith('.yaml') || f.endsWith('.yml'));
+    files = environment.readDir(dir).filter(f => f.endsWith('.yaml') || f.endsWith('.yml'));
   } catch {
     return [];
   }
 
-  let templates = files.map(f => loadTemplate(join(dir, f)));
+  let templates = files.map(f => loadTemplate(environment, environment.joinPath(dir, f)));
 
   if (category) {
     templates = templates.filter(t => t.category === category);
@@ -81,8 +80,8 @@ function substituteArgs(args: string[], params: Record<string, string>): string[
   );
 }
 
-export function instantiateTemplate(path: string, params: Record<string, string>): Workflow {
-  const tmpl = loadTemplate(path);
+export function instantiateTemplate(environment: IEnvironmentService, path: string, params: Record<string, string>): Workflow {
+  const tmpl = loadTemplate(environment, path);
 
   const resolvedParams: Record<string, string> = {};
   if (tmpl.parameters) {

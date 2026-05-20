@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
 import type { ExecutionRecord, ExecutionFilter, ExecutionSearchResult, ExecutionMetadata } from './types.js';
-import { getVectaHubPath } from '../utils/paths.js';
+import { getVectaHubPath } from '../infrastructure/paths/index.js';
 
 export interface RecordManager {
   save(record: ExecutionRecord): Promise<void>;

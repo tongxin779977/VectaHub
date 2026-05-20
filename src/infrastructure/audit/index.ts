@@ -2,8 +2,7 @@ import { mkdirSync, existsSync, appendFileSync, readFileSync, readdirSync } from
 import { join } from 'path';
 import { VectaHubError, ErrorType } from '../errors/index.js';
 import { redactSensitiveData } from '../../utils/sensitive-data.js';
-import { getVectaHubPath } from '../../utils/paths.js';
-import { getDefaultContext } from '../context.js';
+import { getVectaHubPath } from '../paths/index.js';
 
 // 导出 AuditService
 export { AuditService } from './service.js';
@@ -102,7 +101,7 @@ export class AuditLogger {
       const line = JSON.stringify(sanitizedEvent) + '\n';
       appendFileSync(this.filePath, line, 'utf-8');
     } catch (error) {
-      // 审计日志写入失败不应影响主流程
+      // 默认会降级到 stderr；注入 onError 后可由调用方提升为 fail-closed
       const err = error as Error;
       
       // 使用注入的错误回调（如果有）
@@ -239,6 +238,24 @@ export interface AuditHelper {
   executorResult(stepId: string, cli: string, exitCode: number, duration: number, sessionId: string, metadata?: Record<string, unknown>): void;
   fileOperation(operation: string, path: string, sessionId: string, success: boolean, error?: string): void;
   sandboxDetect(command: string, isDangerous: boolean, severity: string, sessionId: string): void;
+}
+
+export function createNoopAuditHelper(): AuditHelper {
+  return {
+    log(): void {},
+    cliCommand(): void {},
+    cliOutput(): void {},
+    workflowStart(): void {},
+    workflowEnd(): void {},
+    workflowStep(): void {},
+    securityAlert(): void {},
+    securityAction(): void {},
+    configChange(): void {},
+    intentMatch(): void {},
+    executorResult(): void {},
+    fileOperation(): void {},
+    sandboxDetect(): void {},
+  };
 }
 
 /**

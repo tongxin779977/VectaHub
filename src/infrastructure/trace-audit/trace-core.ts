@@ -3,7 +3,7 @@
  * Trace Core - Trace and Span Management
  */
 
-import { getLogger } from '../../utils/logger.js';
+import { getDefaultContext } from '../context.js';
 import { redactSensitiveData } from '../../utils/sensitive-data.js';
 import type {
   TraceSpan,
@@ -15,21 +15,14 @@ import type {
 } from './types.js';
 import { AsyncLogWriter } from './async-writer.js';
 
-const logger = getLogger('trace-core');
+function getModuleLogger() {
+  return getDefaultContext().logger.getLogger('trace-core');
+}
 
 /** 生成唯一 ID */
 function generateId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 }
-
-/** 当前活跃的 Trace 上下文 */
-interface ActiveTraceContext {
-  traceId: TraceId;
-  currentSpanId: SpanId;
-}
-
-/** 线程本地存储（模拟） */
-const activeTraceContexts = new Map<string, ActiveTraceContext>();
 
 /**
  * 链路追踪核心类
@@ -83,7 +76,7 @@ export class TraceCore {
     // 写入根跨度
     await this.writer.write(rootSpan);
 
-    logger.debug(`创建链路追踪: traceId=${traceId}, rootSpanId=${rootSpanId}`);
+    getModuleLogger().debug(`创建链路追踪: traceId=${traceId}, rootSpanId=${rootSpanId}`);
 
     return trace;
   }
@@ -171,7 +164,7 @@ export class TraceCore {
     // 更新跨度
     await this.writer.write(span);
 
-    logger.debug(`完成跨度: spanId=${spanId}, status=${status}, duration=${duration}ms`);
+    getModuleLogger().debug(`完成跨度: spanId=${spanId}, status=${status}, duration=${duration}ms`);
   }
 
   /** 完成链路追踪 */
@@ -194,7 +187,7 @@ export class TraceCore {
 
     this.activeTraces.delete(traceId);
 
-    logger.debug(`完成链路追踪: traceId=${traceId}, duration=${trace.totalDuration}ms`);
+    getModuleLogger().debug(`完成链路追踪: traceId=${traceId}, duration=${trace.totalDuration}ms`);
   }
 
   /** 获取链路追踪 */
@@ -237,7 +230,7 @@ export class TraceCore {
       }
     }
 
-    logger.debug(`清理已完成链路追踪: ${cleanedCount} 个`);
+    getModuleLogger().debug(`清理已完成链路追踪: ${cleanedCount} 个`);
     return cleanedCount;
   }
 

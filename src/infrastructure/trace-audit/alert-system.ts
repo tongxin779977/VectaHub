@@ -3,10 +3,9 @@
  * Anomaly Detection and Alert System - Detects abnormal traces and triggers alerts
  */
 
-import { getLogger } from '../../utils/logger.js';
+import { getDefaultContext } from '../context.js';
 import type {
   TraceSpan,
-  ExecutionTrace,
   AlertRule,
   AlertEvent,
   AlertLevel,
@@ -15,7 +14,9 @@ import type {
   SpanId,
 } from './types.js';
 
-const logger = getLogger('alert-system');
+function getModuleLogger() {
+  return getDefaultContext().logger.getLogger('alert-system');
+}
 
 /** 默认告警规则 */
 const DEFAULT_ALERT_RULES: AlertRule[] = [
@@ -77,7 +78,7 @@ export class AlertSystem {
   /** 添加告警规则 */
   addRule(rule: AlertRule): void {
     this.rules.set(rule.id, rule);
-    logger.info(`添加告警规则: ${rule.name}`);
+    getModuleLogger().info(`添加告警规则: ${rule.name}`);
   }
 
   /** 删除告警规则 */
@@ -249,7 +250,7 @@ export class AlertSystem {
       try {
         callback(alert);
       } catch (error) {
-        logger.error(`告警回调执行失败: ${(error as Error).message}`);
+        getModuleLogger().error(`告警回调执行失败: ${(error as Error).message}`);
       }
     }
 
@@ -261,7 +262,7 @@ export class AlertSystem {
       }
     }
 
-    logger.warn(`[告警] ${alert.level}: ${alert.message}`);
+    getModuleLogger().warn(`[告警] ${alert.level}: ${alert.message}`);
   }
 
   /** 发送通知 */
@@ -299,7 +300,7 @@ export class AlertSystem {
   /** 文件通知 */
   private sendFileNotification(alert: AlertEvent): void {
     // 实际实现中会写入告警日志文件
-    logger.info(`告警已记录到文件: ${alert.message}`);
+    getModuleLogger().info(`告警已记录到文件: ${alert.message}`);
   }
 
   /** Webhook 通知 */
@@ -307,14 +308,14 @@ export class AlertSystem {
     const rule = this.rules.get(alert.ruleId);
     if (rule?.webhookUrl) {
       // 实际实现中会发送 HTTP 请求
-      logger.info(`Webhook 通知已发送: ${rule.webhookUrl}`);
+      getModuleLogger().info(`Webhook 通知已发送: ${rule.webhookUrl}`);
     }
   }
 
   /** 邮件通知 */
   private sendEmailNotification(alert: AlertEvent): void {
     // 实际实现中会发送邮件
-    logger.info(`邮件通知已发送: ${alert.message}`);
+    getModuleLogger().info(`邮件通知已发送: ${alert.message}`);
   }
 
   /** 解决告警 */

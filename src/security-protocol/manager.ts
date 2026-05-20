@@ -2,12 +2,16 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import type { SecurityRule, SecurityDatabase, SecurityConfig, DetectionResult } from './types.js';
 import { getDefaultRules } from './default-rules.js';
-import { getVectaHubPath } from '../utils/paths.js';
+import { getVectaHubPath } from '../infrastructure/paths/index.js';
 
 let testMode = false;
 let testConfig: SecurityConfig | null = null;
 let testDatabase: SecurityDatabase | null = null;
 let managerInstance: SecurityProtocolManager | null = null;
+
+function toError(error: unknown, message: string): Error {
+  return error instanceof Error ? new Error(message, { cause: error }) : new Error(`${message}: ${String(error)}`);
+}
 
 export function setTestMode(enabled: boolean): void {
   testMode = enabled;
@@ -68,11 +72,11 @@ export class SecurityProtocolManager {
       if (testMode) {
         return testConfig || defaultConfig;
       }
+      this.ensureDirectory(this.configPath);
       try {
-        this.ensureDirectory(this.configPath);
         writeFileSync(this.configPath, JSON.stringify(defaultConfig, null, 2), 'utf-8');
-      } catch (e) {
-        // Ignore write errors, just use defaults
+      } catch (error) {
+        throw toError(error, `Failed to initialize security config at ${this.configPath}`);
       }
       return defaultConfig;
     }
@@ -81,9 +85,8 @@ export class SecurityProtocolManager {
       const content = readFileSync(this.configPath, 'utf-8');
       const loaded = JSON.parse(content);
       return { ...defaultConfig, ...loaded };
-    } catch (e) {
-      console.warn('Failed to load security config, using defaults:', e);
-      return defaultConfig;
+    } catch (error) {
+      throw toError(error, `Failed to load security config from ${this.configPath}`);
     }
   }
 
@@ -95,11 +98,11 @@ export class SecurityProtocolManager {
       return;
     }
 
+    this.ensureDirectory(this.configPath);
     try {
-      this.ensureDirectory(this.configPath);
       writeFileSync(this.configPath, JSON.stringify(this.config, null, 2), 'utf-8');
-    } catch (e) {
-      console.warn('Failed to save security config:', e);
+    } catch (error) {
+      throw toError(error, `Failed to save security config to ${this.configPath}`);
     }
   }
 
@@ -114,11 +117,11 @@ export class SecurityProtocolManager {
       if (testMode) {
         return testDatabase || defaultDb;
       }
+      this.ensureDirectory(this.databasePath);
       try {
-        this.ensureDirectory(this.databasePath);
         writeFileSync(this.databasePath, JSON.stringify(defaultDb, null, 2), 'utf-8');
-      } catch (e) {
-        // Ignore write errors, just use defaults
+      } catch (error) {
+        throw toError(error, `Failed to initialize security database at ${this.databasePath}`);
       }
       return defaultDb;
     }
@@ -127,9 +130,8 @@ export class SecurityProtocolManager {
       const content = readFileSync(this.databasePath, 'utf-8');
       const loaded = JSON.parse(content);
       return loaded;
-    } catch (e) {
-      console.warn('Failed to load security database, using defaults:', e);
-      return defaultDb;
+    } catch (error) {
+      throw toError(error, `Failed to load security database from ${this.databasePath}`);
     }
   }
 
@@ -142,11 +144,11 @@ export class SecurityProtocolManager {
     }
 
     this.database.lastUpdated = new Date().toISOString();
+    this.ensureDirectory(this.databasePath);
     try {
-      this.ensureDirectory(this.databasePath);
       writeFileSync(this.databasePath, JSON.stringify(this.database, null, 2), 'utf-8');
-    } catch (e) {
-      console.warn('Failed to save security database:', e);
+    } catch (error) {
+      throw toError(error, `Failed to save security database to ${this.databasePath}`);
     }
   }
 
@@ -155,8 +157,8 @@ export class SecurityProtocolManager {
     if (!existsSync(dir)) {
       try {
         mkdirSync(dir, { recursive: true });
-      } catch (e) {
-        // Ignore mkdir errors, we'll just fail gracefully when saving
+      } catch (error) {
+        throw toError(error, `Failed to create security directory ${dir}`);
       }
     }
   }
@@ -376,23 +378,41 @@ export class SecurityProtocolManager {
     return imported;
   }
 
-  private normalizeRule(data: any): SecurityRule | null {
-    if (!data.name || !data.patterns) {
+  private normalizeRule(data: Record<string, unknown>): SecurityRule | null {
+    const ruleName = typeof data.name === 'string' ? data.name : null;
+    const rawPatterns = data.patterns;
+    if (!ruleName || (!Array.isArray(rawPatterns) && typeof rawPatterns !== 'string')) {
       return null;
     }
 
+    const patterns = Array.isArray(rawPatterns)
+      ? rawPatterns.filter((pattern): pattern is string => typeof pattern === 'string')
+      : [rawPatterns];
+    if (patterns.length === 0) {
+      return null;
+    }
+
+    const rawCliTools = data.cliTools;
+    const cliTools = rawCliTools
+      ? Array.isArray(rawCliTools)
+        ? rawCliTools.filter((tool): tool is string => typeof tool === 'string')
+        : typeof rawCliTools === 'string'
+          ? [rawCliTools]
+          : undefined
+      : undefined;
+
     return {
-      id: data.id || `rule-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      name: data.name,
-      description: data.description || '',
-      category: data.category || 'custom',
-      severity: data.severity || 'medium',
-      patterns: Array.isArray(data.patterns) ? data.patterns : [data.patterns],
-      cliTools: data.cliTools ? (Array.isArray(data.cliTools) ? data.cliTools : [data.cliTools]) : undefined,
+      id: typeof data.id === 'string' ? data.id : `rule-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      name: ruleName,
+      description: typeof data.description === 'string' ? data.description : '',
+      category: (typeof data.category === 'string' ? data.category : 'custom') as SecurityRule['category'],
+      severity: (typeof data.severity === 'string' ? data.severity : 'medium') as SecurityRule['severity'],
+      patterns,
+      cliTools,
       enabled: data.enabled !== false,
-      createdAt: data.createdAt || new Date().toISOString(),
+      createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      source: data.source || 'custom'
+      source: (typeof data.source === 'string' ? data.source : 'custom') as SecurityRule['source']
     };
   }
 

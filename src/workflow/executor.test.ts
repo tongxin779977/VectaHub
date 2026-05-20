@@ -1,13 +1,18 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createExecutor, type Executor } from './executor.js';
 import { contextManager } from './context-manager.js';
+import { createNoopAuditHelper } from '../infrastructure/audit/index.js';
+import { createEnvironmentService } from '../infrastructure/environment/index.js';
 import type { Step } from '../types/index.js';
+import type { SandboxManager } from '../sandbox/sandbox.js';
+
+const environment = createEnvironmentService();
 
 describe('Executor', () => {
   let executor: Executor;
 
   beforeEach(() => {
-    executor = createExecutor();
+    executor = createExecutor({ audit: createNoopAuditHelper(), environment });
     contextManager.clear();
   });
 
@@ -87,6 +92,14 @@ describe('Executor', () => {
     expect(result.errors).toContain('Invalid step type: invalid');
   });
 
+  it('should accept legacy exec step without type when cli is present', () => {
+    const step = { id: 'legacy-step', cli: 'echo', args: ['legacy'] };
+    const result = executor.validateStep(step as Step);
+
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
   it('should validate exec step without cli', () => {
     const step = { id: 'step1', type: 'exec' as const };
     const result = executor.validateStep(step as Step);
@@ -123,6 +136,44 @@ describe('Executor', () => {
     const result = await executor.exec('sleep', ['0.1'], { mode: 'RELAXED' });
     expect(result.success).toBe(true);
     expect(result.duration).toBeGreaterThan(0);
+  });
+
+  it('should propagate sessionId into sandbox execution', async () => {
+    const sandboxExec = vi.fn().mockResolvedValue({
+      success: true,
+      exitCode: 0,
+      stdout: 'sandboxed',
+      stderr: '',
+      duration: 1,
+      mode: 'RELAXED',
+      sandboxed: true,
+      command: 'echo sandboxed',
+    });
+    const sandboxManager = {
+      exec: sandboxExec,
+    } as unknown as SandboxManager;
+    const sandboxedExecutor = createExecutor({
+      audit: createNoopAuditHelper(),
+      sandboxManager,
+      environment,
+    });
+
+    const step: Step = { id: 'step1', type: 'exec', cli: 'echo', args: ['sandboxed'] };
+    const result = await sandboxedExecutor.execute(step, {
+      mode: 'RELAXED',
+      useSandbox: true,
+      sessionId: 'sandbox-session-42',
+    });
+
+    expect(result.status).toBe('COMPLETED');
+    expect(sandboxExec).toHaveBeenCalledWith(
+      'echo',
+      ['sandboxed'],
+      expect.objectContaining({
+        mode: 'RELAXED',
+        sessionId: 'sandbox-session-42',
+      })
+    );
   });
 
   describe('for_each step', () => {
@@ -399,6 +450,49 @@ describe('Executor', () => {
 
       expect(result.status).toBe('FAILED');
       expect(result.error).toBeDefined();
+    });
+  });
+
+  describe('step handler fallback', () => {
+    it('should execute legacy step without type via exec handler', async () => {
+      const step = { id: 'legacy-step', cli: 'echo', args: ['legacy'] };
+      const result = await executor.execute(step as Step, { mode: 'RELAXED' });
+
+      expect(result.status).toBe('COMPLETED');
+      expect(result.output?.[0]?.trim()).toBe('legacy');
+    });
+
+    it('should fail fast for unknown step type when executeWorkflow bypasses validateStep', async () => {
+      const steps = [
+        { id: 'mystery', type: 'future_type', cli: 'echo', args: ['nope'] },
+      ];
+      const [result] = await executor.executeWorkflow(steps as unknown as Step[], { mode: 'RELAXED' });
+
+      expect(result.status).toBe('FAILED');
+      expect(result.error).toBe('No handler registered for step type: future_type');
+    });
+
+    it('should fail fast for missing type without legacy cli compatibility', async () => {
+      const steps = [
+        { id: 'missing-type' },
+      ];
+      const [result] = await executor.executeWorkflow(steps as unknown as Step[], { mode: 'RELAXED' });
+
+      expect(result.status).toBe('FAILED');
+      expect(result.error).toBe('No handler registered for step type: <missing>');
+    });
+
+    it('should fail delegate step without registered handler', async () => {
+      const step: Step = {
+        id: 'delegate-step',
+        type: 'delegate',
+        delegateTo: 'codex',
+        delegatePrompt: 'Do something',
+      };
+      const result = await executor.execute(step, { mode: 'RELAXED' });
+
+      expect(result.status).toBe('FAILED');
+      expect(result.error).toBe('No handler registered for step type: delegate');
     });
   });
 

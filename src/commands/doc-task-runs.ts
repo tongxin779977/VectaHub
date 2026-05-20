@@ -1,7 +1,8 @@
 import { Command } from 'commander';
-import { djb2Hash } from '../utils/paths.js';
+import { djb2Hash } from '../infrastructure/paths/index.js';
 import type { DocTaskFailureKind, DocTaskRunStatus } from '../types/doc-task.js';
-import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { createCliOutput } from '../infrastructure/cli-output.js';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 500;
@@ -51,13 +52,6 @@ function getStoreDir(projectPath?: string): string {
   const projectRoot = ctx.environment.resolvePath(projectPath || ctx.environment.getCwd());
   const projectHash = djb2Hash(projectRoot);
   return ctx.environment.getPath('projects', projectHash, 'doc-task-runs');
-}
-
-function toDateFileName(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `runs-${year}-${month}-${day}.jsonl`;
 }
 
 function buildRecentUtcDateSet(days: number): Set<string> {
@@ -223,44 +217,47 @@ export function findRunById(runId: string, project?: string): DocTaskRunRecord |
 }
 
 function printListResult(result: { runs: DocTaskRunRecord[]; hasMore: boolean }, asJson: boolean): void {
+  const output = createCliOutput({ json: asJson });
   if (asJson) {
-    console.log(JSON.stringify({ ok: true, runs: result.runs, hasMore: result.hasMore }));
+    output.json({ ok: true, runs: result.runs, hasMore: result.hasMore });
     return;
   }
   if (result.runs.length === 0) {
-    console.log('未找到运行记录');
+    output.text('未找到运行记录');
     return;
   }
-  console.log(`共 ${result.runs.length} 条运行记录${result.hasMore ? '（已截断）' : ''}`);
+  output.text(`共 ${result.runs.length} 条运行记录${result.hasMore ? '（已截断）' : ''}`);
   for (const run of result.runs) {
-    console.log(`${run.runId} ${run.status || '-'} ${run.taskId || '-'} ${run.updatedAt || run.startedAt || '-'}`);
+    output.text(`${run.runId} ${run.status || '-'} ${run.taskId || '-'} ${run.updatedAt || run.startedAt || '-'}`);
   }
 }
 
 function printShowResult(run: DocTaskRunRecord | undefined, asJson: boolean): void {
+  const output = createCliOutput({ json: asJson });
   if (asJson) {
-    console.log(JSON.stringify({ ok: true, run }));
+    output.json({ ok: true, run });
     return;
   }
   if (!run) {
-    console.log('未找到运行记录');
+    output.text('未找到运行记录');
     return;
   }
-  console.log(`${run.runId} ${run.status || '-'} ${run.taskId || '-'} ${run.updatedAt || run.startedAt || '-'}`);
+  output.text(`${run.runId} ${run.status || '-'} ${run.taskId || '-'} ${run.updatedAt || run.startedAt || '-'}`);
 }
 
 function printLatestResult(tasks: DocTaskRunRecord[], asJson: boolean): void {
+  const output = createCliOutput({ json: asJson });
   if (asJson) {
-    console.log(JSON.stringify({ ok: true, tasks }));
+    output.json({ ok: true, tasks });
     return;
   }
   if (tasks.length === 0) {
-    console.log('暂无最新任务摘要');
+    output.text('暂无最新任务摘要');
     return;
   }
-  console.log(`共 ${tasks.length} 条任务最新摘要`);
+  output.text(`共 ${tasks.length} 条任务最新摘要`);
   for (const task of tasks) {
-    console.log(`${task.taskId || '-'} ${task.runId} ${task.status || '-'} ${task.updatedAt || task.startedAt || '-'}`);
+    output.text(`${task.taskId || '-'} ${task.runId} ${task.status || '-'} ${task.updatedAt || task.startedAt || '-'}`);
   }
 }
 

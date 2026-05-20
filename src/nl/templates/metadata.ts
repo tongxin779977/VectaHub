@@ -1,6 +1,4 @@
 import { IntentCategory } from '../types/category.js';
-import type { IntentTemplate } from './index.js';
-
 /**
  * 能力元数据映射
  * 

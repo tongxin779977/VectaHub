@@ -1,4 +1,4 @@
-import type { SlashCommandContext, SlashCommand, ChatInput } from './types.js';
+import type { SlashCommand, ChatInput } from './types.js';
 
 export class CommandManager {
   private slashCommands = new Map<string, SlashCommand>();

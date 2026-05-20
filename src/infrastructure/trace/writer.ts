@@ -1,6 +1,6 @@
 import { appendFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { getVectaHubPath } from '../../utils/paths.js';
+import { getVectaHubPath } from '../paths/index.js';
 import { Redactor } from '../../security-protocol/redactor.js';
 import { TraceSpanRecord } from './types.js';
 

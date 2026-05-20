@@ -61,7 +61,11 @@ export function createDetector(): Detector {
 
   const getManager = () => {
     if (!securityManager) {
-      securityManager = getSecurityManager();
+      try {
+        securityManager = getSecurityManager();
+      } catch (error) {
+        throw new Error('Sandbox detector failed to initialize security manager', { cause: error });
+      }
     }
     return securityManager;
   };

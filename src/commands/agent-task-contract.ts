@@ -7,7 +7,7 @@ import {
   decideAgentTaskConcurrency as sharedDecideAgentTaskConcurrency,
 } from '@vectahub/doc-task-contract-core';
 import type { AgentTaskBoundary, AgentTaskConcurrencyDecision, AgentTaskContract } from '../types/doc-task.js';
-import { getDefaultContext, VectaHubError, ErrorType } from '../infrastructure/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
 
 export function computeInstructionHash(
   taskId: string,

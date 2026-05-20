@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { LLMClient, createLLMConfig, createLLMConfigDigestSource, createLLMEnhancedParser, LLMTool, LLMToolCall } from './llm.js';
+import { LLMClient, createLLMConfig, createLLMConfigDigestSource, createLLMEnhancedParser, resolveLLMConfig, LLMTool, LLMToolCall } from './llm.js';
 import { loadConfig } from '../setup/first-run-wizard.js';
 
 vi.mock('../setup/first-run-wizard.js', () => ({
@@ -78,17 +78,37 @@ describe('LLM Client', () => {
       process.env.GROQ_API_KEY = originalGroq as string;
     });
 
-    it('returns null for groq without API key', () => {
+    it('throws for groq without API key when provider is explicitly configured', () => {
       const originalProvider = process.env.VECTAHUB_LLM_PROVIDER;
       const originalGroq = process.env.GROQ_API_KEY;
       process.env.VECTAHUB_LLM_PROVIDER = 'groq';
       delete process.env.GROQ_API_KEY;
 
-      const config = createLLMConfig();
-      expect(config).toBeNull();
+      expect(() => createLLMConfig()).toThrow('Missing API key for LLM provider: groq');
 
       process.env.VECTAHUB_LLM_PROVIDER = originalProvider as string;
       process.env.GROQ_API_KEY = originalGroq as string;
+    });
+
+    it('throws on unsupported explicit provider instead of silently returning null', () => {
+      const originalProvider = process.env.VECTAHUB_LLM_PROVIDER;
+      process.env.VECTAHUB_LLM_PROVIDER = 'unsupported-provider';
+
+      expect(() => createLLMConfig()).toThrow('Unsupported LLM provider');
+
+      process.env.VECTAHUB_LLM_PROVIDER = originalProvider as string;
+    });
+
+    it('throws on missing API key when provider is explicitly configured', () => {
+      const originalProvider = process.env.VECTAHUB_LLM_PROVIDER;
+      const originalOpenAI = process.env.OPENAI_API_KEY;
+      process.env.VECTAHUB_LLM_PROVIDER = 'openai';
+      delete process.env.OPENAI_API_KEY;
+
+      expect(() => createLLMConfig()).toThrow('Missing API key for LLM provider: openai');
+
+      process.env.VECTAHUB_LLM_PROVIDER = originalProvider as string;
+      process.env.OPENAI_API_KEY = originalOpenAI as string;
     });
 
     it('returns config for ollama without API key', () => {
@@ -215,6 +235,47 @@ describe('LLM Client', () => {
       } as any);
 
       expect(createLLMConfigDigestSource()).toBeNull();
+
+      process.env.VECTAHUB_LLM_PROVIDER = originalProvider as string;
+      process.env.VECTAHUB_LLM_MODEL = originalModel as string;
+      process.env.VECTAHUB_LLM_BASE_URL = originalBaseUrl as string;
+      process.env.OPENAI_API_KEY = originalOpenAI as string;
+      process.env.ANTHROPIC_API_KEY = originalAnthropic as string;
+      process.env.GROQ_API_KEY = originalGroq as string;
+      process.env.OLLAMA_API_KEY = originalOllama as string;
+    });
+  });
+
+  describe('resolveLLMConfig', () => {
+    it('returns unconfigured state when no config signal exists', () => {
+      const originalProvider = process.env.VECTAHUB_LLM_PROVIDER;
+      const originalModel = process.env.VECTAHUB_LLM_MODEL;
+      const originalBaseUrl = process.env.VECTAHUB_LLM_BASE_URL;
+      const originalOpenAI = process.env.OPENAI_API_KEY;
+      const originalAnthropic = process.env.ANTHROPIC_API_KEY;
+      const originalGroq = process.env.GROQ_API_KEY;
+      const originalOllama = process.env.OLLAMA_API_KEY;
+      delete process.env.VECTAHUB_LLM_PROVIDER;
+      delete process.env.VECTAHUB_LLM_MODEL;
+      delete process.env.VECTAHUB_LLM_BASE_URL;
+      delete process.env.OPENAI_API_KEY;
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.GROQ_API_KEY;
+      delete process.env.OLLAMA_API_KEY;
+
+      mockedLoadConfig.mockReturnValue({
+        ai_providers: {
+          vectahub_llm: {
+            provider: '',
+            enabled: false,
+          },
+        },
+      } as any);
+
+      expect(resolveLLMConfig()).toEqual({
+        state: 'unconfigured',
+        config: null,
+      });
 
       process.env.VECTAHUB_LLM_PROVIDER = originalProvider as string;
       process.env.VECTAHUB_LLM_MODEL = originalModel as string;

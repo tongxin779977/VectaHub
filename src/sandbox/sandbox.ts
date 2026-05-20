@@ -2,18 +2,16 @@ import { spawn } from 'child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync, accessSync, constants } from 'fs';
 import { join } from 'path';
 import { platform } from 'os';
-import { getVectaHubPath } from '../utils/paths.js';
+import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { createHash, timingSafeEqual } from 'crypto';
 import { createDetector, type Detector } from './detector.js';
 import { CommandRuleEngine, createCommandRuleEngine, loadGlobalBlocklist, loadGlobalAllowlist, loadProjectBlocklist, loadProjectAllowlist } from '../command-rules/index.js';
 import { SANDBOX_EXEC_PATH, BWRAP_PATH, UNSHARE_PATH, SUDOERS_PATH, FALLBACK_PATH, DEFAULT_PROTECTED_DIRS } from './constants.js';
-import type { Step, SandboxMode, CommandDetection } from '../types/index.js';
+import type { SandboxMode, CommandDetection } from '../types/index.js';
 import type { DefaultPolicy } from '../command-rules/types.js';
-import { performEnvAudit, audit as globalAudit, AuditEventType, getCurrentSessionId, type AuditHelper } from '../infrastructure/audit/index.js';
+import { performEnvAudit, AuditEventType, createNoopAuditHelper, type AuditHelper } from '../infrastructure/audit/index.js';
 import { createSecurityGuard } from '../security-protocol/factory.js';
 import type { SecurityGuard } from '../types/security.js';
-
-const DEFAULT_POLICY: DefaultPolicy = 'passthrough';
 
 interface SandboxConfig {
   root: string;
@@ -34,6 +32,7 @@ interface ExecOptions {
   timeout?: number;
   cwd?: string;
   env?: Record<string, string>;
+  sessionId?: string;
   onConfirm?: () => Promise<boolean>;
   confirmationPrompt?: string;
   useNamespace?: boolean;
@@ -93,7 +92,7 @@ const DEFAULT_CONFIG: SandboxConfig = {
 export interface SandboxManagerDeps {
   detector?: Detector;
   ruleEngine?: CommandRuleEngine;
-  audit?: AuditHelper;
+  audit: AuditHelper;
   securityGuard?: SecurityGuard;
 }
 
@@ -113,7 +112,7 @@ export class SandboxManager {
     hasUserNS: boolean;
   } | null = null;
 
-  constructor(config: Partial<SandboxConfig> & { projectPath?: string } = {}, deps: SandboxManagerDeps = {}) {
+  constructor(config: Partial<SandboxConfig> & { projectPath?: string } = {}, deps: SandboxManagerDeps) {
     const workspaceDefault = config.workspace || process.cwd();
     this.config = { ...DEFAULT_CONFIG, ...config, workspace: workspaceDefault };
     this.projectPath = config.projectPath;
@@ -125,7 +124,7 @@ export class SandboxManager {
       projectAllowlist: loadProjectAllowlist(this.projectPath),
       defaultPolicy: this.config.defaultPolicy || 'passthrough',
     });
-    this.auditHelper = deps.audit ?? globalAudit;
+    this.auditHelper = deps.audit;
     this.securityGuard = deps.securityGuard ?? createSecurityGuard();
     this.ensureDirectories();
   }
@@ -144,7 +143,7 @@ export class SandboxManager {
     }
   }
 
-  private async detectCapabilities(): Promise<void> {
+  private async detectCapabilities(sessionId = 'unknown'): Promise<void> {
     if (this.capabilities) return;
 
     const auditResult = await performEnvAudit();
@@ -153,7 +152,7 @@ export class SandboxManager {
     this.auditHelper.log({
       event: AuditEventType.ENV_AUDIT,
       timestamp: new Date().toISOString(),
-      sessionId: getCurrentSessionId(),
+      sessionId,
       module: 'Sandbox',
       action: 'detect_capabilities',
       output: auditResult,
@@ -190,7 +189,7 @@ export class SandboxManager {
     this.auditHelper.log({
       event: AuditEventType.CONFIG_CHANGE,
       timestamp: new Date().toISOString(),
-      sessionId: getCurrentSessionId(),
+      sessionId,
       module: 'Sandbox',
       action: 'strategy_selected',
       input: { caps: this.capabilities },
@@ -866,7 +865,7 @@ ${denyRules}
     env.TMPDIR = this.config.tempDir;
     env.TEMP = this.config.tempDir;
 
-    await this.detectCapabilities();
+    await this.detectCapabilities(options.sessionId);
 
     if (options.useNamespace !== false && this.config.namespaceIsolation) {
       const strategy = this.detectIsolationStrategy();
@@ -921,8 +920,8 @@ ${denyRules}
 }
 
 export function createSandboxManager(
-  config?: Partial<SandboxConfig>,
-  deps?: SandboxManagerDeps
+  config: Partial<SandboxConfig> | undefined,
+  deps: SandboxManagerDeps
 ): SandboxManager {
   return new SandboxManager(config, deps);
 }
@@ -935,7 +934,7 @@ export interface Sandbox {
 }
 
 export function createSandbox(mode: SandboxMode = 'RELAXED'): Sandbox {
-  const manager = createSandboxManager({ mode });
+  const manager = createSandboxManager({ mode }, { audit: createNoopAuditHelper() });
   
   return {
     get mode() {

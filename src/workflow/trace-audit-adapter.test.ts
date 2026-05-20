@@ -113,11 +113,14 @@ describe('WorkflowTraceAuditAdapter', () => {
     const queryResult: TraceQueryResult = disabledAdapter.query();
     const metrics: TraceMetrics = disabledAdapter.getMetrics();
     const alerts: AlertEvent[] = disabledAdapter.getAlerts();
+    const systemStats = disabledAdapter.getSystemStats();
 
     expect(queryResult).toEqual({ total: 0, traces: [], hasMore: false });
     expect(metrics.totalCalls).toBe(0);
     expect(metrics.byModule).toEqual({});
     expect(alerts).toEqual([]);
+    expect(systemStats.activeTraces).toBe(0);
+    expect(systemStats.writer.isFlushing).toBe(false);
   });
 
   it('should forward typed query, metrics and alert calls', () => {

@@ -56,7 +56,7 @@ export function createDaemonClient(options: DaemonClientOptions = {}): DaemonCli
     });
 
     socket.on('close', () => {
-      for (const [id, pending] of pendingMessages) {
+      for (const [, pending] of pendingMessages) {
         pending.reject(new Error('Connection closed'));
       }
       pendingMessages.clear();
@@ -64,7 +64,7 @@ export function createDaemonClient(options: DaemonClientOptions = {}): DaemonCli
     });
 
     socket.on('error', (err) => {
-      for (const [id, pending] of pendingMessages) {
+      for (const [, pending] of pendingMessages) {
         pending.reject(err);
       }
       pendingMessages.clear();

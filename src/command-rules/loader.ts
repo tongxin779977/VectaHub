@@ -1,9 +1,11 @@
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import type { CommandRule, CommandRuleSet } from './types.js';
-import { getVectaHubPath } from '../utils/paths.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { getVectaHubPath } from '../infrastructure/paths/index.js';
 
 const COMMAND_RULES_DIR = 'command-rules';
+const logger = getDefaultContext().logger.getLogger('command-rules-loader');
 
 function getGlobalConfigPath(): string {
   return getVectaHubPath(COMMAND_RULES_DIR);
@@ -18,8 +20,8 @@ export function loadRuleSet(filePath: string): CommandRule[] {
     const data: CommandRuleSet = JSON.parse(content);
     return data.rules || [];
   } catch (error) {
-    console.error(`Failed to load rule set from ${filePath}:`, error);
-    return [];
+    logger.error({ error }, `Failed to load rule set from ${filePath}`);
+    throw new Error(`Failed to load command rule set from ${filePath}`, { cause: error });
   }
 }
 

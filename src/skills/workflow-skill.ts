@@ -3,9 +3,9 @@ import type { PromptRegistry } from '../nl/prompt/types.js';
 import type { LLMDialogControlSkill } from './llm-dialog-control/index.js';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { getLogger } from '../utils/logger.js';
+import { getDefaultContext } from '../infrastructure/context.js';
 
-const logger = getLogger('workflow-skill');
+const logger = getDefaultContext().logger.getLogger('workflow-skill');
 
 export interface WorkflowSkillInput {
   intent: string;
@@ -49,11 +49,11 @@ export function createWorkflowSkill(
     description: '生成完整的 VectaHub 工作流 YAML',
     tags: ['workflow', 'yaml', 'generation'],
 
-    async canHandle(context: SkillContext): Promise<boolean> {
+    async canHandle(_context: SkillContext): Promise<boolean> {
       return true;
     },
 
-    async execute(input: WorkflowSkillInput, context: SkillContext): Promise<SkillResult<WorkflowSkillOutput>> {
+    async execute(input: WorkflowSkillInput, _context: SkillContext): Promise<SkillResult<WorkflowSkillOutput>> {
       try {
         const filePath = await extractFilePath(input.userInput);
         let docContent = '';
@@ -100,7 +100,7 @@ export function createWorkflowSkill(
           data: { workflowYAML: result.output },
           confidence: 0.85
         };
-      } catch (error) {
+      } catch {
         const fallbackYAML = createFallbackWorkflow(input);
         return {
           success: true,

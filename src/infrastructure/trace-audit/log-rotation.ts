@@ -7,11 +7,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { promisify } from 'node:util';
-import { getLogger } from '../../utils/logger.js';
+import { getDefaultContext } from '../context.js';
 import type { LogRotationConfig } from './types.js';
 
 const gzip = promisify(zlib.gzip);
-const logger = getLogger('log-rotation');
+function getModuleLogger() {
+  return getDefaultContext().logger.getLogger('log-rotation');
+}
 
 /** 默认配置 */
 const DEFAULT_CONFIG: LogRotationConfig = {
@@ -67,9 +69,9 @@ export class LogRotationManager {
       // 3. 清理过期文件
       deleted = await this.cleanupExpiredFiles();
 
-      logger.info(`日志轮转完成: 轮转=${rotated}, 归档=${archived}, 删除=${deleted}`);
+      getModuleLogger().info(`日志轮转完成: 轮转=${rotated}, 归档=${archived}, 删除=${deleted}`);
     } catch (error) {
-      logger.error(`日志轮转失败: ${(error as Error).message}`);
+      getModuleLogger().error(`日志轮转失败: ${(error as Error).message}`);
     }
 
     return { rotated, archived, deleted };
@@ -89,7 +91,7 @@ export class LogRotationManager {
           count++;
         }
       } catch (error) {
-        logger.warn(`检查文件大小失败: ${file}, ${(error as Error).message}`);
+        getModuleLogger().warn(`检查文件大小失败: ${file}, ${(error as Error).message}`);
       }
     }
 
@@ -110,7 +112,7 @@ export class LogRotationManager {
     // 创建新的空文件
     fs.writeFileSync(filePath, '');
 
-    logger.info(`文件轮转: ${filePath} -> ${rotatedPath}`);
+    getModuleLogger().info(`文件轮转: ${filePath} -> ${rotatedPath}`);
   }
 
   /** 归档旧文件 */
@@ -130,7 +132,7 @@ export class LogRotationManager {
           count++;
         }
       } catch (error) {
-        logger.warn(`归档文件失败: ${file}, ${(error as Error).message}`);
+        getModuleLogger().warn(`归档文件失败: ${file}, ${(error as Error).message}`);
       }
     }
 
@@ -154,7 +156,7 @@ export class LogRotationManager {
     // 删除原文件
     fs.unlinkSync(filePath);
 
-    logger.info(`文件归档: ${filePath} -> ${archivePath}`);
+    getModuleLogger().info(`文件归档: ${filePath} -> ${archivePath}`);
   }
 
   /** 清理过期文件 */
@@ -176,10 +178,10 @@ export class LogRotationManager {
         if (age > retentionMs) {
           fs.unlinkSync(file);
           count++;
-          logger.info(`文件清理: ${file}`);
+          getModuleLogger().info(`文件清理: ${file}`);
         }
       } catch (error) {
-        logger.warn(`清理文件失败: ${file}, ${(error as Error).message}`);
+        getModuleLogger().warn(`清理文件失败: ${file}, ${(error as Error).message}`);
       }
     }
 

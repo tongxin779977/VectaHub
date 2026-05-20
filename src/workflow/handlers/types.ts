@@ -15,6 +15,7 @@ export interface ExecutorOptions {
   env?: Record<string, string>;
   useSandbox?: boolean;
   role?: RoleName;
+  sessionId?: string;
 }
 
 export interface ExecutionContext {

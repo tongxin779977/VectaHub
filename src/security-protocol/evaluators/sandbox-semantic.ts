@@ -19,7 +19,7 @@ export class SandboxSemanticEvaluator implements SecurityEvaluator {
   /**
    * 执行评估逻辑
    */
-  public async evaluate(intention: CommandIntention, context: SecurityContext): Promise<SecurityDecision> {
+  public async evaluate(intention: CommandIntention, _context: SecurityContext): Promise<SecurityDecision> {
     const result = this.detector.detectDangerousCommand(intention.rawCommand);
 
     let decision: SecurityDecisionType = 'PASSED';

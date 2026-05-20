@@ -1,6 +1,6 @@
 import type { IntentMatch, IntentName } from '../types/index.js';
 import type { MultiIntentResult } from './types.js';
-import { audit, AuditEventType } from '../utils/audit.js';
+import { getDefaultContext } from '../infrastructure/context.js';
 
 /**
  * @deprecated Use IntentPattern (src/nl/types.ts) with WeightedKeywords
@@ -50,7 +50,7 @@ export function createIntentMatcher(patterns: LegacyIntentPattern[], coordinator
       }
 
       if (sessionId) {
-        audit.intentMatch(bestMatch.intent, bestMatch.confidence, { input }, sessionId, {
+        getDefaultContext().audit.getHelper().intentMatch(bestMatch.intent, bestMatch.confidence, { input }, sessionId, {
           matchedKeywords: patterns
             .filter(p => p.intent === bestMatch.intent)
             .flatMap(p => p.keywords.filter(kw => lowerInput.includes(kw.toLowerCase()))),

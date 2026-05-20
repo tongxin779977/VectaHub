@@ -1,10 +1,11 @@
-import { spawn, ChildProcess } from 'child_process';
+import type { ChildProcess } from 'child_process';
 import type { Step, SandboxMode } from '../types/index.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 import { createDetector, type Detector } from '../sandbox/detector.js';
 import { createSemanticDetector, type SemanticDetector } from '../sandbox/semantic-detector.js';
 import { createSandboxManager, type SandboxManager } from '../sandbox/sandbox.js';
 import { interpolateString } from './interpolation.js';
-import { audit as globalAudit, type AuditHelper } from '../infrastructure/audit/index.js';
+import type { AuditHelper } from '../infrastructure/audit/index.js';
 import { createSecurityGuard } from '../security-protocol/factory.js';
 import type { SecurityGuard } from '../types/security.js';
 import { PolicyManager } from './policy-manager.js';
@@ -25,11 +26,12 @@ const DEFAULT_TIMEOUT = 60000;
  * 用于支持自定义替换各个组件，提高可测试性
  */
 export interface ExecutorDeps {
+  environment: IEnvironmentService;
   detector?: Detector;
   semanticDetector?: SemanticDetector;
   policyManager?: PolicyManager;
   sandboxManager?: SandboxManager;
-  audit?: AuditHelper;
+  audit: AuditHelper;
   securityGuard?: SecurityGuard;
   stepHandlers?: Record<string, StepHandler>;
 }
@@ -47,6 +49,23 @@ export interface Executor {
 
 let currentChildProcess: ChildProcess | null = null;
 
+function isLegacyExecStep(step: Step): boolean {
+  return !step.type && Boolean(step.cli);
+}
+
+function getUnregisteredStepTypeLabel(step: Step): string {
+  return step.type || '<missing>';
+}
+
+function createMissingHandlerResult(step: Step, startTime: number): ExecutionResult {
+  return {
+    stepId: step.id,
+    status: 'FAILED',
+    error: `No handler registered for step type: ${getUnregisteredStepTypeLabel(step)}`,
+    duration: Date.now() - startTime,
+  };
+}
+
 function shouldAllow(
   detection: { isDangerous: boolean; level: string },
   mode: SandboxMode
@@ -57,16 +76,17 @@ function shouldAllow(
   return true;
 }
 
-export function createExecutor(deps: ExecutorDeps = {}): Executor {
+export function createExecutor(deps: ExecutorDeps): Executor {
+  const environment = deps.environment;
   const detector: Detector = deps.detector ?? createDetector();
   const semanticDetector: SemanticDetector = deps.semanticDetector ?? createSemanticDetector();
-  const policyManager = deps.policyManager ?? new PolicyManager();
+  const auditHelper: AuditHelper = deps.audit;
+  const policyManager = deps.policyManager ?? new PolicyManager(auditHelper);
   const securityGuard: SecurityGuard = deps.securityGuard ?? createSecurityGuard();
   const sandboxManager = deps.sandboxManager ?? createSandboxManager(
     {},
-    { securityGuard }
+    { securityGuard, audit: auditHelper }
   );
-  const auditHelper: AuditHelper = deps.audit ?? globalAudit;
   const customStepHandlers = deps.stepHandlers || {};
 
   async function exec(cli: string, args: string[], options: ExecutorOptions): Promise<CLIResult> {
@@ -85,9 +105,9 @@ export function createExecutor(deps: ExecutorDeps = {}): Executor {
     }
 
     return new Promise((resolve, reject) => {
-      const child = spawn(cli, args, {
-        cwd: options.cwd || process.cwd(),
-        env: { ...process.env, ...options.env },
+      const child = environment.spawn(cli, args, {
+        cwd: options.cwd || environment.getCwd(),
+        env: { ...environment.getAllEnv(), ...options.env },
       });
 
       currentChildProcess = child;
@@ -101,10 +121,10 @@ export function createExecutor(deps: ExecutorDeps = {}): Executor {
         }, timeout);
       }
 
-      child.stdout?.on('data', (data) => { stdout += data.toString(); });
-      child.stderr?.on('data', (data) => { stderr += data.toString(); });
+      child.stdout?.on('data', (data: Buffer) => { stdout += data.toString(); });
+      child.stderr?.on('data', (data: Buffer) => { stderr += data.toString(); });
 
-      child.on('close', (code) => {
+      child.on('close', (code: number | null) => {
         currentChildProcess = null;
         if (timeoutHandle) clearTimeout(timeoutHandle);
         resolve({
@@ -116,7 +136,7 @@ export function createExecutor(deps: ExecutorDeps = {}): Executor {
         });
       });
 
-      child.on('error', (err) => {
+      child.on('error', (err: Error) => {
         currentChildProcess = null;
         if (timeoutHandle) clearTimeout(timeoutHandle);
         reject(new Error(`Child process error: ${err.message}`));
@@ -131,6 +151,7 @@ export function createExecutor(deps: ExecutorDeps = {}): Executor {
       timeout: options.timeout || DEFAULT_TIMEOUT,
       cwd: options.cwd,
       env: options.env,
+      sessionId: options.sessionId,
     });
     return {
       success: result.success,
@@ -170,8 +191,9 @@ export function createExecutor(deps: ExecutorDeps = {}): Executor {
 
   const executeStep: ExecuteStepFn = async (step, options, context) => {
     const startTime = Date.now();
+    const handlerType = isLegacyExecStep(step) ? 'exec' : step.type;
 
-    if (options.dryRun && ['exec', 'opencli'].includes(step.type)) {
+    if (options.dryRun && handlerType && ['exec', 'opencli'].includes(handlerType)) {
       return {
         stepId: step.id,
         status: 'COMPLETED',
@@ -180,31 +202,15 @@ export function createExecutor(deps: ExecutorDeps = {}): Executor {
       };
     }
 
-    const handler = extendedStepHandlers[step.type] || stepHandlers[step.type];
+    const handler = handlerType
+      ? extendedStepHandlers[handlerType] || stepHandlers[handlerType]
+      : undefined;
 
     if (handler) {
       return handler(step, options, context, executeStep, startTime);
     }
 
-    // Default fallback for legacy or unknown types (e.g. older YAMLs without explicit type)
-    if (step.cli && !step.type) {
-      return stepHandlers.exec(step, options, context, executeStep, startTime);
-    }
-
-    if (step.type === 'delegate') {
-      return {
-        stepId: step.id,
-        status: 'FAILED',
-        error: `No handler registered for step type: ${step.type}`,
-        duration: Date.now() - startTime,
-      };
-    }
-
-    return {
-      stepId: step.id,
-      status: 'COMPLETED',
-      duration: Date.now() - startTime,
-    };
+    return createMissingHandlerResult(step, startTime);
   };
 
   return {
@@ -259,10 +265,11 @@ export function createExecutor(deps: ExecutorDeps = {}): Executor {
     validateStep(step: Step): { valid: boolean; errors: string[] } {
       const errors: string[] = [];
       if (!step.id) errors.push('Step must have an id');
-      if (!['exec', 'for_each', 'if', 'parallel', 'opencli', 'delegate'].includes(step.type)) {
+      const isLegacyExec = isLegacyExecStep(step);
+      if (!isLegacyExec && !['exec', 'for_each', 'if', 'parallel', 'opencli', 'delegate'].includes(step.type)) {
         errors.push(`Invalid step type: ${step.type}`);
       }
-      if (step.type === 'exec' && !step.cli) errors.push('exec step must have a cli command');
+      if ((step.type === 'exec' || isLegacyExec) && !step.cli) errors.push('exec step must have a cli command');
       if (step.type === 'opencli' && (!step.site || !step.command)) errors.push('opencli step must have site and command');
       if (step.type === 'for_each' && (!step.items || !step.body)) errors.push('for_each step must have items and body');
       if (step.type === 'if' && !step.condition) errors.push('if step must have a condition');

@@ -1,7 +1,29 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createRBACManager, type RoleName } from './rbac.js';
+import { resetDefaultContext } from '../infrastructure/context.js';
+
+const originalVectaHubHome = process.env.VECTAHUB_HOME;
+
+function restoreEnvVar(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = value;
+}
 
 describe('rbac', () => {
+  beforeEach(() => {
+    resetDefaultContext();
+  });
+
+  afterEach(() => {
+    restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+    resetDefaultContext();
+  });
+
   it('gets default developer role', () => {
     const manager = createRBACManager();
     const role = manager.getRole('developer');
@@ -58,6 +80,70 @@ describe('rbac', () => {
     expect(manager.getSandboxMode('developer')).toBe('RELAXED');
     expect(manager.getSandboxMode('ci-runner')).toBe('STRICT');
     expect(manager.getSandboxMode('admin')).toBe('CONSENSUS');
+  });
+
+  it('recomputes RBAC file path after VECTAHUB_HOME changes', () => {
+    process.env.VECTAHUB_HOME = '/tmp/vectahub-rbac-home-a';
+    resetDefaultContext();
+
+    const managerA = createRBACManager();
+    managerA.saveConfig([
+      {
+        name: 'developer',
+        allowed_tools: ['git'],
+        blocked_commands: [],
+        max_timeout: 1,
+        sandbox_mode: 'RELAXED',
+      },
+      {
+        name: 'ci-runner',
+        allowed_tools: ['npm'],
+        blocked_commands: [],
+        max_timeout: 2,
+        sandbox_mode: 'STRICT',
+      },
+      {
+        name: 'admin',
+        allowed_tools: ['*'],
+        blocked_commands: [],
+        max_timeout: 3,
+        sandbox_mode: 'CONSENSUS',
+      },
+    ]);
+
+    process.env.VECTAHUB_HOME = '/tmp/vectahub-rbac-home-b';
+    resetDefaultContext();
+    mkdirSync('/tmp/vectahub-rbac-home-b', { recursive: true });
+
+    const managerB = createRBACManager();
+    managerB.saveConfig([
+      {
+        name: 'developer',
+        allowed_tools: ['docker'],
+        blocked_commands: [],
+        max_timeout: 4,
+        sandbox_mode: 'RELAXED',
+      },
+      {
+        name: 'ci-runner',
+        allowed_tools: ['tsx'],
+        blocked_commands: [],
+        max_timeout: 5,
+        sandbox_mode: 'STRICT',
+      },
+      {
+        name: 'admin',
+        allowed_tools: ['*'],
+        blocked_commands: [],
+        max_timeout: 6,
+        sandbox_mode: 'CONSENSUS',
+      },
+    ]);
+
+    const savedA = JSON.parse(readFileSync(join('/tmp/vectahub-rbac-home-a', 'rbac.json'), 'utf-8')) as RoleName[];
+    const savedB = JSON.parse(readFileSync(join('/tmp/vectahub-rbac-home-b', 'rbac.json'), 'utf-8')) as RoleName[];
+
+    expect(savedA).not.toEqual(savedB);
   });
 
   describe('bypass protection', () => {

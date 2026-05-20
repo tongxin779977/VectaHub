@@ -1,13 +1,12 @@
 import { dirname } from 'path';
 import { parse, stringify } from 'yaml';
 import { createInterface, type Interface } from 'readline';
-import { getLogger } from '../utils/logger.js';
-import type { StepResult } from './priority-installer.js';
-import { getVectaHubPath } from '../utils/paths.js';
 import { getDefaultContext } from '../infrastructure/context.js';
+import type { StepResult } from './priority-installer.js';
+import { getVectaHubPath } from '../infrastructure/paths/index.js';
 
-const logger = getLogger('setup');
 const ctx = getDefaultContext();
+const logger = ctx.logger.getLogger('setup');
 
 let sharedRl: Interface | null = null;
 let nonInteractiveMode = false;
@@ -248,7 +247,7 @@ export async function runFirstRunWizard(): Promise<boolean> {
   }
 
   // Step 3: Configure LLM provider (interactive)
-  const configResult = await configureLLMProvider();
+  await configureLLMProvider();
 
   // Mark first run as completed (responsibility moved from individual steps)
   const config = loadConfig();

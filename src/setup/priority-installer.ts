@@ -1,4 +1,4 @@
-import { createInterface, type Interface } from 'readline';
+import { createInterface } from 'readline';
 import { createConfigDir, initConfigFile, configureLLMProvider, closeRl as closeSetupRl } from './first-run-wizard.js';
 import { scanCLITools, updateCLIToolConfig } from './cli-scanner.js';
 

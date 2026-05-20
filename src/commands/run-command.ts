@@ -3,8 +3,8 @@ import { getSecurityGuard } from '../security-protocol/factory.js';
 import type { CommandIntention, SecurityContext } from '../types/security.js';
 import { createWorkflowEngine } from '../workflow/engine.js';
 import { createRecordManager } from '../execution/record-manager.js';
-import { setMuted } from '../infrastructure/logger/index.js';
-import type { Step, WorkflowMode } from '../types/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import type { Step } from '../types/index.js';
 import type { ExecutionMetadata, ExecutionRecord as StoredRecord } from '../execution/types.js';
 import type { ExecutionRecord as EngineRecord } from '../types/index.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
@@ -22,8 +22,9 @@ export const runCommandCmd = new Command('run-command')
   .option('--json', 'Output results in JSON format')
   .option('--dry-run', 'Show what would be executed without running')
   .action(async (commandArgs: string[], options: RunCommandOptions) => {
+    const ctx = getDefaultContext();
     if (options.json) {
-      setMuted(true);
+      ctx.logger.setMuted(true);
     }
 
     const fullCommand = commandArgs.join(' ');
@@ -32,7 +33,7 @@ export const runCommandCmd = new Command('run-command')
     // 1. 安全扫描与评估
     const guard = getSecurityGuard();
     const securityContext: SecurityContext = {
-      cwd: process.cwd(),
+      cwd: ctx.environment.getCwd(),
       sessionId: `direct-${Date.now()}`,
       isDryRun: options.dryRun,
     };
@@ -110,7 +111,7 @@ export const runCommandCmd = new Command('run-command')
 
     // 3. 执行流程
     try {
-      const engine = createWorkflowEngine();
+      const engine = createWorkflowEngine({ audit: ctx.audit.getHelper(), environment: ctx.environment });
       await engine.loadWorkflows();
 
       const steps: Step[] = [{
@@ -123,7 +124,7 @@ export const runCommandCmd = new Command('run-command')
       const workflow = await engine.createWorkflow(`direct-${Date.now()}`, steps);
       
       const result: EngineRecord = await engine.execute(workflow, {
-        mode: options.mode as any,
+        mode: options.mode,
         dryRun: options.dryRun
       });
 
@@ -139,11 +140,11 @@ export const runCommandCmd = new Command('run-command')
       const rawOutput = result.steps[0]?.output?.join('\n') || '';
       const redactedOutput = guard.redactOutput(rawOutput, securityContext);
 
-      const recordToSave: Partial<StoredRecord> = {
+      const recordToSave: StoredRecord = {
         executionId: result.executionId,
         workflowId: result.workflowId,
         workflowName: result.workflowName,
-        status: result.status as any,
+        status: result.status,
         startedAt: result.startedAt.toISOString(),
         finishedAt: result.endedAt?.toISOString(),
         duration: result.duration,
@@ -151,16 +152,16 @@ export const runCommandCmd = new Command('run-command')
           stepId: s.stepId,
           stepName: s.stepId,
           command: fullCommand,
-          status: s.status as any,
+          status: s.status,
           startedAt: s.startAt?.toISOString(),
           finishedAt: s.endAt?.toISOString(),
           output: guard.redactOutput(s.output?.join('\n') || '', securityContext),
           error: s.error
         })),
-        metadata: metadata as any
+        metadata: metadata as unknown as Record<string, unknown>
       };
       
-      await recordManager.save(recordToSave as StoredRecord);
+      await recordManager.save(recordToSave);
 
       // 5. 结果输出
       if (options.json) {

@@ -1,8 +1,7 @@
 import { Command } from 'commander';
 import { createRecordManager } from '../execution/record-manager.js';
 import { createStorage } from '../workflow/storage.js';
-import { getDefaultContext } from '../infrastructure/index.js';
-import type { ExecutionRecord, StepExecution } from '../execution/types.js';
+import { getDefaultContext } from '../infrastructure/context.js';
 
 const ctx = getDefaultContext();
 const logger = ctx.logger.getLogger('history');
@@ -30,7 +29,7 @@ interface ExtendedStepRecord {
   status: string;
   startedAt?: string | Date;
   duration?: number;
-  output?: any;
+  output?: unknown;
   outputSummary?: string;
   error?: string;
   command?: string;
@@ -44,7 +43,7 @@ interface ExtendedExecutionRecord {
   startedAt: string | Date;
   duration?: number;
   steps: ExtendedStepRecord[];
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   error?: string;
 }
 
@@ -56,11 +55,11 @@ export const historyCmd = new Command('history')
   .option('--verbose', 'Show detailed information including step summaries')
   .option('--workflow <id>', 'Filter by workflow ID')
   .action(async (options: { status?: string; query?: string; limit: string; verbose?: boolean; workflow?: string }) => {
-    const storage = createStorage();
+    const storage = createStorage({ environment: ctx.environment });
     const recordManager = createRecordManager();
     const limit = parseInt(options.limit, 10) || 20;
 
-    let records: ExtendedExecutionRecord[] = [];
+    let records: ExtendedExecutionRecord[];
 
     if (options.query) {
       const result = await recordManager.search(options.query, {

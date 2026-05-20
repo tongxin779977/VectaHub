@@ -22,15 +22,14 @@ export { EventBus } from './bus.js';
  */
 export function createEventManager(): EventManager {
   // 返回一个包装器，使用默认 context 的 eventBus
-  const bus = getDefaultContext().eventBus;
   return {
-    on: (event, listener, context) => bus.on(event, listener, context),
-    once: (event, listener, context) => bus.once(event, listener, context),
-    off: (event, listener) => bus.off(event, listener),
-    offByContext: (context) => bus.offByContext(context),
-    emit: (event, ...args) => bus.emit(event, ...args),
-    getListenerCount: (event) => bus.getListenerCount(event),
-    cleanup: () => bus.cleanup(),
+    on: (event, listener, context) => getDefaultContext().eventBus.on(event, listener, context),
+    once: (event, listener, context) => getDefaultContext().eventBus.once(event, listener, context),
+    off: (event, listener) => getDefaultContext().eventBus.off(event, listener),
+    offByContext: (context) => getDefaultContext().eventBus.offByContext(context),
+    emit: (event, ...args) => getDefaultContext().eventBus.emit(event, ...args),
+    getListenerCount: (event) => getDefaultContext().eventBus.getListenerCount(event),
+    cleanup: () => getDefaultContext().eventBus.cleanup(),
   };
 }
 

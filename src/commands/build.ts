@@ -1,7 +1,6 @@
 import { Command } from 'commander';
-import { join } from 'path';
-import { execSync } from 'child_process';
-import { VectaHubError, ErrorType, getDefaultContext } from '../infrastructure/index.js';
+import { getDefaultContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
 export const build = new Command('build')
   .description('Build the project')
@@ -23,11 +22,19 @@ export const build = new Command('build')
         : `npx tsup ${entryFile} --format esm,cjs --dts`;
 
       console.log(`Running: ${tsupCmd}\n`);
-      execSync(tsupCmd, { stdio: 'inherit' });
+      const [cmd, ...args] = tsupCmd.split(' ');
+      const child = environment.spawn(cmd, args, { stdio: 'inherit' });
+      await new Promise<void>((resolve, reject) => {
+        child.on('exit', (code: number) => {
+          if (code === 0) resolve();
+          else reject(new Error(`Exit code ${code}`));
+        });
+        child.on('error', reject);
+      });
 
       console.log('\n✅ Build complete!');
       console.log(`   Output: ${outDir}/`);
-    } catch (error) {
+    } catch {
       throw new VectaHubError('Build failed', ErrorType.RUNTIME);
     }
   });

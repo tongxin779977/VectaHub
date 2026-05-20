@@ -1,9 +1,11 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { getLogger } from './logger.js';
+import { getDefaultContext } from '../infrastructure/context.js';
 import { getVectaHubPath } from './paths.js';
 
-const logger = getLogger('data-cleanup');
+function getModuleLogger() {
+  return getDefaultContext().logger.getLogger('data-cleanup');
+}
 
 export interface CleanupConfig {
   logRetentionDays: number;
@@ -35,7 +37,7 @@ export class DataCleanupService {
     
     this.isRunning = true;
     this.scheduleCleanup();
-    logger.info('Data cleanup service started');
+    getModuleLogger().info('Data cleanup service started');
   }
 
   stop(): void {
@@ -44,17 +46,17 @@ export class DataCleanupService {
       this.cleanupIntervalId = null;
     }
     this.isRunning = false;
-    logger.info('Data cleanup service stopped');
+    getModuleLogger().info('Data cleanup service stopped');
   }
 
   private scheduleCleanup(): void {
     this.cleanup().catch(error => {
-      logger.error(`Cleanup failed: ${(error as Error).message}`);
+      getModuleLogger().error(`Cleanup failed: ${(error as Error).message}`);
     });
 
     this.cleanupIntervalId = setInterval(() => {
       this.cleanup().catch(error => {
-        logger.error(`Cleanup failed: ${(error as Error).message}`);
+        getModuleLogger().error(`Cleanup failed: ${(error as Error).message}`);
       });
     }, this.config.cleanupIntervalHours * 60 * 60 * 1000);
   }
@@ -62,13 +64,13 @@ export class DataCleanupService {
   async cleanup(): Promise<void> {
     if (!this.config.enabled) return;
 
-    logger.debug('Starting data cleanup...');
+    getModuleLogger().debug('Starting data cleanup...');
 
     await this.cleanupLogs();
     await this.cleanupExecutions();
     await this.cleanupWorkflows();
 
-    logger.debug('Data cleanup completed');
+    getModuleLogger().debug('Data cleanup completed');
   }
 
   private async cleanupLogs(): Promise<void> {
@@ -92,7 +94,7 @@ export class DataCleanupService {
         if (stat.isFile() && stat.mtime < cutoffDate) {
           await fs.unlink(filePath);
           deletedCount++;
-          logger.debug(`Deleted old log file: ${file}`);
+          getModuleLogger().debug(`Deleted old log file: ${file}`);
         }
       } catch {
         continue;
@@ -100,7 +102,7 @@ export class DataCleanupService {
     }
 
     if (deletedCount > 0) {
-      logger.info(`Cleaned up ${deletedCount} old log files`);
+      getModuleLogger().info(`Cleaned up ${deletedCount} old log files`);
     }
   }
 
@@ -127,7 +129,7 @@ export class DataCleanupService {
         if (stat.isFile() && stat.mtime < cutoffDate) {
           await fs.unlink(filePath);
           deletedCount++;
-          logger.debug(`Deleted old execution record: ${file}`);
+          getModuleLogger().debug(`Deleted old execution record: ${file}`);
         }
       } catch {
         continue;
@@ -135,7 +137,7 @@ export class DataCleanupService {
     }
 
     if (deletedCount > 0) {
-      logger.info(`Cleaned up ${deletedCount} old execution records`);
+      getModuleLogger().info(`Cleaned up ${deletedCount} old execution records`);
     }
   }
 
@@ -162,7 +164,7 @@ export class DataCleanupService {
         if (stat.isFile() && stat.mtime < cutoffDate) {
           await fs.unlink(filePath);
           deletedCount++;
-          logger.debug(`Deleted old workflow: ${file}`);
+          getModuleLogger().debug(`Deleted old workflow: ${file}`);
         }
       } catch {
         continue;
@@ -170,7 +172,7 @@ export class DataCleanupService {
     }
 
     if (deletedCount > 0) {
-      logger.info(`Cleaned up ${deletedCount} old workflows`);
+      getModuleLogger().info(`Cleaned up ${deletedCount} old workflows`);
     }
   }
 

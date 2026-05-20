@@ -20,7 +20,7 @@ export class InfrastructureContext {
   readonly config: IConfigService;
   readonly logger: ILoggerService;
   readonly eventBus: IEventBus;
-  readonly audit: IAuditService;
+  private auditService?: IAuditService;
 
   constructor(options?: {
     environment?: IEnvironmentService;
@@ -34,7 +34,12 @@ export class InfrastructureContext {
     this.config = options?.config ?? new ConfigService(this.environment);
     this.logger = options?.logger ?? new LoggerService(this.environment);
     this.eventBus = options?.eventBus ?? new EventBus();
-    this.audit = options?.audit ?? new AuditService(this.environment);
+    this.auditService = options?.audit;
+  }
+
+  get audit(): IAuditService {
+    this.auditService ??= new AuditService(this.environment);
+    return this.auditService;
   }
 
   /**
