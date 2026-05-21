@@ -1,7 +1,7 @@
 import { writeFileSync, existsSync, mkdirSync } from 'fs';
 import * as path from 'path';
 import { stringify } from 'yaml';
-import { getDefaultContext } from '../../infrastructure/context.js';
+import type { IConfigService } from '../../infrastructure/interfaces/index.js';
 import { getVectaHubPath } from '../../infrastructure/paths/index.js';
 
 export interface RegistrationConfig {
@@ -27,10 +27,6 @@ function getConfigPath(): string {
   return getVectaHubPath('config.yaml');
 }
 
-function loadAppConfig() {
-  return getDefaultContext().config.getConfig();
-}
-
 let testMode = false;
 let testConfig: RegistrationConfig | null = null;
 
@@ -47,18 +43,25 @@ export function setTestMode(enabled: boolean): void {
   }
 }
 
-export async function loadConfig(): Promise<RegistrationConfig> {
+export async function loadConfig(configService?: IConfigService): Promise<RegistrationConfig> {
   if (testMode && testConfig) {
     return { ...testConfig };
   }
-  const config = await loadAppConfig();
+  if (!configService) {
+    throw new Error('configService is required when not in test mode');
+  }
+  const config = configService.getConfig();
   return config.cli_tools;
 }
 
-export async function saveConfig(config: RegistrationConfig): Promise<void> {
+export async function saveConfig(config: RegistrationConfig, configService?: IConfigService): Promise<void> {
   if (testMode) {
     testConfig = { ...config };
     return;
+  }
+
+  if (!configService) {
+    throw new Error('configService is required when not in test mode');
   }
 
   const configPath = getConfigPath();
@@ -68,7 +71,7 @@ export async function saveConfig(config: RegistrationConfig): Promise<void> {
     mkdirSync(configDir, { recursive: true });
   }
 
-  const currentConfig = await loadAppConfig();
+  const currentConfig = configService.getConfig();
   currentConfig.cli_tools = config;
 
   const content = stringify(currentConfig);

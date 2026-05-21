@@ -144,7 +144,7 @@ export class ToolCacheManager {
     }
 
     try {
-      const client = new LLMClient(llmConfig);
+      const client = new LLMClient(llmConfig, { auditHelper: this.context.audit.getHelper() });
       const rawOutput = await client.completeRaw(
         TOOL_CAPABILITY_PARSER_ID,
         `推断工具 ${toolName} 的能力`,

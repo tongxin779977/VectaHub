@@ -82,7 +82,13 @@ class LLMOrchestratorImpl {
     this.sessionManager = options.sessionManager;
     this.llmConfig = options.llmConfig;
     this.logger = options.logger ?? pino({ name: 'llm-orchestrator' });
-    this.llmClient = options.llmClient ?? new LLMClient(this.llmConfig, options.llmClientDeps);
+    if (options.llmClient) {
+      this.llmClient = options.llmClient;
+    } else if (options.llmClientDeps) {
+      this.llmClient = new LLMClient(this.llmConfig, options.llmClientDeps);
+    } else {
+      throw new Error('Either llmClient or llmClientDeps must be provided');
+    }
   }
 
   async ask(request: LLMRequest): Promise<LLMResponse> {

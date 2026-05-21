@@ -1,19 +1,20 @@
 import type { CommandRuleAuditEntry, CommandAnalysis, CommandRuleResult } from './types.js';
-import { getDefaultContext } from '../../infrastructure/context.js';
+import type { AuditHelper } from '../../infrastructure/audit/index.js';
 
-function getAuditHelper() {
-  return getDefaultContext().audit.getHelper();
-}
-
-function getCurrentSessionId(): string {
-  return getDefaultContext().audit.getLogger().getSessionId();
+export interface CommandRuleAuditLoggerDeps {
+  auditHelper: AuditHelper;
+  sessionIdProvider: () => string;
 }
 
 export class CommandRuleAuditLogger {
   private logs: CommandRuleAuditEntry[];
+  private auditHelper: AuditHelper;
+  private sessionIdProvider: () => string;
 
-  constructor() {
+  constructor(deps: CommandRuleAuditLoggerDeps) {
     this.logs = [];
+    this.auditHelper = deps.auditHelper;
+    this.sessionIdProvider = deps.sessionIdProvider;
   }
 
   logDecision(
@@ -37,7 +38,7 @@ export class CommandRuleAuditLogger {
       context: {
         sandboxMode,
         cwd,
-        sessionId: getCurrentSessionId(),
+        sessionId: this.sessionIdProvider(),
       },
     };
 
@@ -47,7 +48,7 @@ export class CommandRuleAuditLogger {
   }
 
   private _emitAudit(entry: CommandRuleAuditEntry): void {
-    getAuditHelper().cliCommand('cli-tools:rule-decision', [entry.command], entry.context.sessionId);
+    this.auditHelper.cliCommand('cli-tools:rule-decision', [entry.command], entry.context.sessionId);
   }
 
   getLogs(): CommandRuleAuditEntry[] {

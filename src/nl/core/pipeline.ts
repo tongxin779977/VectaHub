@@ -35,7 +35,12 @@ export function createNLProcessor(deps: NLProcessorDeps = {}): NLProcessor {
   }
 
   const resolvedLLMConfig = llmConfig;
-  const llmClient: ILLMClient = deps.llmClient ?? new LLMClient(resolvedLLMConfig, { auditHelper: deps.auditHelper });
+  const llmClient: ILLMClient = deps.llmClient ?? (() => {
+    if (!deps.auditHelper) {
+      throw new Error('auditHelper is required when llmClient is not provided in NLProcessorDeps');
+    }
+    return new LLMClient(resolvedLLMConfig, { auditHelper: deps.auditHelper });
+  })();
 
   async function parse(context: NLContext): Promise<NLResult> {
     const input = typeof context.input === 'string' ? context.input.trim() : '';

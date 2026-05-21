@@ -6,6 +6,7 @@ import type { ChatConfig } from './config.js';
 import type { SessionManager } from '../nl/session-manager.js';
 import type { NLResult } from '../nl/core/types.js';
 import { LLMClient } from '../nl/llm.js';
+import { getDefaultContext } from '../infrastructure/context.js';
 import { buildAllTools } from '../nl/tool-calling.js';
 import { createUIRenderer } from './ui-renderer.js';
 import { createCommandManager, type CommandManager } from './command-manager.js';
@@ -278,7 +279,7 @@ export function createREPL(
   async function handleNLInput(input: string): Promise<ChatOutput> {
     if (config.executeMode === 'auto' && useLLM && deps.llmConfig) {
       try {
-        const llmClient = new LLMClient(deps.llmConfig);
+        const llmClient = new LLMClient(deps.llmConfig, { auditHelper: getDefaultContext().audit.getHelper() });
         await llmClient.complete(
           'intent-parser-chat',
           input,

@@ -22,7 +22,7 @@ export type { LLMConfig, LLMTool, LLMToolCall, LLMWorkflowStepInline, LLMRespons
  * LLM 客户端依赖注入接口
  */
 export interface LLMClientDeps {
-  auditHelper?: AuditHelper;
+  auditHelper: AuditHelper;
 }
 
 const INTENT_LIST = getAllIntentNames();
@@ -204,10 +204,10 @@ export class LLMClient {
   private embeddingCache: Map<string, number[]> = new Map();
   private auditHelper: AuditHelper;
 
-  constructor(config: LLMConfig, deps: LLMClientDeps = {}) {
+  constructor(config: LLMConfig, deps: LLMClientDeps) {
     this.config = config;
     this.promptManager = createPromptManager();
-    this.auditHelper = deps.auditHelper ?? getDefaultContext().audit.getHelper();
+    this.auditHelper = deps.auditHelper;
   }
 
   setSessionId(sessionId: string): void {
@@ -742,8 +742,8 @@ export interface NLParserWithLLM {
   parse(input: string, sessionId?: string): Promise<LLMResponse>;
 }
 
-export function createLLMEnhancedParser(config: LLMConfig): NLParserWithLLM {
-  const client = new LLMClient(config);
+export function createLLMEnhancedParser(config: LLMConfig, deps: LLMClientDeps): NLParserWithLLM {
+  const client = new LLMClient(config, deps);
   const promptContext = {
     intentList: INTENT_LIST.map(i => `- ${i}`).join('\n'),
     intentKeywords: buildKeywordSummary(),

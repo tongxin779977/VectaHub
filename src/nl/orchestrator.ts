@@ -2,9 +2,11 @@ import type { NLResult } from './core/types.js';
 import type { TaskList, IntentName, StepType } from '../types/index.js';
 import type { ExecutionPlan, RouterResult } from './capabilities/types.js';
 import type { ProjectContext } from './core/goal-types.js';
+import type { AuditHelper } from '../infrastructure/audit/index.js';
 import { createNLProcessor } from './core/pipeline.js';
 import { createIntentSplitter } from './core/intent-splitter.js';
 import { createLLMConfig, type LLMConfig } from './llm.js';
+import { getDefaultContext } from '../infrastructure/context.js';
 import { parseGoal } from './core/goal-parser.js';
 import { createCapabilityRouter } from './capabilities/router.js';
 import { executionPlanToSteps } from './capabilities/plan-adapter.js';
@@ -14,13 +16,14 @@ export function initializeRouter(_intentEntries: Array<{ intent: string; categor
 export async function processInput(
   input: string,
   llmConfig?: LLMConfig,
+  auditHelper?: AuditHelper,
 ): Promise<NLResult> {
   const splitter = createIntentSplitter();
   const splitResult = await splitter.split(input);
 
   const clauses = splitResult.clauses?.map(clause => clause.text.trim()).filter(Boolean) ?? [];
   if (splitResult.isMultiIntent && clauses.length > 1) {
-    return handleMultiIntent(clauses, llmConfig);
+    return handleMultiIntent(clauses, llmConfig, auditHelper);
   }
 
   const normalizedInput = input.trim();
@@ -36,7 +39,8 @@ export async function processInput(
     return capabilityNoTaskNLResult(normalizedInput, routeResult, 'clarification required before execution');
   }
 
-  const processor = createNLProcessor({ llmConfig: requireLLMConfigForFallback(llmConfig) });
+  const resolvedAuditHelper = auditHelper ?? getDefaultContext().audit.getHelper();
+  const processor = createNLProcessor({ llmConfig: requireLLMConfigForFallback(llmConfig), auditHelper: resolvedAuditHelper });
   return processor.parse({ input: normalizedInput });
 }
 
@@ -50,11 +54,13 @@ function requireLLMConfigForFallback(llmConfig?: LLMConfig): LLMConfig {
 async function handleMultiIntent(
   clauses: string[],
   llmConfig?: LLMConfig,
+  auditHelper?: AuditHelper,
 ): Promise<NLResult> {
+  const resolvedAuditHelper = auditHelper ?? getDefaultContext().audit.getHelper();
   let fallbackProcessor: ReturnType<typeof createNLProcessor> | null = null;
   const getFallbackProcessor = (): ReturnType<typeof createNLProcessor> => {
     if (!fallbackProcessor) {
-      fallbackProcessor = createNLProcessor({ llmConfig: requireLLMConfigForFallback(llmConfig) });
+      fallbackProcessor = createNLProcessor({ llmConfig: requireLLMConfigForFallback(llmConfig), auditHelper: resolvedAuditHelper });
     }
     return fallbackProcessor;
   };

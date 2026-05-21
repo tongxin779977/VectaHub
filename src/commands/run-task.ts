@@ -1601,7 +1601,7 @@ export async function runTask(options: {
       const cacheEntry = await cacheManager.discoverToolHelp(tool);
       await discoverSpan.end({ helpLength: cacheEntry.helpOutput.length });
 
-      const client = new LLMClient(llmConfig);
+      const client = new LLMClient(llmConfig, { auditHelper: getContext().audit.getHelper() });
 
       const generateSpan = startSpan('cli.run-task.generateCommand', {
         context: traceContext,

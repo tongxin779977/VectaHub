@@ -11,6 +11,7 @@ import { INTENT_TEMPLATES, getAllIntentNames } from './templates/index.js';
 import type { LLMToolCall } from './llm.js';
 import type { NLContext } from './core/types.js';
 import type { IntentTemplate } from './templates/index.js';
+import { createNoopAuditHelper } from '../infrastructure/audit/index.js';
 
 const mockLLMConfig = {
   provider: 'openai' as const,
@@ -18,6 +19,8 @@ const mockLLMConfig = {
   apiKey: 'test-key',
   baseUrl: 'https://api.openai.com/v1',
 };
+
+const mockAuditHelper = createNoopAuditHelper();
 
 describe('LLM Workflow Regression Tests', () => {
   describe('1. git_commit -> workflow step 可执行格式', () => {
@@ -161,7 +164,7 @@ describe('LLM Workflow Regression Tests', () => {
         }),
       } as Response);
 
-      const processor = createNLProcessor({ llmConfig: mockLLMConfig });
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig, auditHelper: mockAuditHelper });
       const context: NLContext = { input: 'do something weird', sessionId: 'test' };
 
       await expect(processor.parse(context)).rejects.toThrow();
@@ -229,7 +232,7 @@ describe('LLM Workflow Regression Tests', () => {
         }),
       } as Response);
 
-      const processor = createNLProcessor({ llmConfig: mockLLMConfig });
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig, auditHelper: mockAuditHelper });
       const context: NLContext = { input: 'commit changes', sessionId: 'test' };
 
       await expect(processor.parse(context)).rejects.toThrow('Workflow must contain at least one step');
@@ -254,7 +257,7 @@ describe('LLM Workflow Regression Tests', () => {
         }),
       } as Response);
 
-      const processor = createNLProcessor({ llmConfig: mockLLMConfig });
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig, auditHelper: mockAuditHelper });
       const context: NLContext = { input: 'asdfasdf', sessionId: 'test' };
 
       await expect(processor.parse(context)).rejects.toThrow();
@@ -492,7 +495,7 @@ describe('LLM Workflow Regression Tests', () => {
         }),
       } as Response);
 
-      const processor = createNLProcessor({ llmConfig: mockLLMConfig });
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig, auditHelper: mockAuditHelper });
       const context: NLContext = { input: 'gibberish text', sessionId: 'test' };
 
       await expect(processor.parse(context)).rejects.toThrow('LLM failed to generate a result');
@@ -512,7 +515,7 @@ describe('LLM Workflow Regression Tests', () => {
         }),
       } as Response);
 
-      const processor = createNLProcessor({ llmConfig: mockLLMConfig });
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig, auditHelper: mockAuditHelper });
       const context: NLContext = { input: 'test', sessionId: 'test' };
 
       await expect(processor.parse(context)).rejects.toThrow();
@@ -523,7 +526,7 @@ describe('LLM Workflow Regression Tests', () => {
     it('should throw error when LLM call throws an error', async () => {
       vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network error'));
 
-      const processor = createNLProcessor({ llmConfig: mockLLMConfig });
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig, auditHelper: mockAuditHelper });
       const context: NLContext = { input: 'test', sessionId: 'test' };
 
       await expect(processor.parse(context)).rejects.toThrow('LLM call failed');
@@ -534,14 +537,14 @@ describe('LLM Workflow Regression Tests', () => {
 
   describe('Edge Cases', () => {
     it('should handle empty input by throwing error', async () => {
-      const processor = createNLProcessor({ llmConfig: mockLLMConfig });
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig, auditHelper: mockAuditHelper });
       const context: NLContext = { input: '', sessionId: 'test' };
 
       await expect(processor.parse(context)).rejects.toThrow('Empty input');
     });
 
     it('should handle whitespace-only input by throwing error', async () => {
-      const processor = createNLProcessor({ llmConfig: mockLLMConfig });
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig, auditHelper: mockAuditHelper });
       const context: NLContext = { input: '   \n\t  ', sessionId: 'test' };
 
       await expect(processor.parse(context)).rejects.toThrow('Empty input');

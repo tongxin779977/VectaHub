@@ -201,7 +201,7 @@ export async function createAPIServer(
           const llmConfig = createLLMConfig();
 
           if (llmConfig) {
-            const llmParser = createLLMEnhancedParser(llmConfig);
+            const llmParser = createLLMEnhancedParser(llmConfig, { auditHelper: deps.audit });
             const llmResult = await llmParser.parse(input);
             const llmWorkflow = llmResult.workflow;
 
@@ -232,7 +232,7 @@ export async function createAPIServer(
           return;
         }
 
-        const llmParser = createLLMEnhancedParser(llmConfig);
+        const llmParser = createLLMEnhancedParser(llmConfig, { auditHelper: deps.audit });
         const llmResult = await llmParser.parse(input);
         const llmWorkflow = llmResult.workflow;
 

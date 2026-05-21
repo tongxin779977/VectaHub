@@ -69,6 +69,9 @@ Completed:
 - Batch O migrated the `doc-task-runs` command path to explicit context injection. `doc-task-runs.ts` now exports `createDocTaskRunsCmd(context)`, and the exported helpers (`listRecentRuns`, `readLatestRuns`, `findRunById`) now receive `InfrastructureContext` from their callers instead of resolving the default context internally. The review verified that `src/commands/doc-task-runs.ts` no longer uses business-level default context access.
 - Batch P migrated the `templates` command path to explicit context injection. `templates.ts` now exports `createTemplatesCmd(context)`, resolves the built-in templates directory from that context, and creates the `use` and `save` subcommands inside the factory instead of exporting default-context-bound static commands. The review verified that `src/commands/templates.ts` no longer uses business-level default context access.
 - Batch Q migrated the `serve` and `client` command paths to explicit context injection. `serve.ts` now exports `createServeCommands(context)`, resolves socket and queue paths from the injected environment, and resolves audit helper/session access from the injected audit services. The review verified that `src/commands/serve.ts` no longer uses business-level default context access.
+- Batch R migrated the `recover-task` command path to explicit context injection. `recover-task.ts` now exports `createRecoverTaskCmd(context)`, and `recoverTask(context, options)` resolves logger and environment access from the injected context. The review verified that `src/commands/recover-task.ts` no longer uses business-level default context access and that recovery trace environment variables are still saved and restored through `context.environment`.
+- Batch S migrated the targeted NL modules to explicit dependencies. `LLMClient` and `createLLMEnhancedParser` now require explicit `AuditHelper`, `createIntentMatcher` receives an audit helper from its caller, `createNLProcessor` requires an audit helper when it creates its own LLM client, and `createLLMOrchestrator` no longer derives a module-level logger from the default context. The review verified that the targeted NL modules no longer call `getDefaultContext()` directly.
+- Batch T migrated the targeted CLI-tool support modules to explicit dependencies. `CommandRuleAuditLogger` now requires explicit audit helper and session ID provider dependencies, and CLI-tool registration config loading/saving now requires an explicit config service outside test mode. The review verified that `src/cli-tools/command-rules/audit.ts` and `src/cli-tools/registration/config.ts` no longer call `getDefaultContext()` directly.
 
 Latest verification:
 
@@ -88,12 +91,14 @@ Latest verification:
 - `npx vitest run src/commands/doc-task-runs.test.ts`: passed (5/5).
 - `npx vitest run src/commands/templates.test.ts`: passed (2/2).
 - `npx vitest run src/commands/serve.test.ts`: passed (3/3).
+- `npx vitest run src/commands/recover-task.test.ts`: passed (15/15).
+- `npx vitest run src/nl/llm.test.ts src/nl/llm-orchestrator.test.ts src/nl/core/pipeline.test.ts src/nl/intent-matcher.test.ts src/nl/llm-workflow-regression.test.ts src/nl/core/llm-workflow-regression.test.ts`: passed (180/180).
+- `npx vitest run src/cli-tools/command-rules/audit.test.ts src/cli-tools/registration/config.test.ts src/commands/tools.test.ts`: passed (10/10).
 
 Remaining focus for `P1: Default Global Infrastructure Context Is Still Used as a Compatibility Path`:
 
-- Several command modules still call `getDefaultContext()` directly, including `recover-task`.
-- NL and CLI-tool support modules still contain default-context fallbacks, including `src/nl/llm.ts`, `src/nl/intent-matcher.ts`, `src/nl/core/pipeline.ts`, `src/nl/llm-orchestrator.ts`, `src/cli-tools/command-rules/audit.ts`, and `src/cli-tools/registration/config.ts`.
-- The next remediation batches should continue to be narrow migrations that preserve existing behavior while replacing implicit default-context access with explicit dependencies.
+- The command, targeted NL, and targeted CLI-tool support remediation track is complete.
+- A full non-test scan still finds `getDefaultContext()` in broader infrastructure compatibility bridges and adjacent support modules, including infrastructure logger/config/path wrappers, daemon socket server, setup wizard, chat, skills, monitoring, command-rule loader, and workflow storage. These were not part of Batches A-T and should be handled as a separate follow-up track if the project goal is full repository elimination rather than command/NL/CLI-tool migration.
 
 ## Findings
 
