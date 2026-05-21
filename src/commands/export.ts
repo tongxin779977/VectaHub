@@ -1,16 +1,9 @@
 import { Command } from 'commander';
-import { getDefaultContext } from '../infrastructure/context.js';
+import { type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import { createRecordManager } from '../execution/record-manager.js';
-
-const ctx = getDefaultContext();
-const environment = ctx.environment;
-const logger = ctx.logger.getLogger('export');
-
-const join = (...args: string[]) => environment.joinPath(...args);
-const platform = () => environment.getPlatform();
-
-const VECTAHUB_DIR = environment.getHomePath();
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
+import type pino from 'pino';
 
 interface ExportOptions {
   output: string;
@@ -27,24 +20,27 @@ interface ImportOptions {
   dryRun: boolean;
 }
 
-function copyDirRecursive(src: string, dest: string): void {
+function copyDirRecursive(environment: IEnvironmentService, src: string, dest: string): void {
+  const join = (...args: string[]) => environment.joinPath(...args);
   environment.ensureDir(dest);
   const entries = environment.readDirObjects(src);
   for (const entry of entries) {
     const srcPath = join(src, entry.name);
     const destPath = join(dest, entry.name);
     if (entry.isDirectory()) {
-      copyDirRecursive(srcPath, destPath);
+      copyDirRecursive(environment, srcPath, destPath);
     } else {
       environment.copyFile(srcPath, destPath);
     }
   }
 }
 
-async function createExportArchive(options: ExportOptions): Promise<void> {
+async function createExportArchive(environment: IEnvironmentService, logger: pino.Logger, options: ExportOptions): Promise<void> {
+  const join = (...args: string[]) => environment.joinPath(...args);
+  const VECTAHUB_DIR = environment.getHomePath();
   const outputDir = options.output || environment.getCwd();
   const exportDir = join(outputDir, `vectahub-export-${Date.now()}`);
-  
+
   environment.ensureDir(outputDir);
 
   if (environment.exists(exportDir)) {
@@ -76,7 +72,7 @@ async function createExportArchive(options: ExportOptions): Promise<void> {
       const srcDir = join(VECTAHUB_DIR, 'workflows');
       if (environment.exists(srcDir)) {
         const destDir = join(dataDir, 'workflows');
-        copyDirRecursive(srcDir, destDir);
+        copyDirRecursive(environment, srcDir, destDir);
         const files = environment.readDir(destDir).filter(f => f.endsWith('.yaml') || f.endsWith('.json'));
         manifest['workflows'] = files;
         totalFiles += files.length;
@@ -87,7 +83,7 @@ async function createExportArchive(options: ExportOptions): Promise<void> {
       const srcDir = join(VECTAHUB_DIR, 'executions');
       if (environment.exists(srcDir)) {
         const destDir = join(dataDir, 'executions');
-        copyDirRecursive(srcDir, destDir);
+        copyDirRecursive(environment, srcDir, destDir);
         const files = environment.readDir(destDir).filter(f => f.endsWith('.json'));
         manifest['executions'] = files;
         totalFiles += files.length;
@@ -98,7 +94,7 @@ async function createExportArchive(options: ExportOptions): Promise<void> {
       const srcDir = join(VECTAHUB_DIR, 'sessions');
       if (environment.exists(srcDir)) {
         const destDir = join(dataDir, 'sessions');
-        copyDirRecursive(srcDir, destDir);
+        copyDirRecursive(environment, srcDir, destDir);
         const files = environment.readDir(destDir);
         manifest['sessions'] = files;
         totalFiles += files.length;
@@ -122,10 +118,10 @@ async function createExportArchive(options: ExportOptions): Promise<void> {
     );
 
     const tarPath = join(outputDir, `vectahub-export-${Date.now()}.tar.gz`);
-    
+
     logger.info(`正在导出 ${totalFiles} 个文件...`);
-    
-    if (platform() === 'win32') {
+
+    if (environment.getPlatform() === 'win32') {
       logger.warn('Windows平台暂不支持自动打包');
       logger.info(`✅ 数据已导出到目录: ${exportDir}`);
       return;
@@ -134,7 +130,7 @@ async function createExportArchive(options: ExportOptions): Promise<void> {
     try {
       await environment.exec(`tar -czf "${tarPath}" -C "${exportDir}" .`);
       environment.rm(exportDir, { recursive: true });
-      
+
       const stats = environment.stat(tarPath);
       const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
       logger.info(`✅ 导出完成: ${tarPath} (${sizeMB} MB)`);
@@ -159,7 +155,7 @@ function redactSecrets(content: string): string {
     /(ANTHROPIC_API_KEY\s*:\s*['"]?)[^'"\n]+(['"]?)/gi,
     /(GEMINI_API_KEY\s*:\s*['"]?)[^'"\n]+(['"]?)/gi,
   ];
-  
+
   let result = content;
   for (const pattern of patterns) {
     result = result.replace(pattern, '$1*****REDACTED*****$2');
@@ -167,9 +163,11 @@ function redactSecrets(content: string): string {
   return result;
 }
 
-async function importFromArchive(options: ImportOptions): Promise<void> {
+async function importFromArchive(environment: IEnvironmentService, logger: pino.Logger, options: ImportOptions): Promise<void> {
+  const join = (...args: string[]) => environment.joinPath(...args);
+  const VECTAHUB_DIR = environment.getHomePath();
   const inputPath = options.input;
-  
+
   if (!environment.exists(inputPath)) {
     logger.error(`文件不存在: ${inputPath}`);
     throw new VectaHubError(`File not found: ${inputPath}`, ErrorType.RUNTIME);
@@ -177,7 +175,7 @@ async function importFromArchive(options: ImportOptions): Promise<void> {
 
   const stats = environment.stat(inputPath);
   const isDir = stats.isDirectory();
-  
+
   if (options.dryRun) {
     logger.info('🔍 干运行模式 - 将导入以下内容:');
     if (isDir) {
@@ -210,7 +208,7 @@ async function importFromArchive(options: ImportOptions): Promise<void> {
 
   let sourceDir = inputPath;
   const tempExtractDir = join(VECTAHUB_DIR, '.import-temp');
-  
+
   try {
     if (!isDir && inputPath.endsWith('.tar.gz')) {
       environment.ensureDir(tempExtractDir);
@@ -247,7 +245,7 @@ async function importFromArchive(options: ImportOptions): Promise<void> {
         if (!environment.exists(destDir)) {
           environment.ensureDir(destDir);
         }
-        copyDirRecursive(srcDir, destDir);
+        copyDirRecursive(environment, srcDir, destDir);
         const count = environment.readDir(destDir).length;
         logger.info(`  ✅ ${subdir}/ (${count} 个文件)`);
       }
@@ -261,40 +259,8 @@ async function importFromArchive(options: ImportOptions): Promise<void> {
   }
 }
 
-export const exportCmd = new Command('export')
-  .description('导出 VectaHub 数据')
-  .option('-o, --output <dir>', '输出目录', environment.getCwd())
-  .option('--include-secrets', '包含敏感信息（API密钥）', false)
-  .option('--no-workflows', '不导出工作流')
-  .option('--no-executions', '不导出执行记录')
-  .option('--no-config', '不导出配置')
-  .option('--no-sessions', '不导出会话数据')
-  .option('--format <format>', '输出格式: json|csv (仅执行记录)', 'json')
-  .option('--status <status>', '过滤执行状态')
-  .option('--limit <number>', '限制导出数量', '100')
-  .action(async (options) => {
-    if (options.format === 'csv' || options.status || options.limit !== '100') {
-      await exportExecutionsAsData(options);
-      return;
-    }
-
-    const exportOptions: ExportOptions = {
-      output: options.output,
-      includeSecrets: options.includeSecrets,
-      workflows: options.workflows !== false,
-      executions: options.executions !== false,
-      config: options.config !== false,
-      sessions: options.sessions !== false,
-    };
-
-    try {
-      await createExportArchive(exportOptions);
-    } catch (error) {
-      throw new VectaHubError(`Export failed: ${(error as Error).message}`, ErrorType.RUNTIME);
-    }
-  });
-
-async function exportExecutionsAsData(options: { output: string; status?: string; limit: string; format: string }): Promise<void> {
+async function exportExecutionsAsData(environment: IEnvironmentService, logger: pino.Logger, options: { output: string; status?: string; limit: string; format: string }): Promise<void> {
+  const join = (...args: string[]) => environment.joinPath(...args);
   const recordManager = createRecordManager();
   const limit = parseInt(options.limit, 10) || 100;
   const records = await recordManager.getRecent(limit);
@@ -323,21 +289,64 @@ async function exportExecutionsAsData(options: { output: string; status?: string
   }
 }
 
-export const importCmd = new Command('import')
-  .description('导入 VectaHub 数据')
-  .argument('<file>', '导入文件或目录路径')
-  .option('--overwrite', '覆盖现有数据')
-  .option('--dry-run', '仅显示将导入的内容')
-  .action(async (file: string, options) => {
-    const importOptions: ImportOptions = {
-      input: file,
-      overwrite: options.overwrite || false,
-      dryRun: options.dryRun || false,
-    };
+export function createExportCmd(context: InfrastructureContext): Command {
+  const environment = context.environment;
+  const logger = context.logger.getLogger('export');
 
-    try {
-      await importFromArchive(importOptions);
-    } catch (error) {
-      throw new VectaHubError(`Import failed: ${(error as Error).message}`, ErrorType.RUNTIME);
-    }
-  });
+  return new Command('export')
+    .description('导出 VectaHub 数据')
+    .option('-o, --output <dir>', '输出目录', environment.getCwd())
+    .option('--include-secrets', '包含敏感信息（API密钥）', false)
+    .option('--no-workflows', '不导出工作流')
+    .option('--no-executions', '不导出执行记录')
+    .option('--no-config', '不导出配置')
+    .option('--no-sessions', '不导出会话数据')
+    .option('--format <format>', '输出格式: json|csv (仅执行记录)', 'json')
+    .option('--status <status>', '过滤执行状态')
+    .option('--limit <number>', '限制导出数量', '100')
+    .action(async (options) => {
+      if (options.format === 'csv' || options.status || options.limit !== '100') {
+        await exportExecutionsAsData(environment, logger, options);
+        return;
+      }
+
+      const exportOptions: ExportOptions = {
+        output: options.output,
+        includeSecrets: options.includeSecrets,
+        workflows: options.workflows !== false,
+        executions: options.executions !== false,
+        config: options.config !== false,
+        sessions: options.sessions !== false,
+      };
+
+      try {
+        await createExportArchive(environment, logger, exportOptions);
+      } catch (error) {
+        throw new VectaHubError(`Export failed: ${(error as Error).message}`, ErrorType.RUNTIME);
+      }
+    });
+}
+
+export function createImportCmd(context: InfrastructureContext): Command {
+  const environment = context.environment;
+  const logger = context.logger.getLogger('export');
+
+  return new Command('import')
+    .description('导入 VectaHub 数据')
+    .argument('<file>', '导入文件或目录路径')
+    .option('--overwrite', '覆盖现有数据')
+    .option('--dry-run', '仅显示将导入的内容')
+    .action(async (file: string, options) => {
+      const importOptions: ImportOptions = {
+        input: file,
+        overwrite: options.overwrite || false,
+        dryRun: options.dryRun || false,
+      };
+
+      try {
+        await importFromArchive(environment, logger, importOptions);
+      } catch (error) {
+        throw new VectaHubError(`Import failed: ${(error as Error).message}`, ErrorType.RUNTIME);
+      }
+    });
+}

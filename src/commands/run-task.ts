@@ -632,7 +632,7 @@ async function buildAgentTaskContract(input: {
   const notes: string[] = [];
 
   if (input.docPath && getContext().environment.exists(input.docPath)) {
-    const excerpt = await deriveDocExcerpt({
+    const excerpt = await deriveDocExcerpt(getContext(), {
       docPath: input.docPath,
       taskId: input.taskId,
       label: input.label,
@@ -1854,7 +1854,7 @@ export async function runTask(options: {
     let runtimeEnvPatch: Record<string, string> | undefined;
     if (knownAgentDescriptor) {
       try {
-        const bootstrapResult = await bootstrapAgentRuntime({
+        const bootstrapResult = await bootstrapAgentRuntime(getContext(), {
           descriptor: knownAgentDescriptor,
           workspaceRoot: getContext().environment.getCwd(),
         });

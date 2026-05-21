@@ -3,8 +3,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { djb2Hash } from '../infrastructure/paths/index.js';
-import { docTaskRunsCmd, listRecentRuns, readLatestRuns, findRunById } from './doc-task-runs.js';
-import { resetDefaultContext } from '../infrastructure/context.js';
+import { createDocTaskRunsCmd, listRecentRuns, readLatestRuns, findRunById } from './doc-task-runs.js';
+import { getDefaultContext, resetDefaultContext } from '../infrastructure/context.js';
 
 function dateFileName(offsetDays: number): string {
   const d = new Date();
@@ -48,6 +48,7 @@ describe('doc-task-runs command', () => {
   });
 
   it('list/latest/show 能读取记录并按 json 输出', async () => {
+    const ctx = getDefaultContext();
     const storeDir = createStore(tempHome, projectRoot);
     const todayFile = join(storeDir, dateFileName(0));
     writeFileSync(todayFile, [
@@ -58,19 +59,19 @@ describe('doc-task-runs command', () => {
       { runId: 'run-2', taskId: 'P1-2', status: 'success' },
     ]));
 
-    const listResult = listRecentRuns({ project: projectRoot, json: true });
+    const listResult = listRecentRuns(ctx, { project: projectRoot, json: true });
     expect(listResult.runs.length).toBe(2);
     expect(listResult.runs[0].runId).toBe('run-2');
 
-    const latestResult = readLatestRuns(projectRoot);
+    const latestResult = readLatestRuns(ctx, projectRoot);
     expect(latestResult).toHaveLength(1);
     expect(latestResult[0].runId).toBe('run-2');
 
-    const showResult = findRunById('run-1', projectRoot);
+    const showResult = findRunById(ctx, 'run-1', projectRoot);
     expect(showResult?.taskId).toBe('P1-1');
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    await docTaskRunsCmd.parseAsync(['latest', '--project', projectRoot, '--json'], { from: 'user' });
+    await createDocTaskRunsCmd(ctx).parseAsync(['latest', '--project', projectRoot, '--json'], { from: 'user' });
     expect(stdoutSpy).toHaveBeenCalled();
     const payload = stdoutSpy.mock.calls.map((call) => String(call[0] ?? '')).join('');
     expect(payload).toContain('"ok":true');
@@ -78,6 +79,7 @@ describe('doc-task-runs command', () => {
   });
 
   it('list 的 limit 与 status/failure-kind 过滤生效', () => {
+    const ctx = getDefaultContext();
     const storeDir = createStore(tempHome, projectRoot);
     writeFileSync(join(storeDir, dateFileName(0)), [
       JSON.stringify({ runId: 'run-1', status: 'failed_agent', failureKind: 'agent' }),
@@ -85,7 +87,7 @@ describe('doc-task-runs command', () => {
       JSON.stringify({ runId: 'run-3', status: 'success' }),
     ].join('\n'));
 
-    const filtered = listRecentRuns({
+    const filtered = listRecentRuns(ctx, {
       project: projectRoot,
       limit: '1',
       status: 'failed_timeout',
@@ -97,6 +99,7 @@ describe('doc-task-runs command', () => {
   });
 
   it('list 会跳过 malformed JSONL 行，且只读取最近 7 天', () => {
+    const ctx = getDefaultContext();
     const storeDir = createStore(tempHome, projectRoot);
     writeFileSync(join(storeDir, dateFileName(0)), [
       '{"runId":"run-ok-1","status":"running"}',
@@ -105,37 +108,39 @@ describe('doc-task-runs command', () => {
     ].join('\n'));
     writeFileSync(join(storeDir, dateFileName(8)), JSON.stringify({ runId: 'run-old', status: 'success' }));
 
-    const result = listRecentRuns({ project: projectRoot });
+    const result = listRecentRuns(ctx, { project: projectRoot });
     expect(result.runs.map(r => r.runId)).toEqual(['run-ok-2', 'run-ok-1']);
     expect(result.runs.find(r => r.runId === 'run-old')).toBeUndefined();
   });
 
   it('空目录或缺文件返回 ok 语义的空结果', () => {
+    const ctx = getDefaultContext();
     const storeDir = createStore(tempHome, projectRoot);
-    const listResult = listRecentRuns({ project: projectRoot });
+    const listResult = listRecentRuns(ctx, { project: projectRoot });
     expect(listResult.runs).toEqual([]);
     expect(listResult.hasMore).toBe(false);
 
-    const latestResult = readLatestRuns(projectRoot);
+    const latestResult = readLatestRuns(ctx, projectRoot);
     expect(latestResult).toEqual([]);
 
-    const showResult = findRunById('missing-run', projectRoot);
+    const showResult = findRunById(ctx, 'missing-run', projectRoot);
     expect(showResult).toBeUndefined();
 
     rmSync(storeDir, { recursive: true, force: true });
-    const listWhenDirMissing = listRecentRuns({ project: projectRoot });
+    const listWhenDirMissing = listRecentRuns(ctx, { project: projectRoot });
     expect(listWhenDirMissing.runs).toEqual([]);
     expect(listWhenDirMissing.hasMore).toBe(false);
   });
 
   it('uses UTC date window to include newest UTC-named file around local-date rollover', () => {
+    const ctx = getDefaultContext();
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date('2026-05-16T00:30:00.000+14:00'));
       const storeDir = createStore(tempHome, projectRoot);
       writeFileSync(join(storeDir, 'runs-2026-05-15.jsonl'), JSON.stringify({ runId: 'run-utc-latest', status: 'success' }));
 
-      const result = listRecentRuns({ project: projectRoot });
+      const result = listRecentRuns(ctx, { project: projectRoot });
       expect(result.runs.map(r => r.runId)).toContain('run-utc-latest');
     } finally {
       vi.useRealTimers();

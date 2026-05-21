@@ -40,6 +40,7 @@ import {
   getAvailableExternalCLI,
   type CLIToolStatus,
 } from './cli-scanner.js';
+import { getDefaultContext } from '../infrastructure/context.js';
 import { initializeBuiltInAgents } from '../agent-runtime/factory.js';
 import { loadConfig, saveConfig } from './first-run-wizard.js';
 import * as agentAdapter from '../commands/agent-cli-adapter.js';
@@ -69,7 +70,7 @@ describe('cli-scanner', () => {
 
   describe('scanSingleTool', () => {
     it('should return null for a tool not in AI_CLI_TOOLS', async () => {
-      const result = await scanSingleTool('nonexistent');
+      const result = await scanSingleTool('nonexistent', getDefaultContext());
       expect(result).toBeNull();
     });
 
@@ -95,7 +96,7 @@ describe('cli-scanner', () => {
         return {} as any;
       });
 
-      const result = await scanSingleTool('gemini');
+      const result = await scanSingleTool('gemini', getDefaultContext());
       expect(result).not.toBeNull();
       expect(result!.name).toBe('gemini');
       expect(result!.installed).toBe(true);
@@ -110,7 +111,7 @@ describe('cli-scanner', () => {
         return {} as any;
       });
 
-      const result = await scanSingleTool('claude');
+      const result = await scanSingleTool('claude', getDefaultContext());
       expect(result).not.toBeNull();
       expect(result!.name).toBe('claude');
       expect(result!.installed).toBe(false);
@@ -126,7 +127,7 @@ describe('cli-scanner', () => {
         throw new Error('unexpected crash');
       });
 
-      const result = await scanSingleTool('codex');
+      const result = await scanSingleTool('codex', getDefaultContext());
       expect(result).not.toBeNull();
       expect(result!.name).toBe('codex');
       expect(result!.installed).toBe(false);
@@ -174,7 +175,7 @@ describe('cli-scanner', () => {
         });
 
         for (const name of ['gemini', 'claude', 'codex', 'aider']) {
-          const result = await scanSingleTool(name);
+          const result = await scanSingleTool(name, getDefaultContext());
           expect(result).not.toBeNull();
           expect(result!.name).toBe(name);
           expect(result!.installed).toBe(true);
@@ -213,7 +214,7 @@ describe('cli-scanner', () => {
         return {} as any;
       });
 
-      const result = await scanSingleTool('codex');
+      const result = await scanSingleTool('codex', getDefaultContext());
       expect(result).not.toBeNull();
       expect(result!.installed).toBe(true);
       expect(result!.version).toBe('0.99.0');
@@ -268,7 +269,7 @@ describe('cli-scanner', () => {
         return {} as any;
       });
 
-      const result = await scanSingleTool('codex');
+      const result = await scanSingleTool('codex', getDefaultContext());
       expect(result).not.toBeNull();
       expect(result!.installed).toBe(true);
       expect(result!.invocable).toBe(true);
@@ -306,7 +307,7 @@ describe('cli-scanner', () => {
           return {} as any;
         });
 
-        const result = await scanSingleTool('codex');
+        const result = await scanSingleTool('codex', getDefaultContext());
         expect(result).not.toBeNull();
         expect(result!.installed).toBe(true);
         expect(result!.invocable).toBe(true);
@@ -341,7 +342,7 @@ describe('cli-scanner', () => {
           return {} as any;
         });
 
-        const result = await scanSingleTool('codex');
+        const result = await scanSingleTool('codex', getDefaultContext());
         expect(result).not.toBeNull();
         expect(result!.installed).toBe(true);
         expect(result!.invocable).toBe(false);
@@ -397,7 +398,7 @@ describe('cli-scanner', () => {
         return {} as any;
       });
 
-      const result = await scanSingleTool('codex');
+      const result = await scanSingleTool('codex', getDefaultContext());
       expect(result).not.toBeNull();
       expect(result!.installed).toBe(true);
       expect(result!.invocable).toBe(true);
@@ -436,7 +437,7 @@ describe('cli-scanner', () => {
         return {} as any;
       });
 
-      const results = await scanCLITools();
+      const results = await scanCLITools(getDefaultContext());
       // Should have results for all 4 tools
       expect(results.length).toBe(4);
       // gemini should be installed
@@ -458,7 +459,7 @@ describe('cli-scanner', () => {
         return {} as any;
       });
 
-      const results = await scanCLITools();
+      const results = await scanCLITools(getDefaultContext());
       expect(results.length).toBe(4);
       for (const r of results) {
         expect(r.installed).toBe(false);

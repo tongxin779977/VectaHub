@@ -1,13 +1,10 @@
 import { createInterface } from 'readline';
-import { getDefaultContext } from '../infrastructure/context.js';
+import type { InfrastructureContext } from '../infrastructure/context.js';
 import { createIntelligentDiagnosisModule } from '../skills/ai-modules/intelligent-diagnosis/diagnoser.js';
 import { LLMClient, type LLMConfig } from '../nl/llm.js';
 import { contextManager } from '../workflow/context-manager.js';
 import { createWorkflowEngine } from '../workflow/engine.js';
 import type { ExecutionRecord, Workflow, Step, StepRecord } from '../types/index.js';
-
-const ctx = getDefaultContext();
-const logger = ctx.logger.getLogger('self-healing');
 
 type OpenAICompatibleCaller = {
   callOpenAICompatible(userInput: string, systemPrompt: string): Promise<Response>;
@@ -24,8 +21,10 @@ interface OpenAICompatibleResponseBody {
 export async function runSelfHealingLoop(
   result: ExecutionRecord,
   workflow: Workflow,
-  llmConfig: LLMConfig
+  llmConfig: LLMConfig,
+  context: InfrastructureContext
 ): Promise<boolean> {
+  const logger = context.logger.getLogger('self-healing');
   if (result.status !== 'FAILED') return true;
 
   const failedStepRecord = result.steps.find((s: StepRecord) => s.status === 'FAILED');
@@ -33,12 +32,10 @@ export async function runSelfHealingLoop(
 
   logger.info(`\n🔍 正在分析失败原因: ${failedStepRecord.stepId}...`);
 
-  const llmClient = new LLMClient(llmConfig);
-  // Extend LLMClient with a raw completion for diagnosis
+  const llmClient = new LLMClient(llmConfig, { auditHelper: context.audit.getHelper() });
   const diagnosisModule = createIntelligentDiagnosisModule({
     llmClient: {
       complete: async (system, user) => {
-        // We use a simplified version for diagnosis that returns raw JSON
         const response = await (llmClient as unknown as OpenAICompatibleCaller).callOpenAICompatible(user, system);
         const data = await response.json() as OpenAICompatibleResponseBody;
         return data.choices?.[0]?.message?.content || '';
@@ -49,7 +46,7 @@ export async function runSelfHealingLoop(
   const diagnosisResult = await diagnosisModule.execute({
     stepId: failedStepRecord.stepId,
     error: failedStepRecord.error || 'Unknown error',
-    stderr: failedStepRecord.error, // Assuming error contains some useful info or captured stderr
+    stderr: failedStepRecord.error,
     context: contextManager.exportContext(result.executionId)
   }, { sessionId: 'diagnosis' });
 
@@ -61,7 +58,7 @@ export async function runSelfHealingLoop(
   const diagnosis = diagnosisResult.data;
   logger.info(`\n💡 根因分析: ${diagnosis.rootCause}`);
   logger.info(`📂 类别: ${diagnosis.category}`);
-  
+
   if (diagnosis.fixSuggestions.length === 0) {
     logger.info('💡 LLM 没有给出具体的修复建议。');
     return false;
@@ -85,16 +82,15 @@ export async function runSelfHealingLoop(
   const suggestion = diagnosis.fixSuggestions[choice - 1];
   if (suggestion.command) {
     logger.info(`\n🚀 正在尝试修复: ${suggestion.command}`);
-    
-    // Create a temporary workflow for the fix
-    const engine = createWorkflowEngine({ audit: ctx.audit.getHelper(), environment: ctx.environment });
+
+    const engine = createWorkflowEngine({ audit: context.audit.getHelper(), environment: context.environment });
     const fixStep: Step = {
       id: `fix_${Date.now()}`,
       type: 'exec',
       cli: suggestion.command.split(' ')[0],
       args: suggestion.command.split(' ').slice(1)
     };
-    
+
     const fixWorkflow = await engine.createWorkflow(`fix_${failedStepRecord.stepId}`, [fixStep]);
     const fixResult = await engine.execute(fixWorkflow, { mode: 'relaxed' });
 
@@ -102,7 +98,7 @@ export async function runSelfHealingLoop(
       logger.info('✅ 修复命令执行成功！');
       const retry = await promptUser('是否重新执行原工作流? (y/n): ');
       if (retry.toLowerCase() === 'y') {
-        return true; // Signal to run.ts to retry
+        return true;
       }
     } else {
       logger.error('❌ 修复失败。');

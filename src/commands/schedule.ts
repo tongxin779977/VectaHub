@@ -1,79 +1,82 @@
 import { Command } from 'commander';
 import { createScheduleManager } from '../workflow/scheduler.js';
-import { getDefaultContext } from '../infrastructure/context.js';
+import type { InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
-const ctx = getDefaultContext();
-const logger = ctx.logger.getLogger('schedule');
+export function createScheduleCmd(context: InfrastructureContext): Command {
+  const logger = context.logger.getLogger('schedule');
 
-export const scheduleCmd = new Command('schedule')
-  .description('Manage scheduled tasks')
-  .option('-n, --name <name>', 'Schedule name')
-  .option('-c, --cron <cron>', 'Cron expression')
-  .option('-w, --workflow-file <file>', 'Workflow file path')
-  .option('-e, --command <command>', 'Command to execute')
-  .option('-a, --args <args>', 'Command arguments (comma separated)', (v) => v.split(','))
-  .option('--id <id>', 'Schedule ID');
+  const scheduleCmd = new Command('schedule')
+    .description('Manage scheduled tasks')
+    .option('-n, --name <name>', 'Schedule name')
+    .option('-c, --cron <cron>', 'Cron expression')
+    .option('-w, --workflow-file <file>', 'Workflow file path')
+    .option('-e, --command <command>', 'Command to execute')
+    .option('-a, --args <args>', 'Command arguments (comma separated)', (v) => v.split(','))
+    .option('--id <id>', 'Schedule ID');
 
-scheduleCmd
-  .command('add')
-  .description('Add a new scheduled task')
-  .requiredOption('-n, --name <name>', 'Schedule name')
-  .requiredOption('-c, --cron <cron>', 'Cron expression')
-  .option('-w, --workflow-file <file>', 'Workflow file path')
-  .option('-e, --command <command>', 'Command to execute')
-  .option('-a, --args <args>', 'Command arguments (comma separated)', (v) => v.split(','))
-  .action(async (opts) => {
-    const manager = createScheduleManager({ audit: ctx.audit.getHelper(), environment: ctx.environment });
-    const entry = await manager.add({
-      name: opts.name,
-      cron: opts.cron,
-      workflowFile: opts.workflowFile,
-      command: opts.command,
-      args: opts.args,
+  scheduleCmd
+    .command('add')
+    .description('Add a new scheduled task')
+    .requiredOption('-n, --name <name>', 'Schedule name')
+    .requiredOption('-c, --cron <cron>', 'Cron expression')
+    .option('-w, --workflow-file <file>', 'Workflow file path')
+    .option('-e, --command <command>', 'Command to execute')
+    .option('-a, --args <args>', 'Command arguments (comma separated)', (v) => v.split(','))
+    .action(async (opts) => {
+      const manager = createScheduleManager({ audit: context.audit.getHelper(), environment: context.environment });
+      const entry = await manager.add({
+        name: opts.name,
+        cron: opts.cron,
+        workflowFile: opts.workflowFile,
+        command: opts.command,
+        args: opts.args,
+      });
+      logger.info(`Schedule added: ${entry.name} (${entry.id}) - cron: ${entry.cron}`);
+      logger.info(`  Workflow: ${entry.workflowFile || 'N/A'}`);
+      logger.info(`  Command: ${entry.command || 'N/A'}`);
     });
-    logger.info(`Schedule added: ${entry.name} (${entry.id}) - cron: ${entry.cron}`);
-    logger.info(`  Workflow: ${entry.workflowFile || 'N/A'}`);
-    logger.info(`  Command: ${entry.command || 'N/A'}`);
-  });
 
-scheduleCmd
-  .command('remove')
-  .description('Remove a scheduled task')
-  .requiredOption('--id <id>', 'Schedule ID')
-  .action(async (opts) => {
-    const manager = createScheduleManager({ audit: ctx.audit.getHelper(), environment: ctx.environment });
-    const removed = await manager.remove(opts.id);
-    if (removed) {
-      logger.info(`Schedule removed: ${opts.id}`);
-    } else {
-      throw new VectaHubError(`Schedule not found: ${opts.id}`, ErrorType.RUNTIME);
-    }
-  });
-
-scheduleCmd
-  .command('list')
-  .description('List all scheduled tasks')
-  .action(async () => {
-    const manager = createScheduleManager({ audit: ctx.audit.getHelper(), environment: ctx.environment });
-    const schedules = await manager.list();
-    
-    if (schedules.length === 0) {
-      logger.info('No scheduled tasks');
-      return;
-    }
-
-    logger.info(`\n${'Name'.padEnd(25)} | ${'Cron'.padEnd(15)} | ${'Status'.padEnd(10)} | ${'Runs'.padEnd(5)} | Last Run`);
-    logger.info('─'.repeat(90));
-
-    for (const s of schedules) {
-      const runs = String(s.runCount || 0);
-      const lastRun = s.lastRun ? new Date(s.lastRun).toLocaleString() : 'Never';
-      const enabled = s.enabled ? 'ENABLED' : 'DISABLED';
-      logger.info(`${s.name.padEnd(25)} | ${s.cron.padEnd(15)} | ${enabled.padEnd(10)} | ${runs.padEnd(5)} | ${lastRun}`);
-      if (s.lastError) {
-        logger.info(`  Error: ${s.lastError}`);
+  scheduleCmd
+    .command('remove')
+    .description('Remove a scheduled task')
+    .requiredOption('--id <id>', 'Schedule ID')
+    .action(async (opts) => {
+      const manager = createScheduleManager({ audit: context.audit.getHelper(), environment: context.environment });
+      const removed = await manager.remove(opts.id);
+      if (removed) {
+        logger.info(`Schedule removed: ${opts.id}`);
+      } else {
+        throw new VectaHubError(`Schedule not found: ${opts.id}`, ErrorType.RUNTIME);
       }
-    }
-    logger.info('');
-  });
+    });
+
+  scheduleCmd
+    .command('list')
+    .description('List all scheduled tasks')
+    .action(async () => {
+      const manager = createScheduleManager({ audit: context.audit.getHelper(), environment: context.environment });
+      const schedules = await manager.list();
+      
+      if (schedules.length === 0) {
+        logger.info('No scheduled tasks');
+        return;
+      }
+
+      logger.info(`\n${'Name'.padEnd(25)} | ${'Cron'.padEnd(15)} | ${'Status'.padEnd(10)} | ${'Runs'.padEnd(5)} | Last Run`);
+      logger.info('─'.repeat(90));
+
+      for (const s of schedules) {
+        const runs = String(s.runCount || 0);
+        const lastRun = s.lastRun ? new Date(s.lastRun).toLocaleString() : 'Never';
+        const enabled = s.enabled ? 'ENABLED' : 'DISABLED';
+        logger.info(`${s.name.padEnd(25)} | ${s.cron.padEnd(15)} | ${enabled.padEnd(10)} | ${runs.padEnd(5)} | ${lastRun}`);
+        if (s.lastError) {
+          logger.info(`  Error: ${s.lastError}`);
+        }
+      }
+      logger.info('');
+    });
+
+  return scheduleCmd;
+}

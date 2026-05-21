@@ -9,6 +9,7 @@ import {
   type StepResult,
   type Installer,
 } from './priority-installer.js';
+import { getDefaultContext } from '../infrastructure/context.js';
 
 // Mock first-run-wizard modules used by createDefaultInstaller
 vi.mock('./first-run-wizard.js', () => ({
@@ -411,18 +412,18 @@ describe('PriorityInstaller', () => {
 
   describe('createDefaultInstaller', () => {
     it('returns non-null', () => {
-      const installer = createDefaultInstaller();
+      const installer = createDefaultInstaller(getDefaultContext());
       expect(installer).not.toBeNull();
     });
 
     it('returns an installer with a run() method', () => {
-      const installer = createDefaultInstaller();
+      const installer = createDefaultInstaller(getDefaultContext());
       expect(installer).not.toBeNull();
       expect(typeof installer!.run).toBe('function');
     });
 
     it('has correct step IDs', () => {
-      const installer = createDefaultInstaller();
+      const installer = createDefaultInstaller(getDefaultContext());
       expect(installer).not.toBeNull();
       const stepIds = installer!.steps.map((s) => s.id);
       expect(stepIds).toEqual([
@@ -435,7 +436,7 @@ describe('PriorityInstaller', () => {
     });
 
     it('has correct step priorities', () => {
-      const installer = createDefaultInstaller();
+      const installer = createDefaultInstaller(getDefaultContext());
       expect(installer).not.toBeNull();
       const criticalIds = installer!.steps
         .filter((s) => s.priority === 'critical')
@@ -453,7 +454,7 @@ describe('PriorityInstaller', () => {
     });
 
     it('configure-llm step is retryable', () => {
-      const installer = createDefaultInstaller();
+      const installer = createDefaultInstaller(getDefaultContext());
       expect(installer).not.toBeNull();
       const llmStep = installer!.steps.find((s) => s.id === 'configure-llm');
       expect(llmStep).toBeDefined();

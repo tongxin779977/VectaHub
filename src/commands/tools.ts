@@ -15,12 +15,8 @@ import type { KnownTool } from '../cli-tools/discovery/types.js';
 import { loadConfig as loadSetupConfig } from '../setup/first-run-wizard.js';
 import { scanSingleTool, syncCLIToolPermissionState } from '../setup/cli-scanner.js';
 import { getBuiltInAgentDescriptors } from './agent-cli-adapter.js';
-import { getDefaultContext } from '../infrastructure/context.js';
+import { type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
-
-const ctx = getDefaultContext();
-export const toolsCmd = new Command('tools')
-  .description('CLI tools management commands');
 
 const SECURITY_TEMPLATES: SecurityTemplate[] = ['default', 'strict', 'relaxed'];
 
@@ -264,7 +260,11 @@ function formatCategoryTools(category: string, tools: CliTool[]): string {
   return lines.join('\n');
 }
 
-toolsCmd
+export function createToolsCmd(context: InfrastructureContext): Command {
+  const toolsCmd = new Command('tools')
+    .description('CLI tools management commands');
+
+  toolsCmd
   .command('list')
   .description('List all registered CLI tools')
   .option('--json', 'Output results in JSON format')
@@ -299,7 +299,7 @@ toolsCmd
     const names = Array.from(new Set([...knownNames, ...Object.keys(externalCli)]));
 
     const detectedTools = await Promise.all(names.map(async (name) => {
-      const detected = await scanSingleTool(name);
+      const detected = await scanSingleTool(name, context);
       return { name, detected };
     }));
 
@@ -511,7 +511,7 @@ toolsCmd
     const template = normalizeSecurityTemplate(options.template);
     const rules = getSecurityTemplate(template);
     const engine = new CommandRuleEngine(rules);
-    const result = engine.evaluate(command, cmdArgs, ctx.environment.getCwd());
+    const result = engine.evaluate(command, cmdArgs, context.environment.getCwd());
 
     console.log(formatEvalResult(args, template, result));
   });
@@ -546,3 +546,6 @@ toolsCmd
 
     console.log(formatCategoryTools(categoryName, tools));
   });
+
+  return toolsCmd;
+}

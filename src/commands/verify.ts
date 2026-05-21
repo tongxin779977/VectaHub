@@ -1,5 +1,6 @@
 import { Command } from 'commander';
-import { getDefaultContext } from '../infrastructure/context.js';
+import type { InfrastructureContext } from '../infrastructure/context.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
 interface CheckResult {
@@ -13,27 +14,26 @@ interface VerifyReport {
   verdict: 'PASS' | 'FAIL';
 }
 
-export async function runVerification(type: string): Promise<VerifyReport> {
+export async function runVerification(type: string, env: IEnvironmentService): Promise<VerifyReport> {
   const checks: CheckResult[] = [];
 
   if (type === 'typecheck' || type === 'all') {
-    checks.push(await runTypeCheck());
+    checks.push(await runTypeCheck(env));
   }
 
   if (type === 'test' || type === 'all') {
-    checks.push(await runTests());
+    checks.push(await runTests(env));
   }
 
   if (type === 'coverage' || type === 'all') {
-    checks.push(await runCoverageCheck());
+    checks.push(await runCoverageCheck(env));
   }
 
   const verdict = checks.every(c => c.status !== 'fail') ? 'PASS' : 'FAIL';
   return { checks, verdict };
 }
 
-async function runTypeCheck(): Promise<CheckResult> {
-  const env = getDefaultContext().environment;
+async function runTypeCheck(env: IEnvironmentService): Promise<CheckResult> {
   try {
     const { stdout, stderr } = await env.exec('npx tsc --noEmit 2>&1');
     const hasErrors = stderr.includes('error TS') || stdout.includes('error TS');
@@ -50,8 +50,7 @@ async function runTypeCheck(): Promise<CheckResult> {
   }
 }
 
-async function runTests(): Promise<CheckResult> {
-  const env = getDefaultContext().environment;
+async function runTests(env: IEnvironmentService): Promise<CheckResult> {
   try {
     const { stdout } = await env.exec('npx vitest --run --reporter=basic 2>&1');
     const passMatch = stdout.match(/(\d+) passed/);
@@ -69,8 +68,7 @@ async function runTests(): Promise<CheckResult> {
   }
 }
 
-async function runCoverageCheck(): Promise<CheckResult> {
-  const env = getDefaultContext().environment;
+async function runCoverageCheck(env: IEnvironmentService): Promise<CheckResult> {
   try {
     const { stdout } = await env.exec('npx vitest --run --coverage 2>&1');
     const coverageMatch = stdout.match(/All files\s*\|\s*([\d.]+)\s*\|/);
@@ -107,22 +105,24 @@ function formatReport(report: VerifyReport): string {
   return lines.join('\n');
 }
 
-export const verifyCmd = new Command('verify')
-  .description('Run verification checks (typecheck, tests, coverage)')
-  .option('--type <type>', 'Check type: typecheck, test, coverage, or all (default: all)')
-  .action(async (options: { type?: string }) => {
-    const type = options.type || 'all';
-    const validTypes = ['typecheck', 'test', 'coverage', 'all'];
+export function createVerifyCmd(context: InfrastructureContext): Command {
+  return new Command('verify')
+    .description('Run verification checks (typecheck, tests, coverage)')
+    .option('--type <type>', 'Check type: typecheck, test, coverage, or all (default: all)')
+    .action(async (options: { type?: string }) => {
+      const type = options.type || 'all';
+      const validTypes = ['typecheck', 'test', 'coverage', 'all'];
 
-    if (!validTypes.includes(type)) {
-      console.error(`Invalid type: ${type}. Must be one of: ${validTypes.join(', ')}`);
-      throw new VectaHubError(`Invalid verification type: ${type}`, ErrorType.RUNTIME);
-    }
+      if (!validTypes.includes(type)) {
+        console.error(`Invalid type: ${type}. Must be one of: ${validTypes.join(', ')}`);
+        throw new VectaHubError(`Invalid verification type: ${type}`, ErrorType.RUNTIME);
+      }
 
-    const report = await runVerification(type);
-    console.log(formatReport(report));
+      const report = await runVerification(type, context.environment);
+      console.log(formatReport(report));
 
-    if (report.verdict === 'FAIL') {
-      throw new VectaHubError('Verification failed', ErrorType.RUNTIME);
-    }
-  });
+      if (report.verdict === 'FAIL') {
+        throw new VectaHubError('Verification failed', ErrorType.RUNTIME);
+      }
+    });
+}

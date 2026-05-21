@@ -20,7 +20,7 @@ export interface LegacyIntentMatcher {
   getPatterns(): LegacyIntentPattern[];
 }
 
-export function createIntentMatcher(patterns: LegacyIntentPattern[], coordinator?: {
+export function createIntentMatcher(patterns: LegacyIntentPattern[], auditHelper: AuditHelper, coordinator?: {
   match(input: string): MultiIntentResult;
 }): LegacyIntentMatcher {
   return {

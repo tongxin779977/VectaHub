@@ -2,14 +2,12 @@ import type { NLProcessor, NLContext, NLResult } from './types.js';
 import type { IntentName } from '../../types/index.js';
 import type { ILLMClient } from '../interfaces.js';
 import type { AuditHelper } from '../../infrastructure/audit/index.js';
+import pino from 'pino';
 import YAML from 'yaml';
-import { getDefaultContext } from '../../infrastructure/context.js';
 import { splitPosixArgs } from '../../utils/shell.js';
 import { LLMClient, createLLMConfig } from '../llm.js';
 import { buildAllTools, convertToolCallToSteps } from '../tool-calling.js';
 import { createSemanticDetector } from '../../sandbox/semantic-detector.js';
-
-const logger = getDefaultContext().logger.getLogger('nl-pipeline');
 
 export interface NLProcessorOptions {
   useLLM?: boolean;
@@ -24,11 +22,13 @@ export interface NLProcessorDeps {
   semanticDetector?: ReturnType<typeof createSemanticDetector>;
   llmClient?: ILLMClient;
   auditHelper?: AuditHelper;
+  logger?: pino.Logger;
 }
 
 export function createNLProcessor(deps: NLProcessorDeps = {}): NLProcessor {
   const llmConfig = deps.llmConfig ?? null;
   const semanticDetector = deps.semanticDetector ?? createSemanticDetector();
+  const logger = deps.logger ?? pino({ name: 'nl-pipeline' });
 
   if (!llmConfig) {
     throw new Error('LLM configuration is required. Keyword fallback has been removed.');

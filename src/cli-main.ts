@@ -186,15 +186,16 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
         break;
       }
       case 'doctor': {
-        const { doctorCmd } = await import('./commands/doctor.js');
+        const { createDoctorCmd } = await import('./commands/doctor.js');
         removeLazyProxyCommand('doctor');
-        program.addCommand(doctorCmd);
+        program.addCommand(createDoctorCmd(ctx));
         loadedCommands.add('doctor');
         break;
       }
       case 'serve':
       case 'client': {
-        const { serveCmd, clientCmd } = await import('./commands/serve.js');
+        const { createServeCommands } = await import('./commands/serve.js');
+        const { serveCmd, clientCmd } = createServeCommands(ctx);
         removeLazyProxyCommand('serve');
         removeLazyProxyCommand('client');
         program.addCommand(serveCmd);
@@ -204,94 +205,94 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
         break;
       }
       case 'security': {
-        const { securityCmd } = await import('./commands/security.js');
+        const { createSecurityCmd } = await import('./commands/security.js');
         removeLazyProxyCommand('security');
-        program.addCommand(securityCmd);
+        program.addCommand(createSecurityCmd(ctx));
         loadedCommands.add('security');
         break;
       }
       case 'audit': {
-        const { auditCmd } = await import('./commands/audit-cmd.js');
+        const { createAuditCmd } = await import('./commands/audit-cmd.js');
         removeLazyProxyCommand('audit');
-        program.addCommand(auditCmd);
+        program.addCommand(createAuditCmd(ctx));
         loadedCommands.add('audit');
         break;
       }
       case 'tools': {
         await lazyLoadAgentRuntime();
-        const { toolsCmd } = await import('./commands/tools.js');
+        const { createToolsCmd } = await import('./commands/tools.js');
         removeLazyProxyCommand('tools');
-        program.addCommand(toolsCmd);
+        program.addCommand(createToolsCmd(ctx));
         loadedCommands.add('tools');
         break;
       }
       case 'list': {
-        const { listCmd } = await import('./commands/list.js');
+        const { createListCmd } = await import('./commands/list.js');
         removeLazyProxyCommand('list');
-        program.addCommand(listCmd);
+        program.addCommand(createListCmd(ctx));
         loadedCommands.add('list');
         break;
       }
       case 'mode': {
-        const { modeCmd } = await import('./commands/mode.js');
+        const { createModeCmd } = await import('./commands/mode.js');
         removeLazyProxyCommand('mode');
-        program.addCommand(modeCmd);
+        program.addCommand(createModeCmd(ctx));
         loadedCommands.add('mode');
         break;
       }
       case 'history': {
-        const { historyCmd } = await import('./commands/history.js');
+        const { createHistoryCmd } = await import('./commands/history.js');
         removeLazyProxyCommand('history');
-        program.addCommand(historyCmd);
+        program.addCommand(createHistoryCmd(ctx));
         loadedCommands.add('history');
         break;
       }
       case 'detail': {
-        const { detailCmd } = await import('./commands/detail.js');
+        const { createDetailCmd } = await import('./commands/detail.js');
         removeLazyProxyCommand('detail');
-        program.addCommand(detailCmd);
+        program.addCommand(createDetailCmd(ctx));
         loadedCommands.add('detail');
         break;
       }
       case 'rerun': {
-        const { rerunCmd } = await import('./commands/rerun.js');
+        const { createRerunCmd } = await import('./commands/rerun.js');
         removeLazyProxyCommand('rerun');
-        program.addCommand(rerunCmd);
+        program.addCommand(createRerunCmd(ctx));
         loadedCommands.add('rerun');
         break;
       }
       case 'resume': {
-        const { resumeCmd } = await import('./commands/resume.js');
+        const { createResumeCmd } = await import('./commands/resume.js');
         removeLazyProxyCommand('resume');
-        program.addCommand(resumeCmd);
+        program.addCommand(createResumeCmd(ctx));
         loadedCommands.add('resume');
         break;
       }
       case 'archive': {
-        const { archiveCmd } = await import('./commands/archive.js');
+        const { createArchiveCmd } = await import('./commands/archive.js');
         removeLazyProxyCommand('archive');
-        program.addCommand(archiveCmd);
+        program.addCommand(createArchiveCmd(ctx));
         loadedCommands.add('archive');
         break;
       }
       case 'run-command': {
-        const { runCommandCmd } = await import('./commands/run-command.js');
+        const { createRunCommandCmd } = await import('./commands/run-command.js');
         removeLazyProxyCommand('run-command');
-        program.addCommand(runCommandCmd);
+        program.addCommand(createRunCommandCmd(ctx));
         loadedCommands.add('run-command');
         break;
       }
       case 'generate': {
-        const { generateCmd } = await import('./commands/generate.js');
+        const { createGenerateCmd } = await import('./commands/generate.js');
         removeLazyProxyCommand('generate');
-        program.addCommand(generateCmd);
+        program.addCommand(createGenerateCmd(ctx));
         loadedCommands.add('generate');
         break;
       }
       case 'schedule': {
-        const { scheduleCmd } = await import('./commands/schedule.js');
+        const { createScheduleCmd } = await import('./commands/schedule.js');
         removeLazyProxyCommand('schedule');
-        program.addCommand(scheduleCmd);
+        program.addCommand(createScheduleCmd(ctx));
         loadedCommands.add('schedule');
         break;
       }
@@ -303,23 +304,23 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
         break;
       }
       case 'templates': {
-        const { templatesCmd, templatesUseCmd, templatesSaveCmd } = await import('./commands/templates.js');
+        const { createTemplatesCmd } = await import('./commands/templates.js');
         removeLazyProxyCommand('templates');
-        program.addCommand(templatesCmd.addCommand(templatesUseCmd).addCommand(templatesSaveCmd));
+        program.addCommand(createTemplatesCmd(ctx));
         loadedCommands.add('templates');
         break;
       }
       case 'rollback': {
-        const { rollbackCmd } = await import('./commands/list.js');
+        const { createRollbackCmd } = await import('./commands/list.js');
         removeLazyProxyCommand('rollback');
-        program.addCommand(rollbackCmd);
+        program.addCommand(createRollbackCmd(ctx));
         loadedCommands.add('rollback');
         break;
       }
       case 'verify': {
-        const { verifyCmd } = await import('./commands/verify.js');
+        const { createVerifyCmd } = await import('./commands/verify.js');
         removeLazyProxyCommand('verify');
-        program.addCommand(verifyCmd);
+        program.addCommand(createVerifyCmd(ctx));
         loadedCommands.add('verify');
         break;
       }
@@ -332,9 +333,9 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
         break;
       }
       case 'monitor': {
-        const { monitorCmd } = await import('./commands/monitor.js');
+        const { createMonitorCmd } = await import('./commands/monitor.js');
         removeLazyProxyCommand('monitor');
-        program.addCommand(monitorCmd);
+        program.addCommand(createMonitorCmd(ctx));
         loadedCommands.add('monitor');
         break;
       }
@@ -347,27 +348,27 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
       }
       case 'export':
       case 'import': {
-        const { exportCmd, importCmd } = await import('./commands/export.js');
+        const { createExportCmd, createImportCmd } = await import('./commands/export.js');
         removeLazyProxyCommand('export');
         removeLazyProxyCommand('import');
-        program.addCommand(exportCmd);
-        program.addCommand(importCmd);
+        program.addCommand(createExportCmd(ctx));
+        program.addCommand(createImportCmd(ctx));
         loadedCommands.add('export');
         loadedCommands.add('import');
         break;
       }
       case 'vscode': {
         await lazyLoadAgentRuntime();
-        const { vscodeDiagnosticCmd } = await import('./commands/vscode-diagnostic.js');
+        const { createVscodeDiagnosticCmd } = await import('./commands/vscode-diagnostic.js');
         removeLazyProxyCommand('vscode');
-        program.addCommand(vscodeDiagnosticCmd);
+        program.addCommand(createVscodeDiagnosticCmd(ctx));
         loadedCommands.add('vscode');
         break;
       }
       case 'parse-doc': {
-        const { parseDocCmd } = await import('./commands/parse-doc.js');
+        const { createParseDocCmd } = await import('./commands/parse-doc.js');
         removeLazyProxyCommand('parse-doc');
-        program.addCommand(parseDocCmd);
+        program.addCommand(createParseDocCmd(ctx));
         loadedCommands.add('parse-doc');
         break;
       }
@@ -384,35 +385,35 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
         break;
       }
       case 'trace': {
-        const { traceCmd } = await import('./commands/trace.js');
+        const { createTraceCmd } = await import('./commands/trace.js');
         removeLazyProxyCommand('trace');
-        program.addCommand(traceCmd);
+        program.addCommand(createTraceCmd(ctx));
         loadedCommands.add('trace');
         break;
       }
       case 'doc-task-runs': {
-        const { docTaskRunsCmd } = await import('./commands/doc-task-runs.js');
+        const { createDocTaskRunsCmd } = await import('./commands/doc-task-runs.js');
         removeLazyProxyCommand('doc-task-runs');
-        program.addCommand(docTaskRunsCmd);
+        program.addCommand(createDocTaskRunsCmd(ctx));
         loadedCommands.add('doc-task-runs');
         break;
       }
       case 'recover-task': {
-        const { recoverTaskCmd } = await import('./commands/recover-task.js');
+        const { createRecoverTaskCmd } = await import('./commands/recover-task.js');
         removeLazyProxyCommand('recover-task');
-        program.addCommand(recoverTaskCmd);
+        program.addCommand(createRecoverTaskCmd(ctx));
         loadedCommands.add('recover-task');
         break;
       }
       case 'dev': {
         removeLazyProxyCommand('dev');
-        const { status } = await import('./commands/status.js');
+        const { createStatusCmd } = await import('./commands/status.js');
         const { moduleCmd } = await import('./commands/module.js');
-        const { validate } = await import('./commands/validate.js');
-        const { test } = await import('./commands/test.js');
-        const { build } = await import('./commands/build.js');
+        const { createValidateCmd } = await import('./commands/validate.js');
+        const { createTestCmd } = await import('./commands/test.js');
+        const { createBuildCmd } = await import('./commands/build.js');
         const devCmd = new Command('dev').description('Development commands for multi-agent collaboration');
-        devCmd.addCommand(status).addCommand(moduleCmd).addCommand(validate).addCommand(test).addCommand(build);
+        devCmd.addCommand(createStatusCmd(ctx)).addCommand(moduleCmd).addCommand(createValidateCmd(ctx)).addCommand(createTestCmd(ctx)).addCommand(createBuildCmd(ctx));
         program.addCommand(devCmd, { hidden: true });
         loadedCommands.add('dev');
         break;
@@ -625,7 +626,7 @@ const setupCmd = new Command('setup')
     const output = getCurrentCliOutput();
     await lazyLoadAgentRuntime();
     output.text('🔧 运行优先级安装流程...\n');
-    const installer = createDefaultInstaller();
+    const installer = createDefaultInstaller(ctx);
     if (!installer) {
       output.error('❌ 安装器初始化失败');
       ctx.environment.exit(1);
@@ -682,7 +683,7 @@ configCmd
     };
     saveSetupConfig(config);
     output.text('✅ 配置已重置\n');
-    const installer = createDefaultInstaller();
+    const installer = createDefaultInstaller(ctx);
     if (installer) {
       await installer.run();
     }

@@ -7,7 +7,7 @@ import {
   decideAgentTaskConcurrency as sharedDecideAgentTaskConcurrency,
 } from '@vectahub/doc-task-contract-core';
 import type { AgentTaskBoundary, AgentTaskConcurrencyDecision, AgentTaskContract } from '../types/doc-task.js';
-import { getDefaultContext } from '../infrastructure/context.js';
+import { type InfrastructureContext } from '../infrastructure/context.js';
 
 export function computeInstructionHash(
   taskId: string,
@@ -29,18 +29,20 @@ export function computeInstructionHash(
   });
 }
 
-export async function deriveDocExcerpt(input: {
-  docPath: string;
-  taskId: string;
-  label: string;
-  maxChars?: number;
-}): Promise<{
+export async function deriveDocExcerpt(
+  context: InfrastructureContext,
+  input: {
+    docPath: string;
+    taskId: string;
+    label: string;
+    maxChars?: number;
+  },
+): Promise<{
   excerpt: string;
   truncated: boolean;
   strategy: 'task-heading' | 'task-id-window' | 'label-window' | 'head-fallback';
 }> {
-  const ctx = getDefaultContext();
-  const lineIterator = ctx.environment.readLines(input.docPath);
+  const lineIterator = context.environment.readLines(input.docPath);
   
   return await sharedDeriveDocExcerptFromLines(lineIterator, {
     taskId: input.taskId,

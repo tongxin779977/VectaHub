@@ -3,21 +3,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockInfo = vi.fn();
 const mockError = vi.fn();
 
-vi.mock('../utils/logger.js', () => ({
-  createConsoleLogger: vi.fn(() => ({
-    info: mockInfo,
-    error: mockError,
-    debug: vi.fn(),
-    warn: vi.fn(),
-  })),
-  getLogger: vi.fn(() => ({
-    info: mockInfo,
-    error: mockError,
-    debug: vi.fn(),
-    warn: vi.fn(),
-  })),
-}));
-
 vi.mock('../execution/record-manager.js', () => ({
   createRecordManager: vi.fn(() => ({
     get: vi.fn((id: string) => {
@@ -70,7 +55,21 @@ vi.mock('../workflow/engine.js', () => ({
   })),
 }));
 
-const { resumeCmd } = await import('./resume.js');
+function createMockContext() {
+  return {
+    audit: {
+      getHelper: () => ({ log: vi.fn(), cliOutput: vi.fn(), securityAlert: vi.fn(), securityAction: vi.fn() }),
+      getLogger: () => ({ getSessionId: () => 'test-session' }),
+    },
+    environment: {} as never,
+    logger: {
+      getLogger: () => ({ info: mockInfo, error: mockError, debug: vi.fn(), warn: vi.fn() }),
+      setMuted: vi.fn(),
+    },
+  };
+}
+
+const { createResumeCmd } = await import('./resume.js');
 
 describe('resume command', () => {
   beforeEach(() => {
@@ -79,17 +78,17 @@ describe('resume command', () => {
   });
 
   it('should show not found for non-existent execution', async () => {
-    await resumeCmd.parseAsync(['node', 'test', 'exec_missing']);
+    await createResumeCmd(createMockContext() as never).parseAsync(['node', 'test', 'exec_missing']);
     expect(mockError).toHaveBeenCalledWith(expect.stringContaining('not found'));
   });
 
   it('should refuse to resume from completed execution', async () => {
-    await resumeCmd.parseAsync(['node', 'test', 'exec_done']);
+    await createResumeCmd(createMockContext() as never).parseAsync(['node', 'test', 'exec_done']);
     expect(mockError).toHaveBeenCalledWith(expect.stringContaining('no failed or paused step'));
   });
 
   it('should resume from failed execution', async () => {
-    await resumeCmd.parseAsync(['node', 'test', 'exec_failed']);
+    await createResumeCmd(createMockContext() as never).parseAsync(['node', 'test', 'exec_failed']);
     expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('Resuming'));
   });
 });

@@ -1,6 +1,7 @@
 import { createInterface } from 'readline';
 import { createConfigDir, initConfigFile, configureLLMProvider, closeRl as closeSetupRl } from './first-run-wizard.js';
 import { scanCLITools, updateCLIToolConfig } from './cli-scanner.js';
+import { type InfrastructureContext } from '../infrastructure/context.js';
 
 export type InstallationPhase = 'critical' | 'secondary' | 'tertiary';
 
@@ -196,7 +197,7 @@ export function createPriorityInstaller(
   };
 }
 
-export function createDefaultInstaller(): Installer | null {
+export function createDefaultInstaller(context: InfrastructureContext): Installer | null {
   const steps: InstallationStep[] = [
     // Critical: core setup
     { id: 'create-config-dir', name: '创建配置目录', priority: 'critical', execute: createConfigDir },
@@ -205,7 +206,7 @@ export function createDefaultInstaller(): Installer | null {
 
     // Secondary: external tools
     { id: 'scan-cli-tools', name: '扫描外部 CLI 工具', priority: 'secondary', execute: async () => {
-      const tools = await scanCLITools();
+      const tools = await scanCLITools(context);
       updateCLIToolConfig(tools);
       return { success: true }; // always succeeds - partial results are OK
     }},

@@ -110,7 +110,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
 
         if (!options.dryRun && isFirstRun()) {
           logger.info('首次运行，启动优先级安装流程...');
-          const installer = createDefaultInstaller();
+          const installer = createDefaultInstaller(context);
           if (installer) {
             const summary = await installer.run();
             if (summary.overallSuccess) {
@@ -367,7 +367,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
         if (result.status === 'FAILED') {
           const llmConfig = createLLMConfig();
           if (llmConfig && !options.dryRun && !options.json && context.environment.getEnv('CI') !== '1') {
-            shouldRetry = await runSelfHealingLoop(result, workflow!, llmConfig);
+            shouldRetry = await runSelfHealingLoop(result, workflow!, llmConfig, context);
             if (shouldRetry) {
               logger.info('🔄 正在重试工作流...');
               continue;

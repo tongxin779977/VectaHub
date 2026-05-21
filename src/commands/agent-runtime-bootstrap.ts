@@ -1,4 +1,4 @@
-import { getDefaultContext } from '../infrastructure/context.js';
+import { type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import type { AgentDescriptor, AgentWritableRuntimeHomePolicy } from './agent-cli-adapter.js';
 import { djb2Hash } from '../infrastructure/paths/index.js';
@@ -8,59 +8,54 @@ export interface AgentRuntimeBootstrapResult {
   bootstrapApplied?: boolean;
 }
 
-function resolveUserDefaultHome(policy: AgentWritableRuntimeHomePolicy): string {
-  const ctx = getDefaultContext();
-  const envHome = ctx.environment.getEnv(policy.envVar)?.trim();
+function resolveUserDefaultHome(context: InfrastructureContext, policy: AgentWritableRuntimeHomePolicy): string {
+  const envHome = context.environment.getEnv(policy.envVar)?.trim();
   if (envHome) {
-    return ctx.environment.resolvePath(envHome);
+    return context.environment.resolvePath(envHome);
   }
-  const userHome = ctx.environment.getEnv('HOME') || ctx.environment.getEnv('USERPROFILE') || '';
-  return ctx.environment.resolvePath(userHome, policy.defaultHomeSubdir);
+  const userHome = context.environment.getEnv('HOME') || context.environment.getEnv('USERPROFILE') || '';
+  return context.environment.resolvePath(userHome, policy.defaultHomeSubdir);
 }
 
-async function copyBootstrapFile(sourceHome: string, targetHome: string, relativePath: string): Promise<boolean> {
-  const ctx = getDefaultContext();
-  const sourcePath = ctx.environment.resolvePath(sourceHome, relativePath);
-  const targetPath = ctx.environment.resolvePath(targetHome, relativePath);
-  if (!ctx.environment.exists(sourcePath)) {
-    if (ctx.environment.exists(targetPath)) {
-      ctx.environment.rm(targetPath, { force: true });
+async function copyBootstrapFile(context: InfrastructureContext, sourceHome: string, targetHome: string, relativePath: string): Promise<boolean> {
+  const sourcePath = context.environment.resolvePath(sourceHome, relativePath);
+  const targetPath = context.environment.resolvePath(targetHome, relativePath);
+  if (!context.environment.exists(sourcePath)) {
+    if (context.environment.exists(targetPath)) {
+      context.environment.rm(targetPath, { force: true });
     }
     return false;
   }
 
-  const sourceStat = ctx.environment.stat(sourcePath);
-  if (!sourceStat.isDirectory() === false) { // isFile check: EnvironmentService.stat doesn't have isFile but has isDirectory
-    // Wait, the original code used sourceStat.isFile().
-    // EnvironmentService.stat returns { size: number; isDirectory(): boolean }
-    // If it's not a directory, we assume it's a file for this bootstrap purpose (simplified)
-  }
-  
+  const sourceStat = context.environment.stat(sourcePath);
+
   if (sourceStat.isDirectory()) {
     throw new VectaHubError(`bootstrap source is not a file: ${sourcePath}`, ErrorType.FILESYSTEM);
   }
 
-  await ctx.environment.mkdirAsync(ctx.environment.getDirname(targetPath), { recursive: true });
-  ctx.environment.copyFile(sourcePath, targetPath);
+  await context.environment.mkdirAsync(context.environment.getDirname(targetPath), { recursive: true });
+  context.environment.copyFile(sourcePath, targetPath);
   return true;
 }
 
-export async function bootstrapAgentRuntime(input: {
-  descriptor: AgentDescriptor;
-  workspaceRoot: string;
-}): Promise<AgentRuntimeBootstrapResult> {
-  const ctx = getDefaultContext();
+export async function bootstrapAgentRuntime(
+  context: InfrastructureContext,
+  input: {
+    descriptor: AgentDescriptor;
+    workspaceRoot: string;
+  },
+): Promise<AgentRuntimeBootstrapResult> {
   const writableRuntimeHome = input.descriptor.runtimePolicy?.writableRuntimeHome;
   if (!writableRuntimeHome) {
     return {};
   }
 
-  const userDefaultHome = resolveUserDefaultHome(writableRuntimeHome);
+  const userDefaultHome = resolveUserDefaultHome(context, writableRuntimeHome);
   let copiedFiles = 0;
-  const runtimeHome = ctx.environment.getPath('agent-homes', input.descriptor.id, djb2Hash(input.workspaceRoot));
+  const runtimeHome = context.environment.getPath('agent-homes', input.descriptor.id, djb2Hash(input.workspaceRoot));
   for (const file of writableRuntimeHome.bootstrapFiles) {
-    await ctx.environment.mkdirAsync(runtimeHome, { recursive: true });
-    const copied = await copyBootstrapFile(userDefaultHome, runtimeHome, file.relativePath);
+    await context.environment.mkdirAsync(runtimeHome, { recursive: true });
+    const copied = await copyBootstrapFile(context, userDefaultHome, runtimeHome, file.relativePath);
     if (copied) {
       copiedFiles += 1;
       continue;

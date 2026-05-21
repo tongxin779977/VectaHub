@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { getDefaultContext, resetDefaultContext } from '../infrastructure/context.js';
 
 // Mock run-task before importing recover-task
 vi.mock('./run-task.js', () => ({
@@ -26,6 +27,7 @@ const runTaskMock = vi.mocked(runTask);
 describe('recover-task', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetDefaultContext();
   });
 
   it('should handle retry_direct by re-executing the task', async () => {
@@ -37,7 +39,7 @@ describe('recover-task', () => {
       command: 'aider --message "test"',
     });
 
-    const result = await recoverTask({
+    const result = await recoverTask(getDefaultContext(), {
       runId: 'run-failed-001',
       taskId: 'task-001',
       taskLabel: 'Implement feature X',
@@ -79,7 +81,7 @@ describe('recover-task', () => {
       command: 'aider --message "test"',
     });
 
-    const result = await recoverTask({
+    const result = await recoverTask(getDefaultContext(), {
       runId: 'run-failed-002',
       taskId: 'task-002',
       taskLabel: 'Implement feature Y',
@@ -105,7 +107,7 @@ describe('recover-task', () => {
       },
     });
 
-    const result = await recoverTask({
+    const result = await recoverTask(getDefaultContext(), {
       runId: 'run-failed-test',
       taskId: 'task-test',
       taskLabel: 'Fix verification',
@@ -136,7 +138,7 @@ describe('recover-task', () => {
       } as VerificationWithSystemFlag,
     });
 
-    const result = await recoverTask({
+    const result = await recoverTask(getDefaultContext(), {
       runId: 'run-failed-system',
       taskId: 'task-system',
       taskLabel: 'Fix verification system error',
@@ -150,7 +152,7 @@ describe('recover-task', () => {
   });
 
   it('should block recovery for config failure', async () => {
-    const result = await recoverTask({
+    const result = await recoverTask(getDefaultContext(), {
       runId: 'run-failed-003',
       taskId: 'task-003',
       taskLabel: 'Implement feature Z',
@@ -166,7 +168,7 @@ describe('recover-task', () => {
   });
 
   it('should block recovery for conflict failure', async () => {
-    const result = await recoverTask({
+    const result = await recoverTask(getDefaultContext(), {
       runId: 'run-failed-004',
       taskId: 'task-004',
       taskLabel: 'Fix conflict',
@@ -180,7 +182,7 @@ describe('recover-task', () => {
   });
 
   it('should return guidance for suggest_fix (not auto-execute)', async () => {
-    const result = await recoverTask({
+    const result = await recoverTask(getDefaultContext(), {
       runId: 'run-failed-005',
       taskId: 'task-005',
       taskLabel: 'Fix test failure',
@@ -202,7 +204,7 @@ describe('recover-task', () => {
       command: 'aider --message "test"',
     });
 
-    const result = await recoverTask({
+    const result = await recoverTask(getDefaultContext(), {
       runId: 'run-failed-006',
       taskId: 'task-006',
       taskLabel: 'Something',
@@ -227,7 +229,7 @@ describe('recover-task', () => {
       command: 'test',
     });
 
-    await recoverTask({
+    await recoverTask(getDefaultContext(), {
       runId: 'run-007',
       taskId: 'task-007',
       taskLabel: 'Test trace',
@@ -249,7 +251,7 @@ describe('recover-task', () => {
   });
 
   it('should block and skip runTask when instruction hash drift is detected', async () => {
-    const result = await recoverTask({
+    const result = await recoverTask(getDefaultContext(), {
       runId: 'run-failed-012',
       taskId: 'task-012',
       taskLabel: 'Hash drift task',
@@ -266,7 +268,7 @@ describe('recover-task', () => {
   });
 
   it('should block hash drift before using plugin-precomputed decision', async () => {
-    const result = await recoverTask({
+    const result = await recoverTask(getDefaultContext(), {
       runId: 'run-failed-013',
       taskId: 'task-013',
       taskLabel: 'Hash drift with precomputed retry',
@@ -284,7 +286,7 @@ describe('recover-task', () => {
   });
 
   it('should handle unknown failure kind as suggest_fix', async () => {
-    const result = await recoverTask({
+    const result = await recoverTask(getDefaultContext(), {
       runId: 'run-failed-008',
       taskId: 'task-008',
       taskLabel: 'Unknown error',
@@ -297,7 +299,7 @@ describe('recover-task', () => {
   });
 
   it('should fallback to unknown when sourceFailureKind is not provided', async () => {
-    const result = await recoverTask({
+    const result = await recoverTask(getDefaultContext(), {
       runId: 'run-failed-009',
       taskId: 'task-009',
       taskLabel: 'No failure kind',
@@ -309,7 +311,7 @@ describe('recover-task', () => {
   });
 
   it('should map system_internal to failed_system_internal status', async () => {
-    const result = await recoverTask({
+    const result = await recoverTask(getDefaultContext(), {
       runId: 'run-failed-010',
       taskId: 'task-010',
       taskLabel: 'System error',
@@ -328,7 +330,7 @@ describe('recover-task', () => {
       command: 'test',
     });
 
-    const result = await recoverTask({
+    const result = await recoverTask(getDefaultContext(), {
       runId: 'run-011',
       taskId: 'task-011',
       taskLabel: 'Trace check',

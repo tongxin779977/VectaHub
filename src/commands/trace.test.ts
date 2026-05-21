@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { traceCmd } from './trace.js';
-import { resetDefaultContext } from '../infrastructure/context.js';
+import { getDefaultContext, resetDefaultContext } from '../infrastructure/context.js';
+import { createTraceCmd } from './trace.js';
 
 describe('trace command', () => {
   let oldHome: string | undefined;
@@ -46,7 +46,7 @@ describe('trace command', () => {
     }) + '\n');
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await traceCmd.parseAsync(['list', '--json'], { from: 'user' });
+    await createTraceCmd(getDefaultContext()).parseAsync(['list', '--json'], { from: 'user' });
 
     const payload = String(logSpy.mock.calls[0]?.[0] ?? '');
     expect(payload).toContain('"traceId": "tr-utc-latest"');
@@ -70,7 +70,7 @@ describe('trace command', () => {
     }) + '\n');
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await traceCmd.parseAsync(['list', '--json'], { from: 'user' });
+    await createTraceCmd(getDefaultContext()).parseAsync(['list', '--json'], { from: 'user' });
 
     const payload = String(logSpy.mock.calls[0]?.[0] ?? '');
     expect(payload).toContain('"traceId": "tr-local-recent"');
@@ -94,7 +94,7 @@ describe('trace command', () => {
     }) + '\n');
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await traceCmd.parseAsync(['list', '--json'], { from: 'user' });
+    await createTraceCmd(getDefaultContext()).parseAsync(['list', '--json'], { from: 'user' });
 
     const payload = String(logSpy.mock.calls[0]?.[0] ?? '');
     expect(payload).toContain('"traceId": "tr-legacy-list"');
@@ -118,7 +118,7 @@ describe('trace command', () => {
     }) + '\n');
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await traceCmd.parseAsync(['show', 'tr-legacy-show', '--json'], { from: 'user' });
+    await createTraceCmd(getDefaultContext()).parseAsync(['show', 'tr-legacy-show', '--json'], { from: 'user' });
 
     const payload = String(logSpy.mock.calls[0]?.[0] ?? '');
     expect(payload).toContain('"traceId": "tr-legacy-show"');
@@ -143,7 +143,7 @@ describe('trace command', () => {
     }) + '\n');
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await traceCmd.parseAsync(['show', 'tr-older-show', '--json'], { from: 'user' });
+    await createTraceCmd(getDefaultContext()).parseAsync(['show', 'tr-older-show', '--json'], { from: 'user' });
 
     const payload = String(logSpy.mock.calls[0]?.[0] ?? '');
     expect(payload).toContain('"traceId": "tr-older-show"');

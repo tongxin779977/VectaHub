@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LLMClient } from '../nl/llm.js';
+import { getDefaultContext } from '../infrastructure/context.js';
 import {
   parseTasksFromLLMOutput,
   findChunkBoundary,
@@ -11,7 +12,7 @@ import {
   fallbackParseByRegex,
   parseRoadmapTableTasks,
   parseDocTaskResult,
-  parseDocCmd,
+  createParseDocCmd,
   DocTask
 } from './parse-doc.js';
 
@@ -373,7 +374,7 @@ describe('parseDocTaskResult', () => {
     ].join('\n'));
 
     try {
-      const result = await parseDocTaskResult(docPath);
+      const result = await parseDocTaskResult(getDefaultContext(), docPath);
 
       expect(result.source).toBe('regex-fallback');
       expect(result.degraded).toBe(true);
@@ -419,7 +420,7 @@ describe('parseDocTaskResult', () => {
       .mockRejectedValueOnce(new Error('chunk failed'));
 
     try {
-      const result = await parseDocTaskResult(docPath);
+      const result = await parseDocTaskResult(getDefaultContext(), docPath);
 
       expect(completeRawSpy).toHaveBeenCalled();
       expect(result.source).toBe('llm');
@@ -448,7 +449,7 @@ describe('parseDocTaskResult', () => {
   });
 });
 
-describe('parseDocCmd', () => {
+describe('createParseDocCmd', () => {
   it('should include parser metadata in JSON output', async () => {
     const originalVectaHubHome = process.env.VECTAHUB_HOME;
     const originalOpenAI = process.env.OPENAI_API_KEY;
@@ -461,7 +462,8 @@ describe('parseDocCmd', () => {
     writeFileSync(docPath, '### P3-1：补充测试');
 
     try {
-      await parseDocCmd.parseAsync([docPath, '--json'], { from: 'user' });
+      const cmd = createParseDocCmd(getDefaultContext());
+      await cmd.parseAsync([docPath, '--json'], { from: 'user' });
 
       const payload = JSON.parse(String(logSpy.mock.calls.at(-1)?.[0] ?? '{}')) as {
         ok: boolean;

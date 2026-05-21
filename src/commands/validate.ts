@@ -1,8 +1,6 @@
 import { Command } from 'commander';
-import { getDefaultContext } from '../infrastructure/context.js';
+import type { InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
-
-const ctx = getDefaultContext();
 
 interface ValidationResult {
   module: string;
@@ -56,12 +54,12 @@ const MODULE_CONTRACTS: ModuleContract[] = [
   },
 ];
 
-function extractMethods(filePath: string): string[] {
-  if (!ctx.environment.exists(filePath)) {
+function extractMethods(env: InfrastructureContext['environment'], filePath: string): string[] {
+  if (!env.exists(filePath)) {
     return [];
   }
 
-  const content = ctx.environment.readFile(filePath);
+  const content = env.readFile(filePath);
   const methods: string[] = [];
 
   const interfaceMethodMatches = content.matchAll(/export\s+interface\s+\w+\s*\{([^}]+)\}/g);
@@ -97,11 +95,11 @@ function extractMethods(filePath: string): string[] {
   return methods;
 }
 
-function validateModule(contract: ModuleContract): ValidationResult {
-  const filePath = ctx.environment.resolvePath(contract.file);
+function validateModule(env: InfrastructureContext['environment'], contract: ModuleContract): ValidationResult {
+  const filePath = env.resolvePath(contract.file);
   const details: string[] = [];
 
-  if (!ctx.environment.exists(ctx.environment.resolvePath('src'))) {
+  if (!env.exists(env.resolvePath('src'))) {
     return {
       module: contract.name,
       status: 'warning',
@@ -109,7 +107,7 @@ function validateModule(contract: ModuleContract): ValidationResult {
     };
   }
 
-  if (!ctx.environment.exists(filePath)) {
+  if (!env.exists(filePath)) {
     return {
       module: contract.name,
       status: 'warning',
@@ -117,7 +115,7 @@ function validateModule(contract: ModuleContract): ValidationResult {
     };
   }
 
-  const methods = extractMethods(filePath);
+  const methods = extractMethods(env, filePath);
   const missingMethods: string[] = [];
 
   for (const required of contract.requiredMethods) {
@@ -188,20 +186,22 @@ function formatValidationResults(results: ValidationResult[]): string {
   return lines.join('\n');
 }
 
-export const validate = new Command('validate')
-  .description('Validate module interface contracts')
-  .action(async () => {
-    const results: ValidationResult[] = [];
+export function createValidateCmd(context: InfrastructureContext): Command {
+  return new Command('validate')
+    .description('Validate module interface contracts')
+    .action(async () => {
+      const results: ValidationResult[] = [];
 
-    for (const contract of MODULE_CONTRACTS) {
-      const result = validateModule(contract);
-      results.push(result);
-    }
+      for (const contract of MODULE_CONTRACTS) {
+        const result = validateModule(context.environment, contract);
+        results.push(result);
+      }
 
-    console.log(formatValidationResults(results));
+      console.log(formatValidationResults(results));
 
-    const failCount = results.filter(r => r.status === 'fail').length;
-    if (failCount > 0) {
-      throw new VectaHubError('Validation FAILED - some modules have missing methods', ErrorType.RUNTIME);
-    }
-  });
+      const failCount = results.filter(r => r.status === 'fail').length;
+      if (failCount > 0) {
+        throw new VectaHubError('Validation FAILED - some modules have missing methods', ErrorType.RUNTIME);
+      }
+    });
+}

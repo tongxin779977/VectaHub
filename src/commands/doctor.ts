@@ -1,11 +1,11 @@
 import { Command } from 'commander';
-import { getDefaultContext } from '../infrastructure/context.js';
+import type { InfrastructureContext } from '../infrastructure/context.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 import { createCliOutput } from '../infrastructure/cli-output.js';
 
-const environment = getDefaultContext().environment;
-const join = (...args: string[]) => environment.joinPath(...args);
+const join = (environment: IEnvironmentService, ...args: string[]) => environment.joinPath(...args);
 
-async function execWithTimeout(command: string, timeoutMs = 5000): Promise<{ stdout: string; stderr: string }> {
+async function execWithTimeout(environment: IEnvironmentService, command: string, timeoutMs = 5000): Promise<{ stdout: string; stderr: string }> {
   const result = await environment.exec(command, { timeout: timeoutMs });
   return {
     stdout: String(result.stdout),
@@ -41,16 +41,16 @@ function formatDoctorResults(checks: { name: string; status: 'pass' | 'fail' | '
 
 type DoctorCheck = { name: string; status: 'pass' | 'fail' | 'warn'; message: string };
 
-async function hasPackageDependency(name: string): Promise<boolean> {
+async function hasPackageDependency(environment: IEnvironmentService, name: string): Promise<boolean> {
   try {
-    const packageJson = JSON.parse(environment.readFile(join(environment.getCwd(), 'package.json')));
+    const packageJson = JSON.parse(environment.readFile(join(environment, environment.getCwd(), 'package.json')));
     return Boolean(packageJson.dependencies?.[name] || packageJson.devDependencies?.[name]);
   } catch {
     return false;
   }
 }
 
-export async function runChecks(verbose = false): Promise<DoctorCheck[]> {
+export async function runChecks(environment: IEnvironmentService, verbose = false): Promise<DoctorCheck[]> {
   const checks: { name: string; status: 'pass' | 'fail' | 'warn'; message: string }[] = [];
 
   try {
@@ -81,11 +81,11 @@ export async function runChecks(verbose = false): Promise<DoctorCheck[]> {
   }
 
   try {
-    const { stdout } = await execWithTimeout('npx tsc --version');
+    const { stdout } = await execWithTimeout(environment, 'npx tsc --version');
     checks.push({ name: 'TypeScript', status: 'pass', message: stdout.trim() });
 
     if (verbose) {
-      const tsConfigPath = join(environment.getCwd(), 'tsconfig.json');
+      const tsConfigPath = join(environment, environment.getCwd(), 'tsconfig.json');
       const tsConfigExists = environment.exists(tsConfigPath);
       checks.push({
         name: '  tsconfig.json',
@@ -98,12 +98,12 @@ export async function runChecks(verbose = false): Promise<DoctorCheck[]> {
   }
 
   try {
-    const { stdout } = await execWithTimeout('npx tsx --version');
+    const { stdout } = await execWithTimeout(environment, 'npx tsx --version');
     checks.push({ name: 'tsx', status: 'pass', message: stdout.trim() });
   } catch {
-    const packageExists = environment.exists(join(environment.getCwd(), 'package.json'));
-    const srcExists = environment.exists(join(environment.getCwd(), 'src'));
-    const hasLocalTsx = packageExists && await hasPackageDependency('tsx');
+    const packageExists = environment.exists(join(environment, environment.getCwd(), 'package.json'));
+    const srcExists = environment.exists(join(environment, environment.getCwd(), 'src'));
+    const hasLocalTsx = packageExists && await hasPackageDependency(environment, 'tsx');
 
     if (hasLocalTsx && srcExists) {
       checks.push({ name: 'tsx', status: 'pass', message: 'Declared in devDependencies' });
@@ -117,11 +117,11 @@ export async function runChecks(verbose = false): Promise<DoctorCheck[]> {
   }
 
   try {
-    const { stdout } = await execWithTimeout('npx vitest --version');
+    const { stdout } = await execWithTimeout(environment, 'npx vitest --version');
     checks.push({ name: 'Vitest', status: 'pass', message: stdout.trim() });
 
     if (verbose) {
-      const vitestConfigPath = join(environment.getCwd(), 'vitest.config.ts');
+      const vitestConfigPath = join(environment, environment.getCwd(), 'vitest.config.ts');
       const vitestConfigExists = environment.exists(vitestConfigPath);
       checks.push({
         name: '  vitest.config',
@@ -133,9 +133,9 @@ export async function runChecks(verbose = false): Promise<DoctorCheck[]> {
     checks.push({ name: 'Vitest', status: 'warn', message: 'Not found (optional)' });
   }
 
-  const srcExists = environment.exists(join(environment.getCwd(), 'src'));
-  const docsExists = environment.exists(join(environment.getCwd(), 'docs'));
-  const packageExists = environment.exists(join(environment.getCwd(), 'package.json'));
+  const srcExists = environment.exists(join(environment, environment.getCwd(), 'src'));
+  const docsExists = environment.exists(join(environment, environment.getCwd(), 'docs'));
+  const packageExists = environment.exists(join(environment, environment.getCwd(), 'package.json'));
 
   checks.push({
     name: 'Directory structure',
@@ -151,14 +151,14 @@ export async function runChecks(verbose = false): Promise<DoctorCheck[]> {
     });
 
     if (verbose) {
-      const srcFiles = environment.readDir(join(environment.getCwd(), 'src'));
+      const srcFiles = environment.readDir(join(environment, environment.getCwd(), 'src'));
       checks.push({
         name: '  Source modules',
         status: 'pass',
         message: `${srcFiles.length} top-level modules`,
       });
 
-      const packageJson = JSON.parse(environment.readFile(join(environment.getCwd(), 'package.json')));
+      const packageJson = JSON.parse(environment.readFile(join(environment, environment.getCwd(), 'package.json')));
       checks.push({
         name: '  Package version',
         status: 'pass',
@@ -185,24 +185,26 @@ export async function runChecks(verbose = false): Promise<DoctorCheck[]> {
   return checks;
 }
 
-export const doctorCmd = new Command('doctor')
-  .description('Run diagnostics to check system requirements')
-  .option('--verbose', 'Show detailed diagnostic information')
-  .option('--json', 'Output results in JSON format')
-  .action(async (options: { verbose?: boolean; json?: boolean }) => {
-    const output = createCliOutput({ json: Boolean(options.json) });
-    const checks = await runChecks(options.verbose || false);
-    if (options.json) {
-      output.json({
-        ok: checks.every(c => c.status !== 'fail'),
-        checks,
-        summary: {
-          passed: checks.filter(c => c.status === 'pass').length,
-          failed: checks.filter(c => c.status === 'fail').length,
-          warnings: checks.filter(c => c.status === 'warn').length
-        }
-      }, { space: 2 });
-    } else {
-      output.text(formatDoctorResults(checks));
-    }
-  });
+export function createDoctorCmd(context: InfrastructureContext): Command {
+  return new Command('doctor')
+    .description('Run diagnostics to check system requirements')
+    .option('--verbose', 'Show detailed diagnostic information')
+    .option('--json', 'Output results in JSON format')
+    .action(async (options: { verbose?: boolean; json?: boolean }) => {
+      const output = createCliOutput({ json: Boolean(options.json) });
+      const checks = await runChecks(context.environment, options.verbose || false);
+      if (options.json) {
+        output.json({
+          ok: checks.every(c => c.status !== 'fail'),
+          checks,
+          summary: {
+            passed: checks.filter(c => c.status === 'pass').length,
+            failed: checks.filter(c => c.status === 'fail').length,
+            warnings: checks.filter(c => c.status === 'warn').length
+          }
+        }, { space: 2 });
+      } else {
+        output.text(formatDoctorResults(checks));
+      }
+    });
+}

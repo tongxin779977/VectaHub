@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { resetDefaultContext } from '../infrastructure/context.js';
-import { vscodeDiagnosticCmd } from './vscode-diagnostic.js';
+import { getDefaultContext, resetDefaultContext } from '../infrastructure/context.js';
+import { createVscodeDiagnosticCmd } from './vscode-diagnostic.js';
 
 describe('vscode diagnostic command output', () => {
   let oldHome: string | undefined;
@@ -34,7 +34,7 @@ describe('vscode diagnostic command output', () => {
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
     await expect(
-      vscodeDiagnosticCmd.parseAsync(['diagnostic', '--json'], { from: 'user' }),
+      createVscodeDiagnosticCmd(getDefaultContext()).parseAsync(['diagnostic', '--json'], { from: 'user' }),
     ).rejects.toThrow('Invalid bridge port: not-a-port');
 
     expect(stdoutSpy).toHaveBeenCalled();
@@ -51,7 +51,7 @@ describe('vscode diagnostic command output', () => {
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
     await expect(
-      vscodeDiagnosticCmd.parseAsync(['diagnostic'], { from: 'user' }),
+      createVscodeDiagnosticCmd(getDefaultContext()).parseAsync(['diagnostic'], { from: 'user' }),
     ).rejects.toThrow('Invalid bridge port: not-a-port');
 
     expect(stdoutSpy).not.toHaveBeenCalled();

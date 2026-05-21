@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { djb2Hash } from '../infrastructure/paths/index.js';
 import type { DocTaskFailureKind, DocTaskRunStatus } from '../types/doc-task.js';
-import { getDefaultContext } from '../infrastructure/context.js';
+import { type InfrastructureContext } from '../infrastructure/context.js';
 import { createCliOutput } from '../infrastructure/cli-output.js';
 
 const DEFAULT_LIMIT = 50;
@@ -47,11 +47,10 @@ function clampLimit(raw?: string): number {
   return Math.min(parsed, MAX_LIMIT);
 }
 
-function getStoreDir(projectPath?: string): string {
-  const ctx = getDefaultContext();
-  const projectRoot = ctx.environment.resolvePath(projectPath || ctx.environment.getCwd());
+function getStoreDir(context: InfrastructureContext, projectPath?: string): string {
+  const projectRoot = context.environment.resolvePath(projectPath || context.environment.getCwd());
   const projectHash = djb2Hash(projectRoot);
-  return ctx.environment.getPath('projects', projectHash, 'doc-task-runs');
+  return context.environment.getPath('projects', projectHash, 'doc-task-runs');
 }
 
 function buildRecentUtcDateSet(days: number): Set<string> {
@@ -91,18 +90,17 @@ function isWithinRecentDays(fileName: string, recentDateSet: Set<string>): boole
   return recentDateSet.has(match[1]);
 }
 
-function getRecentRunFiles(storeDir: string, days = RECENT_DAYS): string[] {
-  const ctx = getDefaultContext();
+function getRecentRunFiles(context: InfrastructureContext, storeDir: string, days = RECENT_DAYS): string[] {
   const recentDateSet = new Set<string>([
     ...buildRecentUtcDateSet(days),
     ...buildRecentLocalDateSet(days),
   ]);
   try {
-    return ctx.environment.readDir(storeDir)
+    return context.environment.readDir(storeDir)
       .filter((name) => isWithinRecentDays(name, recentDateSet))
       .sort()
       .reverse()
-      .map((name) => ctx.environment.resolvePath(storeDir, name));
+      .map((name) => context.environment.resolvePath(storeDir, name));
   } catch {
     return [];
   }
@@ -128,10 +126,9 @@ function matchesFilters(run: DocTaskRunRecord, filters: RunFilters): boolean {
   return true;
 }
 
-function readRunsFromFile(filePath: string, filters: RunFilters, targetLimit: number): DocTaskRunRecord[] {
-  const ctx = getDefaultContext();
-  if (!ctx.environment.exists(filePath)) return [];
-  const content = ctx.environment.readFile(filePath);
+function readRunsFromFile(context: InfrastructureContext, filePath: string, filters: RunFilters, targetLimit: number): DocTaskRunRecord[] {
+  if (!context.environment.exists(filePath)) return [];
+  const content = context.environment.readFile(filePath);
   const lines = content.split(/\r?\n/);
   const runs: DocTaskRunRecord[] = [];
 
@@ -146,11 +143,10 @@ function readRunsFromFile(filePath: string, filters: RunFilters, targetLimit: nu
   return runs;
 }
 
-export function listRecentRuns(options: ListOptions): { runs: DocTaskRunRecord[]; hasMore: boolean } {
-  const ctx = getDefaultContext();
+export function listRecentRuns(context: InfrastructureContext, options: ListOptions): { runs: DocTaskRunRecord[]; hasMore: boolean } {
   const limit = clampLimit(options.limit);
-  const storeDir = getStoreDir(options.project);
-  if (!ctx.environment.exists(storeDir)) {
+  const storeDir = getStoreDir(context, options.project);
+  if (!context.environment.exists(storeDir)) {
     return { runs: [], hasMore: false };
   }
 
@@ -159,14 +155,14 @@ export function listRecentRuns(options: ListOptions): { runs: DocTaskRunRecord[]
     failureKind: options.failureKind,
   };
 
-  const files = getRecentRunFiles(storeDir, RECENT_DAYS);
+  const files = getRecentRunFiles(context, storeDir, RECENT_DAYS);
   const collected: DocTaskRunRecord[] = [];
   const readTarget = Math.min(limit + 1, MAX_LIMIT + 1);
 
   for (const file of files) {
     if (collected.length >= readTarget) break;
     const remaining = readTarget - collected.length;
-    const runs = readRunsFromFile(file, filters, remaining);
+    const runs = readRunsFromFile(context, file, filters, remaining);
     if (runs.length > 0) {
       collected.push(...runs);
     }
@@ -177,14 +173,13 @@ export function listRecentRuns(options: ListOptions): { runs: DocTaskRunRecord[]
   return { runs, hasMore };
 }
 
-export function readLatestRuns(project?: string): DocTaskRunRecord[] {
-  const ctx = getDefaultContext();
-  const storeDir = getStoreDir(project);
-  const latestFile = ctx.environment.resolvePath(storeDir, 'latest.json');
-  if (!ctx.environment.exists(latestFile)) return [];
+export function readLatestRuns(context: InfrastructureContext, project?: string): DocTaskRunRecord[] {
+  const storeDir = getStoreDir(context, project);
+  const latestFile = context.environment.resolvePath(storeDir, 'latest.json');
+  if (!context.environment.exists(latestFile)) return [];
 
   try {
-    const parsed = JSON.parse(ctx.environment.readFile(latestFile)) as unknown;
+    const parsed = JSON.parse(context.environment.readFile(latestFile)) as unknown;
     if (Array.isArray(parsed)) return parsed as DocTaskRunRecord[];
     if (parsed && typeof parsed === 'object') {
       return Object.values(parsed as Record<string, DocTaskRunRecord>);
@@ -196,15 +191,14 @@ export function readLatestRuns(project?: string): DocTaskRunRecord[] {
   return [];
 }
 
-export function findRunById(runId: string, project?: string): DocTaskRunRecord | undefined {
-  const ctx = getDefaultContext();
-  const storeDir = getStoreDir(project);
-  if (!ctx.environment.exists(storeDir)) return undefined;
+export function findRunById(context: InfrastructureContext, runId: string, project?: string): DocTaskRunRecord | undefined {
+  const storeDir = getStoreDir(context, project);
+  if (!context.environment.exists(storeDir)) return undefined;
 
-  const files = getRecentRunFiles(storeDir, RECENT_DAYS);
+  const files = getRecentRunFiles(context, storeDir, RECENT_DAYS);
   for (const file of files) {
-    if (!ctx.environment.exists(file)) continue;
-    const content = ctx.environment.readFile(file);
+    if (!context.environment.exists(file)) continue;
+    const content = context.environment.readFile(file);
     const lines = content.split(/\r?\n/);
     for (let i = lines.length - 1; i >= 0; i--) {
       const run = parseJsonLine(lines[i]);
@@ -261,39 +255,43 @@ function printLatestResult(tasks: DocTaskRunRecord[], asJson: boolean): void {
   }
 }
 
-export const docTaskRunsCmd = new Command('doc-task-runs')
-  .description('查询文档任务运行记录');
+export function createDocTaskRunsCmd(context: InfrastructureContext): Command {
+  const docTaskRunsCmd = new Command('doc-task-runs')
+    .description('查询文档任务运行记录');
 
-docTaskRunsCmd
-  .command('list')
-  .description('查询最近运行记录（默认最近 7 天）')
-  .option('--project <path>', '项目路径，默认当前目录')
-  .option('--limit <n>', `返回数量，默认 ${DEFAULT_LIMIT}，最大 ${MAX_LIMIT}`)
-  .option('--status <status>', '按状态过滤')
-  .option('--failure-kind <kind>', '按失败类型过滤')
-  .option('--json', '输出 JSON')
-  .action((options: ListOptions) => {
-    const result = listRecentRuns(options);
-    printListResult(result, Boolean(options.json));
-  });
+  docTaskRunsCmd
+    .command('list')
+    .description('查询最近运行记录（默认最近 7 天）')
+    .option('--project <path>', '项目路径，默认当前目录')
+    .option('--limit <n>', `返回数量，默认 ${DEFAULT_LIMIT}，最大 ${MAX_LIMIT}`)
+    .option('--status <status>', '按状态过滤')
+    .option('--failure-kind <kind>', '按失败类型过滤')
+    .option('--json', '输出 JSON')
+    .action((options: ListOptions) => {
+      const result = listRecentRuns(context, options);
+      printListResult(result, Boolean(options.json));
+    });
 
-docTaskRunsCmd
-  .command('show')
-  .description('按 runId 查询单条运行记录（最近 7 天）')
-  .argument('<runId>', '运行记录 ID')
-  .option('--project <path>', '项目路径，默认当前目录')
-  .option('--json', '输出 JSON')
-  .action((runId: string, options: ShowOptions) => {
-    const run = findRunById(runId, options.project);
-    printShowResult(run, Boolean(options.json));
-  });
+  docTaskRunsCmd
+    .command('show')
+    .description('按 runId 查询单条运行记录（最近 7 天）')
+    .argument('<runId>', '运行记录 ID')
+    .option('--project <path>', '项目路径，默认当前目录')
+    .option('--json', '输出 JSON')
+    .action((runId: string, options: ShowOptions) => {
+      const run = findRunById(context, runId, options.project);
+      printShowResult(run, Boolean(options.json));
+    });
 
-docTaskRunsCmd
-  .command('latest')
-  .description('读取 latest.json 的任务最新摘要')
-  .option('--project <path>', '项目路径，默认当前目录')
-  .option('--json', '输出 JSON')
-  .action((options: LatestOptions) => {
-    const tasks = readLatestRuns(options.project);
-    printLatestResult(tasks, Boolean(options.json));
-  });
+  docTaskRunsCmd
+    .command('latest')
+    .description('读取 latest.json 的任务最新摘要')
+    .option('--project <path>', '项目路径，默认当前目录')
+    .option('--json', '输出 JSON')
+    .action((options: LatestOptions) => {
+      const tasks = readLatestRuns(context, options.project);
+      printLatestResult(tasks, Boolean(options.json));
+    });
+
+  return docTaskRunsCmd;
+}

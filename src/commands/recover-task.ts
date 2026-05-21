@@ -12,7 +12,7 @@
 import { Command } from 'commander';
 import { startSpan, createChildEnv } from '../infrastructure/trace/index.js';
 import { runTask, formatRunTaskJson, type RunTaskResult } from './run-task.js';
-import { getDefaultContext } from '../infrastructure/context.js';
+import { type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import {
   decideRecovery,
@@ -23,9 +23,6 @@ import {
   type DocTaskRecoveryRecord,
 } from '../types/recovery.js';
 import type { DocTaskFailureKind, DocTaskRunStatus } from '../types/doc-task.js';
-
-const ctx = getDefaultContext();
-const logger = ctx.logger.getLogger('recover-task');
 
 export interface RecoverTaskOptions {
   runId: string;
@@ -57,11 +54,11 @@ export interface RecoverTaskResult {
   error?: string;
 }
 
-export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverTaskResult> {
+export async function recoverTask(context: InfrastructureContext, options: RecoverTaskOptions): Promise<RecoverTaskResult> {
+  const logger = context.logger.getLogger('recover-task');
   const recoveryRunId = `rec-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const sourceRunId = options.runId;
 
-  // Build a minimal recovery input from the provided CLI arguments.
   const failureKind: DocTaskFailureKind = isValidFailureKind(options.sourceFailureKind)
     ? options.sourceFailureKind!
     : 'unknown';
@@ -183,12 +180,12 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
       };
       const childEnv = createChildEnv(recoveryTraceContext, recoverySpan.spanId);
       const originalEnv: Record<string, string | undefined> = {};
-      const allEnv = ctx.environment.getAllEnv();
-      
+      const allEnv = context.environment.getAllEnv();
+
       for (const [key, value] of Object.entries(childEnv)) {
         originalEnv[key] = allEnv[key];
         if (value !== undefined) {
-          ctx.environment.setEnv(key, value);
+          context.environment.setEnv(key, value);
         }
       }
 
@@ -203,9 +200,9 @@ export async function recoverTask(options: RecoverTaskOptions): Promise<RecoverT
       } finally {
         for (const [key, value] of Object.entries(originalEnv)) {
           if (value === undefined) {
-            ctx.environment.deleteEnv(key);
+            context.environment.deleteEnv(key);
           } else {
-            ctx.environment.setEnv(key, value);
+            context.environment.setEnv(key, value);
           }
         }
       }
@@ -394,73 +391,77 @@ function classifyFailureFromErrorMessage(errorMessage: string): ClassifiedFailur
   return { kind: 'agent', status: 'failed_agent' };
 }
 
-export const recoverTaskCmd = new Command('recover-task')
-  .description('恢复失败的文档任务')
-  .requiredOption('--run-id <id>', '原始失败运行 ID')
-  .requiredOption('--task-id <id>', '任务编号')
-  .requiredOption('--task-label <label>', '任务描述')
-  .requiredOption('--tool <name>', 'Agent CLI 工具名称')
-  .option('--doc <path>', '参考文档路径')
-  .option('--trace-id <id>', '原始失败 trace ID')
-  .option('--source-failure-kind <kind>', '原始失败分类')
-  .option('--decision-kind <kind>', '预计算的恢复决策（插件侧已决定）')
-  .option('--command <cmd>', '原始执行命令摘要')
-  .option('--previous-instruction-hash <hash>', '原始失败运行的 instructionHash')
-  .option('--current-instruction-hash <hash>', '当前恢复时计算的 instructionHash')
-  .option('--json', '以 JSON 格式输出')
-  .action(async (options: RecoverTaskOptions) => {
-    try {
-      const result = await recoverTask(options);
+export function createRecoverTaskCmd(context: InfrastructureContext): Command {
+  const logger = context.logger.getLogger('recover-task');
 
-      if (options.json) {
-        const jsonOutput: Record<string, unknown> = {
-          ok: result.ok,
-          recoveryRunId: result.recoveryRunId,
-          sourceRunId: result.sourceRunId,
-          taskId: result.taskId,
-          decision: result.decision,
-          sourceTraceId: result.sourceTraceId,
-          recoveryTraceId: result.recoveryTraceId,
-          status: result.status,
-          failureKind: result.failureKind,
-        };
-        if (result.runResult) {
-          jsonOutput.runResult = formatRunTaskJson(result.runResult);
-        }
-        if (result.recoveryRecord) {
-          jsonOutput.recoveryRecord = result.recoveryRecord;
-        }
-        if (result.error) {
-          jsonOutput.error = result.error;
-        }
-        console.log(JSON.stringify(jsonOutput, null, 2));
-      } else if (!result.ok) {
-        if (result.error) {
-          logger.error(`恢复失败: ${result.error}`);
-        }
-        if (result.decision.suggestedActions.length > 0) {
-          logger.info('建议操作:');
-          for (const action of result.decision.suggestedActions) {
-            logger.info(`  → ${action}`);
+  return new Command('recover-task')
+    .description('恢复失败的文档任务')
+    .requiredOption('--run-id <id>', '原始失败运行 ID')
+    .requiredOption('--task-id <id>', '任务编号')
+    .requiredOption('--task-label <label>', '任务描述')
+    .requiredOption('--tool <name>', 'Agent CLI 工具名称')
+    .option('--doc <path>', '参考文档路径')
+    .option('--trace-id <id>', '原始失败 trace ID')
+    .option('--source-failure-kind <kind>', '原始失败分类')
+    .option('--decision-kind <kind>', '预计算的恢复决策（插件侧已决定）')
+    .option('--command <cmd>', '原始执行命令摘要')
+    .option('--previous-instruction-hash <hash>', '原始失败运行的 instructionHash')
+    .option('--current-instruction-hash <hash>', '当前恢复时计算的 instructionHash')
+    .option('--json', '以 JSON 格式输出')
+    .action(async (options: RecoverTaskOptions) => {
+      try {
+        const result = await recoverTask(context, options);
+
+        if (options.json) {
+          const jsonOutput: Record<string, unknown> = {
+            ok: result.ok,
+            recoveryRunId: result.recoveryRunId,
+            sourceRunId: result.sourceRunId,
+            taskId: result.taskId,
+            decision: result.decision,
+            sourceTraceId: result.sourceTraceId,
+            recoveryTraceId: result.recoveryTraceId,
+            status: result.status,
+            failureKind: result.failureKind,
+          };
+          if (result.runResult) {
+            jsonOutput.runResult = formatRunTaskJson(result.runResult);
+          }
+          if (result.recoveryRecord) {
+            jsonOutput.recoveryRecord = result.recoveryRecord;
+          }
+          if (result.error) {
+            jsonOutput.error = result.error;
+          }
+          console.log(JSON.stringify(jsonOutput, null, 2));
+        } else if (!result.ok) {
+          if (result.error) {
+            logger.error(`恢复失败: ${result.error}`);
+          }
+          if (result.decision.suggestedActions.length > 0) {
+            logger.info('建议操作:');
+            for (const action of result.decision.suggestedActions) {
+              logger.info(`  → ${action}`);
+            }
+          }
+          throw new VectaHubError(`恢复失败${result.error ? `: ${result.error}` : ''}`, ErrorType.RUNTIME);
+        } else {
+          logger.info(`恢复成功: 任务 ${result.taskId}`);
+          if (result.runResult) {
+            logger.info(`输出: ${result.runResult.output.substring(0, 200)}`);
           }
         }
-        throw new VectaHubError(`恢复失败${result.error ? `: ${result.error}` : ''}`, ErrorType.RUNTIME);
-      } else {
-        logger.info(`恢复成功: 任务 ${result.taskId}`);
-        if (result.runResult) {
-          logger.info(`输出: ${result.runResult.output.substring(0, 200)}`);
+      } catch (error) {
+        if (error instanceof VectaHubError) {
+          throw error;
         }
+        const message = error instanceof Error ? error.message : String(error);
+        if (options.json) {
+          console.log(JSON.stringify({ ok: false, error: message }, null, 2));
+        } else {
+          logger.error(`恢复执行失败: ${message}`);
+        }
+        throw new VectaHubError(`恢复执行失败: ${message}`, ErrorType.RUNTIME, error);
       }
-    } catch (error) {
-      if (error instanceof VectaHubError) {
-        throw error;
-      }
-      const message = error instanceof Error ? error.message : String(error);
-      if (options.json) {
-        console.log(JSON.stringify({ ok: false, error: message }, null, 2));
-      } else {
-        logger.error(`恢复执行失败: ${message}`);
-      }
-      throw new VectaHubError(`恢复执行失败: ${message}`, ErrorType.RUNTIME, error);
-    }
-  });
+    });
+}

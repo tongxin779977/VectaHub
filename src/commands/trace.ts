@@ -1,7 +1,8 @@
 import { Command } from 'commander';
 import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { TraceSpanRecord } from '../infrastructure/trace/types.js';
-import { getDefaultContext } from '../infrastructure/context.js';
+import type { InfrastructureContext } from '../infrastructure/context.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
 interface TraceSummary {
@@ -50,13 +51,12 @@ function isFileWithinRecentDays(fileName: string, recentDateSet: Set<string>): b
   return recentDateSet.has(match[1]);
 }
 
-async function readSpans(options?: {
+async function readSpans(env: IEnvironmentService, options?: {
   traceId?: string;
   maxDays?: number;
   maxSpans?: number;
   scanAllFiles?: boolean;
 }): Promise<TraceSpanRecord[]> {
-  const env = getDefaultContext().environment;
   const dir = getVectaHubPath('logs', 'traces');
   let files: string[];
   const maxDays = options?.maxDays ?? 14;
@@ -81,7 +81,7 @@ async function readSpans(options?: {
 
   for (const file of files) {
     const fullPath = env.getPath('logs', 'traces', file);
-    
+
     try {
       for await (const line of env.readLines(fullPath)) {
         const text = line.trim();
@@ -141,59 +141,63 @@ function formatTree(spans: TraceSpanRecord[]): string {
     .join('\n');
 }
 
-const listCmd = new Command('list')
-  .description('查看最近 trace 概览')
-  .option('--json', '以 JSON 格式输出')
-  .option('--limit <n>', '最多返回多少条 trace', '20')
-  .action(async (options: { json?: boolean; limit?: string }) => {
-    try {
-      const limit = Math.max(1, parseInt(options.limit || '20', 10) || 20);
-      const spans = await readSpans({ maxDays: 14, maxSpans: 20000 });
-      const traces = summarizeTraces(spans).slice(0, limit);
-      if (options.json) {
-        console.log(JSON.stringify({ ok: true, traces }, null, 2));
-        return;
-      }
+export function createTraceCmd(context: InfrastructureContext): Command {
+  const env = context.environment;
 
-      if (traces.length === 0) {
-        console.log('暂无 trace 记录');
-        return;
-      }
+  const listCmd = new Command('list')
+    .description('查看最近 trace 概览')
+    .option('--json', '以 JSON 格式输出')
+    .option('--limit <n>', '最多返回多少条 trace', '20')
+    .action(async (options: { json?: boolean; limit?: string }) => {
+      try {
+        const limit = Math.max(1, parseInt(options.limit || '20', 10) || 20);
+        const spans = await readSpans(env, { maxDays: 14, maxSpans: 20000 });
+        const traces = summarizeTraces(spans).slice(0, limit);
+        if (options.json) {
+          console.log(JSON.stringify({ ok: true, traces }, null, 2));
+          return;
+        }
 
-      for (const trace of traces) {
-        console.log(
-          `${trace.traceId} spans=${trace.spanCount} failed=${trace.failedCount} duration=${trace.durationMs}ms totalSpan=${trace.totalSpanDurationMs}ms lastSeen=${trace.lastSeen}`,
+        if (traces.length === 0) {
+          console.log('暂无 trace 记录');
+          return;
+        }
+
+        for (const trace of traces) {
+          console.log(
+            `${trace.traceId} spans=${trace.spanCount} failed=${trace.failedCount} duration=${trace.durationMs}ms totalSpan=${trace.totalSpanDurationMs}ms lastSeen=${trace.lastSeen}`,
+          );
+        }
+      } catch (error) {
+        throw new VectaHubError(`Trace list failed: ${error instanceof Error ? error.message : String(error)}`, ErrorType.RUNTIME, error);
+      }
+    });
+
+  const showCmd = new Command('show')
+    .description('查看指定 trace 的 spans')
+    .argument('<traceId>', 'trace id')
+    .option('--json', '以 JSON 格式输出')
+    .action(async (traceId: string, options: { json?: boolean }) => {
+      try {
+        const spans = (await readSpans(env, { traceId, maxDays: 14, maxSpans: 5000, scanAllFiles: true })).sort(
+          (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
         );
+
+        if (options.json) {
+          console.log(JSON.stringify({ ok: true, traceId, spans }, null, 2));
+          return;
+        }
+
+        if (spans.length === 0) {
+          console.log(`未找到 trace: ${traceId}`);
+          return;
+        }
+
+        console.log(formatTree(spans));
+      } catch (error) {
+        throw new VectaHubError(`Trace show failed: ${error instanceof Error ? error.message : String(error)}`, ErrorType.RUNTIME, error);
       }
-    } catch (error) {
-      throw new VectaHubError(`Trace list failed: ${error instanceof Error ? error.message : String(error)}`, ErrorType.RUNTIME, error);
-    }
-  });
+    });
 
-const showCmd = new Command('show')
-  .description('查看指定 trace 的 spans')
-  .argument('<traceId>', 'trace id')
-  .option('--json', '以 JSON 格式输出')
-  .action(async (traceId: string, options: { json?: boolean }) => {
-    try {
-      const spans = (await readSpans({ traceId, maxDays: 14, maxSpans: 5000, scanAllFiles: true })).sort(
-        (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
-      );
-
-      if (options.json) {
-        console.log(JSON.stringify({ ok: true, traceId, spans }, null, 2));
-        return;
-      }
-
-      if (spans.length === 0) {
-        console.log(`未找到 trace: ${traceId}`);
-        return;
-      }
-
-      console.log(formatTree(spans));
-    } catch (error) {
-      throw new VectaHubError(`Trace show failed: ${error instanceof Error ? error.message : String(error)}`, ErrorType.RUNTIME, error);
-    }
-  });
-
-export const traceCmd = new Command('trace').description('查看链路追踪信息').addCommand(listCmd).addCommand(showCmd);
+  return new Command('trace').description('查看链路追踪信息').addCommand(listCmd).addCommand(showCmd);
+}

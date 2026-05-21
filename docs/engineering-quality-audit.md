@@ -44,6 +44,57 @@ Results:
 - Hardening scan: fallback-style returns, "continue running" warnings, placeholder code, and not-implemented branches remain in production source.
 - Determinism and lifecycle scan: direct process exits, time/random ID generation, global mutable state, and local-machine paths remain in source.
 
+## Remediation Progress
+
+This section records remediation batches completed after the original audit snapshot. It is intentionally separate from the findings above because the findings preserve the original scan context and may include examples that have since been migrated.
+
+Completed:
+
+- Batch A closed `P1: Production Source Contains Not-Implemented Branches and Placeholder/Mock Artifacts` for the targeted command and dashboard paths. The `module` command no longer generates not-implemented scaffold artifacts, the trace audit dashboard no longer ships runtime mock data, and the CLI command surface documentation was updated.
+- The error-handling batch closed the targeted `P1: Error Handling Still Contains Silent or Degraded Paths` paths in LLM, document parsing, and trace-audit closeout code. Failures now surface explicitly on the repaired paths instead of silently degrading.
+- Batch B migrated the primary `run`, `run-task`, run-task cleanup, and CLI tool cache manager paths away from default-context fallback behavior. `cli-main.ts` now acts as the composition root for these command factories, while the target business modules require explicit context on their migrated paths.
+- Batch C migrated the `parse-doc` command path to explicit context injection. The command is now registered through `createParseDocCmd(context)`, the old static `parseDocCmd` compatibility export was removed, and parse-doc tests target the factory path.
+- Batch D migrated the `list`, `history`, `rollback`, and development `status` command paths to explicit context factories while preserving the existing command options and behavior. The review verified restored history search options, rollback versioning behavior, status JSON output, and the absence of business-level `getDefaultContext()` usage in the migrated command modules.
+- Batch E migrated the `generate` command and `self-healing` repair loop to explicit context dependencies. The `generate` command is now registered through `createGenerateCmd(context)`, and `runSelfHealingLoop` receives infrastructure context from its caller instead of resolving the default context at module load time.
+- Batch F migrated the `run-command` and `trace` command paths to explicit context factories while preserving command options, JSON output, and error behavior. The trace command tests now target `createTraceCmd(context)`.
+- The `run-command` metadata path was also updated to use `context.environment.getCwd()` instead of direct `process.cwd()`, closing the leftover runtime-boundary risk identified during Batch F review.
+- Batch G migrated the `verify`, `doctor`, and `build` command paths to explicit context factories. The `verify` and `doctor` internal helpers (`runVerification`, `runChecks`) now accept explicit environment parameters instead of resolving the default context at module load time. The `doctor.test.ts` was updated to use a mock `IEnvironmentService` instead of mocking `child_process`.
+- Batch H migrated the `security` command path to `createSecurityCmd(context)`. The `getAuditHelper()` and `getCurrentSessionId()` helper functions were removed; audit helper and session ID are now resolved from the injected context. The `security.test.ts` was updated to target `createSecurityCmd(getDefaultContext())`.
+- Batch I migrated the `resume` and `rerun` command paths to explicit context factories (`createResumeCmd(context)`, `createRerunCmd(context)`). Module-level `getDefaultContext()` bindings were removed. The review verified that both command modules no longer use business-level default context access, and tests were updated to use mock context instead of relying on static command exports.
+- Batch J migrated the `mode`, `schedule`, `test`, and `validate` command paths to explicit context factories (`createModeCmd(context)`, `createScheduleCmd(context)`, `createTestCmd(context)`, `createValidateCmd(context)`). Module-level `getDefaultContext()` bindings were removed. The `validate` command's internal helpers (`extractMethods`, `validateModule`) now accept explicit environment parameters.
+- Batch K migrated the `detail`, `archive`, `monitor`, and `audit` command paths to explicit context factories (`createDetailCmd(context)`, `createArchiveCmd(context)`, `createMonitorCmd(context)`, `createAuditCmd(context)`). Module-level `getDefaultContext()` bindings were removed. The review verified the target command modules no longer use business-level default context access, and the `detail` and `archive` command tests now target factory-created commands.
+- Batch L migrated the `vscode-diagnostic`, `agent-task-contract`, and `agent-runtime-bootstrap` command/helper paths to explicit context injection. `vscode-diagnostic.ts` now exports `createVscodeDiagnosticCmd(context)` instead of a static `vscodeDiagnosticCmd`. `agent-task-contract.ts`'s `deriveDocExcerpt` now accepts `InfrastructureContext` as its first parameter. `agent-runtime-bootstrap.ts`'s `bootstrapAgentRuntime` and internal helpers (`resolveUserDefaultHome`, `copyBootstrapFile`) now accept `InfrastructureContext` as their first parameter. Callers in `cli-main.ts`, `run-task.ts`, and `cli-scanner.ts` were updated to pass explicit context. The review verified that the target command/helper modules no longer use business-level default context access. The `cli-scanner.ts` functions (`scanSingleTool`, `scanCLITools`) still use a default parameter `context = getDefaultContext()` only for backward compatibility with `tools.ts` and `priority-installer.ts` which are deferred to a later batch.
+- Batch M migrated the `export` and `import` command paths to explicit context factories (`createExportCmd(context)`, `createImportCmd(context)`). The module-level `getDefaultContext()` binding and derived environment/logger singletons were removed from `src/commands/export.ts`, and `cli-main.ts` now registers both commands from the composition-root context. The review verified that `src/commands/export.ts` no longer uses business-level default context access, and `export.test.ts` targets the factory-created command path.
+- Batch N migrated the `tools` command, CLI scanner, and priority installer scan bridge to explicit context injection. `tools.ts` now exports `createToolsCmd(context)`, `scanSingleTool` and `scanCLITools` now require `InfrastructureContext`, and `createDefaultInstaller(context)` passes that context into CLI scanning. The review verified no old-signature calls remain for `scanCLITools()`, `scanSingleTool(name)`, or `createDefaultInstaller()`.
+- Batch O migrated the `doc-task-runs` command path to explicit context injection. `doc-task-runs.ts` now exports `createDocTaskRunsCmd(context)`, and the exported helpers (`listRecentRuns`, `readLatestRuns`, `findRunById`) now receive `InfrastructureContext` from their callers instead of resolving the default context internally. The review verified that `src/commands/doc-task-runs.ts` no longer uses business-level default context access.
+- Batch P migrated the `templates` command path to explicit context injection. `templates.ts` now exports `createTemplatesCmd(context)`, resolves the built-in templates directory from that context, and creates the `use` and `save` subcommands inside the factory instead of exporting default-context-bound static commands. The review verified that `src/commands/templates.ts` no longer uses business-level default context access.
+- Batch Q migrated the `serve` and `client` command paths to explicit context injection. `serve.ts` now exports `createServeCommands(context)`, resolves socket and queue paths from the injected environment, and resolves audit helper/session access from the injected audit services. The review verified that `src/commands/serve.ts` no longer uses business-level default context access.
+
+Latest verification:
+
+- `npm run lint`: passed.
+- `npm run typecheck`: passed.
+- `npx vitest run src/commands/trace.test.ts`: passed.
+- `npx vitest run src/commands/doctor.test.ts`: passed.
+- `npx vitest run src/commands/security.test.ts`: passed.
+- `npx vitest run src/commands/resume.test.ts`: passed.
+- `npx vitest run src/commands/rerun.test.ts`: passed.
+- `npx vitest run src/commands/detail.test.ts src/commands/archive.test.ts`: passed.
+- `npx vitest run src/commands/vscode-diagnostic.test.ts src/commands/agent-task-contract.test.ts src/commands/agent-runtime-bootstrap.test.ts`: passed (20/20).
+- `npx vitest run src/setup/cli-scanner.test.ts`: passed.
+- `npx vitest run src/commands/vscode-diagnostic.test.ts src/commands/agent-task-contract.test.ts src/commands/agent-runtime-bootstrap.test.ts src/setup/cli-scanner.test.ts`: passed (39/39).
+- `npx vitest run src/commands/export.test.ts`: passed (4/4).
+- `npx vitest run src/commands/tools.test.ts src/setup/cli-scanner.test.ts src/setup/priority-installer.test.ts`: passed (47/47).
+- `npx vitest run src/commands/doc-task-runs.test.ts`: passed (5/5).
+- `npx vitest run src/commands/templates.test.ts`: passed (2/2).
+- `npx vitest run src/commands/serve.test.ts`: passed (3/3).
+
+Remaining focus for `P1: Default Global Infrastructure Context Is Still Used as a Compatibility Path`:
+
+- Several command modules still call `getDefaultContext()` directly, including `recover-task`.
+- NL and CLI-tool support modules still contain default-context fallbacks, including `src/nl/llm.ts`, `src/nl/intent-matcher.ts`, `src/nl/core/pipeline.ts`, `src/nl/llm-orchestrator.ts`, `src/cli-tools/command-rules/audit.ts`, and `src/cli-tools/registration/config.ts`.
+- The next remediation batches should continue to be narrow migrations that preserve existing behavior while replacing implicit default-context access with explicit dependencies.
+
 ## Findings
 
 ### P1: Default Global Infrastructure Context Is Still Used as a Compatibility Path

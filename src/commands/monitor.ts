@@ -1,15 +1,13 @@
 import { Command } from 'commander';
 import { performanceMonitor } from '../monitoring/monitor.js';
-import { getDefaultContext } from '../infrastructure/context.js';
+import type { InfrastructureContext } from '../infrastructure/context.js';
 import type { Alert, AlertConfig } from '../monitoring/metrics.js';
-
-const logger = getDefaultContext().logger.getLogger('monitor');
 
 function formatTimestamp(ts: number): string {
   return new Date(ts).toLocaleString();
 }
 
-function formatAlertTable(alerts: Alert[]): void {
+function formatAlertTable(alerts: Alert[], logger: { info: (msg: string) => void }): void {
   if (alerts.length === 0) {
     logger.info('  (no alerts)');
     return;
@@ -65,63 +63,81 @@ function formatSummary(summary: Record<string, { avg: number; max: number; min: 
   }
 }
 
-export const monitorCmd = new Command('monitor')
-  .description('Performance monitoring and metrics')
-  .command('start')
-  .description('Start the performance monitor')
-  .option('-i, --interval <ms>', 'Monitoring interval in milliseconds', '5000')
-  .action(async (options) => {
-    const interval = parseInt(options.interval) || 5000;
-    performanceMonitor.start(interval);
-    logger.info(`\n✅ Performance monitor started with ${interval}ms interval`);
-  })
-  .command('stop')
-  .description('Stop the performance monitor')
-  .action(() => {
-    performanceMonitor.stop();
-    logger.info('\n✅ Performance monitor stopped');
-  })
-  .command('status')
-  .description('Show current metrics')
-  .action(() => {
-    const summary = performanceMonitor.getSummary();
-    logger.info('\nPerformance Metrics Summary:\n');
-    formatSummary(summary);
-    console.log();
-  })
-  .command('alerts')
-  .description('Show alerts')
-  .option('-r, --resolved', 'Show resolved alerts')
-  .action((options) => {
-    const alerts = performanceMonitor.getAlerts(options.resolved);
-    logger.info(`\n${options.resolved ? 'Resolved' : 'Active'} Alerts:\n`);
-    formatAlertTable(alerts);
-    console.log();
-  })
-  .command('reset')
-  .description('Reset all metrics and alerts')
-  .action(() => {
-    performanceMonitor.reset();
-    logger.info('\n✅ Performance metrics and alerts reset');
-  })
-  .command('config')
-  .description('Configure alert thresholds')
-  .option('--enable', 'Enable alerting')
-  .option('--disable', 'Disable alerting')
-  .option('--cpu-warning <value>', 'CPU warning threshold (%)')
-  .option('--cpu-critical <value>', 'CPU critical threshold (%)')
-  .option('--memory-warning <value>', 'Memory warning threshold (%)')
-  .option('--memory-critical <value>', 'Memory critical threshold (%)')
-  .action((options) => {
-    const config: Partial<AlertConfig> = {};
+export function createMonitorCmd(context: InfrastructureContext): Command {
+  const logger = context.logger.getLogger('monitor');
 
-    if (options.enable !== undefined) {
-      config.enabled = true;
-    }
-    if (options.disable !== undefined) {
-      config.enabled = false;
-    }
+  const monitorCmd = new Command('monitor')
+    .description('Performance monitoring and metrics');
 
-    performanceMonitor.setConfig(config);
-    logger.info('\n✅ Monitor configuration updated');
-  });
+  monitorCmd
+    .command('start')
+    .description('Start the performance monitor')
+    .option('-i, --interval <ms>', 'Monitoring interval in milliseconds', '5000')
+    .action(async (options) => {
+      const interval = parseInt(options.interval) || 5000;
+      performanceMonitor.start(interval);
+      logger.info(`\n✅ Performance monitor started with ${interval}ms interval`);
+    });
+
+  monitorCmd
+    .command('stop')
+    .description('Stop the performance monitor')
+    .action(() => {
+      performanceMonitor.stop();
+      logger.info('\n✅ Performance monitor stopped');
+    });
+
+  monitorCmd
+    .command('status')
+    .description('Show current metrics')
+    .action(() => {
+      const summary = performanceMonitor.getSummary();
+      logger.info('\nPerformance Metrics Summary:\n');
+      formatSummary(summary);
+      console.log();
+    });
+
+  monitorCmd
+    .command('alerts')
+    .description('Show alerts')
+    .option('-r, --resolved', 'Show resolved alerts')
+    .action((options) => {
+      const alerts = performanceMonitor.getAlerts(options.resolved);
+      logger.info(`\n${options.resolved ? 'Resolved' : 'Active'} Alerts:\n`);
+      formatAlertTable(alerts, logger);
+      console.log();
+    });
+
+  monitorCmd
+    .command('reset')
+    .description('Reset all metrics and alerts')
+    .action(() => {
+      performanceMonitor.reset();
+      logger.info('\n✅ Performance metrics and alerts reset');
+    });
+
+  monitorCmd
+    .command('config')
+    .description('Configure alert thresholds')
+    .option('--enable', 'Enable alerting')
+    .option('--disable', 'Disable alerting')
+    .option('--cpu-warning <value>', 'CPU warning threshold (%)')
+    .option('--cpu-critical <value>', 'CPU critical threshold (%)')
+    .option('--memory-warning <value>', 'Memory warning threshold (%)')
+    .option('--memory-critical <value>', 'Memory critical threshold (%)')
+    .action((options) => {
+      const config: Partial<AlertConfig> = {};
+
+      if (options.enable !== undefined) {
+        config.enabled = true;
+      }
+      if (options.disable !== undefined) {
+        config.enabled = false;
+      }
+
+      performanceMonitor.setConfig(config);
+      logger.info('\n✅ Monitor configuration updated');
+    });
+
+  return monitorCmd;
+}

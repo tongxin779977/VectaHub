@@ -1,17 +1,18 @@
 import type { PromptManager } from './prompt-manager.js';
 import type { SessionManager } from './session-manager.js';
 import type { LLMConfig, LLMTool, LLMToolCall, LLMResponse as LLMClientResponse } from './llm.js';
+import type { LLMClientDeps } from './llm.js';
 import { LLMClient } from './llm.js';
 import { DEFAULT_INTENT_PARSER_ID } from './prompt-manager.js';
-import { getDefaultContext } from '../infrastructure/context.js';
-
-const logger = getDefaultContext().logger.getLogger('llm-orchestrator');
+import pino from 'pino';
 
 export interface LLMOrchestratorOptions {
   promptManager: PromptManager;
   sessionManager: SessionManager;
   llmConfig: LLMConfig;
   llmClient?: LLMClient;
+  logger?: pino.Logger;
+  llmClientDeps?: LLMClientDeps;
 }
 
 export interface LLMRequest {
@@ -74,12 +75,14 @@ class LLMOrchestratorImpl {
   private llmClient: LLMClient;
   private traces: Map<string, LLMTrace> = new Map();
   private maxTraces = 100;
+  private logger: pino.Logger;
 
   constructor(options: LLMOrchestratorOptions) {
     this.promptManager = options.promptManager;
     this.sessionManager = options.sessionManager;
     this.llmConfig = options.llmConfig;
-    this.llmClient = options.llmClient ?? new LLMClient(this.llmConfig);
+    this.logger = options.logger ?? pino({ name: 'llm-orchestrator' });
+    this.llmClient = options.llmClient ?? new LLMClient(this.llmConfig, options.llmClientDeps);
   }
 
   async ask(request: LLMRequest): Promise<LLMResponse> {
@@ -212,9 +215,9 @@ class LLMOrchestratorImpl {
     };
 
     if (trace.status === 'error') {
-      logger.error({ ...logPayload, errorMessage: trace.errorMessage }, `LLM trace FAILED: ${trace.traceId}`);
+      this.logger.error({ ...logPayload, errorMessage: trace.errorMessage }, `LLM trace FAILED: ${trace.traceId}`);
     } else {
-      logger.info(logPayload, `LLM trace completed: ${trace.traceId}`);
+      this.logger.info(logPayload, `LLM trace completed: ${trace.traceId}`);
     }
   }
 

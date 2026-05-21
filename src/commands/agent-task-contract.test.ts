@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { getDefaultContext, resetDefaultContext } from '../infrastructure/context.js';
 import {
   deriveAgentTaskBoundary,
   decideAgentTaskConcurrency,
@@ -12,6 +13,10 @@ import {
 import type { AgentTaskContract } from '../types/doc-task.js';
 
 describe('deriveDocExcerpt', () => {
+  beforeEach(() => {
+    resetDefaultContext();
+  });
+
   function withTempDoc(content: string): { path: string; cleanup: () => void } {
     const dir = mkdtempSync(join(tmpdir(), 'vectahub-doc-excerpt-'));
     const path = join(dir, 'doc.md');
@@ -35,7 +40,7 @@ describe('deriveDocExcerpt', () => {
 
     const temp = withTempDoc(doc);
     try {
-      const result = await deriveDocExcerpt({ docPath: temp.path, taskId: 'P2-1', label: 'AgentTaskContract 类型' });
+      const result = await deriveDocExcerpt(getDefaultContext(), { docPath: temp.path, taskId: 'P2-1', label: 'AgentTaskContract 类型' });
       expect(result.strategy).toBe('task-heading');
       expect(result.excerpt).toContain('## P2-1 AgentTaskContract 类型');
       expect(result.excerpt).not.toContain('## P2-2 其他任务');
@@ -48,7 +53,7 @@ describe('deriveDocExcerpt', () => {
     const doc = `前文\n任务标识在这里 P2-9\n后文`;
     const temp = withTempDoc(doc);
     try {
-      const result = await deriveDocExcerpt({ docPath: temp.path, taskId: 'P2-9', label: '不存在的标题' });
+      const result = await deriveDocExcerpt(getDefaultContext(), { docPath: temp.path, taskId: 'P2-9', label: '不存在的标题' });
       expect(result.strategy).toBe('task-id-window');
       expect(result.excerpt).toContain('P2-9');
     } finally {
@@ -60,7 +65,7 @@ describe('deriveDocExcerpt', () => {
     const doc = `前文\n这里描述 agent 合同边界\n后文`;
     const temp = withTempDoc(doc);
     try {
-      const result = await deriveDocExcerpt({ docPath: temp.path, taskId: 'P2-100', label: 'agent 合同边界' });
+      const result = await deriveDocExcerpt(getDefaultContext(), { docPath: temp.path, taskId: 'P2-100', label: 'agent 合同边界' });
       expect(result.strategy).toBe('label-window');
       expect(result.excerpt).toContain('agent 合同边界');
     } finally {
@@ -72,7 +77,7 @@ describe('deriveDocExcerpt', () => {
     const doc = 'abcdefg';
     const temp = withTempDoc(doc);
     try {
-      const result = await deriveDocExcerpt({ docPath: temp.path, taskId: 'X-1', label: 'YYY' });
+      const result = await deriveDocExcerpt(getDefaultContext(), { docPath: temp.path, taskId: 'X-1', label: 'YYY' });
       expect(result.strategy).toBe('head-fallback');
       expect(result.excerpt).toBe(`${doc}\n`);
     } finally {
@@ -84,7 +89,7 @@ describe('deriveDocExcerpt', () => {
     const doc = '# P2-1\n' + 'a'.repeat(100);
     const temp = withTempDoc(doc);
     try {
-      const result = await deriveDocExcerpt({ docPath: temp.path, taskId: 'P2-1', label: 'P2-1', maxChars: 20 });
+      const result = await deriveDocExcerpt(getDefaultContext(), { docPath: temp.path, taskId: 'P2-1', label: 'P2-1', maxChars: 20 });
       expect(result.truncated).toBe(true);
       expect(result.excerpt.length).toBe(20);
     } finally {

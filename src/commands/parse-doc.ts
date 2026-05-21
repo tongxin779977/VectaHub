@@ -2,10 +2,8 @@ import { Command } from 'commander';
 import { createLLMConfig, LLMClient } from '../nl/llm.js';
 import { DOC_TASK_PARSER_ID } from '../nl/prompt-manager.js';
 import type { DocTask } from '../types/index.js';
-import { getDefaultContext } from '../infrastructure/context.js';
+import { type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
-
-const logger = getDefaultContext().logger.getLogger('parse-doc');
 
 const DEFAULT_MAX_DOC_LENGTH = 50000;
 const DEFAULT_MAX_RETRIES = 2;
@@ -311,17 +309,17 @@ export function fallbackParseByRegex(content: string): DocTask[] {
   return tasks;
 }
 
-export async function parseDocTaskResult(filePath: string): Promise<ParseDocResult> {
-  const ctx = getDefaultContext();
-  const maxDocLength = ctx.environment.getEnvNumber('PARSE_DOC_MAX_LENGTH', DEFAULT_MAX_DOC_LENGTH) ?? DEFAULT_MAX_DOC_LENGTH;
-  const maxRetries = ctx.environment.getEnvNumber('PARSE_DOC_MAX_RETRIES', DEFAULT_MAX_RETRIES) ?? DEFAULT_MAX_RETRIES;
+export async function parseDocTaskResult(context: InfrastructureContext, filePath: string): Promise<ParseDocResult> {
+  const logger = context.logger.getLogger('parse-doc');
+  const maxDocLength = context.environment.getEnvNumber('PARSE_DOC_MAX_LENGTH', DEFAULT_MAX_DOC_LENGTH) ?? DEFAULT_MAX_DOC_LENGTH;
+  const maxRetries = context.environment.getEnvNumber('PARSE_DOC_MAX_RETRIES', DEFAULT_MAX_RETRIES) ?? DEFAULT_MAX_RETRIES;
 
-  const absolutePath = ctx.environment.resolvePath(filePath);
-  if (!ctx.environment.exists(absolutePath)) {
+  const absolutePath = context.environment.resolvePath(filePath);
+  if (!context.environment.exists(absolutePath)) {
     throw new VectaHubError(`文件不存在: ${absolutePath}`, ErrorType.FILESYSTEM);
   }
 
-  const docContent = ctx.environment.readFile(absolutePath);
+  const docContent = context.environment.readFile(absolutePath);
   if (docContent.length === 0) {
     throw new VectaHubError('文档内容为空', ErrorType.RUNTIME);
   }
@@ -353,11 +351,11 @@ export async function parseDocTaskResult(filePath: string): Promise<ParseDocResu
     };
   }
 
-  const client = new LLMClient(llmConfig);
+  const client = new LLMClient(llmConfig, { auditHelper: context.audit.getHelper() });
 
   if (docContent.length <= maxDocLength) {
     return {
-      tasks: await callLLMWithRetry(client, docContent, maxRetries),
+      tasks: await callLLMWithRetry(logger, client, docContent, maxRetries),
       source: 'llm',
       degraded: false,
       warnings: [],
@@ -382,7 +380,7 @@ export async function parseDocTaskResult(filePath: string): Promise<ParseDocResu
     logger.info(`正在解析第 ${i + 1}/${chunks.length} 段 (${content.length} 字符)...`);
 
     try {
-      const tasks = await callLLMWithRetry(client, content, maxRetries);
+      const tasks = await callLLMWithRetry(logger, client, content, maxRetries);
       allTasks.push(tasks);
       logger.info(`第 ${i + 1}/${chunks.length} 段解析成功，得到 ${tasks.length} 个任务`);
     } catch (error) {
@@ -429,12 +427,12 @@ export async function parseDocTaskResult(filePath: string): Promise<ParseDocResu
   };
 }
 
-export async function parseDocTasks(filePath: string): Promise<DocTask[]> {
-  const result = await parseDocTaskResult(filePath);
+export async function parseDocTasks(context: InfrastructureContext, filePath: string): Promise<DocTask[]> {
+  const result = await parseDocTaskResult(context, filePath);
   return result.tasks;
 }
 
-async function callLLMWithRetry(client: LLMClient, docContent: string, maxRetries: number): Promise<DocTask[]> {
+async function callLLMWithRetry(logger: ReturnType<InfrastructureContext['logger']['getLogger']>, client: LLMClient, docContent: string, maxRetries: number): Promise<DocTask[]> {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -503,52 +501,54 @@ export function parseTasksFromLLMOutput(output: string): DocTask[] {
   return tasks;
 }
 
-export const parseDocCmd = new Command('parse-doc')
-  .description('解析开发文档，提取结构化任务列表')
-  .argument('<path>', '文档文件路径')
-  .option('--json', '以 JSON 格式输出')
-  .action(async (filePath: string, options: { json?: boolean }) => {
-    const ctx = getDefaultContext();
-    if (options.json) {
-      ctx.logger.setMuted(true);
-    }
-    try {
-      logger.info(`正在解析文档: ${filePath}`);
-
-      const result = await parseDocTaskResult(filePath);
-      const { tasks } = result;
-
+export function createParseDocCmd(context: InfrastructureContext): Command {
+  const logger = context.logger.getLogger('parse-doc');
+  return new Command('parse-doc')
+    .description('解析开发文档，提取结构化任务列表')
+    .argument('<path>', '文档文件路径')
+    .option('--json', '以 JSON 格式输出')
+    .action(async (filePath: string, options: { json?: boolean }) => {
       if (options.json) {
-        console.log(JSON.stringify({
-          ok: true,
-          tasks,
-          source: result.source,
-          degraded: result.degraded,
-          warnings: result.warnings,
-        }, null, 2));
-        return;
-      } else {
-        console.log(`\n📋 解析到 ${tasks.length} 个任务:\n`);
-        if (result.degraded) {
-          for (const warning of result.warnings) {
-            console.log(`  [warning] ${warning}`);
+        context.logger.setMuted(true);
+      }
+      try {
+        logger.info(`正在解析文档: ${filePath}`);
+
+        const result = await parseDocTaskResult(context, filePath);
+        const { tasks } = result;
+
+        if (options.json) {
+          console.log(JSON.stringify({
+            ok: true,
+            tasks,
+            source: result.source,
+            degraded: result.degraded,
+            warnings: result.warnings,
+          }, null, 2));
+          return;
+        } else {
+          console.log(`\n📋 解析到 ${tasks.length} 个任务:\n`);
+          if (result.degraded) {
+            for (const warning of result.warnings) {
+              console.log(`  [warning] ${warning}`);
+            }
+            console.log('');
           }
+          console.log('─'.repeat(60));
+          for (const task of tasks) {
+            console.log(`  ${task.id.padEnd(10)} ${task.label}`);
+          }
+          console.log('─'.repeat(60));
           console.log('');
         }
-        console.log('─'.repeat(60));
-        for (const task of tasks) {
-          console.log(`  ${task.id.padEnd(10)} ${task.label}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (options.json) {
+          console.log(JSON.stringify({ ok: false, error: message }, null, 2));
+        } else {
+          logger.error(`解析失败: ${message}`);
         }
-        console.log('─'.repeat(60));
-        console.log('');
+        throw new VectaHubError(`解析失败: ${message}`, ErrorType.RUNTIME, error);
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (options.json) {
-        console.log(JSON.stringify({ ok: false, error: message }, null, 2));
-      } else {
-        logger.error(`解析失败: ${message}`);
-      }
-      throw new VectaHubError(`解析失败: ${message}`, ErrorType.RUNTIME, error);
-    }
-  });
+    });
+}

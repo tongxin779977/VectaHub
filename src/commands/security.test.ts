@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { resetDefaultContext } from '../infrastructure/context.js';
-import { securityCmd } from './security.js';
+import { getDefaultContext, resetDefaultContext } from '../infrastructure/context.js';
+import { createSecurityCmd } from './security.js';
 import { setTestMode } from '../security-protocol/manager.js';
 
 describe('security command', () => {
@@ -56,7 +56,7 @@ describe('security command', () => {
     process.env.VECTAHUB_HOME = blockedHome;
 
     await expect(
-      securityCmd.parseAsync(args, { from: 'user' })
+      createSecurityCmd(getDefaultContext()).parseAsync(args, { from: 'user' })
     ).rejects.toThrow(`Failed to initialize security manager for ${action}`);
   });
 });

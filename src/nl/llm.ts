@@ -1,5 +1,4 @@
 import type { AuditHelper } from '../infrastructure/audit/index.js';
-import { getDefaultContext } from '../infrastructure/context.js';
 import { getAllIntentNames, buildKeywordSummary } from './templates/index.js';
 import createLLMDialogControlSkill from '../skills/llm-dialog-control/index.js';
 import { loadConfig } from '../setup/first-run-wizard.js';

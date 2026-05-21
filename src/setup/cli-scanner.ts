@@ -4,6 +4,7 @@ import { createInterface } from 'readline';
 import { loadConfig, saveConfig } from './first-run-wizard.js';
 import { getAgentDescriptorById } from '../commands/agent-cli-adapter.js';
 import { bootstrapAgentRuntime } from '../commands/agent-runtime-bootstrap.js';
+import { type InfrastructureContext } from '../infrastructure/context.js';
 
 const execAsync = promisify(exec);
 
@@ -30,27 +31,27 @@ function createFailedStatus(name: string): CLIToolStatus {
   return { name, installed: false, hasPermission: false, invocable: false, ready: false };
 }
 
-export async function scanSingleTool(toolName: string): Promise<CLIToolStatus | null> {
+export async function scanSingleTool(toolName: string, context: InfrastructureContext): Promise<CLIToolStatus | null> {
   const toolDef = AI_CLI_TOOLS.find(t => t.name === toolName);
   if (!toolDef) {
     return null;
   }
 
   try {
-    return await checkTool(toolDef);
+    return await checkTool(toolDef, context);
   } catch {
     return createFailedStatus(toolName);
   }
 }
 
-export async function scanCLITools(): Promise<CLIToolStatus[]> {
+export async function scanCLITools(context: InfrastructureContext): Promise<CLIToolStatus[]> {
   console.log('🔍 扫描已安装的 AI CLI 工具...\n');
 
   const results: CLIToolStatus[] = [];
 
   for (const tool of AI_CLI_TOOLS) {
     try {
-      const status = await scanSingleTool(tool.name);
+      const status = await scanSingleTool(tool.name, context);
       if (!status) continue;
 
       results.push(status);
@@ -82,7 +83,7 @@ export async function scanCLITools(): Promise<CLIToolStatus[]> {
   return results;
 }
 
-async function checkTool(tool: { name: string; command: string; versionFlag: string }): Promise<CLIToolStatus> {
+async function checkTool(tool: { name: string; command: string; versionFlag: string }, context: InfrastructureContext): Promise<CLIToolStatus> {
   try {
     // Deep audit: Verify the binary exists in PATH
     const { stdout: pathOut } = await execAsync(`which ${tool.command}`);
@@ -111,7 +112,7 @@ async function checkTool(tool: { name: string; command: string; versionFlag: str
     let runtimeEnvPatch: Record<string, string> | undefined;
     if (descriptor) {
       try {
-        runtimeEnvPatch = (await bootstrapAgentRuntime({
+        runtimeEnvPatch = (await bootstrapAgentRuntime(context, {
           descriptor,
           workspaceRoot: process.cwd(),
         })).envPatch;

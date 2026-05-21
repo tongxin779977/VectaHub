@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { getDefaultContext } from '../infrastructure/context.js';
 
 vi.mock('../cli-tools/index.js', () => ({
   getCliToolRegistry: vi.fn(() => ({
@@ -58,7 +59,16 @@ vi.mock('../setup/cli-scanner.js', () => ({
   syncCLIToolPermissionState: vi.fn(),
 }));
 
-const { toolsCmd } = await import('./tools.js');
+vi.mock('./agent-cli-adapter.js', () => ({
+  getBuiltInAgentDescriptors: vi.fn(() => [
+    { id: 'codex', name: 'OpenAI Codex CLI' },
+    { id: 'gemini', name: 'Google Gemini CLI' },
+    { id: 'claude', name: 'Claude CLI' },
+    { id: 'aider', name: 'Aider CLI' },
+  ]),
+}));
+
+const { createToolsCmd } = await import('./tools.js');
 const cliScannerModule = await import('../setup/cli-scanner.js');
 const setupModule = await import('../setup/first-run-wizard.js');
 
@@ -70,7 +80,7 @@ describe('tools agents --json', () => {
   });
 
   it('should output installed, invocable and ready in json', async () => {
-    await toolsCmd.parseAsync(['node', 'test', 'agents', '--json']);
+    await createToolsCmd(getDefaultContext()).parseAsync(['node', 'test', 'agents', '--json']);
     const output = mockLog.mock.calls[0]?.[0];
     expect(typeof output).toBe('string');
 
@@ -110,7 +120,7 @@ describe('tools agents --json', () => {
   it('should sync permission state when --sync-config is provided', async () => {
     const syncSpy = vi.mocked(cliScannerModule.syncCLIToolPermissionState);
 
-    await toolsCmd.parseAsync(['node', 'test', 'agents', '--json', '--sync-config']);
+    await createToolsCmd(getDefaultContext()).parseAsync(['node', 'test', 'agents', '--json', '--sync-config']);
 
     expect(syncSpy).toHaveBeenCalledTimes(1);
     expect(syncSpy.mock.calls[0]?.[0]).toEqual(expect.arrayContaining([
@@ -129,7 +139,7 @@ describe('tools agents --json', () => {
       external_cli: {},
     } as any);
 
-    await toolsCmd.parseAsync(['node', 'test', 'agents', '--json']);
+    await createToolsCmd(getDefaultContext()).parseAsync(['node', 'test', 'agents', '--json']);
 
     const output = mockLog.mock.calls[0]?.[0];
     expect(typeof output).toBe('string');

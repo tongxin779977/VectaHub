@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { getAgentDescriptorById } from './agent-cli-adapter.js';
 import { bootstrapAgentRuntime } from './agent-runtime-bootstrap.js';
 import { initializeBuiltInAgents } from '../agent-runtime/factory.js';
-import { resetDefaultContext } from '../infrastructure/context.js';
+import { getDefaultContext, resetDefaultContext } from '../infrastructure/context.js';
 
 const originalVectaHubHome = process.env.VECTAHUB_HOME;
 const originalCodexHome = process.env.CODEX_HOME;
@@ -57,7 +57,7 @@ describe('bootstrapAgentRuntime', () => {
 
     try {
       const descriptor = getAgentDescriptorById('codex');
-      const result = await bootstrapAgentRuntime({
+      const result = await bootstrapAgentRuntime(getDefaultContext(), {
         descriptor: descriptor!,
         workspaceRoot: '/workspace/project-a',
       });
@@ -81,7 +81,7 @@ describe('bootstrapAgentRuntime', () => {
 
     try {
       const descriptor = getAgentDescriptorById('codex');
-      const first = await bootstrapAgentRuntime({
+      const first = await bootstrapAgentRuntime(getDefaultContext(), {
         descriptor: descriptor!,
         workspaceRoot: '/workspace/project-b',
       });
@@ -90,7 +90,7 @@ describe('bootstrapAgentRuntime', () => {
       unlinkSync(join(userHome, 'auth.json'));
       writeFileSync(join(userHome, 'config.toml'), 'model_provider = "right_code"\nmodel = "r2"\n');
 
-      const second = await bootstrapAgentRuntime({
+      const second = await bootstrapAgentRuntime(getDefaultContext(), {
         descriptor: descriptor!,
         workspaceRoot: '/workspace/project-b',
       });
@@ -112,7 +112,7 @@ describe('bootstrapAgentRuntime', () => {
 
     try {
       const descriptor = getAgentDescriptorById('claude');
-      const result = await bootstrapAgentRuntime({
+      const result = await bootstrapAgentRuntime(getDefaultContext(), {
         descriptor: descriptor!,
         workspaceRoot: '/workspace/project-c',
       });
@@ -135,7 +135,7 @@ describe('bootstrapAgentRuntime', () => {
 
     try {
       const descriptor = getAgentDescriptorById('claude');
-      const result = await bootstrapAgentRuntime({
+      const result = await bootstrapAgentRuntime(getDefaultContext(), {
         descriptor: descriptor!,
         workspaceRoot: '/workspace/project-d',
       });
