@@ -76,7 +76,10 @@ function getAgentExitFlushGraceMs(): number {
 }
 const DEFAULT_MAX_JSON_OUTPUT_LENGTH = 50000;
 function getMaxJsonOutputLength(): number {
-  return getContext().environment.getEnvNumber('RUN_TASK_MAX_JSON_OUTPUT_LENGTH', DEFAULT_MAX_JSON_OUTPUT_LENGTH) ?? DEFAULT_MAX_JSON_OUTPUT_LENGTH;
+  if (!boundContext) {
+    return DEFAULT_MAX_JSON_OUTPUT_LENGTH;
+  }
+  return boundContext.environment.getEnvNumber('RUN_TASK_MAX_JSON_OUTPUT_LENGTH', DEFAULT_MAX_JSON_OUTPUT_LENGTH) ?? DEFAULT_MAX_JSON_OUTPUT_LENGTH;
 }
 const TRUNCATED_OUTPUT_MARKER = '\n... (output truncated)';
 const NOISY_OUTPUT_PATTERNS = [
@@ -1278,7 +1281,9 @@ function validateGeneratedInvocation(tool: string, generated: GeneratedCommand):
 export async function runVerificationCommands(
   validationCommands: string[],
   cwd: string,
+  context?: InfrastructureContext,
 ): Promise<VerificationResult> {
+  const resolvedContext = context ?? getContext();
   const guard = getSecurityGuard();
   const securityContext: SecurityContext = {
     cwd,
@@ -1293,9 +1298,9 @@ export async function runVerificationCommands(
     // 使用新的安全防线进行风险评估
     const intention: CommandIntention = { rawCommand: cmd };
     const decision = await guard.assess(intention, securityContext);
-    
+
     if (decision.decision === 'BLOCKED') {
-      getLogger().warn(`验证命令被安全策略阻断 (critical): ${cmd} — ${decision.reason || ''}`);
+      resolvedContext.logger.getLogger('run-task').warn(`验证命令被安全策略阻断 (critical): ${cmd} — ${decision.reason || ''}`);
       results.push({ command: cmd, ok: false, exitCode: null, durationMs: 0 });
       overallOk = false;
       continue;
@@ -1303,7 +1308,7 @@ export async function runVerificationCommands(
 
     if (decision.decision === 'REQUIRES_CONFIRMATION') {
       // 在自动验证流程中，如果不具备交互能力，高风险命令视为阻断
-      getLogger().warn(`验证命令需要人工确认，在自动流程中已被跳过: ${cmd}`);
+      resolvedContext.logger.getLogger('run-task').warn(`验证命令需要人工确认，在自动流程中已被跳过: ${cmd}`);
       results.push({ command: cmd, ok: false, exitCode: null, durationMs: 0 });
       overallOk = false;
       continue;
@@ -1311,7 +1316,7 @@ export async function runVerificationCommands(
 
     const startMs = Date.now();
     try {
-      const { stdout, stderr } = await getContext().environment.exec(cmd, {
+      const { stdout, stderr } = await resolvedContext.environment.exec(cmd, {
         cwd,
       });
       const durationMs = Date.now() - startMs;

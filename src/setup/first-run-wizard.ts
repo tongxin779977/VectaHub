@@ -1,12 +1,15 @@
 import { dirname } from 'path';
 import { parse, stringify } from 'yaml';
 import { createInterface, type Interface } from 'readline';
-import { getDefaultContext } from '../infrastructure/context.js';
 import type { StepResult } from './priority-installer.js';
-import { getVectaHubPath } from '../infrastructure/paths/index.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
+import type pino from 'pino';
 
-const ctx = getDefaultContext();
-const logger = ctx.logger.getLogger('setup');
+export interface FirstRunWizardDeps {
+  environment: Pick<IEnvironmentService, 'exists' | 'ensureDir' | 'readFile' | 'writeFile' | 'getPath' | 'getEnv'>;
+  logger?: Pick<pino.Logger, 'error'>;
+  configPath?: string;
+}
 
 let sharedRl: Interface | null = null;
 let nonInteractiveMode = false;
@@ -16,10 +19,18 @@ export function setNonInteractiveMode(enabled: boolean): void {
 }
 
 export function isNonInteractiveMode(): boolean {
-  return nonInteractiveMode || 
-         process.env.VECTAHUB_NON_INTERACTIVE === '1' ||
-         process.env.CI === 'true' ||
-         process.env.CI === '1';
+  return isNonInteractiveModeWithDeps();
+}
+
+export function isNonInteractiveModeWithDeps(deps?: Pick<FirstRunWizardDeps, 'environment'>): boolean {
+  const getEnv = (name: string): string | undefined => {
+    return deps?.environment?.getEnv(name) ?? process.env[name];
+  };
+
+  return nonInteractiveMode
+    || getEnv('VECTAHUB_NON_INTERACTIVE') === '1'
+    || getEnv('CI') === 'true'
+    || getEnv('CI') === '1';
 }
 
 function getRl(): Interface {
@@ -98,53 +109,65 @@ const DEFAULT_CONFIG: VectaHubConfig = {
   ],
 };
 
-function getConfigPath(): string {
-  return getVectaHubPath('config.yaml');
+function resolveLogger(deps: FirstRunWizardDeps): Pick<pino.Logger, 'error'> {
+  return deps.logger ?? {
+    error(message: string): void {
+      console.error(message);
+    },
+  };
 }
 
-function getConfigDir(): string {
-  const configPath = getConfigPath();
+function getConfigPath(deps: FirstRunWizardDeps): string {
+  return deps.configPath ?? deps.environment.getPath('config.yaml');
+}
+
+function getConfigDir(deps: FirstRunWizardDeps): string {
+  const configPath = getConfigPath(deps);
   return dirname(configPath);
 }
 
 // Step 1: Create config directory
-export async function createConfigDir(): Promise<StepResult> {
-  const configDir = getConfigDir();
+export async function createConfigDir(deps: FirstRunWizardDeps): Promise<StepResult> {
+  const configDir = getConfigDir(deps);
 
   try {
-    if (ctx.environment.exists(configDir)) {
+    if (deps.environment.exists(configDir)) {
       return { success: true };
     }
 
-    ctx.environment.ensureDir(configDir);
+    deps.environment.ensureDir(configDir);
     return { success: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'unknown error';
-    return { success: false, reason: `创建配置目录失败: ${message}` };
+    const causeMessage = error instanceof Error && error.cause instanceof Error ? error.cause.message : '';
+    const fullMessage = causeMessage ? `${message}: ${causeMessage}` : message;
+    return { success: false, reason: `创建配置目录失败: ${fullMessage}` };
   }
 }
 
 // Step 2: Initialize config file
-export async function initConfigFile(): Promise<StepResult> {
-  const configPath = getConfigPath();
+export async function initConfigFile(deps: FirstRunWizardDeps): Promise<StepResult> {
+  const configPath = getConfigPath(deps);
 
   try {
-    if (ctx.environment.exists(configPath)) {
+    if (deps.environment.exists(configPath)) {
       return { success: true };
     }
 
     const content = stringify(DEFAULT_CONFIG);
-    ctx.environment.writeFile(configPath, content);
+    deps.environment.writeFile(configPath, content);
     return { success: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'unknown error';
-    return { success: false, reason: `初始化配置文件失败: ${message}` };
+    const causeMessage = error instanceof Error && error.cause instanceof Error ? error.cause.message : '';
+    const fullMessage = causeMessage ? `${message}: ${causeMessage}` : message;
+    return { success: false, reason: `初始化配置文件失败: ${fullMessage}` };
   }
 }
 
 // Step 3: Configure LLM provider (interactive)
-export async function configureLLMProvider(): Promise<StepResult> {
-  if (isNonInteractiveMode()) {
+export async function configureLLMProvider(deps: FirstRunWizardDeps): Promise<StepResult> {
+  if (isNonInteractiveModeWithDeps(deps)) {
     console.log('\n🔧 非交互模式: 跳过 AI 配置\n');
     return { success: true };
   }
@@ -161,7 +184,7 @@ export async function configureLLMProvider(): Promise<StepResult> {
   const answer = await promptUser('选择 [1-5]: ');
   const choice = answer.trim();
 
-  const config = loadConfig();
+  const config = loadConfig(deps);
 
   switch (choice) {
     case '1':
@@ -186,18 +209,18 @@ export async function configureLLMProvider(): Promise<StepResult> {
       return { success: true };
   }
 
-  saveConfig(config);
+  saveConfig(config, deps);
   closeRl();
   return { success: true };
 }
 
-export function isFirstRun(): boolean {
-  const configPath = getConfigPath();
-  if (!ctx.environment.exists(configPath)) {
+export function isFirstRun(deps: FirstRunWizardDeps): boolean {
+  const configPath = getConfigPath(deps);
+  if (!deps.environment.exists(configPath)) {
     return true;
   }
   try {
-    const content = ctx.environment.readFile(configPath);
+    const content = deps.environment.readFile(configPath);
     const config = parse(content) as VectaHubConfig;
     return !config.first_run_completed;
   } catch {
@@ -205,13 +228,13 @@ export function isFirstRun(): boolean {
   }
 }
 
-export function loadConfig(): VectaHubConfig {
-  const configPath = getConfigPath();
-  if (!ctx.environment.exists(configPath)) {
+export function loadConfig(deps: FirstRunWizardDeps): VectaHubConfig {
+  const configPath = getConfigPath(deps);
+  if (!deps.environment.exists(configPath)) {
     return { ...DEFAULT_CONFIG };
   }
   try {
-    const content = ctx.environment.readFile(configPath);
+    const content = deps.environment.readFile(configPath);
     const parsed = parse(content);
     return { ...DEFAULT_CONFIG, ...parsed };
   } catch {
@@ -219,40 +242,41 @@ export function loadConfig(): VectaHubConfig {
   }
 }
 
-export function saveConfig(config: VectaHubConfig): void {
-  const configPath = getConfigPath();
+export function saveConfig(config: VectaHubConfig, deps: FirstRunWizardDeps): void {
+  const configPath = getConfigPath(deps);
   const configDir = dirname(configPath);
 
-  if (!ctx.environment.exists(configDir)) {
-    ctx.environment.ensureDir(configDir);
+  if (!deps.environment.exists(configDir)) {
+    deps.environment.ensureDir(configDir);
   }
 
   const content = stringify(config);
-  ctx.environment.writeFile(configPath, content);
+  deps.environment.writeFile(configPath, content);
 }
 
-export async function runFirstRunWizard(): Promise<boolean> {
+export async function runFirstRunWizard(deps: FirstRunWizardDeps): Promise<boolean> {
+  const logger = resolveLogger(deps);
   // Step 1: Create config directory
-  const dirResult = await createConfigDir();
+  const dirResult = await createConfigDir(deps);
   if (!dirResult.success) {
     logger.error(dirResult.reason || '创建配置目录失败');
     return false;
   }
 
   // Step 2: Initialize config file
-  const initResult = await initConfigFile();
+  const initResult = await initConfigFile(deps);
   if (!initResult.success) {
     logger.error(initResult.reason || '初始化配置文件失败');
     return false;
   }
 
   // Step 3: Configure LLM provider (interactive)
-  await configureLLMProvider();
+  await configureLLMProvider(deps);
 
   // Mark first run as completed (responsibility moved from individual steps)
-  const config = loadConfig();
+  const config = loadConfig(deps);
   config.first_run_completed = true;
-  saveConfig(config);
+  saveConfig(config, deps);
 
   // Return true only if LLM was actually configured
   return config.ai_providers.vectahub_llm.enabled;

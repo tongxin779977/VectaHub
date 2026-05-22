@@ -91,15 +91,17 @@ const mockContextAuditHelper = {
 vi.mock('../infrastructure/context.js', () => ({
   getDefaultContext: vi.fn(() => ({
     environment: {
-      getAllEnv: () => process.env,
       getCwd: () => process.cwd(),
       getPath: (...segments: string[]) => join(process.env.VECTAHUB_HOME ?? process.cwd(), ...segments),
       resolvePath: (...segments: string[]) => join(...segments),
+      joinPath: (...segments: string[]) => join(...segments),
+      getDirname: (p: string) => p.split('/').slice(0, -1).join('/') || '.',
       getHomePath: () => process.env.VECTAHUB_HOME ?? process.cwd(),
       getTmpDir: () => tmpdir(),
       exists: (path: string) => existsSync(path),
       readFile: (path: string) => readFileSync(path, 'utf-8'),
       writeFile: (path: string, content: string) => writeFileSync(path, content, 'utf-8'),
+      ensureDir: (path: string) => mkdirSync(path, { recursive: true }),
       async *readLines(path: string) {
         const content = readFileSync(path, 'utf-8');
         for (const line of content.split(/\r?\n/)) {
@@ -108,6 +110,7 @@ vi.mock('../infrastructure/context.js', () => ({
       },
       mkdirAsync: (path: string, options?: { recursive?: boolean }) => mkdirAsync(path, options),
       readDir: (path: string) => readdirSync(path),
+      readDirObjects: (path: string) => readdirSync(path, { withFileTypes: true }).map(d => ({ name: d.name, isDirectory: () => d.isDirectory() })),
       rm: (path: string, options?: { recursive?: boolean; force?: boolean }) => rmSync(path, options),
       copyFile: (src: string, dest: string) => copyFileSync(src, dest),
       createWriteStream: (path: string, options?: { encoding?: string; flags?: string }) => createWriteStream(path, options as never),
@@ -119,12 +122,14 @@ vi.mock('../infrastructure/context.js', () => ({
         };
       },
       getEnv: (name: string, defaultValue?: string) => process.env[name] ?? defaultValue,
+      setEnv: (name: string, value: string) => { process.env[name] = value; },
       getEnvNumber: (name: string, defaultValue?: number) => {
         const value = process.env[name];
         if (value === undefined || value === '') return defaultValue;
         const parsed = Number(value);
         return Number.isNaN(parsed) ? defaultValue : parsed;
       },
+      getAllEnv: () => ({ ...process.env }),
       exec: vi.fn(async (command: string) => {
         const childProcess = await import('node:child_process');
         const [file, ...args] = command.split(' ');
@@ -206,7 +211,8 @@ vi.mock('../utils/logger.js', () => ({
   })),
 }));
 
-import { runTask, runTaskCleanLogsCmd, collectGitChanges, formatRunTaskJson, runVerificationCommands, splitCommandArgs, buildDefaultPrompt, type RunTaskResult } from './run-task.js';
+import { runTask, runTaskCleanLogsCmd, collectGitChanges, formatRunTaskJson, runVerificationCommands, splitCommandArgs, buildDefaultPrompt, bindRunTaskContext, type RunTaskResult } from './run-task.js';
+import { getDefaultContext } from '../infrastructure/context.js';
 import { createLLMConfig, createLLMConfigDigestSource } from '../nl/llm.js';
 import { assessCommandRisk } from '../security-protocol/engine.js';
 import { execFile, spawn } from 'node:child_process';
@@ -231,6 +237,7 @@ beforeEach(() => {
   if (defaultSpawnImpl) {
     vi.mocked(spawn).mockImplementation(defaultSpawnImpl as any);
   }
+  bindRunTaskContext(getDefaultContext() as any);
 });
 
 function restoreEnvVar(name: string, value: string | undefined): void {
