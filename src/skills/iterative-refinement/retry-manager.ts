@@ -17,6 +17,22 @@ const DEFAULT_CONFIG: RetryConfig = {
   enableAutoFix: true,
 };
 
+export interface RetryManagerOutput {
+  log(message?: string): void;
+}
+
+interface RetryManagerDeps {
+  output?: RetryManagerOutput;
+}
+
+function createDefaultRetryManagerOutput(): RetryManagerOutput {
+  return {
+    log: (message = '') => {
+      process.stdout.write(`${message}\n`);
+    },
+  };
+}
+
 function generateTaskId(): string {
   return `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -25,9 +41,10 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export function createRetryManager(customConfig?: Partial<RetryConfig>) {
+export function createRetryManager(customConfig?: Partial<RetryConfig>, deps: RetryManagerDeps = {}) {
   const config: RetryConfig = { ...DEFAULT_CONFIG, ...customConfig };
   const analyzer = createFiveWhysAnalyzer();
+  const output = deps.output ?? createDefaultRetryManagerOutput();
 
   async function executeWithRetry<T>(
     taskFn: () => Promise<T>,
@@ -102,7 +119,7 @@ export function createRetryManager(customConfig?: Partial<RetryConfig>) {
           lastAnalysis = analyzer.analyze(taskId, lastError);
           callbacks.onAnalysisComplete?.(lastAnalysis);
 
-          console.log(analyzer.formatAnalysis(lastAnalysis));
+          output.log(analyzer.formatAnalysis(lastAnalysis));
 
           if (config.enableAutoFix && lastAnalysis.rootCauses.length > 0) {
             const topCause = lastAnalysis.rootCauses[0];
@@ -110,13 +127,13 @@ export function createRetryManager(customConfig?: Partial<RetryConfig>) {
               const fixToApply = topCause.suggestedFixes[0];
               appliedFixes.push(fixToApply);
               callbacks.onFixApplied?.(fixToApply, attempt);
-              console.log(`\n[尝试修复] ${fixToApply}\n`);
+              output.log(`\n[尝试修复] ${fixToApply}\n`);
             }
           }
         }
 
         if (attempt < config.maxAttempts) {
-          console.log(
+          output.log(
             `\n[重试] 第 ${attempt}/${config.maxAttempts} ` +
             `次失败，${(backoffDelay / 1000).toFixed(1)}秒后重试...\n`
           );

@@ -2,7 +2,7 @@ export class MemoryMonitor {
   private maxMemoryMB: number;
   private checkIntervalMS: number;
   private intervalId: NodeJS.Timeout | null = null;
-  private overflowHandlers: Array<(usage: any, percentage: number) => void> = [];
+  private overflowHandlers: Array<(usage: NodeJS.MemoryUsage, percentage: number) => void> = [];
 
   constructor(maxMemoryMB = 512, checkIntervalMS = 1000) {
     this.maxMemoryMB = maxMemoryMB;
@@ -30,7 +30,7 @@ export class MemoryMonitor {
     }
   }
 
-  getCurrentUsage(): any {
+  getCurrentUsage(): NodeJS.MemoryUsage {
     return process.memoryUsage();
   }
 
@@ -41,7 +41,7 @@ export class MemoryMonitor {
   }
 
   registerOverflowHandler(
-    handler: (usage: any, percentage: number) => void
+    handler: (usage: NodeJS.MemoryUsage, percentage: number) => void
   ): void {
     this.overflowHandlers.push(handler);
   }

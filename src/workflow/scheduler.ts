@@ -289,17 +289,14 @@ async function saveSchedules(entries: ScheduleEntry[], environment: IEnvironment
 }
 
 function parseCronInterval(cron: string): number {
-  const match = cron.match(/^(\*|0) \/(\d+) (\*|\*) (\*|\*) (\*|\*)$/);
-  if (match) {
-    const minutes = parseInt(match[2], 10);
-    return minutes * 60 * 1000;
+  const everyMinutesMatch = cron.match(/^\*\/(\d+)\s+\*\s+\*\s+\*\s+\*$/);
+  if (everyMinutesMatch) {
+    const minutes = Number.parseInt(everyMinutesMatch[1], 10);
+    if (Number.isFinite(minutes) && minutes > 0) {
+      return minutes * 60 * 1000;
+    }
   }
-
   if (cron === '* * * * *') return 60 * 1000;
-  if (cron.startsWith('*/')) {
-    const mins = parseInt(cron.split(' ')[1] || '5', 10);
-    return mins * 60 * 1000;
-  }
 
   return 5 * 60 * 1000;
 }

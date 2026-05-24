@@ -18,7 +18,7 @@ function createFirstRunWizardBridgeDeps(): FirstRunWizardRuntimeDeps {
     logger: context.logger.getLogger('setup'),
     output: {
       log: (message: string) => {
-        console.log(message);
+        process.stdout.write(`${message}\n`);
       },
     },
   };

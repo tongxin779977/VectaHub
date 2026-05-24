@@ -4,7 +4,18 @@ import { DaemonMessage, DaemonResponse, DaemonState, DaemonStatus, DaemonConfig,
 
 export interface DaemonOptions {
   config?: Partial<DaemonConfig>;
+  output?: DaemonOutput;
 }
+
+export interface DaemonOutput {
+  error(message: string): void;
+}
+
+const defaultDaemonOutput: DaemonOutput = {
+  error: (message: string) => {
+    process.stderr.write(`${message}\n`);
+  },
+};
 
 export interface Daemon {
   start(): Promise<void>;
@@ -15,6 +26,7 @@ export interface Daemon {
 
 export function createDaemon(options: DaemonOptions = {}): Daemon {
   const config = { ...DEFAULT_DAEMON_CONFIG, ...options.config };
+  const output = options.output ?? defaultDaemonOutput;
   
   let state: DaemonState = DaemonState.STOPPED;
   let server: NetServer | null = null;
@@ -111,7 +123,9 @@ export function createDaemon(options: DaemonOptions = {}): Daemon {
           try {
             const message = JSON.parse(line) as DaemonMessage;
             taskQueue.push({ message, socket });
-            processQueue().catch(console.error);
+            processQueue().catch((error) => {
+              output.error(error instanceof Error ? error.message : String(error));
+            });
           } catch {
             continue;
           }

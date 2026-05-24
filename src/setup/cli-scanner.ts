@@ -26,7 +26,7 @@ export interface CLIScannerOutput {
 
 const consoleScannerOutput: CLIScannerOutput = {
   log: (message: string) => {
-    console.log(message);
+    process.stdout.write(`${message}\n`);
   },
 };
 

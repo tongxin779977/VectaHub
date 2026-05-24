@@ -86,15 +86,17 @@ Latest full test result:
 
 ## Quality Signal Note
 
-`scripts/collect_quality_signals.sh` still reports failure due to existing baseline debt:
+`scripts/collect_quality_signals.sh` now treats production type and output leaks as blocking gates:
 
-- `444` broad `any` usages.
-- `357` `console` usages.
+- Production explicit `any` usages: `0`.
+- Blocking current-process production `console.*` usages: `0`.
+- Allowed child-process code string usages: `2`.
+- Test explicit `any` usages are reported as advisory debt.
 
-These are historical cleanup items and should be handled in separate, focused batches.
+The allowed console strings are JavaScript snippets passed to child `node -e` processes and are not current-process CLI output.
 
 ## Recommended Next Batches
 
-1. Reduce `console` usage in command and support modules with clear CLI output boundaries.
-2. Reduce broad `any` in tests and high-churn command modules.
-3. Audit remaining direct `process.env`, `process.cwd()`, and `homedir()` usage outside composition roots or infrastructure wrappers.
+1. Reduce explicit `any` in tests with focused, low-risk batches.
+2. Audit remaining direct `process.env`, `process.cwd()`, and `homedir()` usage outside composition roots or infrastructure wrappers.
+3. Continue splitting oversized command and workflow modules only where tests protect the behavior.

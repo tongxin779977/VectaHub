@@ -48,7 +48,7 @@ export interface CliToolResult {
   error?: string;
   exitCode: number;
   duration: number;
-  context?: Record<string, any>;
+  context?: Record<string, unknown>;
 }
 
 export interface CliToolExecutor {
@@ -63,7 +63,7 @@ export interface CliExecutionOptions {
   timeout?: number;
   dryRun?: boolean;
   onConfirm?: () => Promise<boolean>;
-  context?: Record<string, any>;
+  context?: Record<string, unknown>;
 }
 
 export interface CliToolRegistry {
@@ -89,7 +89,7 @@ export interface ToolChainResult {
   success: boolean;
   results: CliToolResult[];
   totalDuration: number;
-  context?: Record<string, any>;
+  context?: Record<string, unknown>;
   error?: string;
   failedStep?: number;
 }

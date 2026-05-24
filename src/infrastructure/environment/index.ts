@@ -4,6 +4,8 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync
 import { readFile, mkdir } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { exec, execFile, spawn } from 'node:child_process';
+import type { ChildProcess, StdioOptions } from 'node:child_process';
+import type { WriteStream } from 'node:fs';
 import { promisify } from 'node:util';
 import { parse } from 'shell-quote';
 import type { IEnvironmentService } from '../interfaces/index.js';
@@ -262,9 +264,9 @@ export class EnvironmentService implements IEnvironmentService {
     }
   }
 
-  createWriteStream(path: string, options?: { encoding?: BufferEncoding; flags?: string }): any {
+  createWriteStream(path: string, options?: { encoding?: BufferEncoding; flags?: string }): WriteStream {
     try {
-      return createWriteStream(path, options as any);
+      return createWriteStream(path, options);
     } catch (error) {
       throw new VectaHubError(
         `Failed to create write stream for file: ${path}`,
@@ -360,9 +362,9 @@ export class EnvironmentService implements IEnvironmentService {
     }
   }
 
-  spawn(command: string, args: string[], options?: { cwd?: string; env?: Record<string, string | undefined>; stdio?: any }): any {
+  spawn(command: string, args: string[], options?: { cwd?: string; env?: Record<string, string | undefined>; stdio?: StdioOptions }): ChildProcess {
     try {
-      return spawn(command, args, options);
+      return spawn(command, args, options ?? {});
     } catch (error) {
       throw new VectaHubError(
         `Failed to spawn process: ${command} ${args.join(' ')}`,

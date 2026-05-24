@@ -69,7 +69,7 @@ export class AuditService implements IAuditService {
         }
       },
       query: (options?: AuditQueryOptions) => {
-        return this.auditLogger.query(options as any);
+        return this.auditLogger.query(options);
       },
       export: (format: 'json' | 'csv') => {
         return this.auditLogger.export(format);
@@ -89,20 +89,33 @@ export class AuditService implements IAuditService {
   }
 
   private wrapHelperWithErrorHandling(helper: AuditHelper): AuditHelper {
-    const wrapped: Partial<AuditHelper> = {};
+    return {
+      log: (event) => this.runAuditHelperCall(() => helper.log(event)),
+      cliCommand: (cmd, args, sessionId) => this.runAuditHelperCall(() => helper.cliCommand(cmd, args, sessionId)),
+      cliOutput: (cmd, output, sessionId) => this.runAuditHelperCall(() => helper.cliOutput(cmd, output, sessionId)),
+      workflowStart: (workflowId, intent, sessionId, metadata) => this.runAuditHelperCall(() => helper.workflowStart(workflowId, intent, sessionId, metadata)),
+      workflowEnd: (workflowId, status, duration, sessionId) => this.runAuditHelperCall(() => helper.workflowEnd(workflowId, status, duration, sessionId)),
+      workflowStep: (stepId, cli, args, sessionId, metadata) => this.runAuditHelperCall(() => helper.workflowStep(stepId, cli, args, sessionId, metadata)),
+      securityAlert: (ruleId, command, severity, sessionId) => this.runAuditHelperCall(() => helper.securityAlert(ruleId, command, severity, sessionId)),
+      securityAction: (action, target, result, sessionId) => this.runAuditHelperCall(() => helper.securityAction(action, target, result, sessionId)),
+      configChange: (module, key, oldVal, newVal, sessionId) => this.runAuditHelperCall(() => helper.configChange(module, key, oldVal, newVal, sessionId)),
+      intentMatch: (intent, confidence, params, sessionId, metadata) => this.runAuditHelperCall(() => helper.intentMatch(intent, confidence, params, sessionId, metadata)),
+      executorResult: (stepId, cli, exitCode, duration, sessionId, metadata) => this.runAuditHelperCall(() => helper.executorResult(stepId, cli, exitCode, duration, sessionId, metadata)),
+      fileOperation: (operation, path, sessionId, success, error) => this.runAuditHelperCall(() => helper.fileOperation(operation, path, sessionId, success, error)),
+      sandboxDetect: (command, isDangerous, severity, sessionId) => this.runAuditHelperCall(() => helper.sandboxDetect(command, isDangerous, severity, sessionId)),
+    };
+  }
 
-    for (const [key, method] of Object.entries(helper)) {
-      wrapped[key as keyof AuditHelper] = (...args: any[]) => {
-        try {
-          const auditMethod = method as (...args: unknown[]) => void;
-          auditMethod(...args);
-        } catch (error) {
-          this.handleAuditFailure(error as Error);
-        }
-      };
+  private runAuditHelperCall(call: () => void): void {
+    try {
+      call();
+    } catch (error) {
+      this.handleAuditFailure(this.normalizeError(error));
     }
+  }
 
-    return wrapped as AuditHelper;
+  private normalizeError(error: unknown): Error {
+    return error instanceof Error ? error : new Error(String(error));
   }
 
   private handleAuditFailure(error: Error): void {

@@ -29,38 +29,53 @@ npm install
 | `npm run lint` | 运行 ESLint 检查。 |
 | `npm run compile:extension` | 编译 VS Code extension workspace。 |
 
-## 谷歌工程规范 (Google Engineering Standards)
+## Google Engineering Standards
 
-本项目严格遵循谷歌工程规范，所有核心逻辑必须通过基础设施层进行解耦。
+VectaHub keeps reusable production logic behind explicit dependencies and narrow runtime adapters.
 
-### 1. 依赖注入 (DI) 与环境隔离
-严禁在业务代码（`src/utils/` 或 `src/commands/`）中直接调用 Node.js 原生模块（如 `fs`, `process`, `child_process`）。
-- **必须**通过显式注入的 `InfrastructureContext.environment` 或更窄的 `IEnvironmentService` 进行文件操作、环境变量读取或进程产生；不要在普通业务代码里直接解析默认 context。
-- **好处**：确保了代码的可测试性（Hermeticity），支持在内存中运行完整的集成测试。
+### 1. Dependency Injection and Runtime Boundaries
 
-### 2. 日志规范 (Logger Discipline)
-- **严禁**使用 `console.log` 输出调试信息。
-- **必须**使用 `InfrastructureContext.logger` 获取 pino 实例。
-- **Stderr 优先**：所有日志、告警、进度信息必须输出到 `stderr`。`stdout` 仅保留给业务数据输出（特别是 `--json` 模式）。
+Reusable business and support modules should receive `InfrastructureContext` or narrower service dependencies explicitly. Direct Node.js runtime access is allowed only at clear boundaries:
 
-### 3. 结构化遥测 (Structured Trace)
-所有复杂的业务流程必须包裹在 `startSpan` 或 `withSpan` 中。
-- 遵循 OpenTelemetry 规范选择合适的 `SpanKind`。
-- 确保 Trace ID 在整个调用链（插件 -> CLI -> Agent）中透传。
+- CLI composition roots and local command output adapters.
+- Standalone script entrypoints guarded by an executable `main()` path.
+- Infrastructure services whose purpose is to wrap filesystem, environment, process, path, or logger APIs.
+- Test helpers and documented compatibility bridges.
 
-### 4. 零 any 政策
-新代码严禁使用 `any` 类型。应优先使用 `unknown` 并配合 Zod 或类型守卫（Type Guards）进行类型收敛。
+### 2. Logger and Output Discipline
 
-## 技术债管理 (Lint & Types)
+- Do not use `console.*` for current-process production output.
+- Use explicit `output` adapters for user-visible CLI text, JSON payloads, and command-line script output.
+- Use `InfrastructureContext.logger` or narrower logger dependencies for internal diagnostics.
+- Preserve stdout for business data and JSON payloads; route diagnostics, warnings, and errors through stderr or structured loggers.
 
-当前项目存在 1100+ ESLint 警告（主要是 `any` 类型使用、`unused-vars` 和 `console` 语句）。
+### 3. Structured Trace
 
-### 处理原则
+Complex business flows should use the trace helpers that are already part of the code path, such as `startSpan` or `withSpan`.
 
-1. **渐进式清理**：遵循“童子军军规”，在修改某个模块时，顺便清理该模块内的 Lint 警告。
-2. **禁止暴力全量修复**：严禁进行全量 `eslint --fix` 或大规模修改 `any` 类型，除非经过充分的回归测试。
-3. **新增代码零警告**：新提交的代码应严格遵守 Lint 规约，不产生新的警告。
-4. **质量基线**：使用 `bash scripts/collect_quality_signals.sh` 监控警告总数，确保其处于下降趋势。
+- Select span names and attributes from the caller-visible contract.
+- Preserve trace identifiers across extension, CLI, workflow, and agent boundaries.
+
+### 4. Zero Production `any`
+
+Production source must not introduce `any`, `as any`, or `<any>` type escapes. External data should enter as `unknown` and be narrowed through project-owned types, parsers, or type guards.
+
+## Technical Debt Management
+
+The current production baseline is strict:
+
+- `npm run lint` reports `0` problems.
+- Production `any` usage is `0` by `scripts/collect_quality_signals.sh`.
+- Current-process production `console.*` usage is `0` by `scripts/collect_quality_signals.sh`.
+- Two remaining `console.log(...)` strings are allowed child-process code snippets passed to `node -e`; they are not current-process CLI output.
+- Test files still contain historical explicit `any` usage. The quality script reports this as advisory debt, not a production gate.
+
+### Handling Principles
+
+1. Keep production `any` and current-process `console.*` at zero.
+2. Do not run broad `eslint --fix` or large mechanical rewrites without focused regression coverage.
+3. Keep new code warning-free under `npm run lint`.
+4. Use `bash scripts/collect_quality_signals.sh` as the production quality gate and advisory test debt report.
 
 | `npm run package:vsix` | 编译并打包 VSIX。 |
 

@@ -18,11 +18,20 @@ npm run lint
 
 ## 统一质量评估
 
-如果需要一次性获取所有质量信号（Lint、Typecheck、Any 使用情况、Console 使用情况），请运行：
+如果需要一次性获取所有质量信号，请运行：
 
 ```bash
 bash scripts/collect_quality_signals.sh
 ```
+
+该脚本的阻塞门禁包括：
+
+- `npm run lint`
+- `npm run typecheck`
+- 生产代码中的显式 `any`
+- 当前进程生产代码中的裸 `console.*`
+
+测试文件中的显式 `any` 会作为 advisory debt 输出，不阻塞生产质量门禁。
 
 ## 测试运行
 

@@ -16,6 +16,11 @@ import type {
 
 export interface AlertSystemDeps {
   logger: Logger;
+  output?: AlertSystemOutput;
+}
+
+export interface AlertSystemOutput {
+  log(message: string): void;
 }
 
 /** 默认告警规则 */
@@ -52,6 +57,14 @@ const DEFAULT_ALERT_RULES: AlertRule[] = [
 /** 告警回调函数类型 */
 type AlertCallback = (alert: AlertEvent) => void;
 
+function createDefaultAlertOutput(): AlertSystemOutput {
+  return {
+    log: (message: string) => {
+      process.stdout.write(`${message}\n`);
+    },
+  };
+}
+
 /**
  * 异常检测和告警系统类
  * Anomaly Detection and Alert System Class
@@ -63,6 +76,7 @@ export class AlertSystem {
   private errorWindow: Map<string, number[]> = new Map();
   private windowSizeMs: number = 300000; // 5 分钟窗口
   private logger: Logger;
+  private output: AlertSystemOutput;
 
   constructor(rules: AlertRule[] | undefined, deps: AlertSystemDeps) {
     if (!deps.logger) {
@@ -71,6 +85,7 @@ export class AlertSystem {
 
     const defaultRules = rules ?? DEFAULT_ALERT_RULES;
     this.logger = deps.logger;
+    this.output = deps.output ?? createDefaultAlertOutput();
     for (const rule of defaultRules) {
       this.rules.set(rule.id, rule);
     }
@@ -300,7 +315,7 @@ export class AlertSystem {
     };
     const reset = '\x1b[0m';
     const color = levelColors[alert.level] || '';
-    console.log(`${color}[${alert.level}] ${alert.message}${reset}`);
+    this.output.log(`${color}[${alert.level}] ${alert.message}${reset}`);
   }
 
   /** 文件通知 */

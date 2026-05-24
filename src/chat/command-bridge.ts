@@ -1,5 +1,12 @@
 import type { Command } from 'commander';
 
+type StreamWrite = NodeJS.WriteStream['write'];
+type WriteCallback = (error?: Error | null) => void;
+
+function isCommanderError(error: unknown): error is { code?: string; message?: string } {
+  return typeof error === 'object' && error !== null;
+}
+
 export class CommandBridge {
   private program: Command;
 
@@ -15,22 +22,28 @@ export class CommandBridge {
     const originalStdoutWrite = process.stdout.write;
     const originalStderrWrite = process.stderr.write;
 
-    // Helper to capture output
-    const intercept = (chunk: any) => {
-      output += chunk.toString();
+    const intercept = ((chunk: string | Uint8Array, encodingOrCallback?: BufferEncoding | WriteCallback, callback?: WriteCallback) => {
+      output += typeof chunk === 'string'
+        ? chunk
+        : Buffer.from(chunk).toString(typeof encodingOrCallback === 'string' ? encodingOrCallback : undefined);
+      const resolvedCallback = typeof encodingOrCallback === 'function' ? encodingOrCallback : callback;
+      resolvedCallback?.();
       return true;
-    };
+    }) as StreamWrite;
 
     try {
       // Intercept streams
-      (process.stdout as any).write = intercept;
-      (process.stderr as any).write = intercept;
+      process.stdout.write = intercept;
+      process.stderr.write = intercept;
 
       // Execute command
       await this.program.parseAsync(fullArgs, { from: 'user' });
 
       return output.trim() || `✅ Command '${cmdName}' executed (no output).`;
-    } catch (error: any) {
+    } catch (error) {
+      if (!isCommanderError(error)) {
+        return (output + `\n❌ Error: ${String(error)}`).trim();
+      }
       if (error.code === 'commander.helpDisplayed' || error.code === 'commander.help') {
         return output.trim();
       }

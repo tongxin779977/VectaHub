@@ -13,6 +13,8 @@ interface Task<T> {
   maxRetries: number;
 }
 
+type QueuedTask = Task<unknown>;
+
 export interface TaskResult<T> {
   success: boolean;
   result?: T;
@@ -21,7 +23,7 @@ export interface TaskResult<T> {
 }
 
 export class WorkerPool {
-  private queue: Task<any>[] = [];
+  private queue: QueuedTask[] = [];
   private activeWorkers = 0;
   private maxSize: number;
   private maxQueueSize: number;
@@ -42,13 +44,14 @@ export class WorkerPool {
         return;
       }
 
-      this.queue.push({ 
+      const queuedTask: Task<T> = {
         execute: task, 
         resolve, 
         reject,
         retries: 0,
         maxRetries: maxRetries ?? this.maxRetries
-      });
+      };
+      this.queue.push(queuedTask as QueuedTask);
       this.processQueue();
     });
   }

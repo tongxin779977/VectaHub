@@ -36,11 +36,11 @@ rg -n "getDefaultContext\(" src packages --glob '!**/out/**' --glob '!**/*.test.
 Results:
 
 - `npm run typecheck`: passed.
-- `npm run lint`: passed with `1128` warnings and `0` errors.
+- `npm run lint`: passed.
 - Compatibility import scan: no business-code matches after excluding compatibility bridge directories.
-- Console scan: direct `console.*` remains in many non-test source files.
-- `getDefaultContext()` scan: the default global infrastructure context remains widely used outside the infrastructure layer.
-- Type-safety scan: `any`, double assertions, non-null assertions, and unused symbols remain in source.
+- Current-process production console scan: no blocking `console.*` usages remain. Two child-process JavaScript snippets still contain `console.log(...)` as command text.
+- `getDefaultContext()` scan: usage is restricted by `npm run check:default-context-usage`.
+- Type-safety scan: production explicit `any`, `as any`, and `<any>` usages are now blocked at zero by `scripts/collect_quality_signals.sh`.
 - Hardening scan: fallback-style returns, "continue running" warnings, placeholder code, and not-implemented branches remain in production source.
 - Determinism and lifecycle scan: direct process exits, time/random ID generation, global mutable state, and local-machine paths remain in source.
 
@@ -72,6 +72,7 @@ Completed:
 - Batch R migrated the `recover-task` command path to explicit context injection. `recover-task.ts` now exports `createRecoverTaskCmd(context)`, and `recoverTask(context, options)` resolves logger and environment access from the injected context. The review verified that `src/commands/recover-task.ts` no longer uses business-level default context access and that recovery trace environment variables are still saved and restored through `context.environment`.
 - Batch S migrated the targeted NL modules to explicit dependencies. `LLMClient` and `createLLMEnhancedParser` now require explicit `AuditHelper`, `createIntentMatcher` receives an audit helper from its caller, `createNLProcessor` requires an audit helper when it creates its own LLM client, and `createLLMOrchestrator` no longer derives a module-level logger from the default context. The review verified that the targeted NL modules no longer call `getDefaultContext()` directly.
 - Batch T migrated the targeted CLI-tool support modules to explicit dependencies. `CommandRuleAuditLogger` now requires explicit audit helper and session ID provider dependencies, and CLI-tool registration config loading/saving now requires an explicit config service outside test mode. The review verified that `src/cli-tools/command-rules/audit.ts` and `src/cli-tools/registration/config.ts` no longer call `getDefaultContext()` directly.
+- Batch U hardened the production quality gates. Production explicit `any` usages were removed from the reviewed source paths, current-process production `console.*` output was migrated to explicit output or logger adapters, and `scripts/collect_quality_signals.sh` now blocks production `any` and current-process `console.*` while reporting test `any` as advisory debt.
 
 Latest verification:
 
@@ -159,40 +160,16 @@ Recommended remediation:
 - For command execution, route through a command executor service that can enforce audit, timeout, environment redaction, and sandbox policy.
 - For extension-specific VS Code APIs, keep VS Code boundary code local, but isolate filesystem/process operations behind extension-local adapters.
 
-### P1: Direct Console Output Remains Broadly Used
+### P1: Current-Process Console Output Gate Is Enforced
 
-Direct `console.log`, `console.warn`, and `console.error` remain in non-test source files. Some command output is user-facing and should not be sent to a structured logger, but it still needs a dedicated CLI output abstraction so JSON mode, dry-run mode, testing, and error formatting remain consistent.
+Status: remediated for current-process production output.
 
-High-volume examples:
+Direct current-process `console.log`, `console.warn`, and `console.error` should not be used in non-test source files. User-facing output should go through explicit output adapters, and internal diagnostics should go through injected loggers.
 
-| File | Approximate count from scan |
-| --- | ---: |
-| `src/cli-main.ts` | 43 |
-| `src/commands/tools.ts` | 33 |
-| `src/commands/serve.ts` | 29 |
-| `src/commands/debug.ts` | 27 |
-| `src/commands/security.ts` | 25 |
-| `src/skills/iterative-refinement/example.ts` | 25 |
-| `src/commands/audit-cmd.ts` | 23 |
-| `src/commands/run-command.ts` | 19 |
-| `src/commands/templates.ts` | 18 |
-| `src/commands/queue.ts` | 16 |
-| `src/setup/first-run-wizard.ts` | 15 |
-| `src/setup/priority-installer.ts` | 13 |
+Current remaining matches:
 
-Internal/debug examples that should not use console directly:
-
-- `src/nl/orchestrator.ts:312`
-- `src/skills/executor.ts:66`
-- `src/security-protocol/manager.ts:85`
-- `src/security-protocol/manager.ts:102`
-- `src/security-protocol/manager.ts:131`
-- `src/security-protocol/manager.ts:149`
-- `src/workflow/template-market.ts:100`
-- `src/workflow/template-market.ts:202`
-- `src/infrastructure/audit/service.ts:28`
-- `src/infrastructure/audit/index.ts:112`
-- `src/infrastructure/trace-audit/alert-system.ts:298`
+- `src/commands/generate.ts`: child-process `node -e` JavaScript snippet.
+- `src/nl/prompt-manager.ts`: child-process `node -e` JavaScript snippet.
 
 Why this matters:
 
@@ -306,19 +283,11 @@ Recommended remediation:
 - Migrate business modules away from compatibility semantics before removing bridge exports.
 - Convert non-bridge compatibility comments into explicit versioned migration tasks or remove them when obsolete.
 
-### P1: Type Safety Debt Is Still Broad
+### P1: Production Explicit `any` Gate Is Enforced
 
-The lint output includes `@typescript-eslint/no-explicit-any` warnings, and direct scans found explicit `any`, `as any`, double assertions through `unknown`, and broad untyped records in production source. Some are legitimate framework boundaries, but several are in core execution, workflow, infrastructure, and command paths.
+Status: remediated for production explicit `any`.
 
-Representative locations:
-
-| Area | Examples |
-| --- | --- |
-| Infrastructure interfaces | `src/infrastructure/interfaces/environment-service.ts:131`, `src/infrastructure/interfaces/environment-service.ts:210` |
-| Infrastructure implementations | `src/infrastructure/environment/index.ts:257`, `src/infrastructure/environment/index.ts:355`, `src/infrastructure/audit/service.ts:36`, `src/infrastructure/trace-audit/index.ts:199` |
-| Workflow and execution | `src/workflow/storage.ts:60`, `src/workflow/storage.ts:90`, `src/workflow/context-transformer.ts:86`, `src/execution/record-manager.ts:60` |
-| Commands | `src/commands/run-command.ts:127`, `src/commands/run-command.ts:147`, `src/commands/run-task.ts:95`, `src/commands/history.ts:33` |
-| NL and skills | `src/chat/command-bridge.ts:19`, `src/nl/executor/command-executor.ts:59`, `src/skills/ai-modules/agent-delegate/agent-loop.ts:29`, `src/skills/llm-dialog-control/dialog-controller.ts:244` |
+The production gate now blocks explicit `any`, `as any`, and `<any>` in non-test TypeScript files. Test files still contain historical explicit `any` usage and are reported separately by `scripts/collect_quality_signals.sh`.
 
 Why this matters:
 
@@ -421,13 +390,9 @@ Recommended remediation:
 - Replace `Not implemented` with implemented behavior or a clear unsupported-feature contract.
 - Move mock dashboard data behind a development-only fixture or replace it with an empty-state model.
 
-### P2: Lint Warnings Indicate Style and Hygiene Drift
+### P2: Lint Hygiene Gate Is Clean
 
-`npm run lint` reports `1128` warnings. The main classes observed are:
-
-- `no-console`
-- `@typescript-eslint/no-explicit-any`
-- `@typescript-eslint/no-unused-vars`
+`npm run lint` currently reports `0` problems. The remaining type-safety debt is concentrated in tests and is reported by the quality signal script as advisory debt.
 
 Why this matters:
 
@@ -437,9 +402,9 @@ Why this matters:
 
 Recommended remediation:
 
-- Establish a warning budget and ratchet it down by module.
-- Start by making `no-console` and `no-explicit-any` blocking in newly touched files.
-- Remove unused imports and variables in low-risk mechanical cleanup batches.
+- Keep `npm run lint` at `0` problems.
+- Keep production explicit `any` and current-process production `console.*` at `0`.
+- Reduce test `any` in low-risk mechanical batches with focused test verification.
 
 ### P1: Global Mutable State and Singletons Reduce Isolation
 

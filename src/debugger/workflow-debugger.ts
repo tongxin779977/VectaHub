@@ -1,4 +1,4 @@
-import { type Workflow } from '../types/workflow.js';
+import { type Step, type Workflow } from '../types/workflow.js';
 import { type Breakpoint, type DebugState, type StepFrame, type ErrorInfo, type ExecutionHistory, type StepExecution, type WatchExpression, type DebugEvent, BreakpointType } from './debugger-api.js';
 import vm from 'vm';
 import type pino from 'pino';
@@ -90,6 +90,20 @@ function createSandboxContext(
     timeout: options.timeout ?? DEFAULT_TIMEOUT,
     memoryLimit: options.memoryLimit ?? DEFAULT_MEMORY_LIMIT,
   };
+}
+
+type ExecutableWorkflowStep = Step & {
+  execute(inputs: Record<string, unknown>): Promise<Record<string, unknown>> | Record<string, unknown>;
+};
+
+function getWorkflowStepName(step: Step): string {
+  const namedStep = step as Step & { name?: unknown };
+  return typeof namedStep.name === 'string' ? namedStep.name : step.id;
+}
+
+function isExecutableWorkflowStep(step: Step): step is ExecutableWorkflowStep {
+  const executableStep = step as Step & { execute?: unknown };
+  return typeof executableStep.execute === 'function';
 }
 
 export class WorkflowDebugger {
@@ -226,7 +240,7 @@ export class WorkflowDebugger {
 
       this.currentState.currentStepId = step.id;
 
-      const stepName = (step as any).name || step.id;
+      const stepName = getWorkflowStepName(step);
       const stepExecution: StepExecution = {
         stepId: step.id,
         stepName,
@@ -338,8 +352,8 @@ export class WorkflowDebugger {
     return false;
   }
 
-  private async executeStep(step: any, inputs: Record<string, unknown>): Promise<Record<string, unknown>> {
-    if (typeof step.execute === 'function') {
+  private async executeStep(step: Step, inputs: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (isExecutableWorkflowStep(step)) {
       return await step.execute(inputs);
     }
     return {};

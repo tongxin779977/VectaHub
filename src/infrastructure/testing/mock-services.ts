@@ -1,6 +1,10 @@
 import pino from 'pino';
 import type { IEnvironmentService, ILoggerService } from '../interfaces/index.js';
 import { Signal } from '../interfaces/environment-service.js';
+import type { ChildProcess, StdioOptions } from 'node:child_process';
+import type { WriteStream } from 'node:fs';
+
+type CapturedLog = Record<string, unknown>;
 
 /**
  * 内存日志服务，用于测试时捕获日志输出而不写入控制台或文件
@@ -8,7 +12,7 @@ import { Signal } from '../interfaces/environment-service.js';
 export class MockLoggerService implements ILoggerService {
   private level: pino.Level | 'silent' = 'info';
   private muted = false;
-  readonly logs: any[] = [];
+  readonly logs: CapturedLog[] = [];
 
   setLogLevel(level: pino.Level | 'silent'): void { this.level = level; }
   getLogLevel(): pino.Level | 'silent' { return this.level; }
@@ -18,7 +22,7 @@ export class MockLoggerService implements ILoggerService {
   private createMockLogger(name: string): pino.Logger {
     return pino({ name, level: this.muted ? 'silent' : this.level }, {
       write: (msg: string) => {
-        this.logs.push(JSON.parse(msg));
+        this.logs.push(JSON.parse(msg) as CapturedLog);
       }
     }) as unknown as pino.Logger;
   }
@@ -72,11 +76,16 @@ export class MockEnvironmentService implements IEnvironmentService {
     }
     return Array.from(entries);
   }
-  readDirObjects(_path: string): any[] { return []; }
+  readDirObjects(_path: string): { name: string; isDirectory(): boolean }[] { return []; }
   rm(path: string): void { this.files.delete(path); }
   copyFile(src: string, dest: string): void { this.writeFile(dest, this.readFile(src)); }
-  createWriteStream(_path: string): any { return { write: () => {}, end: () => {} }; }
-  stat(_path: string): any { return { size: 0, isDirectory: () => false }; }
+  createWriteStream(_path: string): WriteStream {
+    return {
+      write: () => true,
+      end: () => undefined,
+    } as unknown as WriteStream;
+  }
+  stat(_path: string): { size: number; isDirectory(): boolean } { return { size: 0, isDirectory: () => false }; }
   getTmpDir(): string { return '/test/tmp'; }
 
   getEnv(name: string, defaultValue?: string): string | undefined { return this.env.get(name) ?? defaultValue; }
@@ -97,14 +106,18 @@ export class MockEnvironmentService implements IEnvironmentService {
   }
 
   async exec(_cmd: string): Promise<{ stdout: string; stderr: string }> { return { stdout: '', stderr: '' }; }
-  spawn(): any { return {}; }
+  spawn(_command: string, _args: string[], _options?: { cwd?: string; env?: Record<string, string | undefined>; stdio?: StdioOptions }): ChildProcess {
+    return {
+      on: () => this.spawn(_command, _args, _options),
+    } as unknown as ChildProcess;
+  }
   exit(code = 0): never { throw new Error(`Process exited with code ${code}`); }
   getArgv(): string[] { return []; }
   getCwd(): string { return this.cwd; }
   getPlatform(): string { return 'darwin'; }
 
-  onSignal(_sig: Signal, _l: any): void {}
-  onUncaughtException(_l: any): void {}
-  onUnhandledRejection(_l: any): void {}
-  onWarning(_l: any): void {}
+  onSignal(_sig: Signal, _l: () => void | Promise<void>): void {}
+  onUncaughtException(_l: (error: Error) => void | Promise<void>): void {}
+  onUnhandledRejection(_l: (reason: unknown) => void | Promise<void>): void {}
+  onWarning(_l: (warning: Error) => void): void {}
 }

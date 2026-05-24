@@ -54,14 +54,6 @@ export function createRecordManager(baseDir?: string): RecordManager {
       for (const line of lines) {
         try {
           const record = JSON.parse(line) as ExecutionRecord;
-          
-          // Runtime type guard and transformation
-          if (record.startedAt) {
-            (record as any).startedAt = new Date(record.startedAt);
-          }
-          if ((record as any).endedAt) {
-            (record as any).endedAt = new Date((record as any).endedAt);
-          }
 
           if (!options.filter || options.filter(record)) {
             records.push(record);

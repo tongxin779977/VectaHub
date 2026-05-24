@@ -17,19 +17,20 @@ export interface DiagnosticTask {
 /**
  * 校验对象是否符合 DiagnosticTask 结构
  */
-export function validateDiagnosticTask(task: any): task is DiagnosticTask {
+export function validateDiagnosticTask(task: unknown): task is DiagnosticTask {
   if (!task || typeof task !== 'object') return false;
+  const candidate = task as Record<string, unknown>;
   
   const requiredFields = ['id', 'title', 'source', 'status'];
   for (const field of requiredFields) {
-    if (!task[field]) return false;
+    if (!candidate[field]) return false;
   }
 
   const validStatuses = ['pending', 'processing', 'completed', 'failed'];
-  if (!validStatuses.includes(task.status)) return false;
+  if (typeof candidate.status !== 'string' || !validStatuses.includes(candidate.status)) return false;
 
   const validSources = ['github-actions', 'manual', 'system'];
-  if (!validSources.includes(task.source)) return false;
+  if (typeof candidate.source !== 'string' || !validSources.includes(candidate.source)) return false;
 
   return true;
 }
@@ -37,8 +38,7 @@ export function validateDiagnosticTask(task: any): task is DiagnosticTask {
 /**
  * 校验队列数据是否为有效的任务列表
  */
-export function validateDiagnosticQueue(data: any): DiagnosticTask[] {
+export function validateDiagnosticQueue(data: unknown): DiagnosticTask[] {
   if (!Array.isArray(data)) return [];
   return data.filter(validateDiagnosticTask);
 }
-

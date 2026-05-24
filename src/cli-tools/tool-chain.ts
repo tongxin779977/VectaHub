@@ -6,19 +6,19 @@ const DEFAULT_TIMEOUT = 60000;
 export interface ToolChain {
   addStep(step: ToolStep): ToolChain;
   addSteps(steps: ToolStep[]): ToolChain;
-  setContext(key: string, value: any): ToolChain;
-  getContext(): Record<string, any>;
+  setContext(key: string, value: unknown): ToolChain;
+  getContext(): Record<string, unknown>;
   clear(): ToolChain;
   execute(): Promise<ToolChainResult>;
 }
 
 export function createToolChain(registry: CliToolRegistry): ToolChain {
   const steps: ToolStep[] = [];
-  let context: Record<string, any> = {};
+  let context: Record<string, unknown> = {};
 
   async function executeStep(
     step: ToolStep,
-    currentContext: Record<string, any>
+    currentContext: Record<string, unknown>
   ): Promise<CliToolResult> {
     const startTime = Date.now();
     const options = step.options || {};
@@ -103,12 +103,12 @@ export function createToolChain(registry: CliToolRegistry): ToolChain {
       return this;
     },
 
-    setContext(key: string, value: any): ToolChain {
+    setContext(key: string, value: unknown): ToolChain {
       context[key] = value;
       return this;
     },
 
-    getContext(): Record<string, any> {
+    getContext(): Record<string, unknown> {
       return { ...context };
     },
 

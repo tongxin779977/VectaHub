@@ -1,3 +1,6 @@
+import type { ChildProcess, StdioOptions } from 'node:child_process';
+import type { WriteStream } from 'node:fs';
+
 /**
  * 支持的系统信号
  */
@@ -142,7 +145,7 @@ export interface IEnvironmentService {
    * @param path - 文件路径
    * @param options - 写入选项
    */
-  createWriteStream(path: string, options?: { encoding?: string; flags?: string }): any;
+  createWriteStream(path: string, options?: { encoding?: BufferEncoding; flags?: string }): WriteStream;
 
   /**
    * 获取文件或目录信息
@@ -221,7 +224,7 @@ export interface IEnvironmentService {
    * @param args - 参数
    * @param options - 选项
    */
-  spawn(command: string, args: string[], options?: { cwd?: string; env?: Record<string, string | undefined>; stdio?: any }): any;
+  spawn(command: string, args: string[], options?: { cwd?: string; env?: Record<string, string | undefined>; stdio?: StdioOptions }): ChildProcess;
 
   /**
    * 退出进程

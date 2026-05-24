@@ -27,6 +27,25 @@ interface ToolCacheManagerOptions {
   context?: InfrastructureContext;
 }
 
+function readProcessStdout(error: unknown): string | null {
+  if (typeof error !== 'object' || error === null || !('stdout' in error)) {
+    return null;
+  }
+
+  const stdout = error.stdout;
+  if (typeof stdout === 'string') {
+    return stdout;
+  }
+  if (Buffer.isBuffer(stdout)) {
+    return stdout.toString();
+  }
+  return null;
+}
+
+function formatProcessHelpError(error: unknown): string {
+  return readProcessStdout(error) ?? (error instanceof Error ? error.message : String(error));
+}
+
 export class ToolCacheManager {
   private cacheDir: string;
   private context: InfrastructureContext;
@@ -111,7 +130,7 @@ export class ToolCacheManager {
       });
       helpOutput = stdout;
     } catch (error) {
-      helpOutput = error instanceof Error ? (error as any).stdout?.toString?.() || error.message : String(error);
+      helpOutput = formatProcessHelpError(error);
     }
 
     try {

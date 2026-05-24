@@ -2,6 +2,8 @@ import type { CommandDetection, DangerCategory } from '../types/index.js';
 import { getSecurityManager } from '../security-protocol/index.js';
 import { ShellTokenizer } from '../utils/shell-tokenizer.js';
 
+type DangerLevel = CommandDetection['level'];
+
 const CATEGORY_MAP: Record<string, DangerCategory> = {
   system: 'SYSTEM',
   filesystem: 'FS',
@@ -84,7 +86,7 @@ export function createDetector(): Detector {
         if (securityResult.isDangerous && securityResult.rule) {
           return {
             isDangerous: true,
-            level: securityResult.severity as any,
+            level: securityResult.severity,
             reason: securityResult.rule.description,
             matchedPattern: securityResult.matchedPattern,
             category: CATEGORY_MAP[securityResult.rule.category] || 'SYSTEM',
@@ -119,13 +121,13 @@ export function createDetector(): Detector {
     },
 
     getDangerLevel(command: string, cliTool?: string): {
-      level: 'critical' | 'high' | 'medium' | 'low' | 'none';
+      level: DangerLevel;
       matchedPattern?: RegExp;
     } {
       const securityResult = getManager().detectCommand(command, cliTool);
       if (securityResult.isDangerous) {
         return {
-          level: securityResult.severity as any,
+          level: securityResult.severity,
         };
       }
 

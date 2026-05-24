@@ -23,10 +23,12 @@ export interface ProcessDiagnosticQueueDependencies {
 }
 
 interface DiagnosticQueueOutput {
+  log(message: string): void;
   error(message: string): void;
 }
 
 const diagnosticQueueOutput: DiagnosticQueueOutput = {
+  log: (message: string) => process.stdout.write(`${message}\n`),
   error: (message: string) => process.stderr.write(`${message}\n`),
 };
 
@@ -159,7 +161,7 @@ async function main(): Promise<void> {
 
   if (action === 'list-pending') {
     const tasks = await listPendingDiagnosticTasks(createCliQueueManager());
-    console.log(JSON.stringify(tasks));
+    diagnosticQueueOutput.log(JSON.stringify(tasks));
     return;
   }
 

@@ -10,6 +10,8 @@ export interface ShellCommand {
   raw: string;
 }
 
+type ShellOperator = NonNullable<ShellCommand['operator']>;
+
 export class ShellTokenizer {
   /**
    * Decomposes a full command line into individual command components.
@@ -30,7 +32,7 @@ export class ShellTokenizer {
         commands.push({
           cli: tokens[0],
           args: tokens.slice(1),
-          operator: part.operator as any,
+          operator: part.operator,
           raw: part.content.trim()
         });
       }
@@ -39,8 +41,8 @@ export class ShellTokenizer {
     return commands;
   }
 
-  private static splitByOperators(input: string): { content: string, operator?: string }[] {
-    const results: { content: string, operator?: string }[] = [];
+  private static splitByOperators(input: string): { content: string, operator?: ShellOperator }[] {
+    const results: { content: string, operator?: ShellOperator }[] = [];
     let current = '';
     let inDoubleQuote = false;
     let inSingleQuote = false;

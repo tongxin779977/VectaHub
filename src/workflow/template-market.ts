@@ -126,7 +126,7 @@ async function cloneSource(environment: IEnvironmentService, source: TemplateSou
       const child = environment.spawn('git', args, { stdio: 'pipe' });
       
       let errorOutput = '';
-      child.stderr.on('data', (data: Buffer) => {
+      child.stderr?.on('data', (data: Buffer) => {
         errorOutput += data.toString();
       });
       
@@ -158,7 +158,7 @@ async function pullSource(environment: IEnvironmentService, source: TemplateSour
     });
     
     let errorOutput = '';
-    child.stderr.on('data', (data: Buffer) => {
+    child.stderr?.on('data', (data: Buffer) => {
       errorOutput += data.toString();
     });
     
