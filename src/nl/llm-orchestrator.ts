@@ -4,14 +4,14 @@ import type { LLMConfig, LLMTool, LLMToolCall, LLMResponse as LLMClientResponse 
 import type { LLMClientDeps } from './llm.js';
 import { LLMClient } from './llm.js';
 import { DEFAULT_INTENT_PARSER_ID } from './prompt-manager.js';
-import pino from 'pino';
+import type pino from 'pino';
 
 export interface LLMOrchestratorOptions {
   promptManager: PromptManager;
   sessionManager: SessionManager;
   llmConfig: LLMConfig;
+  logger: Pick<pino.Logger, 'info' | 'error'>;
   llmClient?: LLMClient;
-  logger?: pino.Logger;
   llmClientDeps?: LLMClientDeps;
 }
 
@@ -75,13 +75,13 @@ class LLMOrchestratorImpl {
   private llmClient: LLMClient;
   private traces: Map<string, LLMTrace> = new Map();
   private maxTraces = 100;
-  private logger: pino.Logger;
+  private logger: Pick<pino.Logger, 'info' | 'error'>;
 
   constructor(options: LLMOrchestratorOptions) {
     this.promptManager = options.promptManager;
     this.sessionManager = options.sessionManager;
     this.llmConfig = options.llmConfig;
-    this.logger = options.logger ?? pino({ name: 'llm-orchestrator' });
+    this.logger = options.logger;
     if (options.llmClient) {
       this.llmClient = options.llmClient;
     } else if (options.llmClientDeps) {

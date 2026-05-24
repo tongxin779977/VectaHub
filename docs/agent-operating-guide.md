@@ -128,6 +128,59 @@ During implementation:
 
 <!-- 中文注释：先锁定范围，再实现；超过范围要停下来确认。 -->
 
+## Default Context Boundary
+
+The repository currently enforces the `getDefaultContext()` boundary with `npm run check:default-context-usage`.
+
+Allowed locations are limited to:
+
+- `src/infrastructure/context.ts` as the default context definition point.
+- `src/cli-main.ts` and `src/cli-bootstrap.ts` as the CLI composition roots.
+- Explicit compatibility bridge files named `compat-bridge.ts` or `*-bridge.ts`.
+
+Direct `getDefaultContext()` usage outside that allowlist is a contract violation, not a style preference.
+
+Ordinary business and support modules must not call `getDefaultContext()` directly.
+They must receive `InfrastructureContext` or narrower dependencies explicitly through constructors, factories, or helper parameters.
+
+Preferred patterns for new or migrated modules:
+
+- Constructor injection for long-lived services.
+- Factory functions such as `createX(context)`, `createX(deps)`, or `createXWithDeps(deps, options)`.
+- Narrow service contracts such as `logger`, `environment`, `config`, `audit`, or other module-specific dependency objects instead of broad hidden globals.
+
+Compatibility APIs are allowed only when the project intentionally keeps a historical no-argument entrypoint.
+When that happens:
+
+- Put the compatibility entrypoint in a clearly named bridge file: `compat-bridge.ts` or `*-bridge.ts`.
+- Keep `getDefaultContext()` inside a small private bridge helper or bridge-local dependency builder.
+- Keep business logic in the explicit-dependency module, and let the bridge only assemble dependencies and delegate.
+- Mark the compatibility export with `@deprecated`.
+- The `@deprecated` note must point callers to the explicit dependency API, for example `createTraceAuditSystemWithDeps(deps, config)` or `createRunCmd(context)`.
+
+This rule describes the current repository state:
+
+- CLI command composition happens in `src/cli-main.ts` and `src/cli-bootstrap.ts`.
+- Infrastructure compatibility wrappers such as `src/infrastructure/paths/compat-bridge.ts`, `src/infrastructure/logger/compat-bridge.ts`, and `src/infrastructure/trace-audit/compat-bridge.ts` remain valid bridge locations.
+- Non-bridge production modules are expected to migrate to explicit dependency injection instead of adding new default-context access.
+
+During review, any new `getDefaultContext()` usage in a non-allowlisted file should be treated as a regression and blocked until it is moved to a composition root or compatibility bridge, or replaced with explicit dependency injection.
+
+## Explicit Dependency Boundary
+
+Normal business modules must not replace `getDefaultContext()` with another hidden default such as module-level `process.env`, `homedir()`, `pino({ level: 'silent' })`, or mutable singleton state.
+
+Allowed direct runtime boundary access is limited to:
+
+- CLI composition roots that assemble dependencies and delegate to explicit-dependency modules.
+- Standalone script entrypoints guarded by an executable `main()` path.
+- Infrastructure services whose purpose is to wrap Node.js runtime APIs.
+- Test helpers and explicit compatibility bridges.
+
+When a module exposes reusable functions, those functions should accept explicit dependencies even if the same file also contains a CLI `main()` bridge.
+
+<!-- 中文注释：清理默认 context 后，不能把隐式依赖换成新的全局默认值。 -->
+
 ## Change Safety
 
 - Preserve existing behavior unless the task explicitly requires changing it.

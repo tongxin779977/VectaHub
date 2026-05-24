@@ -30,18 +30,18 @@ export class AuditService implements IAuditService {
   ) {
     this.environment = environment;
     this.failureMode = options?.failureMode ?? 'fail-open';
-    this.onError = options?.onError || ((error) => {
-      console.error('[AUDIT] 审计日志写入失败:', error.message);
+    if (!options?.onError && this.failureMode === 'fail-open') {
+      throw new Error('AuditService fail-open mode requires an explicit onError handler');
+    }
+    this.onError = options?.onError ?? ((error) => {
+      throw error;
     });
 
     const baseDir = this.environment.getPath('logs', 'audit');
     const actualSessionId = options?.sessionId || generateSessionId();
-    this.auditLogger = new AuditLogger(actualSessionId, baseDir);
-
-    // 注入错误处理回调到审计日志记录器
-    (this.auditLogger as unknown as { onError?: (error: Error) => void }).onError = (error: Error) => {
-      this.handleAuditFailure(error);
-    };
+    this.auditLogger = new AuditLogger(actualSessionId, baseDir, {
+      onError: (error) => this.handleAuditFailure(error),
+    });
 
     this.auditHelper = createAuditHelper(this.auditLogger);
   }

@@ -83,7 +83,11 @@ export async function runSelfHealingLoop(
   if (suggestion.command) {
     logger.info(`\n🚀 正在尝试修复: ${suggestion.command}`);
 
-    const engine = createWorkflowEngine({ audit: context.audit.getHelper(), environment: context.environment });
+    const engine = createWorkflowEngine({
+      audit: context.audit.getHelper(),
+      environment: context.environment,
+      logger,
+    });
     const fixStep: Step = {
       id: `fix_${Date.now()}`,
       type: 'exec',

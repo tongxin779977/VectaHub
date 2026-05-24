@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { format } from 'node:util';
 import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { TraceSpanRecord } from '../infrastructure/trace/types.js';
 import type { InfrastructureContext } from '../infrastructure/context.js';
@@ -12,6 +13,22 @@ interface TraceSummary {
   durationMs: number;
   totalSpanDurationMs: number;
   lastSeen: string;
+}
+
+interface TraceCommandOutput {
+  log(message?: unknown, ...optionalParams: unknown[]): void;
+  json(payload: unknown, options?: { space?: number }): void;
+}
+
+function createTraceCommandOutput(): TraceCommandOutput {
+  return {
+    log(message?: unknown, ...optionalParams: unknown[]): void {
+      process.stdout.write(`${format(message, ...optionalParams)}\n`);
+    },
+    json(payload: unknown, options?: { space?: number }): void {
+      process.stdout.write(`${JSON.stringify(payload, null, options?.space ?? 2)}\n`);
+    },
+  };
 }
 
 function buildRecentUtcDateSet(maxDays: number): Set<string> {
@@ -143,6 +160,7 @@ function formatTree(spans: TraceSpanRecord[]): string {
 
 export function createTraceCmd(context: InfrastructureContext): Command {
   const env = context.environment;
+  const output = createTraceCommandOutput();
 
   const listCmd = new Command('list')
     .description('查看最近 trace 概览')
@@ -154,17 +172,17 @@ export function createTraceCmd(context: InfrastructureContext): Command {
         const spans = await readSpans(env, { maxDays: 14, maxSpans: 20000 });
         const traces = summarizeTraces(spans).slice(0, limit);
         if (options.json) {
-          console.log(JSON.stringify({ ok: true, traces }, null, 2));
+          output.json({ ok: true, traces });
           return;
         }
 
         if (traces.length === 0) {
-          console.log('暂无 trace 记录');
+          output.log('暂无 trace 记录');
           return;
         }
 
         for (const trace of traces) {
-          console.log(
+          output.log(
             `${trace.traceId} spans=${trace.spanCount} failed=${trace.failedCount} duration=${trace.durationMs}ms totalSpan=${trace.totalSpanDurationMs}ms lastSeen=${trace.lastSeen}`,
           );
         }
@@ -184,16 +202,16 @@ export function createTraceCmd(context: InfrastructureContext): Command {
         );
 
         if (options.json) {
-          console.log(JSON.stringify({ ok: true, traceId, spans }, null, 2));
+          output.json({ ok: true, traceId, spans });
           return;
         }
 
         if (spans.length === 0) {
-          console.log(`未找到 trace: ${traceId}`);
+          output.log(`未找到 trace: ${traceId}`);
           return;
         }
 
-        console.log(formatTree(spans));
+        output.log(formatTree(spans));
       } catch (error) {
         throw new VectaHubError(`Trace show failed: ${error instanceof Error ? error.message : String(error)}`, ErrorType.RUNTIME, error);
       }

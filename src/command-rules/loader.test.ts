@@ -4,6 +4,10 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { loadRuleSet } from './loader.js';
 
+const deps = {
+  logger: { error: () => {} },
+};
+
 describe('command-rules loader', () => {
   let tempDir = '';
 
@@ -19,7 +23,7 @@ describe('command-rules loader', () => {
   });
 
   it('returns empty rules when rule file is missing', () => {
-    const result = loadRuleSet(join(tempDir, 'missing.json'));
+    const result = loadRuleSet(join(tempDir, 'missing.json'), deps);
 
     expect(result).toEqual([]);
   });
@@ -28,6 +32,6 @@ describe('command-rules loader', () => {
     const filePath = join(tempDir, 'broken.json');
     writeFileSync(filePath, '{bad json', 'utf-8');
 
-    expect(() => loadRuleSet(filePath)).toThrow(`Failed to load command rule set from ${filePath}`);
+    expect(() => loadRuleSet(filePath, deps)).toThrow(`Failed to load command rule set from ${filePath}`);
   });
 });

@@ -6,7 +6,6 @@ import type { ChatConfig } from './config.js';
 import type { SessionManager } from '../nl/session-manager.js';
 import type { NLResult } from '../nl/core/types.js';
 import { LLMClient } from '../nl/llm.js';
-import { getDefaultContext } from '../infrastructure/context.js';
 import { buildAllTools } from '../nl/tool-calling.js';
 import { createUIRenderer } from './ui-renderer.js';
 import { createCommandManager, type CommandManager } from './command-manager.js';
@@ -137,6 +136,13 @@ export function createREPL(
   ui: UIRenderer,
   cmdManager: CommandManager
 ): (input: string) => Promise<ChatOutput> {
+  if (!deps.auditHelper) {
+    throw new Error('auditHelper is required for chat REPL');
+  }
+  if (!deps.logger) {
+    throw new Error('logger is required for chat REPL');
+  }
+
   const { nlProcessor, sessionManager, useLLM, commandExecutor, workflowEngine, commandBridge, paramExtractor, config } = deps;
   const pendingWorkflows = new Map<string, PendingWorkflow>();
 
@@ -279,7 +285,10 @@ export function createREPL(
   async function handleNLInput(input: string): Promise<ChatOutput> {
     if (config.executeMode === 'auto' && useLLM && deps.llmConfig) {
       try {
-        const llmClient = new LLMClient(deps.llmConfig, { auditHelper: getDefaultContext().audit.getHelper() });
+        if (!deps.auditHelper) {
+          throw new Error('auditHelper is required for chat LLM preflight');
+        }
+        const llmClient = new LLMClient(deps.llmConfig, { auditHelper: deps.auditHelper });
         await llmClient.complete(
           'intent-parser-chat',
           input,
@@ -388,8 +397,7 @@ export function createRepl(
 ): { start: () => Promise<void>; getSlashCommands: () => Map<string, import('./types.js').SlashCommand>; processInput: (input: string) => Promise<ChatOutput> } {
   const sessionId = options?.sessionId ?? `chat-${Date.now()}`;
   const config = options?.config ?? deps.config;
-  
-  const ui = createUIRenderer(config);
+  const ui = createUIRenderer(config, deps.logger);
   const cmdManager = createCommandManager();
 
   const rl = readline.createInterface({

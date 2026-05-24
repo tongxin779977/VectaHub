@@ -6,10 +6,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import pino from 'pino';
 import { AsyncLogWriter, createAsyncLogWriter } from './async-writer.js';
 import type { TraceSpan } from './types.js';
 
 const TEST_LOG_DIR = path.join(process.cwd(), 'test-logs-traces');
+const TEST_LOGGER = pino({ level: 'silent' });
 
 describe('AsyncLogWriter', () => {
   let writer: AsyncLogWriter;
@@ -21,7 +23,7 @@ describe('AsyncLogWriter', () => {
     writer = createAsyncLogWriter(TEST_LOG_DIR, {
       bufferSize: 5,
       flushIntervalMs: 100,
-    });
+    }, { logger: TEST_LOGGER });
   });
 
   afterEach(async () => {
@@ -33,7 +35,7 @@ describe('AsyncLogWriter', () => {
 
   describe('createAsyncLogWriter', () => {
     it('should create an instance with default config', () => {
-      const w = createAsyncLogWriter(TEST_LOG_DIR);
+      const w = createAsyncLogWriter(TEST_LOG_DIR, undefined, { logger: TEST_LOGGER });
       expect(w).toBeInstanceOf(AsyncLogWriter);
     });
 
@@ -82,7 +84,7 @@ describe('AsyncLogWriter', () => {
         enabled: false,
         bufferSize: 5,
         flushIntervalMs: 100,
-      });
+      }, { logger: TEST_LOGGER });
 
       const span: TraceSpan = {
         spanId: 'span_001',
@@ -165,7 +167,7 @@ describe('AsyncLogWriter', () => {
       const brokenWriter = createAsyncLogWriter(brokenLogDir, {
         bufferSize: 10,
         flushIntervalMs: 10_000,
-      });
+      }, { logger: TEST_LOGGER });
 
       const span: TraceSpan = {
         spanId: 'span_fail_001',

@@ -54,7 +54,7 @@ export interface WorkflowEngineDeps {
   audit: AuditHelper;
   securityGuard?: SecurityGuard;
   environment: IEnvironmentService;
-  logger?: pino.Logger;
+  logger: pino.Logger;
 }
 
 export interface WorkflowEngine {
@@ -345,9 +345,10 @@ async function runExecutionLoop(
 export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
   const workflows = new Map<string, Workflow>();
   const environment = deps.environment;
+  const logger = deps.logger;
   const securityGuard: SecurityGuard = deps.securityGuard ?? createSecurityGuard();
   const executor = deps.executor ?? createExecutor({ environment, audit: deps.audit, securityGuard });
-  const storage = deps.storage ?? createStorage({ environment, logger: deps.logger });
+  const storage = deps.storage ?? createStorage({ environment, logger });
   const sm = deps.stateManager ?? createExecutionStateManager();
   const contextManager: ContextManager = deps.contextManager ?? createContextManager({ audit: deps.audit, environment });
   const auditHelper: AuditHelper = deps.audit;

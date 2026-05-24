@@ -1,8 +1,37 @@
 import { Command } from 'commander';
+import { format } from 'node:util';
 import { getSecurityManager } from '../security-protocol/index.js';
 import { AuditEventType } from '../infrastructure/audit/index.js';
 import type { InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
+
+interface SecurityCommandOutput {
+  log(message?: unknown, ...optionalParams: unknown[]): void;
+  warn(message?: unknown, ...optionalParams: unknown[]): void;
+  error(message?: unknown, ...optionalParams: unknown[]): void;
+  json(payload: unknown, options?: { space?: number }): void;
+}
+
+function createSecurityCommandOutput(): SecurityCommandOutput {
+  const writeLine = (stream: NodeJS.WriteStream, message?: unknown, optionalParams: unknown[] = []): void => {
+    stream.write(`${format(message, ...optionalParams)}\n`);
+  };
+
+  return {
+    log(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stdout, message, optionalParams);
+    },
+    warn(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stderr, message, optionalParams);
+    },
+    error(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stderr, message, optionalParams);
+    },
+    json(payload: unknown, options?: { space?: number }): void {
+      process.stdout.write(`${JSON.stringify(payload, null, options?.space ?? 2)}\n`);
+    },
+  };
+}
 
 function getSecurityManagerOrThrow(action: string) {
   try {
@@ -15,6 +44,7 @@ function getSecurityManagerOrThrow(action: string) {
 export function createSecurityCmd(context: InfrastructureContext): Command {
   const auditHelper = context.audit.getHelper();
   const sessionId = context.audit.getLogger().getSessionId();
+  const cliOutput = createSecurityCommandOutput();
 
   const securityCmd = new Command('security')
     .description('Security protocol management commands');
@@ -39,7 +69,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
       output.push(`Auto Update: ${config.autoUpdate ? 'Enabled' : 'Disabled'}`);
       output.push('');
 
-      console.log(output.join('\n'));
+      cliOutput.log(output.join('\n'));
       auditHelper.cliOutput('security status', output.join('\n'), sessionId);
     });
 
@@ -57,7 +87,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
       output.push(`Database Path: ${config.databasePath}`);
       output.push('');
 
-      console.log(output.join('\n'));
+      cliOutput.log(output.join('\n'));
       auditHelper.cliOutput('security policy', output.join('\n'), sessionId);
     });
 
@@ -100,7 +130,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
 
       output.push(`\nTotal: ${rules.length} rules\n`);
 
-      console.log(output.join('\n'));
+      cliOutput.log(output.join('\n'));
       auditHelper.cliOutput('security list', output.join('\n'), sessionId);
       auditHelper.log({
         event: AuditEventType.SECURITY_ACTION,
@@ -133,7 +163,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
     }) => {
       if (!options.name || !options.pattern) {
         const errorMessage = 'Name and at least one pattern are required';
-        console.error(`❌ ${errorMessage}`);
+        cliOutput.error(`❌ ${errorMessage}`);
         auditHelper.log({
           event: AuditEventType.SECURITY_ACTION,
           timestamp: new Date().toISOString(),
@@ -162,7 +192,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
       });
 
       const output = `\n✅ Rule added successfully!\nID: ${rule.id}\nName: ${rule.name}\nSeverity: ${rule.severity}\n`;
-      console.log(output);
+      cliOutput.log(output);
 
       auditHelper.log({
         event: AuditEventType.SECURITY_ACTION,
@@ -198,7 +228,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
 
       if (!existing) {
         const errorMessage = `Rule not found: ${ruleId}`;
-        console.error(`❌ ${errorMessage}`);
+        cliOutput.error(`❌ ${errorMessage}`);
         auditHelper.log({
           event: AuditEventType.SECURITY_ACTION,
           timestamp: new Date().toISOString(),
@@ -240,7 +270,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
       const updated = manager.updateRule(ruleId, updates);
 
       if (updated) {
-        console.log(`\n✅ Rule updated successfully!\n`);
+        cliOutput.log(`\n✅ Rule updated successfully!\n`);
         auditHelper.log({
           event: AuditEventType.SECURITY_ACTION,
           timestamp: new Date().toISOString(),
@@ -253,7 +283,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
         });
       } else {
         const errorMessage = 'Failed to update rule';
-        console.error(`❌ ${errorMessage}\n`);
+        cliOutput.error(`❌ ${errorMessage}\n`);
         throw new VectaHubError(errorMessage, ErrorType.RUNTIME);
       }
     });
@@ -266,7 +296,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
       const success = manager.deleteRule(ruleId);
 
       if (success) {
-        console.log(`\n✅ Rule deleted successfully: ${ruleId}\n`);
+        cliOutput.log(`\n✅ Rule deleted successfully: ${ruleId}\n`);
         auditHelper.log({
           event: AuditEventType.SECURITY_ACTION,
           timestamp: new Date().toISOString(),
@@ -278,7 +308,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
         });
       } else {
         const errorMessage = `Rule not found: ${ruleId}`;
-        console.error(`❌ ${errorMessage}\n`);
+        cliOutput.error(`❌ ${errorMessage}\n`);
         throw new VectaHubError(errorMessage, ErrorType.CONFIGURATION);
       }
     });
@@ -291,7 +321,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
       const success = manager.enableRule(ruleId);
 
       if (success) {
-        console.log(`\n✅ Rule enabled: ${ruleId}\n`);
+        cliOutput.log(`\n✅ Rule enabled: ${ruleId}\n`);
         auditHelper.log({
           event: AuditEventType.SECURITY_ACTION,
           timestamp: new Date().toISOString(),
@@ -304,7 +334,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
         });
       } else {
         const errorMessage = `Rule not found: ${ruleId}`;
-        console.error(`❌ ${errorMessage}\n`);
+        cliOutput.error(`❌ ${errorMessage}\n`);
         throw new VectaHubError(errorMessage, ErrorType.CONFIGURATION);
       }
     });
@@ -317,7 +347,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
       const success = manager.disableRule(ruleId);
 
       if (success) {
-        console.log(`\n✅ Rule disabled: ${ruleId}\n`);
+        cliOutput.log(`\n✅ Rule disabled: ${ruleId}\n`);
         auditHelper.log({
           event: AuditEventType.SECURITY_ACTION,
           timestamp: new Date().toISOString(),
@@ -330,7 +360,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
         });
       } else {
         const errorMessage = `Rule not found: ${ruleId}`;
-        console.error(`❌ ${errorMessage}\n`);
+        cliOutput.error(`❌ ${errorMessage}\n`);
         throw new VectaHubError(errorMessage, ErrorType.CONFIGURATION);
       }
     });
@@ -342,7 +372,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
       const manager = getSecurityManagerOrThrow('security import');
       try {
         const imported = await manager.importRulesFromFile(filePath);
-        console.log(`\n✅ Imported ${imported} rules successfully!\n`);
+        cliOutput.log(`\n✅ Imported ${imported} rules successfully!\n`);
         auditHelper.log({
           event: AuditEventType.SECURITY_ACTION,
           timestamp: new Date().toISOString(),
@@ -355,7 +385,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
         });
       } catch (e: unknown) {
         const errorMessage = e instanceof Error ? e.message : String(e);
-        console.error(`❌ Import failed:`, errorMessage);
+        cliOutput.error(`❌ Import failed:`, errorMessage);
         auditHelper.log({
           event: AuditEventType.SECURITY_ACTION,
           timestamp: new Date().toISOString(),
@@ -378,7 +408,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
       const manager = getSecurityManagerOrThrow('security export');
       try {
         manager.exportRulesToFile(filePath, { includeDisabled: options.includeDisabled });
-        console.log(`\n✅ Rules exported to: ${filePath}\n`);
+        cliOutput.log(`\n✅ Rules exported to: ${filePath}\n`);
         auditHelper.log({
           event: AuditEventType.SECURITY_ACTION,
           timestamp: new Date().toISOString(),
@@ -390,7 +420,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
         });
       } catch (e: unknown) {
         const errorMessage = e instanceof Error ? e.message : String(e);
-        console.error(`❌ Export failed:`, errorMessage);
+        cliOutput.error(`❌ Export failed:`, errorMessage);
         auditHelper.log({
           event: AuditEventType.SECURITY_ACTION,
           timestamp: new Date().toISOString(),
@@ -415,7 +445,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
       const result = manager.detectCommand(command, options.cliTool);
 
       if (options.json) {
-        console.log(JSON.stringify({
+        cliOutput.json({
           ok: true,
           isDangerous: result.isDangerous,
           severity: result.severity,
@@ -425,7 +455,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
             description: result.rule.description
           } : null,
           matchedPattern: result.matchedPattern
-        }, null, 2));
+        });
         return;
       }
 
@@ -457,7 +487,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
       }
       output.push('');
 
-      console.log(output.join('\n'));
+      cliOutput.log(output.join('\n'));
       auditHelper.cliOutput('security test', output.join('\n'), sessionId);
     });
 
@@ -467,15 +497,15 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
     .option('--force', 'Skip confirmation')
     .action(async (options: { force?: boolean }) => {
       if (!options.force) {
-        console.warn('⚠️ This will reset all security rules to defaults!');
-        console.warn('⚠️ Custom rules will be lost!');
-        console.warn('Use --force to skip this warning.\n');
+        cliOutput.warn('⚠️ This will reset all security rules to defaults!');
+        cliOutput.warn('⚠️ Custom rules will be lost!');
+        cliOutput.warn('Use --force to skip this warning.\n');
         throw new VectaHubError('Confirmation required. Use --force to skip.', ErrorType.CONFIGURATION);
       }
 
       const manager = getSecurityManagerOrThrow('security reset');
       manager.resetToDefaults();
-      console.log(`\n✅ All rules reset to defaults!\n`);
+      cliOutput.log(`\n✅ All rules reset to defaults!\n`);
 
       auditHelper.log({
         event: AuditEventType.SECURITY_ACTION,
@@ -506,7 +536,7 @@ export function createSecurityCmd(context: InfrastructureContext): Command {
       output.push(`Enabled Rules: ${manager.getEnabledRules().length}`);
       output.push('');
 
-      console.log(output.join('\n'));
+      cliOutput.log(output.join('\n'));
       auditHelper.cliOutput('security config', output.join('\n'), sessionId);
       auditHelper.log({
         event: AuditEventType.SECURITY_ACTION,

@@ -4,14 +4,24 @@ import type {
   AgentRegistry 
 } from '../types/agent.js';
 
+export interface AgentRegistryDeps {
+  logger: Pick<Console, 'warn'>;
+}
+
+const silentAgentRegistryLogger: AgentRegistryDeps['logger'] = {
+  warn(): void {},
+};
+
 class AgentRegistryImpl implements AgentRegistry {
   private descriptors: Map<string, AgentDescriptor> = new Map();
   private adapters: Map<string, AgentAdapter> = new Map();
 
+  constructor(private readonly deps: AgentRegistryDeps) {}
+
   register(descriptor: AgentDescriptor, adapter: AgentAdapter): void {
     const id = descriptor.id.toLowerCase();
     if (this.descriptors.has(id)) {
-      console.warn(`Agent with ID "${descriptor.id}" is already registered. Overwriting.`);
+      this.deps.logger.warn(`Agent with ID "${descriptor.id}" is already registered. Overwriting.`);
     }
     this.descriptors.set(id, descriptor);
     this.adapters.set(id, adapter);
@@ -40,9 +50,9 @@ let instance: AgentRegistry | null = null;
  * Returns the singleton instance of the AgentRegistry.
  * In a more complex DI environment, this would be injected.
  */
-export function getAgentRegistry(): AgentRegistry {
+export function getAgentRegistry(deps: AgentRegistryDeps = { logger: silentAgentRegistryLogger }): AgentRegistry {
   if (!instance) {
-    instance = new AgentRegistryImpl();
+    instance = new AgentRegistryImpl(deps);
   }
   return instance;
 }

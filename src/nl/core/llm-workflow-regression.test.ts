@@ -78,6 +78,9 @@ const MOCK_LLM_CONFIG = {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const mockAuditHelper = createNoopAuditHelper();
+const mockLogger = {
+  error: vi.fn(),
+};
 
 function makeToolCall(name: string, args: Record<string, unknown>) {
   return {
@@ -209,7 +212,7 @@ describe('LLM Workflow Regression', () => {
     it('should throw when LLM returns UNKNOWN intent', async () => {
       const { createNLProcessor } = await import('./pipeline.js');
       setMock({ intent: 'UNKNOWN', confidence: 0, returnNull: true });
-      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper });
+      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper, logger: mockLogger });
 
       await expect(
         processor.parse({ input: 'do something random xyz123' })
@@ -219,7 +222,7 @@ describe('LLM Workflow Regression', () => {
     it('should throw when LLM returns null (no intent recognized)', async () => {
       const { createNLProcessor } = await import('./pipeline.js');
       setMock({ intent: 'UNKNOWN', confidence: 0 });
-      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper });
+      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper, logger: mockLogger });
 
       await expect(
         processor.parse({ input: 'completely unknown input' })
@@ -271,7 +274,7 @@ describe('LLM Workflow Regression', () => {
         confidence: 0.8,
         workflow: { steps: [] },
       });
-      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper });
+      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper, logger: mockLogger });
 
       await expect(
         processor.parse({ input: 'what is this project?' })
@@ -285,7 +288,7 @@ describe('LLM Workflow Regression', () => {
         confidence: 0,
         workflow: { steps: [] },
       });
-      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper });
+      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper, logger: mockLogger });
 
       await expect(
         processor.parse({ input: 'empty response test' })
@@ -509,7 +512,7 @@ describe('LLM Workflow Regression', () => {
     it('should throw instead of returning UNKNOWN intent', async () => {
       const { createNLProcessor } = await import('./pipeline.js');
       setMock({ intent: 'UNKNOWN', confidence: 0, returnNull: true });
-      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper });
+      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper, logger: mockLogger });
 
       await expect(
         processor.parse({ input: 'unknown intent test' })
@@ -519,7 +522,7 @@ describe('LLM Workflow Regression', () => {
     it('should throw when LLM call throws an error', async () => {
       const { createNLProcessor } = await import('./pipeline.js');
       setMock({ throwOnCall: true });
-      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper });
+      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper, logger: mockLogger });
 
       await expect(
         processor.parse({ input: 'error test' })
@@ -528,7 +531,7 @@ describe('LLM Workflow Regression', () => {
 
     it('should throw on empty input', async () => {
       const { createNLProcessor } = await import('./pipeline.js');
-      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper });
+      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper, logger: mockLogger });
 
       await expect(
         processor.parse({ input: '' })
@@ -537,7 +540,7 @@ describe('LLM Workflow Regression', () => {
 
     it('should throw on whitespace-only input', async () => {
       const { createNLProcessor } = await import('./pipeline.js');
-      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper });
+      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper, logger: mockLogger });
 
       await expect(
         processor.parse({ input: '   \n\t   ' })
@@ -557,7 +560,7 @@ describe('LLM Workflow Regression', () => {
     it('should produce valid workflow YAML for git_commit', async () => {
       const { createNLProcessor } = await import('./pipeline.js');
       setMock(makeToolCall('git_commit', { message: 'fix: resolve null pointer' }));
-      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper });
+      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper, logger: mockLogger });
 
       const result = await processor.parse({ input: 'commit my changes' });
 
@@ -571,7 +574,7 @@ describe('LLM Workflow Regression', () => {
     it('should produce valid workflow YAML for git_push', async () => {
       const { createNLProcessor } = await import('./pipeline.js');
       setMock(makeToolCall('git_push', { remote: 'origin', branch: 'main' }));
-      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper });
+      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper, logger: mockLogger });
 
       const result = await processor.parse({ input: 'push to origin main' });
 
@@ -586,7 +589,7 @@ describe('LLM Workflow Regression', () => {
     it('should include correct params in result', async () => {
       const { createNLProcessor } = await import('./pipeline.js');
       setMock(makeToolCall('git_commit', { message: 'test commit' }));
-      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper });
+      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper, logger: mockLogger });
 
       const result = await processor.parse({ input: 'commit' });
 
@@ -597,7 +600,7 @@ describe('LLM Workflow Regression', () => {
     it('should set correct metadata path for LLM tool calling', async () => {
       const { createNLProcessor } = await import('./pipeline.js');
       setMock(makeToolCall('git_commit', { message: 'test' }));
-      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper });
+      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper, logger: mockLogger });
 
       const result = await processor.parse({ input: 'commit' });
 
@@ -607,7 +610,7 @@ describe('LLM Workflow Regression', () => {
     it('should handle doctor intent', async () => {
       const { createNLProcessor } = await import('./pipeline.js');
       setMock(makeToolCall('doctor', {}));
-      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper });
+      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper, logger: mockLogger });
 
       const result = await processor.parse({ input: 'check system health' });
 
@@ -620,7 +623,7 @@ describe('LLM Workflow Regression', () => {
     it('should handle file_find intent with required params', async () => {
       const { createNLProcessor } = await import('./pipeline.js');
       setMock(makeToolCall('file_find', { glob: '*.ts' }));
-      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper });
+      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper, logger: mockLogger });
 
       const result = await processor.parse({ input: 'find TypeScript files' });
 

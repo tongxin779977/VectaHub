@@ -54,7 +54,7 @@ export function createHistoryCmd(context: InfrastructureContext): Command {
     .option('--verbose', 'Show detailed information including step summaries')
     .option('--workflow <id>', 'Filter by workflow ID')
     .action(async (options: { status?: string; query?: string; limit: string; verbose?: boolean; workflow?: string }) => {
-      const storage = createStorage({ environment: context.environment });
+      const storage = createStorage({ environment: context.environment, logger: context.logger.getLogger('storage') });
       const recordManager = createRecordManager();
       const limit = parseInt(options.limit, 10) || 20;
 

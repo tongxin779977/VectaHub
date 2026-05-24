@@ -4,18 +4,21 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import pino from 'pino';
 import { AlertSystem, createAlertSystem } from './alert-system.js';
 import type { AlertRule, TraceSpan, AlertEvent } from './types.js';
+
+const TEST_LOGGER = pino({ level: 'silent' });
 
 describe('AlertSystem', () => {
   let alertSystem: AlertSystem;
 
   beforeEach(() => {
-    alertSystem = createAlertSystem();
+    alertSystem = createAlertSystem(undefined, { logger: TEST_LOGGER });
   });
 
   afterEach(() => {
-    alertSystem = null as any;
+    alertSystem = undefined as unknown as AlertSystem;
   });
 
   describe('createAlertSystem', () => {
@@ -38,7 +41,7 @@ describe('AlertSystem', () => {
         },
       ];
 
-      const system = createAlertSystem(customRules);
+      const system = createAlertSystem(customRules, { logger: TEST_LOGGER });
       const rules = system.getRules();
       expect(rules).toHaveLength(1);
       expect(rules[0].id).toBe('custom_rule');

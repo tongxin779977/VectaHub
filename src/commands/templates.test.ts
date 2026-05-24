@@ -51,10 +51,11 @@ describe('createTemplatesCmd', () => {
   });
 
   it('list subcommand runs without throwing', async () => {
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     const cmd = createTemplatesCmd(getDefaultContext());
     await cmd.parseAsync(['list'], { from: 'user' });
-    expect(logSpy).toHaveBeenCalled();
-    logSpy.mockRestore();
+    const output = stdoutSpy.mock.calls.map(([chunk]) => String(chunk)).join('');
+    expect(output).toContain('Total: 0 template(s)');
+    stdoutSpy.mockRestore();
   });
 });

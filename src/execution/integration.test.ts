@@ -6,6 +6,7 @@ import { createStorage, type Storage } from '../workflow/storage.js';
 import { createRecordManager } from '../execution/record-manager.js';
 import type { ExecutionRecord } from '../execution/types.js';
 import { createEnvironmentService } from '../infrastructure/environment/index.js';
+import { MockLoggerService } from '../infrastructure/testing/mock-services.js';
 
 function createTestRecord(overrides: Partial<ExecutionRecord> = {}): ExecutionRecord {
   return {
@@ -28,7 +29,11 @@ describe('Integration: Execution Lifecycle', () => {
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'integration-test-'));
-    storage = createStorage({ storageDir: tmpDir, environment: createEnvironmentService(tmpDir) });
+    storage = createStorage({
+      storageDir: tmpDir,
+      environment: createEnvironmentService(tmpDir),
+      logger: new MockLoggerService().getLogger('storage'),
+    });
     recordManager = createRecordManager(tmpDir);
   });
 

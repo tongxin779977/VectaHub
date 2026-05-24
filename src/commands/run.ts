@@ -17,20 +17,37 @@ import { createRecordManager } from '../execution/record-manager.js';
 import { runSelfHealingLoop } from './self-healing.js';
 import { getVectaHubPath } from '../infrastructure/paths/index.js';
 
+interface RunCommandOutput {
+  json(payload: unknown, options?: { space?: number }): void;
+  write(message: string): void;
+}
+
+function createRunCommandOutput(): RunCommandOutput {
+  return {
+    json(payload: unknown, options?: { space?: number }): void {
+      process.stdout.write(`${JSON.stringify(payload, null, options?.space ?? 2)}\n`);
+    },
+    write(message: string): void {
+      process.stdout.write(message);
+    },
+  };
+}
+
 function exitWithError(
   logger: ReturnType<InfrastructureContext['logger']['getLogger']>,
+  output: RunCommandOutput,
   message: string,
   code: string,
   jsonMode?: boolean,
 ): never {
   if (jsonMode) {
-    console.log(JSON.stringify({
+    output.json({
       ok: false,
       error: {
         code,
         message
       }
-    }, null, 2));
+    });
   } else {
     logger.error(message);
   }
@@ -49,17 +66,16 @@ function isValidVariableValue(valueParts: string[]): boolean {
   return valueParts.length > 0 && valueParts.join('=').trim() !== '';
 }
 
-function createProgressCallback(totalSteps: number, jsonMode?: boolean): (info: ProgressInfo) => void {
+function createProgressCallback(totalSteps: number, output: RunCommandOutput, jsonMode?: boolean): (info: ProgressInfo) => void {
   return (info: ProgressInfo) => {
     if (jsonMode) return;
     const percentage = Math.round((info.currentStep / info.totalSteps) * 100);
     const statusIcon = info.status === 'starting' ? '▶' : info.status === 'completed' ? '✓' : '✗';
     const statusText = info.status === 'starting' ? '执行中' : info.status === 'completed' ? '完成' : '失败';
     const progressBar = '█'.repeat(Math.floor(percentage / 5)) + '░'.repeat(20 - Math.floor(percentage / 5));
-    // Progress output remains direct for CLI UX, but through environment abstraction eventually
-    process.stdout.write(`\r[${progressBar}] ${percentage}% | ${statusIcon} 步骤 ${info.currentStep}/${info.totalSteps}: ${info.stepId} (${statusText})`);
+    output.write(`\r[${progressBar}] ${percentage}% | ${statusIcon} 步骤 ${info.currentStep}/${info.totalSteps}: ${info.stepId} (${statusText})`);
     if (info.status === 'completed' || info.status === 'failed') {
-      process.stdout.write('\n');
+      output.write('\n');
     }
   };
 }
@@ -76,6 +92,11 @@ interface RunCommandOptions {
 
 export function createRunCmd(context: InfrastructureContext): Command {
   const logger = context.logger.getLogger('run');
+  const output = createRunCommandOutput();
+  const firstRunWizardDeps = {
+    environment: context.environment,
+    logger: context.logger.getLogger('setup'),
+  };
 
   return new Command('run')
     .description('Run a workflow from natural language or file')
@@ -101,22 +122,22 @@ export function createRunCmd(context: InfrastructureContext): Command {
 
         // Validate mode
         if (options.mode && !['strict', 'relaxed', 'consensus'].includes(options.mode)) {
-          exitWithError(logger, `❌ 无效的运行模式: ${options.mode}。可选值为: strict, relaxed, consensus`, 'INVALID_MODE', options.json);
+          exitWithError(logger, output, `❌ 无效的运行模式: ${options.mode}。可选值为: strict, relaxed, consensus`, 'INVALID_MODE', options.json);
         }
 
         if (options.dryRun) {
           context.environment.setEnv('VECTAHUB_AUDIT_DISABLED', '1');
         }
 
-        if (!options.dryRun && isFirstRun()) {
+        if (!options.dryRun && isFirstRun(firstRunWizardDeps)) {
           logger.info('首次运行，启动优先级安装流程...');
           const installer = createDefaultInstaller(context);
           if (installer) {
             const summary = await installer.run();
             if (summary.overallSuccess) {
-              const config = loadConfig();
+              const config = loadConfig(firstRunWizardDeps);
               config.first_run_completed = true;
-              saveConfig(config);
+              saveConfig(config, firstRunWizardDeps);
             } else {
               logger.warn('安装未完全成功，部分功能可能不可用');
             }
@@ -129,13 +150,17 @@ export function createRunCmd(context: InfrastructureContext): Command {
         let workflowEngine: ReturnType<typeof createWorkflowEngine> | null = null;
 
       const getStorage = (): ReturnType<typeof createStorage> => {
-        storage ??= createStorage({ environment: context.environment });
+        storage ??= createStorage({ environment: context.environment, logger });
         return storage;
       };
 
       const getWorkflowEngine = async (): Promise<ReturnType<typeof createWorkflowEngine>> => {
         if (!workflowEngine) {
-          workflowEngine = createWorkflowEngine({ audit: context.audit.getHelper(), environment: context.environment });
+          workflowEngine = createWorkflowEngine({
+            audit: context.audit.getHelper(),
+            environment: context.environment,
+            logger,
+          });
           await workflowEngine.loadWorkflows();
         }
         return workflowEngine;
@@ -162,7 +187,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
           workflow = await getStorage().loadWorkflowFromFile(filepath);
           
           if (!workflow) {
-            exitWithError(logger, `❌ 无法加载工作流: ${options.file}`, 'WORKFLOW_LOAD_FAILED', options.json);
+            exitWithError(logger, output, `❌ 无法加载工作流: ${options.file}`, 'WORKFLOW_LOAD_FAILED', options.json);
           }
         }
         
@@ -170,7 +195,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
 
         if (options.dryRun) {
           if (options.json) {
-            console.log(JSON.stringify({
+            output.json({
               ok: true,
               dryRun: true,
               workflow: {
@@ -180,7 +205,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
                   args: s.args ?? []
                 }))
               }
-            }, null, 2));
+            });
           } else {
             logger.info('\n📋 将要执行的命令:');
             for (const step of workflow.steps) {
@@ -195,7 +220,11 @@ export function createRunCmd(context: InfrastructureContext): Command {
         const text = intent.join(' ');
         logger.info(`解析意图: "${text}"`);
 
-        const result = await orchestrateIntent(text, { cwd: context.environment.getCwd() });
+        const result = await orchestrateIntent(text, {
+          cwd: context.environment.getCwd(),
+          auditHelper: context.audit.getHelper(),
+          logger,
+        });
         const { steps: orchestrateSteps, plan, intentRecognitionMethod, matchedCapability, score, recognizedIntent } = result;
         
         if (intentRecognitionMethod === 'capability' && plan) {
@@ -204,11 +233,11 @@ export function createRunCmd(context: InfrastructureContext): Command {
 
           if (options.dryRun) {
             if (options.json) {
-              console.log(JSON.stringify({
+              output.json({
                 ok: true,
                 dryRun: true,
                 ...formatJsonReport(plan),
-              }, null, 2));
+              });
             } else {
               logger.info(formatDryRunText(plan));
             }
@@ -228,11 +257,11 @@ export function createRunCmd(context: InfrastructureContext): Command {
         if (result.reply) {
           if (options.json) {
             if (orchestrateSteps.length === 0) {
-              console.log(JSON.stringify({
+              output.json({
                 ok: true,
                 reply: result.reply,
                 intent: recognizedIntent,
-              }, null, 2));
+              });
               restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
               return;
             }
@@ -247,19 +276,19 @@ export function createRunCmd(context: InfrastructureContext): Command {
             restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
             return;
           }
-          exitWithError(logger, '❌ 无法解析意图，请尝试更明确的输入！', 'INTENT_PARSE_FAILED', options.json);
+          exitWithError(logger, output, '❌ 无法解析意图，请尝试更明确的输入！', 'INTENT_PARSE_FAILED', options.json);
         }
 
         if (options.dryRun) {
           if (options.json) {
-            console.log(JSON.stringify({
+            output.json({
               ok: true,
               dryRun: true,
               steps: orchestrateSteps.map(s => ({
                 cli: s.cli,
                 args: s.args ?? []
               }))
-            }, null, 2));
+            });
           } else {
             logger.info('\n📋 将要执行的命令:');
             for (const s of orchestrateSteps) {
@@ -283,7 +312,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
           logger.info('工作流已保存');
         }
       } else {
-        exitWithError(logger, '❌ 请提供自然语言描述或使用 --file 选项指定工作流文件', 'NO_INPUT', options.json);
+        exitWithError(logger, output, '❌ 请提供自然语言描述或使用 --file 选项指定工作流文件', 'NO_INPUT', options.json);
       }
 
       // 处理初始变量
@@ -305,7 +334,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
         const result = await (await getWorkflowEngine()).execute(workflow!, { 
           mode: options.mode, 
           dryRun: options.dryRun,
-          onProgress: createProgressCallback(workflow!.steps.length, options.json),
+          onProgress: createProgressCallback(workflow!.steps.length, output, options.json),
         }, initialVariables);
 
         const recordManager = createRecordManager();
@@ -324,7 +353,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
         await recordManager.save(recordToSave as unknown as ExecRecord);
 
         if (options.json) {
-          console.log(JSON.stringify({
+          output.json({
             ok: result.status === 'COMPLETED',
             status: result.status,
             duration: result.duration,
@@ -334,7 +363,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
               output: s.output,
               error: s.error
             }))
-          }, null, 2));
+          });
         } else {
           logger.info(`\n执行${result.status === 'COMPLETED' ? '✅ 成功' : '❌ 失败'}`);
           logger.info(`耗时: ${result.duration}ms`);
@@ -386,14 +415,14 @@ export function createRunCmd(context: InfrastructureContext): Command {
         const stackTrace = error instanceof Error ? error.stack : String(error);
         
         if (options.json) {
-          console.log(JSON.stringify({
+          output.json({
             ok: false,
             error: {
               code: 'RUNTIME_ERROR',
               message,
               stack: stackTrace
             }
-          }, null, 2));
+          });
         } else {
           logger.error(`错误: ${message}`);
           logger.debug(stackTrace);

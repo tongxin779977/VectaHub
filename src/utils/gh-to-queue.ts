@@ -13,18 +13,45 @@ const defaultCliPath = isSourceRuntime
   ? `${process.execPath} --import tsx ${cliEntryPoint}`
   : `${process.execPath} ${cliEntryPoint}`;
 
-export async function processFailedRuns(input: string): Promise<number> {
-  console.log(`Received input of length: ${input.length}`);
+const queueLogger = {
+  error: (message: string) => process.stderr.write(`${message}\n`),
+  warn: (message: string) => process.stderr.write(`${message}\n`),
+};
+
+export interface ProcessFailedRunsOutput {
+  log(message: string): void;
+  error(message: string): void;
+}
+
+export interface ProcessFailedRunsDeps {
+  output: ProcessFailedRunsOutput;
+}
+
+const cliOutput: ProcessFailedRunsOutput = {
+  log: (message: string) => process.stdout.write(`${message}\n`),
+  error: (message: string) => process.stderr.write(`${message}\n`),
+};
+
+export async function processFailedRuns(
+  input: string,
+  deps: ProcessFailedRunsDeps = { output: cliOutput },
+): Promise<number> {
+  deps.output.log(`Received input of length: ${input.length}`);
   if (input.length > 0) {
-    console.log(`Input preview: ${input.substring(0, 100)}...`);
+    deps.output.log(`Input preview: ${input.substring(0, 100)}...`);
   }
   const runs = JSON.parse(input);
   if (!Array.isArray(runs)) {
-    console.log('No failed runs found or invalid format.');
+    deps.output.log('No failed runs found or invalid format.');
     return 0;
   }
 
-  const queueManager = getQueueManager();
+  const queueManager = getQueueManager(
+    process.env.VECTAHUB_HOME
+      ? join(process.env.VECTAHUB_HOME, 'diagnostic-queue.json')
+      : join(process.env.HOME || '', '.vectahub', 'diagnostic-queue.json'),
+    { logger: queueLogger },
+  );
   let count = 0;
 
   for (const run of runs) {
@@ -42,21 +69,21 @@ export async function processFailedRuns(input: string): Promise<number> {
     count++;
   }
 
-  console.log(`Successfully added ${count} failed runs to the diagnostic queue.`);
+  deps.output.log(`Successfully added ${count} failed runs to the diagnostic queue.`);
   return count;
 }
 
 async function main() {
   const input = process.argv[2];
   if (!input) {
-    console.error('No input provided');
+    cliOutput.error('No input provided');
     process.exit(1);
   }
 
   try {
     await processFailedRuns(input);
   } catch (error) {
-    console.error(`Failed to parse or save runs: ${error}`);
+    cliOutput.error(`Failed to parse or save runs: ${error}`);
     process.exit(1);
   }
 }

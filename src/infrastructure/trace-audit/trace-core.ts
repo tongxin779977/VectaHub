@@ -3,7 +3,7 @@
  * Trace Core - Trace and Span Management
  */
 
-import { getDefaultContext } from '../context.js';
+import type { Logger } from '../logger/index.js';
 import { redactSensitiveData } from '../../utils/sensitive-data.js';
 import type {
   TraceSpan,
@@ -15,8 +15,8 @@ import type {
 } from './types.js';
 import { AsyncLogWriter } from './async-writer.js';
 
-function getModuleLogger() {
-  return getDefaultContext().logger.getLogger('trace-core');
+export interface TraceCoreDeps {
+  logger: Logger;
 }
 
 /** 生成唯一 ID */
@@ -30,12 +30,18 @@ function generateId(prefix: string): string {
  */
 export class TraceCore {
   private writer: AsyncLogWriter;
+  private logger: Logger;
   private activeTraces: Map<TraceId, ExecutionTrace> = new Map();
   private spanIndex: Map<SpanId, TraceSpan> = new Map();
   private traceIndex: Map<TraceId, ExecutionTrace> = new Map();
 
-  constructor(writer: AsyncLogWriter) {
+  constructor(writer: AsyncLogWriter, deps: TraceCoreDeps) {
+    if (!deps.logger) {
+      throw new Error('TraceCore requires a logger dependency');
+    }
+
     this.writer = writer;
+    this.logger = deps.logger;
   }
 
   /** 创建新的链路追踪 */
@@ -76,7 +82,7 @@ export class TraceCore {
     // 写入根跨度
     await this.writer.write(rootSpan);
 
-    getModuleLogger().debug(`创建链路追踪: traceId=${traceId}, rootSpanId=${rootSpanId}`);
+    this.logger.debug(`创建链路追踪: traceId=${traceId}, rootSpanId=${rootSpanId}`);
 
     return trace;
   }
@@ -164,7 +170,7 @@ export class TraceCore {
     // 更新跨度
     await this.writer.write(span);
 
-    getModuleLogger().debug(`完成跨度: spanId=${spanId}, status=${status}, duration=${duration}ms`);
+    this.logger.debug(`完成跨度: spanId=${spanId}, status=${status}, duration=${duration}ms`);
   }
 
   /** 完成链路追踪 */
@@ -187,7 +193,7 @@ export class TraceCore {
 
     this.activeTraces.delete(traceId);
 
-    getModuleLogger().debug(`完成链路追踪: traceId=${traceId}, duration=${trace.totalDuration}ms`);
+    this.logger.debug(`完成链路追踪: traceId=${traceId}, duration=${trace.totalDuration}ms`);
   }
 
   /** 获取链路追踪 */
@@ -230,7 +236,7 @@ export class TraceCore {
       }
     }
 
-    getModuleLogger().debug(`清理已完成链路追踪: ${cleanedCount} 个`);
+    this.logger.debug(`清理已完成链路追踪: ${cleanedCount} 个`);
     return cleanedCount;
   }
 
@@ -251,8 +257,8 @@ export class TraceCore {
  * 创建链路追踪核心工厂函数
  * Create Trace Core Factory Function
  */
-export function createTraceCore(writer: AsyncLogWriter): TraceCore {
-  return new TraceCore(writer);
+export function createTraceCore(writer: AsyncLogWriter, deps: TraceCoreDeps): TraceCore {
+  return new TraceCore(writer, deps);
 }
 
 /**

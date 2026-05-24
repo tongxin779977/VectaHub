@@ -1,8 +1,33 @@
 import { dirname, join } from 'node:path';
+import { format } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { getDefaultContext } from './infrastructure/context.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+interface BootstrapOutput {
+  log(message?: unknown, ...optionalParams: unknown[]): void;
+  error(message?: unknown, ...optionalParams: unknown[]): void;
+  json(payload: unknown): void;
+}
+
+function createBootstrapOutput(): BootstrapOutput {
+  const writeLine = (stream: NodeJS.WriteStream, message?: unknown, optionalParams: unknown[] = []): void => {
+    stream.write(`${format(message, ...optionalParams)}\n`);
+  };
+
+  return {
+    log(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stdout, message, optionalParams);
+    },
+    error(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stderr, message, optionalParams);
+    },
+    json(payload: unknown): void {
+      process.stdout.write(`${JSON.stringify(payload)}\n`);
+    },
+  };
+}
 
 function getVersion(): string {
   const ctx = getDefaultContext();
@@ -12,21 +37,22 @@ function getVersion(): string {
 }
 
 async function main(): Promise<void> {
+  const output = createBootstrapOutput();
   const args = process.argv.slice(2);
   const isVersionOnly = args.length === 1 && (args[0] === '--version' || args[0] === '-V');
   const isVersionCmd = args.length > 0 && args[0] === 'version' && args.every(arg => arg === 'version' || arg === '--json');
 
   if (isVersionOnly) {
-    console.log(getVersion());
+    output.log(getVersion());
     return;
   }
 
   if (isVersionCmd) {
     const version = getVersion();
     if (args.includes('--json')) {
-      console.log(JSON.stringify({ version, ok: true }));
+      output.json({ version, ok: true });
     } else {
-      console.log(`v${version}`);
+      output.log(`v${version}`);
     }
     return;
   }
@@ -35,7 +61,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
+  const output = createBootstrapOutput();
   const message = error instanceof Error ? error.message : String(error);
-  console.error(`\n❌ ${message}`);
+  output.error(`\n❌ ${message}`);
   process.exit(1);
 });

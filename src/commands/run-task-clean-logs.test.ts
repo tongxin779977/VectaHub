@@ -42,7 +42,7 @@ describe('run-task-clean-logs command', () => {
     writeFileSync(join(outputDir, 'P2-CLEAN-1.stdout'), 'one');
     writeFileSync(join(outputDir, 'P2-CLEAN-2.stderr'), 'two');
 
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
     try {
       const runTaskCleanLogsCmd = await createTestRunTaskCleanLogsCmd();
@@ -50,9 +50,10 @@ describe('run-task-clean-logs command', () => {
 
       expect(existsSync(join(outputDir, 'P2-CLEAN-1.stdout'))).toBe(false);
       expect(existsSync(join(outputDir, 'P2-CLEAN-2.stderr'))).toBe(false);
-      expect(String(logSpy.mock.calls.at(-1)?.[0] ?? '')).toContain('Cleared 2 run-task failure log files.');
+      const output = stdoutSpy.mock.calls.map(([chunk]) => String(chunk)).join('');
+      expect(output).toContain('Cleared 2 run-task failure log files.');
     } finally {
-      logSpy.mockRestore();
+      stdoutSpy.mockRestore();
       if (originalVectaHubHome === undefined) {
         delete process.env.VECTAHUB_HOME;
       } else {

@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { format } from 'node:util';
 import {
   getCliToolRegistry,
   getAllKnownTools,
@@ -19,6 +20,34 @@ import { type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
 const SECURITY_TEMPLATES: SecurityTemplate[] = ['default', 'strict', 'relaxed'];
+
+interface ToolsCommandOutput {
+  log(message?: unknown, ...optionalParams: unknown[]): void;
+  warn(message?: unknown, ...optionalParams: unknown[]): void;
+  error(message?: unknown, ...optionalParams: unknown[]): void;
+  json(payload: unknown, options?: { space?: number }): void;
+}
+
+function createToolsCommandOutput(): ToolsCommandOutput {
+  const writeLine = (stream: NodeJS.WriteStream, message?: unknown, optionalParams: unknown[] = []): void => {
+    stream.write(`${format(message, ...optionalParams)}\n`);
+  };
+
+  return {
+    log(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stdout, message, optionalParams);
+    },
+    warn(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stderr, message, optionalParams);
+    },
+    error(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stderr, message, optionalParams);
+    },
+    json(payload: unknown, options?: { space?: number }): void {
+      process.stdout.write(`${JSON.stringify(payload, null, options?.space ?? 2)}\n`);
+    },
+  };
+}
 
 function normalizeSecurityTemplate(template: string): SecurityTemplate {
   return SECURITY_TEMPLATES.includes(template as SecurityTemplate)
@@ -261,6 +290,7 @@ function formatCategoryTools(category: string, tools: CliTool[]): string {
 }
 
 export function createToolsCmd(context: InfrastructureContext): Command {
+  const cliOutput = createToolsCommandOutput();
   const toolsCmd = new Command('tools')
     .description('CLI tools management commands');
 
@@ -273,7 +303,7 @@ export function createToolsCmd(context: InfrastructureContext): Command {
     const tools = registry.getAllTools();
 
     if (options.json) {
-      console.log(JSON.stringify({
+      cliOutput.json({
         ok: true,
         tools: tools.map(t => ({
           name: t.name,
@@ -281,9 +311,9 @@ export function createToolsCmd(context: InfrastructureContext): Command {
           commandCount: Object.keys(t.commands).length,
           dangerousCount: t.dangerousCommands?.length || 0
         }))
-      }, null, 2));
+      });
     } else {
-      console.log(formatToolList(tools));
+      cliOutput.log(formatToolList(tools));
     }
   });
 
@@ -293,7 +323,7 @@ toolsCmd
   .option('--json', 'Output results in JSON format')
   .option('--sync-config', 'Sync detected permission state back into VectaHub config')
   .action(async (options: { json?: boolean; syncConfig?: boolean }) => {
-    const appConfig = loadSetupConfig();
+    const appConfig = loadSetupConfig({ environment: context.environment });
     const externalCli = appConfig.external_cli || {};
     const knownNames = getBuiltInAgentDescriptors().map((descriptor) => descriptor.id);
     const names = Array.from(new Set([...knownNames, ...Object.keys(externalCli)]));
@@ -308,6 +338,7 @@ toolsCmd
         detectedTools
           .map(item => item.detected)
           .filter((item): item is NonNullable<typeof item> => item !== null),
+        { environment: context.environment },
       );
     }
 
@@ -333,12 +364,12 @@ toolsCmd
     });
 
     if (options.json) {
-      console.log(JSON.stringify({ ok: true, agents }, null, 2));
+      cliOutput.json({ ok: true, agents });
       return;
     }
 
     if (agents.length === 0) {
-      console.log('\n⚠️  No AI Agent CLIs configured.\n');
+      cliOutput.log('\n⚠️  No AI Agent CLIs configured.\n');
       return;
     }
 
@@ -357,7 +388,7 @@ toolsCmd
       lines.push(`${statusIcon} ${agent.name.padEnd(15)}${versionStr}${statusStr}`);
     }
     lines.push('');
-    console.log(lines.join('\n'));
+    cliOutput.log(lines.join('\n'));
   });
 
 toolsCmd
@@ -368,12 +399,12 @@ toolsCmd
     const tool = registry.getTool(toolName);
 
     if (!tool) {
-      console.error(`❌ Tool not found: ${toolName}`);
-      console.error('Available tools:', registry.getAllTools().map(t => t.name).join(', '));
+      cliOutput.error(`❌ Tool not found: ${toolName}`);
+      cliOutput.error('Available tools:', registry.getAllTools().map(t => t.name).join(', '));
       throw new VectaHubError(`Tool not found: ${toolName}`, ErrorType.RUNTIME);
     }
 
-    console.log(formatToolInfo(tool));
+    cliOutput.log(formatToolInfo(tool));
   });
 
 toolsCmd
@@ -384,11 +415,11 @@ toolsCmd
     const tool = registry.getTool(toolName);
 
     if (!tool) {
-      console.error(`❌ Tool not found: ${toolName}`);
+      cliOutput.error(`❌ Tool not found: ${toolName}`);
       throw new VectaHubError(`Tool not found: ${toolName}`, ErrorType.RUNTIME);
     }
 
-    console.log(formatToolCommands(tool));
+    cliOutput.log(formatToolCommands(tool));
   });
 
 toolsCmd
@@ -399,18 +430,18 @@ toolsCmd
     const tool = registry.getTool(toolName);
 
     if (!tool) {
-      console.error(`❌ Tool not found: ${toolName}`);
+      cliOutput.error(`❌ Tool not found: ${toolName}`);
       throw new VectaHubError(`Tool not found: ${toolName}`, ErrorType.RUNTIME);
     }
 
     const cmd = registry.getCommandInfo(toolName, commandName);
     if (!cmd) {
-      console.error(`❌ Command not found: ${commandName}`);
-      console.error('Available commands:', Object.keys(tool.commands).join(', '));
+      cliOutput.error(`❌ Command not found: ${commandName}`);
+      cliOutput.error('Available commands:', Object.keys(tool.commands).join(', '));
       throw new VectaHubError(`Command not found: ${commandName}`, ErrorType.RUNTIME);
     }
 
-    console.log(formatCommandDetail(tool, cmd));
+    cliOutput.log(formatCommandDetail(tool, cmd));
   });
 
 toolsCmd
@@ -421,14 +452,14 @@ toolsCmd
 
     const tool = registry.getTool(toolName);
     if (!tool) {
-      console.error(`❌ Tool not found: ${toolName}`);
+      cliOutput.error(`❌ Tool not found: ${toolName}`);
       throw new VectaHubError(`Tool not found: ${toolName}`, ErrorType.RUNTIME);
     }
 
     const isDangerous = registry.isCommandDangerous(toolName, command);
     const cmd = registry.getCommandInfo(toolName, command);
 
-    console.log(formatTestResult(toolName, command, isDangerous, cmd));
+    cliOutput.log(formatTestResult(toolName, command, isDangerous, cmd));
   });
 
 toolsCmd
@@ -436,7 +467,7 @@ toolsCmd
   .description('List all known tools that can be registered')
   .action(() => {
     const tools = getAllKnownTools();
-    console.log(formatKnownTools(tools));
+    cliOutput.log(formatKnownTools(tools));
   });
 
 toolsCmd
@@ -447,34 +478,34 @@ toolsCmd
     const config = await loadConfig(context.config);
 
     if (toolName === 'all') {
-      console.log('\n🚀 注册所有已知工具...');
+      cliOutput.log('\n🚀 注册所有已知工具...');
       let registeredCount = 0;
 
       // 已经有 git 和 npm 工具定义了
       // 这里可以完善更多工具定义
-      console.log('   跳过：完整的工具定义需要逐个实现');
-      console.log('   当前已注册: git');
+      cliOutput.log('   跳过：完整的工具定义需要逐个实现');
+      cliOutput.log('   当前已注册: git');
 
       // 注册 npm 工具
       if (!registry.getTool('npm')) {
         registry.register(npmTool);
         config.registeredTools.push('npm');
         registeredCount++;
-        console.log('   ✅ 已注册 npm');
+        cliOutput.log('   ✅ 已注册 npm');
       }
 
       await saveConfig(config, context.config);
-      console.log('\n   总计新注册: ' + registeredCount + ' 个工具\n');
+      cliOutput.log('\n   总计新注册: ' + registeredCount + ' 个工具\n');
     } else {
       const known = getKnownTool(toolName);
       if (!known) {
-        console.error('\n❌ 未知工具:', toolName);
-        console.log('使用 tools known 查看所有可用工具\n');
+        cliOutput.error('\n❌ 未知工具:', toolName);
+        cliOutput.log('使用 tools known 查看所有可用工具\n');
         throw new VectaHubError(`Unknown tool: ${toolName}`, ErrorType.RUNTIME);
       }
 
       if (registry.getTool(toolName)) {
-        console.log('\n⚠️  工具已注册:', toolName);
+        cliOutput.log('\n⚠️  工具已注册:', toolName);
         throw new VectaHubError(`Tool already registered: ${toolName}`, ErrorType.RUNTIME);
       }
 
@@ -482,10 +513,10 @@ toolsCmd
         registry.register(npmTool);
         config.registeredTools.push('npm');
         await saveConfig(config, context.config);
-        console.log('\n✅ 成功注册:', toolName);
+        cliOutput.log('\n✅ 成功注册:', toolName);
       } else {
-        console.log('\n⚠️  工具定义尚未完全实现:', toolName);
-        console.log('这是 09 设计文档中的架构，完整实现需要逐个编写工具定义\n');
+        cliOutput.log('\n⚠️  工具定义尚未完全实现:', toolName);
+        cliOutput.log('这是 09 设计文档中的架构，完整实现需要逐个编写工具定义\n');
       }
     }
   });
@@ -498,7 +529,7 @@ toolsCmd
     const template = normalizeSecurityTemplate(options.template);
     const rules = getSecurityTemplate(template);
 
-    console.log(formatRuleList(template, rules));
+    cliOutput.log(formatRuleList(template, rules));
   });
 
 toolsCmd
@@ -513,7 +544,7 @@ toolsCmd
     const engine = new CommandRuleEngine(rules);
     const result = engine.evaluate(command, cmdArgs, context.environment.getCwd());
 
-    console.log(formatEvalResult(args, template, result));
+    cliOutput.log(formatEvalResult(args, template, result));
   });
 
 toolsCmd
@@ -524,7 +555,7 @@ toolsCmd
     const tools = registry.searchTools(keyword);
     const commands = registry.searchCommands(keyword);
 
-    console.log(formatSearchResults(tools, commands));
+    cliOutput.log(formatSearchResults(tools, commands));
   });
 
 toolsCmd
@@ -534,7 +565,7 @@ toolsCmd
     const registry = getCliToolRegistry();
     const categories = registry.getAllCategories();
 
-    console.log(formatCategoryList(categories));
+    cliOutput.log(formatCategoryList(categories));
   });
 
 toolsCmd
@@ -544,7 +575,7 @@ toolsCmd
     const registry = getCliToolRegistry();
     const tools = registry.getToolsByCategory(categoryName);
 
-    console.log(formatCategoryTools(categoryName, tools));
+    cliOutput.log(formatCategoryTools(categoryName, tools));
   });
 
   return toolsCmd;

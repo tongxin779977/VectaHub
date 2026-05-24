@@ -1,6 +1,30 @@
 import { Command } from 'commander';
+import { format } from 'node:util';
 import { parse } from 'yaml';
 import type { InfrastructureContext } from '../infrastructure/context.js';
+
+interface StatusCommandOutput {
+  log(message?: unknown, ...optionalParams: unknown[]): void;
+  json(payload: unknown, options?: { space?: number }): void;
+}
+
+function createStatusCommandOutput(): StatusCommandOutput {
+  const formatMessage = (message?: unknown, optionalParams: unknown[] = []): string => {
+    if (message === undefined && optionalParams.length === 0) {
+      return '';
+    }
+    return format(message, ...optionalParams);
+  };
+
+  return {
+    log(message?: unknown, ...optionalParams: unknown[]): void {
+      process.stdout.write(`${formatMessage(message, optionalParams)}\n`);
+    },
+    json(payload: unknown, options?: { space?: number }): void {
+      process.stdout.write(`${JSON.stringify(payload, null, options?.space ?? 2)}\n`);
+    },
+  };
+}
 
 interface ModuleStatus {
   name: string;
@@ -32,6 +56,8 @@ function findConfigFile(context: InfrastructureContext): string | null {
 }
 
 export function createStatusCmd(context: InfrastructureContext): Command {
+  const output = createStatusCommandOutput();
+
   return new Command('status')
     .description('View project development progress')
     .option('--json', 'Output in JSON format')
@@ -39,11 +65,11 @@ export function createStatusCmd(context: InfrastructureContext): Command {
       const configPath = findConfigFile(context);
 
       if (!configPath) {
-        console.log('No vectahub-dev.config.yaml found. Search paths:');
-        console.log('  - ./config/vectahub-dev.config.yaml');
-        console.log('  - ./vectahub-dev.config.yaml');
-        console.log('  - ~/.vectahub/vectahub-dev.config.yaml');
-        console.log('\nRun "vectahub dev init" first.');
+        output.log('No vectahub-dev.config.yaml found. Search paths:');
+        output.log('  - ./config/vectahub-dev.config.yaml');
+        output.log('  - ./vectahub-dev.config.yaml');
+        output.log('  - ~/.vectahub/vectahub-dev.config.yaml');
+        output.log('\nRun "vectahub dev init" first.');
         return;
       }
 
@@ -51,21 +77,21 @@ export function createStatusCmd(context: InfrastructureContext): Command {
       const config = parse(content) as Config;
 
       if (options.json) {
-        console.log(JSON.stringify(config, null, 2));
+        output.json(config, { space: 2 });
       } else {
-        console.log('\n📊 VectaHub Development Progress\n');
-        console.log('Module       | Agent    | Status       | Progress');
-        console.log('-------------|----------|--------------|----------');
+        output.log('\n📊 VectaHub Development Progress\n');
+        output.log('Module       | Agent    | Status       | Progress');
+        output.log('-------------|----------|--------------|----------');
 
         for (const mod of config.modules) {
           const progressBar = '█'.repeat(Math.floor(mod.progress / 10)) + '░'.repeat(10 - Math.floor(mod.progress / 10));
-          console.log(
+          output.log(
             `${mod.name.padEnd(12)} | ${mod.agent.padEnd(8)} | ${mod.status.padEnd(12)} | ${progressBar} ${mod.progress}%`
           );
         }
 
         const totalProgress = config.modules.reduce((sum, m) => sum + m.progress, 0) / config.modules.length;
-        console.log(`\nOverall Progress: ${totalProgress.toFixed(0)}%`);
+        output.log(`\nOverall Progress: ${totalProgress.toFixed(0)}%`);
       }
     });
 }

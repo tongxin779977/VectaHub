@@ -2,6 +2,7 @@ import { beforeEach, describe, it, expect, vi } from 'vitest';
 
 const routeMock = vi.fn();
 const parseMock = vi.fn();
+const loggerErrorMock = vi.fn();
 
 vi.mock('./capabilities/router.js', () => ({
   createCapabilityRouter: () => ({
@@ -168,6 +169,25 @@ describe('orchestrateIntent', () => {
     );
   });
 
+  it('processInput requires audit helper when entering fallback', async () => {
+    routeMock.mockReturnValueOnce({
+      route: 'fallback',
+      matchedCapability: undefined,
+      score: 0.1,
+      reason: 'no capability',
+      plan: null,
+    });
+
+    await expect(processInput('unknown intent', {
+      provider: 'openai',
+      model: 'mock-model',
+      baseUrl: 'http://localhost:11434/v1',
+      apiKey: 'mock',
+    })).rejects.toThrow(
+      'Audit helper required for fallback processing'
+    );
+  });
+
   it('processInput capability plan preserves outputVar/runId binding chain', async () => {
     routeMock.mockReturnValueOnce({
       route: 'auto',
@@ -244,7 +264,25 @@ describe('orchestrateIntent', () => {
       metadata: { path: 'llm-tool-calling', usedSkills: [] },
     });
 
-    const result = await orchestrateIntent('fallback route', { cwd: process.cwd() });
+    const result = await orchestrateIntent('fallback route', {
+      cwd: process.cwd(),
+      logger: { error: loggerErrorMock },
+      auditHelper: {
+        log: vi.fn(),
+        cliCommand: vi.fn(),
+        cliOutput: vi.fn(),
+        workflowStart: vi.fn(),
+        workflowEnd: vi.fn(),
+        workflowStep: vi.fn(),
+        securityAlert: vi.fn(),
+        securityAction: vi.fn(),
+        configChange: vi.fn(),
+        intentMatch: vi.fn(),
+        executorResult: vi.fn(),
+        fileOperation: vi.fn(),
+        sandboxDetect: vi.fn(),
+      },
+    });
     expect(result.intentRecognitionMethod).toBe('llm');
     expect(result.steps).toHaveLength(1);
     expect(result.steps[0].cli).toBe('git');
@@ -394,6 +432,20 @@ describe('orchestrateIntent', () => {
         model: 'mock-model',
         baseUrl: 'http://localhost:11434/v1',
         apiKey: 'mock',
+      }, {
+        log: vi.fn(),
+        cliCommand: vi.fn(),
+        cliOutput: vi.fn(),
+        workflowStart: vi.fn(),
+        workflowEnd: vi.fn(),
+        workflowStep: vi.fn(),
+        securityAlert: vi.fn(),
+        securityAction: vi.fn(),
+        configChange: vi.fn(),
+        intentMatch: vi.fn(),
+        executorResult: vi.fn(),
+        fileOperation: vi.fn(),
+        sandboxDetect: vi.fn(),
       })
     ).rejects.toThrow('Multi-intent contains non-executable clause; clarification or preview required');
   });

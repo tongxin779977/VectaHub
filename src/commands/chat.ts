@@ -2,10 +2,22 @@ import { Command } from 'commander';
 import { createLLMConfig } from '../nl/llm.js';
 import { initializeRouter, processInput } from '../nl/orchestrator.js';
 import { INTENT_TEMPLATES } from '../nl/templates/index.js';
+import { InfrastructureContext } from '../infrastructure/context.js';
+
+interface ChatCommandOutput {
+  log(message: string): void;
+  error(message: string): void;
+}
+
+const chatCommandOutput: ChatCommandOutput = {
+  log: (message: string) => process.stdout.write(`${message}\n`),
+  error: (message: string) => process.stderr.write(`${message}\n`),
+};
 
 export const chatCmd = new Command('chat')
   .description('Interactive NL mode with intent splitting and routing')
   .action(async () => {
+    const context = new InfrastructureContext();
     const readline = await import('readline');
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
@@ -23,9 +35,9 @@ export const chatCmd = new Command('chat')
 
     const llmConfig = createLLMConfig() ?? undefined;
 
-    console.log('VectaHub NL Chat Mode');
-    console.log('Type your request or "exit" to quit.');
-    console.log('');
+    chatCommandOutput.log('VectaHub NL Chat Mode');
+    chatCommandOutput.log('Type your request or "exit" to quit.');
+    chatCommandOutput.log('');
 
     while (true) {
       const input = await prompt('> ');
@@ -35,25 +47,30 @@ export const chatCmd = new Command('chat')
       if (!input.trim()) continue;
 
       try {
-        const result = await processInput(input.trim(), llmConfig);
+        const result = await processInput(
+          input.trim(),
+          llmConfig,
+          context.audit.getHelper(),
+          context.logger.getLogger('nl-pipeline'),
+        );
         if (result.success) {
-          console.log(`Intent: ${result.intent ?? 'none'} (confidence: ${result.confidence})`);
+          chatCommandOutput.log(`Intent: ${result.intent ?? 'none'} (confidence: ${result.confidence})`);
           if (result.taskList) {
             for (const task of result.taskList.tasks) {
-              console.log(`  - ${task.description}`);
+              chatCommandOutput.log(`  - ${task.description}`);
             }
           }
           if (result.metadata.usedSkills?.length) {
-            console.log(`Skills: ${result.metadata.usedSkills.join(', ')}`);
+            chatCommandOutput.log(`Skills: ${result.metadata.usedSkills.join(', ')}`);
           }
         } else {
-          console.log(`No match: ${result.confidence}`);
+          chatCommandOutput.log(`No match: ${result.confidence}`);
         }
       } catch (err) {
-        console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+        chatCommandOutput.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
     rl.close();
-    console.log('Chat session ended.');
+    chatCommandOutput.log('Chat session ended.');
   });

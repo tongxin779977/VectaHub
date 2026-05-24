@@ -98,6 +98,11 @@ import { getAvailableExternalCLI } from './setup/cli-scanner.js';
 import { createDefaultInstaller } from './setup/priority-installer.js';
 import { getBashCompletion, getZshCompletion, getFishCompletion } from './utils/completion-scripts.js';
 
+const firstRunWizardDeps = {
+  environment: ctx.environment,
+  logger: ctx.logger.getLogger('setup'),
+};
+
 function getCliMainTestFailureMode(): 'cli-tools' | 'agent-runtime' | null {
   const mode = ctx.environment.getEnv('VECTAHUB_TEST_FORCE_CLI_MAIN_FAILURE');
   if (mode === 'cli-tools' || mode === 'agent-runtime') {
@@ -340,9 +345,9 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
         break;
       }
       case 'debug': {
-        const { debugCmd } = await import('./commands/debug.js');
+        const { createDebugCmd } = await import('./commands/debug.js');
         removeLazyProxyCommand('debug');
-        program.addCommand(debugCmd);
+        program.addCommand(createDebugCmd(ctx));
         loadedCommands.add('debug');
         break;
       }
@@ -419,9 +424,9 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
         break;
       }
       case 'queue': {
-        const { queueCmd } = await import('./commands/queue.js');
+        const { createQueueCmd } = await import('./commands/queue.js');
         removeLazyProxyCommand('queue');
-        program.addCommand(queueCmd);
+        program.addCommand(createQueueCmd(ctx));
         loadedCommands.add('queue');
         break;
       }
@@ -639,9 +644,9 @@ const setupCmd = new Command('setup')
       output.text('💡 重新运行 `vectahub setup` 可修复问题。\n');
       ctx.environment.exit(1);
     } else {
-      const config = loadSetupConfig();
+      const config = loadSetupConfig(firstRunWizardDeps);
       config.first_run_completed = true;
-      saveSetupConfig(config);
+      saveSetupConfig(config, firstRunWizardDeps);
       output.text('\n🎉 安装完成！所有组件已就绪。\n');
       ctx.environment.exit(0);
     }
@@ -675,13 +680,13 @@ configCmd
   .action(async () => {
     const output = getCurrentCliOutput();
     output.text('⚠️  重置配置...\n');
-    const config = loadSetupConfig();
+    const config = loadSetupConfig(firstRunWizardDeps);
     config.first_run_completed = false;
     config.ai_providers.vectahub_llm = {
       provider: '',
       enabled: false,
     };
-    saveSetupConfig(config);
+    saveSetupConfig(config, firstRunWizardDeps);
     output.text('✅ 配置已重置\n');
     const installer = createDefaultInstaller(ctx);
     if (installer) {
@@ -696,7 +701,9 @@ configCmd
     const output = getCurrentCliOutput();
     await lazyLoadAgentRuntime();
     await lazyLoadCliTools();
-    const available = getAvailableExternalCLI();
+    const available = getAvailableExternalCLI({
+      environment: ctx.environment,
+    });
     output.text('\n📋 可用的外部 CLI 工具:\n');
     if (available.length === 0) {
       output.text('  (无)');

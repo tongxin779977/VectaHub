@@ -1,9 +1,20 @@
 import { Command } from 'commander';
-import { workflowDebugger } from '../debugger/workflow-debugger.js';
+import { WorkflowDebugger } from '../debugger/workflow-debugger.js';
 import { type Breakpoint, type ExecutionHistory } from '../debugger/debugger-api.js';
 import { createCliOutput } from '../infrastructure/cli-output.js';
+import type { InfrastructureContext } from '../infrastructure/context.js';
 
 const output = createCliOutput();
+
+export interface DebugCommandDeps {
+  workflowDebugger?: WorkflowDebugger;
+}
+
+export function createWorkflowDebugger(context: InfrastructureContext): WorkflowDebugger {
+  return new WorkflowDebugger({
+    logger: context.logger.getLogger('debugger'),
+  });
+}
 
 function formatBreakpointTable(breakpoints: Breakpoint[]): void {
   if (breakpoints.length === 0) {
@@ -72,177 +83,183 @@ function formatVariables(variables: Record<string, unknown>): void {
   }
 }
 
-function createBreakpointCommand(): Command {
-  const breakpointCmd = new Command('breakpoint')
-    .description('Manage breakpoints');
+export function createDebugCmd(context: InfrastructureContext, deps: DebugCommandDeps = {}): Command {
+  const workflowDebugger = deps.workflowDebugger ?? createWorkflowDebugger(context);
 
-  breakpointCmd
-    .command('set')
-    .description('Set a breakpoint')
-    .argument('<stepId>', 'Step ID to break at')
-    .option('-c, --condition <expr>', 'Conditional breakpoint expression')
-    .action((stepId: string, options: { condition?: string }) => {
-      const type = options.condition ? 'condition' : 'step';
-      const id = workflowDebugger.setBreakpoint(stepId, type, options.condition);
-      output.text(`\n✅ Breakpoint set: ${id}`);
-    });
+  function createBreakpointCommand(): Command {
+    const breakpointCmd = new Command('breakpoint')
+      .description('Manage breakpoints');
 
-  breakpointCmd
-    .command('list')
-    .description('List all breakpoints')
+    breakpointCmd
+      .command('set')
+      .description('Set a breakpoint')
+      .argument('<stepId>', 'Step ID to break at')
+      .option('-c, --condition <expr>', 'Conditional breakpoint expression')
+      .action((stepId: string, options: { condition?: string }) => {
+        const type = options.condition ? 'condition' : 'step';
+        const id = workflowDebugger.setBreakpoint(stepId, type, options.condition);
+        output.text(`\n✅ Breakpoint set: ${id}`);
+      });
+
+    breakpointCmd
+      .command('list')
+      .description('List all breakpoints')
+      .action(() => {
+        const breakpoints = workflowDebugger.getBreakpoints();
+        output.text('\nBreakpoints:\n');
+        formatBreakpointTable(breakpoints);
+        output.blank();
+      });
+
+    breakpointCmd
+      .command('enable')
+      .description('Enable a breakpoint')
+      .argument('<breakpointId>', 'Breakpoint ID')
+      .action((breakpointId: string) => {
+        workflowDebugger.enableBreakpoint(breakpointId);
+        output.text(`\n✅ Breakpoint enabled: ${breakpointId}`);
+      });
+
+    breakpointCmd
+      .command('disable')
+      .description('Disable a breakpoint')
+      .argument('<breakpointId>', 'Breakpoint ID')
+      .action((breakpointId: string) => {
+        workflowDebugger.disableBreakpoint(breakpointId);
+        output.text(`\n✅ Breakpoint disabled: ${breakpointId}`);
+      });
+
+    breakpointCmd
+      .command('remove')
+      .description('Remove a breakpoint')
+      .argument('<breakpointId>', 'Breakpoint ID')
+      .action((breakpointId: string) => {
+        workflowDebugger.removeBreakpoint(breakpointId);
+        output.text(`\n✅ Breakpoint removed: ${breakpointId}`);
+      });
+
+    return breakpointCmd;
+  }
+
+  function createWatchCommand(): Command {
+    const watchCmd = new Command('watch')
+      .description('Manage watch expressions');
+
+    watchCmd
+      .command('add')
+      .description('Add a watch expression')
+      .argument('<expression>', 'Expression to watch')
+      .action((expression: string) => {
+        const id = workflowDebugger.addWatchExpression(expression);
+        output.text(`\n✅ Watch expression added: ${id}`);
+      });
+
+    watchCmd
+      .command('list')
+      .description('List watch expressions')
+      .action(() => {
+        const watches = workflowDebugger.getWatchExpressions();
+        output.text('\nWatch Expressions:\n');
+
+        if (watches.length === 0) {
+          output.text('  (no watch expressions)');
+        } else {
+          output.text(`  ${'ID'.padEnd(20)} ${'Expression'.padEnd(40)} ${'Value'.padEnd(30)} ${'Error'}`);
+          output.text(`  ${'─'.repeat(20)} ${'─'.repeat(40)} ${'─'.repeat(30)} ${'─'.repeat(30)}`);
+
+          for (const watch of watches) {
+            const valueStr = watch.error
+              ? `\x1b[31m${watch.error}\x1b[0m`
+              : typeof watch.value === 'object'
+                ? JSON.stringify(watch.value)
+                : String(watch.value);
+            output.text(
+              `  ${watch.id.padEnd(20)} ${watch.expression.padEnd(40)} ${valueStr.padEnd(30)} ${watch.error ? '' : '-'}`,
+            );
+          }
+        }
+        output.blank();
+      });
+
+    watchCmd
+      .command('remove')
+      .description('Remove a watch expression')
+      .argument('<watchId>', 'Watch expression ID')
+      .action((watchId: string) => {
+        workflowDebugger.removeWatchExpression(watchId);
+        output.text(`\n✅ Watch expression removed: ${watchId}`);
+      });
+
+    return watchCmd;
+  }
+
+  const debugCmd = new Command('debug')
+    .description('Debug workflows with breakpoints and step execution');
+
+  debugCmd.addCommand(createBreakpointCommand());
+  debugCmd.addCommand(createWatchCommand());
+
+  debugCmd
+    .command('state')
+    .description('Show current debugger state')
     .action(() => {
-      const breakpoints = workflowDebugger.getBreakpoints();
-      output.text('\nBreakpoints:\n');
-      formatBreakpointTable(breakpoints);
-      output.blank();
-    });
+      const state = workflowDebugger.getState();
+      if (!state) {
+        output.text('\nNo active debug session');
+        return;
+      }
 
-  breakpointCmd
-    .command('enable')
-    .description('Enable a breakpoint')
-    .argument('<breakpointId>', 'Breakpoint ID')
-    .action((breakpointId: string) => {
-      workflowDebugger.enableBreakpoint(breakpointId);
-      output.text(`\n✅ Breakpoint enabled: ${breakpointId}`);
-    });
+      output.text('\nDebugger State:\n');
+      output.text(`  Workflow ID: ${state.workflowId}`);
+      output.text(`  Current Step: ${state.currentStepId}`);
+      output.text(`  Status: ${state.status}`);
 
-  breakpointCmd
-    .command('disable')
-    .description('Disable a breakpoint')
-    .argument('<breakpointId>', 'Breakpoint ID')
-    .action((breakpointId: string) => {
-      workflowDebugger.disableBreakpoint(breakpointId);
-      output.text(`\n✅ Breakpoint disabled: ${breakpointId}`);
-    });
+      output.text('\n  Variables:');
+      formatVariables(state.variables);
 
-  breakpointCmd
-    .command('remove')
-    .description('Remove a breakpoint')
-    .argument('<breakpointId>', 'Breakpoint ID')
-    .action((breakpointId: string) => {
-      workflowDebugger.removeBreakpoint(breakpointId);
-      output.text(`\n✅ Breakpoint removed: ${breakpointId}`);
-    });
-
-  return breakpointCmd;
-}
-
-function createWatchCommand(): Command {
-  const watchCmd = new Command('watch')
-    .description('Manage watch expressions');
-
-  watchCmd
-    .command('add')
-    .description('Add a watch expression')
-    .argument('<expression>', 'Expression to watch')
-    .action((expression: string) => {
-      const id = workflowDebugger.addWatchExpression(expression);
-      output.text(`\n✅ Watch expression added: ${id}`);
-    });
-
-  watchCmd
-    .command('list')
-    .description('List watch expressions')
-    .action(() => {
-      const watches = workflowDebugger.getWatchExpressions();
-      output.text('\nWatch Expressions:\n');
-
-      if (watches.length === 0) {
-        output.text('  (no watch expressions)');
+      output.text('\n  Call Stack:');
+      if (state.callStack.length === 0) {
+        output.text('  (empty)');
       } else {
-        output.text(`  ${'ID'.padEnd(20)} ${'Expression'.padEnd(40)} ${'Value'.padEnd(30)} ${'Error'}`);
-        output.text(`  ${'─'.repeat(20)} ${'─'.repeat(40)} ${'─'.repeat(30)} ${'─'.repeat(30)}`);
-
-        for (const watch of watches) {
-          const valueStr = watch.error
-            ? `\x1b[31m${watch.error}\x1b[0m`
-            : typeof watch.value === 'object'
-              ? JSON.stringify(watch.value)
-              : String(watch.value);
-          output.text(
-            `  ${watch.id.padEnd(20)} ${watch.expression.padEnd(40)} ${valueStr.padEnd(30)} ${watch.error ? '' : '-'}`,
-          );
+        for (const frame of state.callStack) {
+          output.text(`    - ${frame.stepName} (${frame.stepId})`);
         }
       }
+
+      if (state.lastError) {
+        output.text('\n  Last Error:');
+        output.text(`    Message: ${state.lastError.message}`);
+        output.text(`    Step: ${state.lastError.stepId}`);
+      }
+
       output.blank();
     });
 
-  watchCmd
-    .command('remove')
-    .description('Remove a watch expression')
-    .argument('<watchId>', 'Watch expression ID')
-    .action((watchId: string) => {
-      workflowDebugger.removeWatchExpression(watchId);
-      output.text(`\n✅ Watch expression removed: ${watchId}`);
+  debugCmd
+    .command('history')
+    .description('Show execution history')
+    .action(() => {
+      const history = workflowDebugger.getHistory();
+      output.text('\nExecution History:\n');
+      formatHistoryTable(history);
+      output.blank();
     });
 
-  return watchCmd;
+  debugCmd
+    .command('clear-history')
+    .description('Clear execution history')
+    .action(() => {
+      workflowDebugger.clearHistory();
+      output.text('\n✅ Execution history cleared');
+    });
+
+  debugCmd
+    .command('reset')
+    .description('Reset debugger state')
+    .action(() => {
+      workflowDebugger.reset();
+      output.text('\n✅ Debugger reset');
+    });
+
+  return debugCmd;
 }
-
-export const debugCmd = new Command('debug')
-  .description('Debug workflows with breakpoints and step execution');
-
-debugCmd.addCommand(createBreakpointCommand());
-debugCmd.addCommand(createWatchCommand());
-
-debugCmd
-  .command('state')
-  .description('Show current debugger state')
-  .action(() => {
-    const state = workflowDebugger.getState();
-    if (!state) {
-      output.text('\nNo active debug session');
-      return;
-    }
-
-    output.text('\nDebugger State:\n');
-    output.text(`  Workflow ID: ${state.workflowId}`);
-    output.text(`  Current Step: ${state.currentStepId}`);
-    output.text(`  Status: ${state.status}`);
-
-    output.text('\n  Variables:');
-    formatVariables(state.variables);
-
-    output.text('\n  Call Stack:');
-    if (state.callStack.length === 0) {
-      output.text('  (empty)');
-    } else {
-      for (const frame of state.callStack) {
-        output.text(`    - ${frame.stepName} (${frame.stepId})`);
-      }
-    }
-
-    if (state.lastError) {
-      output.text('\n  Last Error:');
-      output.text(`    Message: ${state.lastError.message}`);
-      output.text(`    Step: ${state.lastError.stepId}`);
-    }
-
-    output.blank();
-  });
-
-debugCmd
-  .command('history')
-  .description('Show execution history')
-  .action(() => {
-    const history = workflowDebugger.getHistory();
-    output.text('\nExecution History:\n');
-    formatHistoryTable(history);
-    output.blank();
-  });
-
-debugCmd
-  .command('clear-history')
-  .description('Clear execution history')
-  .action(() => {
-    workflowDebugger.clearHistory();
-    output.text('\n✅ Execution history cleared');
-  });
-
-debugCmd
-  .command('reset')
-  .description('Reset debugger state')
-  .action(() => {
-    workflowDebugger.reset();
-    output.text('\n✅ Debugger reset');
-  });

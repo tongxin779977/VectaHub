@@ -1,11 +1,21 @@
 import type { CommandRule, CommandAnalysis, CommandRuleResult } from './types.js';
 import { getSecurityTemplate, DEFAULT_TEMPLATES } from './templates.js';
 
+export interface CommandRuleEngineDeps {
+  logger: Pick<Console, 'warn'>;
+}
+
+const silentCommandRuleLogger: CommandRuleEngineDeps['logger'] = {
+  warn(): void {},
+};
+
 export class CommandRuleEngine {
   private rules: CommandRule[];
+  private readonly logger: Pick<Console, 'warn'>;
 
-  constructor(rules?: CommandRule[]) {
+  constructor(rules?: CommandRule[], deps: CommandRuleEngineDeps = { logger: silentCommandRuleLogger }) {
     this.rules = rules || DEFAULT_TEMPLATES.default;
+    this.logger = deps.logger;
   }
 
   setRules(rules: CommandRule[]): void {
@@ -21,7 +31,7 @@ export class CommandRuleEngine {
       const regex = new RegExp(pattern);
       return regex;
     } catch {
-      console.warn(`Invalid regex pattern: ${pattern}`);
+      this.logger.warn(`Invalid regex pattern: ${pattern}`);
       return null;
     }
   }

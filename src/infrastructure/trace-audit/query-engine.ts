@@ -5,7 +5,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { getDefaultContext } from '../context.js';
+import type { Logger } from '../logger/index.js';
 import type {
   ExecutionTrace,
   TraceSpan,
@@ -18,8 +18,8 @@ import type {
   ExecutionStatus,
 } from './types.js';
 
-function getModuleLogger() {
-  return getDefaultContext().logger.getLogger('query-engine');
+export interface QueryEngineDeps {
+  logger: Logger;
 }
 
 /**
@@ -28,13 +28,19 @@ function getModuleLogger() {
  */
 export class QueryEngine {
   private logDir: string;
+  private logger: Logger;
   private traceCache: Map<TraceId, ExecutionTrace> = new Map();
   private spanIndex: Map<SpanId, TraceSpan> = new Map();
   private moduleIndex: Map<ModuleName, TraceSpan[]> = new Map();
   private statusIndex: Map<ExecutionStatus, TraceSpan[]> = new Map();
 
-  constructor(logDir: string) {
+  constructor(logDir: string, deps: QueryEngineDeps) {
+    if (!deps.logger) {
+      throw new Error('QueryEngine requires a logger dependency');
+    }
+
     this.logDir = logDir;
+    this.logger = deps.logger;
   }
 
   /** 加载日志文件到内存索引 */
@@ -45,7 +51,7 @@ export class QueryEngine {
       this.loadLogFile(file);
     }
 
-    getModuleLogger().info(`加载日志完成: ${files.length} 个文件, ${this.spanIndex.size} 个跨度`);
+    this.logger.info(`加载日志完成: ${files.length} 个文件, ${this.spanIndex.size} 个跨度`);
   }
 
   /** 获取日志文件列表 */
@@ -75,7 +81,7 @@ export class QueryEngine {
         }
       }
     } catch (error) {
-      getModuleLogger().warn(`加载日志文件失败: ${filePath}, ${(error as Error).message}`);
+      this.logger.warn(`加载日志文件失败: ${filePath}, ${(error as Error).message}`);
     }
   }
 
@@ -375,6 +381,6 @@ export class QueryEngine {
  * 创建查询引擎工厂函数
  * Create Query Engine Factory Function
  */
-export function createQueryEngine(logDir: string): QueryEngine {
-  return new QueryEngine(logDir);
+export function createQueryEngine(logDir: string, deps: QueryEngineDeps): QueryEngine {
+  return new QueryEngine(logDir, deps);
 }

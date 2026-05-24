@@ -2,9 +2,8 @@ import { PerformanceObserver, PerformanceEntry } from 'perf_hooks';
 import os from 'os';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { getDefaultContext } from '../infrastructure/context.js';
-import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { type PerformanceMetric, type MetricType, type MetricRecord, type AlertConfig, type Alert, type MetricThreshold } from './metrics.js';
+import type pino from 'pino';
 
 const DEFAULT_CONFIG: AlertConfig = {
   enabled: true,
@@ -25,7 +24,8 @@ const BATCH_FLUSH_INTERVAL = 500;
 const BATCH_MAX_SIZE = 100;
 
 export class PerformanceMonitor {
-  private logger = getDefaultContext().logger.getLogger('monitor');
+  private readonly logger: Pick<pino.Logger, 'info' | 'warn' | 'error'>;
+  private readonly getLogDir: () => string;
   private config: AlertConfig = DEFAULT_CONFIG;
   private metrics: MetricRecord[] = [];
   private alerts: Alert[] = [];
@@ -37,7 +37,12 @@ export class PerformanceMonitor {
   private batchBuffer: PerformanceMetric[] = [];
   private flushTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
-  constructor() {
+  constructor(deps: {
+    logger: Pick<pino.Logger, 'info' | 'warn' | 'error'>;
+    getLogDir: () => string;
+  }) {
+    this.logger = deps.logger;
+    this.getLogDir = deps.getLogDir;
     this.setupPerformanceObserver();
   }
 
@@ -305,7 +310,7 @@ export class PerformanceMonitor {
   }
 
   private logToFile(alert: Alert): void {
-    const logDir = getVectaHubPath('logs');
+    const logDir = this.getLogDir();
     const logFile = join(logDir, `alerts-${new Date().toISOString().split('T')[0]}.log`);
 
     try {
@@ -402,5 +407,3 @@ export class PerformanceMonitor {
     }
   }
 }
-
-export const performanceMonitor = new PerformanceMonitor();

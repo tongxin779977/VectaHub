@@ -3,8 +3,10 @@ import { createWorkflowEngine, type WorkflowEngine } from './engine.js';
 import { createNoopAuditHelper } from '../infrastructure/audit/index.js';
 import { createEnvironmentService } from '../infrastructure/environment/index.js';
 import type { ExecutionRecord, Step } from '../types/index.js';
+import { MockLoggerService } from '../infrastructure/testing/mock-services.js';
 
 const environment = createEnvironmentService();
+const logger = new MockLoggerService().getLogger('workflow-engine');
 
 const mockSave = vi.fn().mockResolvedValue(undefined);
 const mockGet = vi.fn().mockResolvedValue(undefined);
@@ -150,7 +152,7 @@ describe('WorkflowEngine exitCode propagation', () => {
     mockSaveWorkflow.mockResolvedValue(undefined);
     mockGetWorkflow.mockResolvedValue(undefined);
     mockListWorkflows.mockResolvedValue([]);
-    engine = await createWorkflowEngine({ audit: createNoopAuditHelper(), environment });
+    engine = await createWorkflowEngine({ audit: createNoopAuditHelper(), environment, logger });
   });
 
   it('should write handler exitCode into runtime step output metadata', async () => {

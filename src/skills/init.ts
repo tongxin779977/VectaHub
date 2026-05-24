@@ -10,6 +10,7 @@ import type { SkillExecutorOptions } from './executor.js';
 import type { AIModuleRegistry as IAIModuleRegistry, AIModule, AIModuleMetadata } from './ai-modules/types.js';
 import type { AIModuleConfig } from '../infrastructure/config/index.js';
 import type { LLMConfig } from '../nl/llm.js';
+import type pino from 'pino';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,31 +23,39 @@ export interface SkillSystem {
   moduleRegistry?: IAIModuleRegistry;
 }
 
-export interface SkillSystemOptions extends SkillExecutorOptions {
+export interface SkillSystemOptions extends Omit<SkillExecutorOptions, 'logger'> {
   llmConfig?: LLMConfig | null;
+  logger: pino.Logger;
 }
 
-export async function createSkillSystem(options?: SkillSystemOptions): Promise<SkillSystem> {
+export async function createSkillSystem(options: SkillSystemOptions): Promise<SkillSystem> {
   const registry = createSkillRegistry();
-  const executor = createSkillExecutor(options);
+  const logger = options.logger;
+  const executor = createSkillExecutor({
+    ...options,
+    logger,
+  });
 
   const commandSkill = createCommandSkill();
   registry.register(commandSkill);
 
-  if (options?.llmConfig) {
+  if (options.llmConfig) {
     try {
       const promptRegistry = createPromptRegistry();
       const llmDialogSkill = createLLMDialogControlSkill(options.llmConfig, { maxRetries: 3 });
 
-      const intentSkill = createIntentSkill(promptRegistry, llmDialogSkill);
-      const workflowSkill = createWorkflowSkill(promptRegistry, llmDialogSkill);
+      const loggerWithChild = logger as (pino.Logger & { child?: (bindings: Record<string, unknown>) => pino.Logger }) | undefined;
+      const intentLogger = loggerWithChild?.child ? loggerWithChild.child({ module: 'intent-skill' }) : logger;
+      const workflowLogger = loggerWithChild?.child ? loggerWithChild.child({ module: 'workflow-skill' }) : logger;
+      const intentSkill = createIntentSkill(promptRegistry, llmDialogSkill, intentLogger);
+      const workflowSkill = createWorkflowSkill(promptRegistry, llmDialogSkill, workflowLogger);
       const pipelineSkill = createPipelineSkill(intentSkill, workflowSkill);
 
       registry.register(intentSkill);
       registry.register(workflowSkill);
       registry.register(pipelineSkill);
     } catch (error) {
-      console.error('Failed to register LLM skills:', error instanceof Error ? error.message : String(error));
+      logger.error({ error: error instanceof Error ? error.message : String(error) }, 'Failed to register LLM skills');
     }
   }
 
@@ -61,7 +70,7 @@ interface AIModuleRegistration {
 /**
  * Discover AI modules dynamically from the ai-modules directory.
  */
-async function discoverAIModules(): Promise<AIModuleRegistration[]> {
+async function discoverAIModules(logger?: Pick<pino.Logger, 'warn'>): Promise<AIModuleRegistration[]> {
   const modulesDir = path.join(__dirname, 'ai-modules');
   const registrations: AIModuleRegistration[] = [];
 
@@ -94,8 +103,11 @@ async function discoverAIModules(): Promise<AIModuleRegistration[]> {
       if (factory) {
         registrations.push({ id, factory });
       }
-    } catch {
-      // console.debug(`Failed to load module ${relPath}:`, err);
+    } catch (error) {
+      logger?.warn(
+        { module: relPath, error: error instanceof Error ? error.message : String(error) },
+        'Failed to discover AI module',
+      );
     }
   }
 
@@ -104,6 +116,7 @@ async function discoverAIModules(): Promise<AIModuleRegistration[]> {
 
 export interface RegisterAIModulesOptions {
   aiModules?: Record<string, AIModuleConfig>;
+  logger?: Pick<pino.Logger, 'warn'>;
 }
 
 export async function registerAIModules(
@@ -111,7 +124,7 @@ export async function registerAIModules(
   options?: RegisterAIModulesOptions,
 ): Promise<IAIModuleRegistry> {
   const moduleConfig = options?.aiModules ?? {};
-  const discoveredModules = await discoverAIModules();
+  const discoveredModules = await discoverAIModules(options?.logger);
 
   for (const registration of discoveredModules) {
     const cfg = moduleConfig[registration.id];

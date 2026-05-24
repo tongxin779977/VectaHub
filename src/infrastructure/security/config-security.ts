@@ -1,11 +1,6 @@
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
-import { getDefaultContext } from '../context.js';
-import { getVectaHubPath } from '../paths/index.js';
-
-function getModuleLogger() {
-  return getDefaultContext().logger.getLogger('config-security');
-}
+import type pino from 'pino';
 
 /**
  * 配置安全选项接口
@@ -14,6 +9,17 @@ export interface ConfigSecurityOptions {
   configPath?: string;
   enableChecksums?: boolean;
   enablePermissions?: boolean;
+}
+
+export type ConfigSecurityPathResolver = (...segments: string[]) => string;
+
+export interface ConfigSecurityDeps {
+  logger: pino.Logger;
+  resolveStoragePath: ConfigSecurityPathResolver;
+}
+
+export interface ConfigSecurityCreateOptions extends ConfigSecurityOptions {
+  deps: ConfigSecurityDeps;
 }
 
 /**
@@ -47,28 +53,35 @@ export interface SecurityIssue {
 }
 
 /**
- * 默认配置文件路径
- */
-function getDefaultConfigPath(): string {
-  return getVectaHubPath('config.yaml');
-}
-
-/**
  * 配置安全管理类
  *
  * 负责配置文件的完整性校验、权限检查和备份恢复
  */
 export class ConfigSecurity {
+  private readonly logger: pino.Logger;
+  private readonly resolveStoragePath: ConfigSecurityPathResolver;
   private configPath: string;
   private enableChecksums: boolean;
   private enablePermissions: boolean;
   private hashStore: Map<string, string> = new Map();
 
-  constructor(options?: ConfigSecurityOptions) {
-    this.configPath = options?.configPath || getDefaultConfigPath();
-    this.enableChecksums = options?.enableChecksums ?? true;
-    this.enablePermissions = options?.enablePermissions ?? true;
+  constructor(options: ConfigSecurityCreateOptions) {
+    this.assertDeps(options);
+    this.logger = options.deps.logger;
+    this.resolveStoragePath = options.deps.resolveStoragePath;
+    this.configPath = options.configPath || this.resolveStoragePath('config.yaml');
+    this.enableChecksums = options.enableChecksums ?? true;
+    this.enablePermissions = options.enablePermissions ?? true;
     this.loadHashes();
+  }
+
+  /**
+   * 显式依赖校验，缺失时直接失败
+   */
+  private assertDeps(options: ConfigSecurityCreateOptions | undefined): asserts options is ConfigSecurityCreateOptions {
+    if (!options?.deps?.logger || typeof options.deps.resolveStoragePath !== 'function') {
+      throw new Error('ConfigSecurity requires explicit logger and resolveStoragePath dependencies');
+    }
   }
 
   /**
@@ -103,7 +116,7 @@ export class ConfigSecurity {
    * 获取哈希文件路径
    */
   private getHashFilePath(): string {
-    return getVectaHubPath('.config-hashes.json');
+    return this.resolveStoragePath('.config-hashes.json');
   }
 
   /**
@@ -152,9 +165,9 @@ export class ConfigSecurity {
       const hash = this.computeHash(content);
       this.hashStore.set(targetPath, hash);
       await this.saveHashes();
-      getModuleLogger().debug(`Updated hash for ${targetPath}`);
+      this.logger.debug(`Updated hash for ${targetPath}`);
     } catch (error) {
-      getModuleLogger().error(`Failed to update config hash: ${(error as Error).message}`);
+      this.logger.error(`Failed to update config hash: ${(error as Error).message}`);
     }
   }
 
@@ -218,10 +231,10 @@ export class ConfigSecurity {
 
     try {
       await fs.chmod(targetPath, 0o600);
-      getModuleLogger().info(`Set secure permissions (600) for ${targetPath}`);
+      this.logger.info(`Set secure permissions (600) for ${targetPath}`);
       return true;
     } catch (error) {
-      getModuleLogger().error(`Failed to set permissions: ${(error as Error).message}`);
+      this.logger.error(`Failed to set permissions: ${(error as Error).message}`);
       return false;
     }
   }
@@ -294,15 +307,15 @@ export class ConfigSecurity {
    * @returns 备份路径
    */
   async backupConfig(destination?: string): Promise<string> {
-    const dest = destination || getVectaHubPath(`config.backup.${Date.now()}.yaml`);
+    const dest = destination || this.resolveStoragePath(`config.backup.${Date.now()}.yaml`);
     
     try {
       await fs.copyFile(this.configPath, dest);
       await this.enforceSecurePermissions(dest);
-      getModuleLogger().info(`Config backed up to ${dest}`);
+      this.logger.info(`Config backed up to ${dest}`);
       return dest;
     } catch (error) {
-      getModuleLogger().error(`Failed to backup config: ${(error as Error).message}`);
+      this.logger.error(`Failed to backup config: ${(error as Error).message}`);
       throw error;
     }
   }
@@ -316,9 +329,9 @@ export class ConfigSecurity {
       await fs.copyFile(backupPath, this.configPath);
       await this.enforceSecurePermissions();
       await this.updateConfigHash();
-      getModuleLogger().info(`Config restored from ${backupPath}`);
+      this.logger.info(`Config restored from ${backupPath}`);
     } catch (error) {
-      getModuleLogger().error(`Failed to restore config: ${(error as Error).message}`);
+      this.logger.error(`Failed to restore config: ${(error as Error).message}`);
       throw error;
     }
   }
@@ -337,13 +350,15 @@ export class ConfigSecurity {
    */
   clearHashes(): void {
     this.hashStore.clear();
-    fs.unlink(this.getHashFilePath()).catch(() => {});
+    void fs.unlink(this.getHashFilePath()).catch(error => {
+      this.logger.warn(`Failed to remove config hash file: ${(error as Error).message}`);
+    });
   }
 }
 
 /**
  * 创建 ConfigSecurity 实例的工厂函数
  */
-export function createConfigSecurity(options?: ConfigSecurityOptions): ConfigSecurity {
+export function createConfigSecurity(options: ConfigSecurityCreateOptions): ConfigSecurity {
   return new ConfigSecurity(options);
 }

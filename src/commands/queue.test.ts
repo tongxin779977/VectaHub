@@ -3,17 +3,28 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { resetDefaultContext } from '../infrastructure/context.js';
-import { queueCmd } from './queue.js';
+import { createQueueCmd } from './queue.js';
+import { MockLoggerService } from '../infrastructure/testing/mock-services.js';
+import { createEnvironmentService } from '../infrastructure/environment/index.js';
+import type { InfrastructureContext } from '../infrastructure/context.js';
 
 describe('queue command', () => {
   let oldHome: string | undefined;
   let tempHome: string;
+  let context: InfrastructureContext;
+  let queueCmd: ReturnType<typeof createQueueCmd>;
 
   beforeEach(() => {
     oldHome = process.env.VECTAHUB_HOME;
     tempHome = mkdtempSync(join(tmpdir(), 'vectahub-queue-cmd-'));
     process.env.VECTAHUB_HOME = tempHome;
     resetDefaultContext();
+    const environment = createEnvironmentService(tempHome);
+    context = {
+      environment,
+      logger: new MockLoggerService(),
+    } as unknown as InfrastructureContext;
+    queueCmd = createQueueCmd(context);
   });
 
   afterEach(() => {

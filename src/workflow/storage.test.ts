@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { createStorage } from './storage.js';
 import type { ExecutionRecord, StepRecord } from '../types/index.js';
 import { createEnvironmentService } from '../infrastructure/environment/index.js';
+import { MockLoggerService } from '../infrastructure/testing/mock-services.js';
 
 function createTestRecord(overrides: Partial<ExecutionRecord> = {}): ExecutionRecord {
   const base = {
@@ -26,7 +27,8 @@ describe('Storage with output-store integration', () => {
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'storage-test-'));
-    storage = createStorage({ storageDir: tmpDir, environment: createEnvironmentService(tmpDir) });
+    const logger = new MockLoggerService().getLogger('storage');
+    storage = createStorage({ storageDir: tmpDir, environment: createEnvironmentService(tmpDir), logger });
   });
 
   afterEach(() => {
@@ -68,7 +70,8 @@ describe('Storage with output-store integration', () => {
     });
 
     it('should return undefined when separateOutput is false', () => {
-      const store = createStorage({ storageDir: tmpDir, separateOutput: false, environment: createEnvironmentService(tmpDir) });
+      const logger = new MockLoggerService().getLogger('storage');
+      const store = createStorage({ storageDir: tmpDir, separateOutput: false, environment: createEnvironmentService(tmpDir), logger });
       expect(store.getOutputStore()).toBeUndefined();
     });
   });

@@ -1,10 +1,30 @@
 import { Command } from 'commander';
+import { format } from 'node:util';
 import { createStorage } from '../workflow/storage.js';
 import type { InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import { Workflow } from '../types/index.js';
 import YAML from 'yaml';
 import createLLMDialogControlSkill from '../skills/llm-dialog-control/index.js';
+
+interface GenerateCommandOutput {
+  log(message?: unknown, ...optionalParams: unknown[]): void;
+}
+
+function createGenerateCommandOutput(): GenerateCommandOutput {
+  const formatMessage = (message?: unknown, optionalParams: unknown[] = []): string => {
+    if (message === undefined && optionalParams.length === 0) {
+      return '';
+    }
+    return format(message, ...optionalParams);
+  };
+
+  return {
+    log(message?: unknown, ...optionalParams: unknown[]): void {
+      process.stdout.write(`${formatMessage(message, optionalParams)}\n`);
+    },
+  };
+}
 
 const YAML_WORKFLOW_SYSTEM_PROMPT = `
 你是一个专业的工作流 YAML 生成专家，专门为 VectaHub 平台生成工作流。
@@ -69,6 +89,8 @@ steps:
 
 export function createGenerateCmd(context: InfrastructureContext): Command {
   const logger = context.logger.getLogger('generate');
+  const output = createGenerateCommandOutput();
+
   return new Command('generate')
     .description('使用 LLM 生成 YAML 工作流')
     .argument('<description>', '工作流描述')
@@ -123,12 +145,12 @@ export function createGenerateCmd(context: InfrastructureContext): Command {
           workflow = YAML.parse(response.output) as Workflow;
         } catch (e) {
           logger.error('生成的 YAML 无效');
-          console.log('\n' + response.output);
+          output.log('\n' + response.output);
           throw new VectaHubError('Generated YAML is invalid', ErrorType.RUNTIME, e);
         }
 
         logger.info('生成的工作流:');
-        console.log(response.output);
+        output.log(response.output);
 
         let outputPath: string;
         if (options.output) {
@@ -142,7 +164,7 @@ export function createGenerateCmd(context: InfrastructureContext): Command {
         logger.info(`工作流已保存到: ${outputPath}`);
 
         if (options.save) {
-          const storage = createStorage({ environment: env });
+          const storage = createStorage({ environment: env, logger });
           await storage.saveWorkflow(workflow, 'yaml');
           logger.info('工作流已保存到工作流库');
         }

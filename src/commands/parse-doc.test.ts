@@ -455,7 +455,7 @@ describe('createParseDocCmd', () => {
     const originalOpenAI = process.env.OPENAI_API_KEY;
     const tempDir = mkdtempSync(join(tmpdir(), 'vectahub-parse-doc-cmd-'));
     const docPath = join(tempDir, 'tasks.md');
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
     delete process.env.OPENAI_API_KEY;
     process.env.VECTAHUB_HOME = join(tempDir, 'home');
@@ -465,7 +465,8 @@ describe('createParseDocCmd', () => {
       const cmd = createParseDocCmd(getDefaultContext());
       await cmd.parseAsync([docPath, '--json'], { from: 'user' });
 
-      const payload = JSON.parse(String(logSpy.mock.calls.at(-1)?.[0] ?? '{}')) as {
+      const output = stdoutSpy.mock.calls.map(([chunk]) => String(chunk)).join('');
+      const payload = JSON.parse(output) as {
         ok: boolean;
         source?: string;
         degraded?: boolean;
@@ -477,7 +478,7 @@ describe('createParseDocCmd', () => {
       expect(payload.degraded).toBe(true);
       expect(payload.warnings?.[0]).toContain('LLM 未配置');
     } finally {
-      logSpy.mockRestore();
+      stdoutSpy.mockRestore();
       if (originalVectaHubHome === undefined) {
         delete process.env.VECTAHUB_HOME;
       } else {

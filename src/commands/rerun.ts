@@ -24,7 +24,11 @@ export function createRerunCmd(context: InfrastructureContext): Command {
       logger.info(`\nRe-running workflow from execution ${executionId}...`);
 
       try {
-        const engine = createWorkflowEngine({ audit: context.audit.getHelper(), environment: context.environment });
+        const engine = createWorkflowEngine({
+          audit: context.audit.getHelper(),
+          environment: context.environment,
+          logger,
+        });
         const workflow = await engine.getWorkflow(record.workflowId);
         if (!workflow) {
           logger.error(`Workflow ${record.workflowId} not found.`);

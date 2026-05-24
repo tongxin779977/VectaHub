@@ -3,9 +3,7 @@ import type { PromptRegistry } from '../nl/prompt/types.js';
 import type { LLMDialogControlSkill } from './llm-dialog-control/index.js';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { getDefaultContext } from '../infrastructure/context.js';
-
-const logger = getDefaultContext().logger.getLogger('workflow-skill');
+import type pino from 'pino';
 
 export interface WorkflowSkillInput {
   intent: string;
@@ -40,7 +38,8 @@ async function readDocContent(filePath: string): Promise<string | null> {
 
 export function createWorkflowSkill(
   promptRegistry: PromptRegistry,
-  llmDialogSkill: LLMDialogControlSkill
+  llmDialogSkill: LLMDialogControlSkill,
+  logger: Pick<pino.Logger, 'debug'> = { debug: () => {} },
 ): Skill<WorkflowSkillInput, WorkflowSkillOutput> {
   return {
     id: 'vectahub.workflow',
@@ -83,7 +82,7 @@ export function createWorkflowSkill(
           };
         }
 
-        const isValid = validateWorkflowYAML(result.output);
+        const isValid = validateWorkflowYAML(result.output, logger);
 
         if (!isValid) {
           const fallbackYAML = createFallbackWorkflow(input);
@@ -113,7 +112,7 @@ export function createWorkflowSkill(
   };
 }
 
-function validateWorkflowYAML(yaml: string): boolean {
+function validateWorkflowYAML(yaml: string, logger: Pick<pino.Logger, 'debug'>): boolean {
   if (!yaml || yaml.trim().length === 0) {
     logger.debug(`Validation failed: empty YAML`);
     return false;

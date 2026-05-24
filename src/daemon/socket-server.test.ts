@@ -1,17 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AuditHelper } from '../infrastructure/audit/index.js';
 
 const processInputMock = vi.fn();
-const createLLMConfigMock = vi.fn();
 const auditIntentMatchMock = vi.fn();
+const auditLogMock = vi.fn();
+const auditCliCommandMock = vi.fn();
+const auditWorkflowEndMock = vi.fn();
 const sandboxSetModeMock = vi.fn();
 const auditConfigChangeMock = vi.fn();
+const loggerErrorMock = vi.fn();
 
 vi.mock('../nl/orchestrator.js', () => ({
   processInput: processInputMock,
-}));
-
-vi.mock('../nl/llm.js', () => ({
-  createLLMConfig: createLLMConfigMock,
 }));
 
 vi.mock('../sandbox/sandbox.js', () => ({
@@ -22,25 +22,23 @@ vi.mock('../sandbox/sandbox.js', () => ({
   })),
 }));
 
-vi.mock('../skills/executor.js', () => ({
-  createSkillExecutor: vi.fn(() => ({})),
-}));
-
-vi.mock('../utils/audit.js', () => ({
-  audit: {
-    intentMatch: auditIntentMatchMock,
-    log: vi.fn(),
-    cliCommand: vi.fn(),
+function createAuditHelper(): AuditHelper {
+  return {
+    log: auditLogMock,
+    cliCommand: auditCliCommandMock,
+    cliOutput: vi.fn(),
+    workflowStart: vi.fn(),
+    workflowEnd: auditWorkflowEndMock,
+    workflowStep: vi.fn(),
+    securityAlert: vi.fn(),
+    securityAction: vi.fn(),
     configChange: auditConfigChangeMock,
-    workflowEnd: vi.fn(),
-  },
-  getCurrentSessionId: vi.fn(() => 'session-test'),
-  AuditEventType: {
-    WORKFLOW_START: 'WORKFLOW_START',
-    WORKFLOW_END: 'WORKFLOW_END',
-    ENV_AUDIT: 'ENV_AUDIT',
-  },
-}));
+    intentMatch: auditIntentMatchMock,
+    executorResult: vi.fn(),
+    fileOperation: vi.fn(),
+    sandboxDetect: vi.fn(),
+  };
+}
 
 describe('SocketServer.executeTask', () => {
   beforeEach(() => {
@@ -54,7 +52,6 @@ describe('SocketServer.executeTask', () => {
       apiKey: 'secret',
       baseUrl: 'https://api.openai.com/v1',
     };
-    createLLMConfigMock.mockReturnValue(llmConfig);
     processInputMock.mockResolvedValue({
       success: true,
       intent: 'RUN_SCRIPT',
@@ -68,15 +65,28 @@ describe('SocketServer.executeTask', () => {
     });
 
     const { SocketServer } = await import('./socket-server.js');
-    const server = new SocketServer();
+    const server = new SocketServer({}, {
+      auditHelper: createAuditHelper(),
+      logger: { error: loggerErrorMock },
+      getSessionId: () => 'session-test',
+      llmConfigProvider: () => llmConfig,
+    });
     const result = await (server as any).executeTask('check status');
 
-    expect(processInputMock).toHaveBeenCalledWith('check status', llmConfig);
+    expect(processInputMock).toHaveBeenCalledWith(
+      'check status',
+      llmConfig,
+      expect.objectContaining({
+        intentMatch: expect.any(Function),
+      }),
+      expect.objectContaining({
+        error: expect.any(Function),
+      }),
+    );
     expect(result).toContain('Execution delegated to Skill System.');
   });
 
   it('returns warning for non-executable capability result instead of delegated success', async () => {
-    createLLMConfigMock.mockReturnValue(undefined);
     processInputMock.mockResolvedValue({
       success: true,
       intent: 'UNKNOWN',
@@ -92,7 +102,11 @@ describe('SocketServer.executeTask', () => {
     });
 
     const { SocketServer } = await import('./socket-server.js');
-    const server = new SocketServer();
+    const server = new SocketServer({}, {
+      auditHelper: createAuditHelper(),
+      logger: { error: loggerErrorMock },
+      getSessionId: () => 'session-test',
+    });
     const result = await (server as any).executeTask('do something ambiguous');
 
     expect(result).toBe('No executable plan: clarification required before execution');
@@ -101,7 +115,11 @@ describe('SocketServer.executeTask', () => {
 
   it('rejects invalid setMode value and does not call sandbox.setMode', async () => {
     const { SocketServer } = await import('./socket-server.js');
-    const server = new SocketServer();
+    const server = new SocketServer({}, {
+      auditHelper: createAuditHelper(),
+      logger: { error: loggerErrorMock },
+      getSessionId: () => 'session-test',
+    });
     const socket = { write: vi.fn() } as any;
 
     await (server as any).handleMessage(socket, { type: 'setMode', mode: 'INVALID' });
@@ -115,7 +133,11 @@ describe('SocketServer.executeTask', () => {
 
   it('parses newline-delimited socket stream with sticky and split packets', async () => {
     const { SocketServer } = await import('./socket-server.js');
-    const server = new SocketServer();
+    const server = new SocketServer({}, {
+      auditHelper: createAuditHelper(),
+      logger: { error: loggerErrorMock },
+      getSessionId: () => 'session-test',
+    });
     const socket = { write: vi.fn() } as any;
     const handleMessageSpy = vi.spyOn(server as any, 'handleMessage').mockResolvedValue(undefined);
 

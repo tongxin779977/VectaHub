@@ -9,6 +9,15 @@ let testConfig: SecurityConfig | null = null;
 let testDatabase: SecurityDatabase | null = null;
 let managerInstance: SecurityProtocolManager | null = null;
 
+export interface SecurityProtocolManagerOptions {
+  configPath?: string;
+  logger?: Pick<Console, 'warn'>;
+}
+
+const silentSecurityProtocolLogger: Required<Pick<SecurityProtocolManagerOptions, 'logger'>>['logger'] = {
+  warn(): void {},
+};
+
 function toError(error: unknown, message: string): Error {
   return error instanceof Error ? new Error(message, { cause: error }) : new Error(`${message}: ${String(error)}`);
 }
@@ -42,8 +51,14 @@ export class SecurityProtocolManager {
   private databasePath: string;
   private configPath: string;
   private degradedMode = false;
+  private readonly logger: Pick<Console, 'warn'>;
 
-  constructor(configPath?: string) {
+  constructor(configPathOrOptions?: string | SecurityProtocolManagerOptions) {
+    const options = typeof configPathOrOptions === 'string'
+      ? { configPath: configPathOrOptions }
+      : configPathOrOptions ?? {};
+    this.logger = options.logger ?? silentSecurityProtocolLogger;
+
     if (testMode && testConfig && testDatabase) {
       this.configPath = '';
       this.databasePath = '';
@@ -52,7 +67,7 @@ export class SecurityProtocolManager {
       return;
     }
 
-    this.configPath = configPath || getVectaHubPath('security-config.json');
+    this.configPath = options.configPath || getVectaHubPath('security-config.json');
     this.databasePath = join(dirname(this.configPath), 'security-database.json');
     this.config = this.loadConfig();
     this.database = this.loadDatabase();
@@ -326,7 +341,7 @@ export class SecurityProtocolManager {
             };
           }
         } catch (e) {
-          console.warn(`Invalid regex pattern in rule ${rule.id}:`, e);
+          this.logger.warn(`Invalid regex pattern in rule ${rule.id}:`, e);
         }
       }
     }

@@ -5,7 +5,7 @@ import { createCommandManager } from './command-manager.js';
 import type { ReplDeps, SlashCommandContext } from './types.js';
 import type { REPLDeps } from './types.js';
 import type { CommandBridge } from '../chat/command-bridge.js';
-import { createLLMConfig } from '../nl/llm.js';
+import { LLMClient } from '../nl/llm.js';
 
 const cmdManager = createCommandManager();
 const parseInput = (input: string) => cmdManager.parseInput(input);
@@ -92,6 +92,33 @@ const mockChatConfig: ChatConfig = {
   enableCommandBridge: false,
 };
 
+function createMockLogger() {
+  return {
+    info: vi.fn(),
+    error: vi.fn(),
+    warn: vi.fn(),
+    debug: vi.fn(),
+  } as any;
+}
+
+function createMockAuditHelper() {
+  return {
+    log: vi.fn(),
+    cliCommand: vi.fn(),
+    cliOutput: vi.fn(),
+    workflowStart: vi.fn(),
+    workflowEnd: vi.fn(),
+    workflowStep: vi.fn(),
+    securityAlert: vi.fn(),
+    securityAction: vi.fn(),
+    configChange: vi.fn(),
+    intentMatch: vi.fn(),
+    executorResult: vi.fn(),
+    fileOperation: vi.fn(),
+    sandboxDetect: vi.fn(),
+  } as any;
+}
+
 function createMockDeps(overrides?: Partial<REPLDeps>): REPLDeps {
   const mockParamExtractor: ParamExtractor = {
     extract: vi.fn().mockReturnValue({ param1: 'value1' }),
@@ -114,6 +141,8 @@ function createMockDeps(overrides?: Partial<REPLDeps>): REPLDeps {
     config: mockChatConfig, // Default config
     commandBridge: createCommandBridge({} as any), // Use the mocked function to get a mock CommandBridge instance
     paramExtractor: mockParamExtractor, // Add mockParamExtractor here
+    auditHelper: createMockAuditHelper(),
+    logger: createMockLogger(),
     ...overrides,
   };
 }
@@ -302,6 +331,24 @@ describe('Workflow Execution Modes', () => {
     );
     expect(result.type).toBe('text');
     expect(result.content).toContain('✅ 执行成功');
+  });
+
+  it('should create LLM client with injected audit helper in auto mode', async () => {
+    const auditHelper = createMockAuditHelper();
+    const deps = createMockDeps({
+      auditHelper,
+      config: { ...mockChatConfig, executeMode: 'auto' },
+      workflowEngine: mockWorkflowEngine,
+      nlProcessor: mockNlProcessor,
+    });
+
+    const repl = createRepl(deps);
+    await repl.processInput('some input');
+
+    expect(LLMClient).toHaveBeenCalledWith(
+      deps.llmConfig,
+      expect.objectContaining({ auditHelper }),
+    );
   });
 
   it('should prompt for confirmation in "confirm" mode and execute if "y"', async () => {

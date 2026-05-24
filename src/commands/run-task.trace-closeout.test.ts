@@ -13,13 +13,19 @@ async function createTestRunTaskCmd() {
 }
 
 describe('runTask trace closeout', () => {
+  let stdoutSpy: ReturnType<typeof vi.spyOn>;
+
+  function getStdoutText(): string {
+    return stdoutSpy.mock.calls.map(([chunk]) => String(chunk)).join('');
+  }
+
   beforeEach(() => {
     writeTraceSpanMock.mockReset();
     vi.restoreAllMocks();
+    stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
   });
 
   it('emits cli.run-task.formatJson as a child span on JSON contract preview path', async () => {
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const runTaskCmd = await createTestRunTaskCmd();
 
     await runTaskCmd.parseAsync([
@@ -45,13 +51,12 @@ describe('runTask trace closeout', () => {
     expect(formatJsonSpan?.parentSpanId).toBe(rootSpan?.spanId);
     expect(formatJsonSpan?.status).toBe('completed');
 
-    const payload = String(logSpy.mock.calls.at(-1)?.[0] ?? '');
+    const payload = getStdoutText();
     expect(payload).toContain('"ok": true');
     expect(payload).toContain('"agentTaskContract"');
   });
 
   it('emits cli.run-task.formatJson on JSON error path before failing the root span', async () => {
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const runTaskCmd = await createTestRunTaskCmd();
 
     await expect(runTaskCmd.parseAsync([
@@ -74,7 +79,7 @@ describe('runTask trace closeout', () => {
     expect(formatJsonSpan?.parentSpanId).toBe(rootSpan?.spanId);
     expect(formatJsonSpan?.status).toBe('completed');
 
-    const payload = String(logSpy.mock.calls.at(-1)?.[0] ?? '');
+    const payload = getStdoutText();
     expect(payload).toContain('"ok": false');
     expect(payload).toContain('"code": "CLI_ERROR"');
     expect(payload).toContain('缺少 Agent CLI 工具名称');

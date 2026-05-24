@@ -8,12 +8,18 @@ import { createTraceCmd } from './trace.js';
 describe('trace command', () => {
   let oldHome: string | undefined;
   let tempHome: string;
+  let stdoutSpy: ReturnType<typeof vi.spyOn>;
+
+  function getStdoutText(): string {
+    return stdoutSpy.mock.calls.map(([chunk]) => String(chunk)).join('');
+  }
 
   beforeEach(() => {
     oldHome = process.env.VECTAHUB_HOME;
     tempHome = mkdtempSync(join(tmpdir(), 'vectahub-trace-home-'));
     process.env.VECTAHUB_HOME = tempHome;
     resetDefaultContext();
+    stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
   });
 
   afterEach(() => {
@@ -45,10 +51,9 @@ describe('trace command', () => {
       durationMs: 1000,
     }) + '\n');
 
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     await createTraceCmd(getDefaultContext()).parseAsync(['list', '--json'], { from: 'user' });
 
-    const payload = String(logSpy.mock.calls[0]?.[0] ?? '');
+    const payload = getStdoutText();
     expect(payload).toContain('"traceId": "tr-utc-latest"');
   });
 
@@ -69,10 +74,9 @@ describe('trace command', () => {
       durationMs: 1000,
     }) + '\n');
 
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     await createTraceCmd(getDefaultContext()).parseAsync(['list', '--json'], { from: 'user' });
 
-    const payload = String(logSpy.mock.calls[0]?.[0] ?? '');
+    const payload = getStdoutText();
     expect(payload).toContain('"traceId": "tr-local-recent"');
   });
 
@@ -93,10 +97,9 @@ describe('trace command', () => {
       durationMs: 1000,
     }) + '\n');
 
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     await createTraceCmd(getDefaultContext()).parseAsync(['list', '--json'], { from: 'user' });
 
-    const payload = String(logSpy.mock.calls[0]?.[0] ?? '');
+    const payload = getStdoutText();
     expect(payload).toContain('"traceId": "tr-legacy-list"');
   });
 
@@ -117,10 +120,9 @@ describe('trace command', () => {
       durationMs: 1000,
     }) + '\n');
 
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     await createTraceCmd(getDefaultContext()).parseAsync(['show', 'tr-legacy-show', '--json'], { from: 'user' });
 
-    const payload = String(logSpy.mock.calls[0]?.[0] ?? '');
+    const payload = getStdoutText();
     expect(payload).toContain('"traceId": "tr-legacy-show"');
     expect(payload).toContain('"spanId": "sp-legacy-2"');
   });
@@ -142,10 +144,9 @@ describe('trace command', () => {
       durationMs: 1000,
     }) + '\n');
 
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     await createTraceCmd(getDefaultContext()).parseAsync(['show', 'tr-older-show', '--json'], { from: 'user' });
 
-    const payload = String(logSpy.mock.calls[0]?.[0] ?? '');
+    const payload = getStdoutText();
     expect(payload).toContain('"traceId": "tr-older-show"');
     expect(payload).toContain('"spanId": "sp-older-1"');
   });

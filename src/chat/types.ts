@@ -8,6 +8,8 @@ import type { CommandBridge } from './command-bridge.js';
 import type { ParamExtractor } from '../nl/param-extractor.js';
 import type { ContextBuilderResult } from './context-builder.js';
 import type { CommandExecutor } from '../nl/executor/command-executor.js';
+import type { AuditHelper } from '../infrastructure/audit/index.js';
+import type pino from 'pino';
 
 export type ChatInputType = 'nl' | 'shell' | 'slash-command';
 
@@ -71,11 +73,13 @@ export interface ReplDeps {
   sessionManager?: SessionManager;
   useLLM: boolean;
   llmConfig?: LLMConfig | null;
+  auditHelper: AuditHelper;
   workflowEngine?: WorkflowEngine;
   commandExecutor?: CommandExecutor;
   commandBridge: CommandBridge;
   paramExtractor: ParamExtractor;
   config: ChatConfig;
+  logger: pino.Logger;
 }
 
 export type REPLDeps = ReplDeps;

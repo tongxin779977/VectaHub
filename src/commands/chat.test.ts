@@ -62,7 +62,16 @@ describe('chat command', () => {
     await chatCmd.parseAsync(['node', 'chat']);
 
     expect(createLLMConfigMock).toHaveBeenCalled();
-    expect(processInputMock).toHaveBeenCalledWith('hello', mockConfig);
+    expect(processInputMock).toHaveBeenCalledWith(
+      'hello',
+      mockConfig,
+      expect.objectContaining({
+        intentMatch: expect.any(Function),
+      }),
+      expect.objectContaining({
+        error: expect.any(Function),
+      }),
+    );
     expect(initializeRouterMock).toHaveBeenCalled();
   });
 });

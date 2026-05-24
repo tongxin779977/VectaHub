@@ -1,17 +1,17 @@
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import type { CommandRule, CommandRuleSet } from './types.js';
-import { getDefaultContext } from '../infrastructure/context.js';
-import { getVectaHubPath } from '../infrastructure/paths/index.js';
 
 const COMMAND_RULES_DIR = 'command-rules';
-const logger = getDefaultContext().logger.getLogger('command-rules-loader');
 
-function getGlobalConfigPath(): string {
-  return getVectaHubPath(COMMAND_RULES_DIR);
+export interface CommandRuleLoaderDeps {
+  logger: {
+    error: (context: { error: unknown }, message: string) => void;
+  };
+  getGlobalConfigPath: () => string;
 }
 
-export function loadRuleSet(filePath: string): CommandRule[] {
+export function loadRuleSet(filePath: string, deps: Pick<CommandRuleLoaderDeps, 'logger'>): CommandRule[] {
   if (!existsSync(filePath)) {
     return [];
   }
@@ -20,38 +20,37 @@ export function loadRuleSet(filePath: string): CommandRule[] {
     const data: CommandRuleSet = JSON.parse(content);
     return data.rules || [];
   } catch (error) {
-    logger.error({ error }, `Failed to load rule set from ${filePath}`);
+    deps.logger.error({ error }, `Failed to load rule set from ${filePath}`);
     throw new Error(`Failed to load command rule set from ${filePath}`, { cause: error });
   }
 }
 
-export function loadGlobalBlocklist(): CommandRule[] {
-  const blocklistPath = resolve(getGlobalConfigPath(), 'blocklist.json');
-  return loadRuleSet(blocklistPath);
+export function loadGlobalBlocklist(deps: CommandRuleLoaderDeps): CommandRule[] {
+  const blocklistPath = resolve(deps.getGlobalConfigPath(), 'blocklist.json');
+  return loadRuleSet(blocklistPath, deps);
 }
 
-export function loadGlobalAllowlist(): CommandRule[] {
-  const allowlistPath = resolve(getGlobalConfigPath(), 'allowlist.json');
-  return loadRuleSet(allowlistPath);
+export function loadGlobalAllowlist(deps: CommandRuleLoaderDeps): CommandRule[] {
+  const allowlistPath = resolve(deps.getGlobalConfigPath(), 'allowlist.json');
+  return loadRuleSet(allowlistPath, deps);
 }
 
-export function loadProjectBlocklist(projectPath?: string): CommandRule[] {
+export function loadProjectBlocklist(projectPath: string | undefined, deps: Pick<CommandRuleLoaderDeps, 'logger'>): CommandRule[] {
   if (!projectPath) {
     return [];
   }
   const blocklistPath = resolve(projectPath, '.vectahub', COMMAND_RULES_DIR, 'blocklist.json');
-  return loadRuleSet(blocklistPath);
+  return loadRuleSet(blocklistPath, deps);
 }
 
-export function loadProjectAllowlist(projectPath?: string): CommandRule[] {
+export function loadProjectAllowlist(projectPath: string | undefined, deps: Pick<CommandRuleLoaderDeps, 'logger'>): CommandRule[] {
   if (!projectPath) {
     return [];
   }
   const allowlistPath = resolve(projectPath, '.vectahub', COMMAND_RULES_DIR, 'allowlist.json');
-  return loadRuleSet(allowlistPath);
+  return loadRuleSet(allowlistPath, deps);
 }
 
-export function ensureConfigDir(): string {
-  const configPath = getGlobalConfigPath();
-  return configPath;
+export function ensureConfigDir(deps: Pick<CommandRuleLoaderDeps, 'getGlobalConfigPath'>): string {
+  return deps.getGlobalConfigPath();
 }

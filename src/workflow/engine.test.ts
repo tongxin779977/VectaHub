@@ -4,8 +4,10 @@ import { contextManager } from './context-manager.js';
 import { createNoopAuditHelper } from '../infrastructure/audit/index.js';
 import { createEnvironmentService } from '../infrastructure/environment/index.js';
 import type { Step, ExecutionRecord } from '../types/index.js';
+import { MockLoggerService } from '../infrastructure/testing/mock-services.js';
 
 const environment = createEnvironmentService();
+const logger = new MockLoggerService().getLogger('workflow-engine');
 
 const mockSave = vi.fn().mockResolvedValue(undefined);
 const mockGet = vi.fn().mockResolvedValue(undefined);
@@ -92,7 +94,7 @@ describe('WorkflowEngine', () => {
     mockState.applyDefaultImplementation();
     mockState.resetShouldFail();
     contextManager.clear();
-    engine = await createWorkflowEngine({ audit: createNoopAuditHelper(), environment });
+    engine = await createWorkflowEngine({ audit: createNoopAuditHelper(), environment, logger });
   });
 
   it('should create a workflow', async () => {
@@ -766,8 +768,8 @@ describe('WorkflowEngine', () => {
         ...createNoopAuditHelper(),
         securityAction: vi.fn(),
       };
-      const engineOne = createWorkflowEngine({ audit: auditOne, environment });
-      const engineTwo = createWorkflowEngine({ audit: auditTwo, environment });
+      const engineOne = createWorkflowEngine({ audit: auditOne, environment, logger });
+      const engineTwo = createWorkflowEngine({ audit: auditTwo, environment, logger });
       const workflowOne = await engineOne.createWorkflow('wf-audit-1', [
         { id: 's1', type: 'if', condition: 'false', body: [] },
       ]);

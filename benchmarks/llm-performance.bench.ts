@@ -13,6 +13,11 @@ const BENCH_CONFIG: LLMConfig = {
   baseUrl: 'https://api.openai.com/v1',
 };
 
+const benchLogger = {
+  info: vi.fn(),
+  error: vi.fn(),
+};
+
 interface Scenario {
   label: string;
   input: string;
@@ -127,6 +132,7 @@ describe('LLM Performance Benchmark – Phase 7', () => {
           sessionManager: sm,
           llmConfig: BENCH_CONFIG,
           llmClient: mockClient as any,
+          logger: benchLogger,
         });
 
         const res = await orch.ask({

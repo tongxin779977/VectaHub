@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { format } from 'node:util';
 import { getSecurityGuard } from '../security-protocol/factory.js';
 import type { CommandIntention, SecurityContext } from '../types/security.js';
 import { createWorkflowEngine } from '../workflow/engine.js';
@@ -15,7 +16,34 @@ interface RunCommandOptions {
   dryRun?: boolean;
 }
 
+interface RunCommandOutput {
+  log(message?: unknown, ...optionalParams: unknown[]): void;
+  warn(message?: unknown, ...optionalParams: unknown[]): void;
+  error(message?: unknown, ...optionalParams: unknown[]): void;
+}
+
+function createRunCommandOutput(): RunCommandOutput {
+  const writeLine = (stream: NodeJS.WriteStream, message?: unknown, optionalParams: unknown[] = []): void => {
+    stream.write(`${format(message, ...optionalParams)}\n`);
+  };
+
+  return {
+    log(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stdout, message, optionalParams);
+    },
+    warn(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stderr, message, optionalParams);
+    },
+    error(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stderr, message, optionalParams);
+    },
+  };
+}
+
 export function createRunCommandCmd(context: InfrastructureContext): Command {
+  const logger = context.logger.getLogger('run-command');
+  const output = createRunCommandOutput();
+
   return new Command('run-command')
     .description('Directly run a CLI command with security scanning')
     .argument('<command...>', 'The command to execute')
@@ -56,22 +84,22 @@ export function createRunCommandCmd(context: InfrastructureContext): Command {
         };
 
         if (options.json) {
-          console.log(JSON.stringify(errorOutput, null, 2));
+          output.log(JSON.stringify(errorOutput, null, 2));
         } else {
-          console.error(`❌ 安全违规: ${errorOutput.error.message}`);
-          console.error(`原因: ${decision.reason || '未授权的操作'}`);
+          output.error(`❌ 安全违规: ${errorOutput.error.message}`);
+          output.error(`原因: ${decision.reason || '未授权的操作'}`);
         }
         throw new VectaHubError(`Security violation: ${decision.reason || decision.ruleName}`, ErrorType.SECURITY);
       }
 
       if (options.mode === 'relaxed') {
         if (decision.decision === 'BLOCKED') {
-          console.error(`❌ 安全策略拦截: ${decision.reason || '该操作已被禁止'}`);
+          output.error(`❌ 安全策略拦截: ${decision.reason || '该操作已被禁止'}`);
           throw new VectaHubError(`Security policy blocked: ${decision.reason}`, ErrorType.SECURITY);
         }
         if (decision.decision === 'REQUIRES_CONFIRMATION') {
           if (options.json) {
-            console.error(JSON.stringify({
+            output.error(JSON.stringify({
               ok: true,
               warning: {
                 message: `命令具有 ${decision.riskLevel} 风险`,
@@ -80,33 +108,37 @@ export function createRunCommandCmd(context: InfrastructureContext): Command {
               }
             }, null, 2));
           } else {
-            console.warn(`⚠️  警告: 该命令被标记为 ${decision.riskLevel} 风险`);
-            console.warn(`   规则: ${decision.ruleName || 'Unknown'}`);
-            console.warn(`   原因: ${decision.reason}`);
-            console.warn(`   继续执行中...\n`);
+            output.warn(`⚠️  警告: 该命令被标记为 ${decision.riskLevel} 风险`);
+            output.warn(`   规则: ${decision.ruleName || 'Unknown'}`);
+            output.warn(`   原因: ${decision.reason}`);
+            output.warn(`   继续执行中...\n`);
           }
         }
       }
 
       if (options.dryRun) {
         if (options.json) {
-          console.log(JSON.stringify({
+          output.log(JSON.stringify({
             ok: true,
             dryRun: true,
             command: fullCommand,
             security: decision
           }, null, 2));
         } else {
-          console.log(`Dry-run: Would execute "${fullCommand}"`);
+          output.log(`Dry-run: Would execute "${fullCommand}"`);
           if (decision.decision !== 'PASSED') {
-            console.warn(`Warning: This command is flagged as ${decision.riskLevel} risk.`);
+            output.warn(`Warning: This command is flagged as ${decision.riskLevel} risk.`);
           }
         }
         return;
       }
 
       try {
-        const engine = createWorkflowEngine({ audit: context.audit.getHelper(), environment: context.environment });
+        const engine = createWorkflowEngine({
+          audit: context.audit.getHelper(),
+          environment: context.environment,
+          logger,
+        });
         await engine.loadWorkflows();
 
         const steps: Step[] = [{
@@ -157,7 +189,7 @@ export function createRunCommandCmd(context: InfrastructureContext): Command {
         await recordManager.save(recordToSave);
 
         if (options.json) {
-          console.log(JSON.stringify({
+          output.log(JSON.stringify({
             ok: result.status === 'COMPLETED',
             status: result.status,
             output: redactedOutput.split('\n'),
@@ -166,12 +198,12 @@ export function createRunCommandCmd(context: InfrastructureContext): Command {
           }, null, 2));
         } else {
           if (result.status === 'COMPLETED') {
-            console.log('✅ Command executed successfully');
-            console.log(redactedOutput);
+            output.log('✅ Command executed successfully');
+            output.log(redactedOutput);
           } else {
-            console.error('❌ Command execution failed');
+            output.error('❌ Command execution failed');
             if (result.steps[0]?.error) {
-              console.error(result.steps[0].error);
+              output.error(result.steps[0].error);
             }
           }
         }
@@ -185,7 +217,7 @@ export function createRunCommandCmd(context: InfrastructureContext): Command {
         }
         const message = error instanceof Error ? error.message : String(error);
         if (options.json) {
-          console.log(JSON.stringify({
+          output.log(JSON.stringify({
             ok: false,
             error: {
               code: 'EXECUTION_ERROR',
@@ -193,7 +225,7 @@ export function createRunCommandCmd(context: InfrastructureContext): Command {
             }
           }, null, 2));
         } else {
-          console.error(`❌ Execution Error: ${message}`);
+          output.error(`❌ Execution Error: ${message}`);
         }
         throw new VectaHubError(message, ErrorType.RUNTIME, error);
       }

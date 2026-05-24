@@ -35,7 +35,11 @@ export function createResumeCmd(context: InfrastructureContext): Command {
       logger.info(`\nResuming execution from step #${targetStep}...`);
 
       try {
-        const engine = createWorkflowEngine({ audit: context.audit.getHelper(), environment: context.environment });
+        const engine = createWorkflowEngine({
+          audit: context.audit.getHelper(),
+          environment: context.environment,
+          logger,
+        });
         const result = await engine.resumeFromFailure(executionId, targetStep, {
           mode: options.mode as 'strict' | 'relaxed' | 'consensus',
         });

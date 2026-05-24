@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { QueueManager } from '../execution/queue-manager.js';
 import type { DiagnosticTask } from '../types/diagnostic.js';
 import { listPendingDiagnosticTasks, parseQueuedCommand, processDiagnosticTask } from './process-diagnostic-queue.js';
+import { MockLoggerService } from '../infrastructure/testing/mock-services.js';
 
 describe('process-diagnostic-queue', () => {
   let tempDir = '';
@@ -22,7 +23,9 @@ describe('process-diagnostic-queue', () => {
     tempDir = mkdtempSync(join(tmpdir(), 'vectahub-queue-'));
     await mkdir(tempDir, { recursive: true });
 
-    const queueManager = QueueManager.createForPath(join(tempDir, 'diagnostic-queue.json'));
+    const queueManager = QueueManager.createForPath(join(tempDir, 'diagnostic-queue.json'), {
+      logger: new MockLoggerService().getLogger('queue-manager'),
+    });
     await queueManager.saveTasks(tasks);
     return queueManager;
   }
@@ -79,7 +82,9 @@ describe('process-diagnostic-queue', () => {
     tempDir = mkdtempSync(join(tmpdir(), 'vectahub-queue-'));
     const queueFile = join(tempDir, 'diagnostic-queue.json');
     writeFileSync(queueFile, '{bad json', 'utf-8');
-    const manager = QueueManager.createForPath(queueFile);
+    const manager = QueueManager.createForPath(queueFile, {
+      logger: new MockLoggerService().getLogger('queue-manager'),
+    });
 
     await expect(listPendingDiagnosticTasks(manager)).rejects.toThrow(
       `Failed to load diagnostic queue from ${queueFile}`

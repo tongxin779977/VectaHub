@@ -1,37 +1,35 @@
 import { promises as fs, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { getVectaHubPath, getProjectQueuePath } from '../infrastructure/paths/index.js';
 import type { DiagnosticTask, DiagnosticTaskStatus } from '../types/diagnostic.js';
 import { validateDiagnosticQueue } from '../types/diagnostic.js';
-import { getDefaultContext } from '../infrastructure/context.js';
-
-const logger = getDefaultContext().logger.getLogger('queue-manager');
+import type pino from 'pino';
 const MAX_QUEUE_SIZE = 100;
 
-function getDefaultQueueFile(): string {
-  return getVectaHubPath('diagnostic-queue.json');
+export interface QueueManagerDeps {
+  logger: Pick<pino.Logger, 'error' | 'warn'>;
 }
 
 export class QueueManager {
-  private static instance: QueueManager;
+  private static instance: QueueManager | null = null;
   private lock: Promise<void> = Promise.resolve();
   private readonly queueFile: string;
+  private readonly logger: Pick<pino.Logger, 'error' | 'warn'>;
 
-  private constructor(queueFilePath?: string) {
-    this.queueFile = queueFilePath || getDefaultQueueFile();
+  private constructor(queueFilePath: string, deps: QueueManagerDeps) {
+    this.queueFile = queueFilePath;
+    this.logger = deps.logger;
     this.ensureDirectory();
   }
 
-  static getInstance(): QueueManager {
-    const queueFile = getDefaultQueueFile();
-    if (!QueueManager.instance || QueueManager.instance.queueFile !== queueFile) {
-      QueueManager.instance = new QueueManager();
+  static getInstance(queueFilePath: string, deps: QueueManagerDeps): QueueManager {
+    if (!QueueManager.instance || QueueManager.instance.queueFile !== queueFilePath) {
+      QueueManager.instance = new QueueManager(queueFilePath, deps);
     }
     return QueueManager.instance;
   }
 
-  static createForPath(queueFilePath: string): QueueManager {
-    return new QueueManager(queueFilePath);
+  static createForPath(queueFilePath: string, deps: QueueManagerDeps): QueueManager {
+    return new QueueManager(queueFilePath, deps);
   }
 
   private ensureDirectory(): void {
@@ -68,7 +66,7 @@ export class QueueManager {
       }
       return validTasks;
     } catch (error) {
-      logger.error(`Failed to load diagnostic queue: ${error}`);
+      this.logger.error(`Failed to load diagnostic queue: ${error}`);
       throw new Error(`Failed to load diagnostic queue from ${this.queueFile}`, { cause: error });
     } finally {
       release();
@@ -80,7 +78,7 @@ export class QueueManager {
     try {
       await fs.writeFile(this.queueFile, JSON.stringify(tasks, null, 2), 'utf-8');
     } catch (error) {
-      logger.error(`Failed to save diagnostic queue: ${error}`);
+      this.logger.error(`Failed to save diagnostic queue: ${error}`);
       throw error;
     } finally {
       release();
@@ -109,7 +107,7 @@ export class QueueManager {
   async enqueue(task: Omit<DiagnosticTask, 'createdAt' | 'updatedAt'>): Promise<boolean> {
     const tasks = await this.loadTasks();
     if (tasks.length >= MAX_QUEUE_SIZE) {
-      logger.warn(`Queue is full (${tasks.length}/${MAX_QUEUE_SIZE}), rejecting task "${task.title}"`);
+      this.logger.warn(`Queue is full (${tasks.length}/${MAX_QUEUE_SIZE}), rejecting task "${task.title}"`);
       return false;
     }
 
@@ -157,10 +155,10 @@ export class QueueManager {
   }
 }
 
-export function getQueueManager(): QueueManager {
-  return QueueManager.getInstance();
+export function getQueueManager(queueFilePath: string, deps: QueueManagerDeps): QueueManager {
+  return QueueManager.getInstance(queueFilePath, deps);
 }
 
-export function getQueueManagerForProject(projectRoot: string): QueueManager {
-  return QueueManager.createForPath(getProjectQueuePath(projectRoot));
+export function getQueueManagerForProject(projectQueueFilePath: string, deps: QueueManagerDeps): QueueManager {
+  return QueueManager.createForPath(projectQueueFilePath, deps);
 }

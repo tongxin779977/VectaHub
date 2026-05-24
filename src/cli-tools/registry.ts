@@ -1,11 +1,21 @@
 import type { CliTool, CliCommand, CliToolRegistry } from './types.js';
 
+export interface CliToolRegistryDeps {
+  logger: Pick<Console, 'warn'>;
+}
+
+const silentCliToolRegistryLogger: CliToolRegistryDeps['logger'] = {
+  warn(): void {},
+};
+
 class CliToolRegistryImpl implements CliToolRegistry {
   private tools: Map<string, CliTool> = new Map();
 
+  constructor(private readonly deps: CliToolRegistryDeps) {}
+
   register(tool: CliTool): void {
     if (this.tools.has(tool.name)) {
-      console.warn(`CLI tool "${tool.name}" is already registered. Overwriting.`);
+      this.deps.logger.warn(`CLI tool "${tool.name}" is already registered. Overwriting.`);
     }
     this.tools.set(tool.name, tool);
   }
@@ -94,9 +104,11 @@ class CliToolRegistryImpl implements CliToolRegistry {
 
 let registryInstance: CliToolRegistry | null = null;
 
-export function getCliToolRegistry(): CliToolRegistry {
+export function getCliToolRegistry(
+  deps: CliToolRegistryDeps = { logger: silentCliToolRegistryLogger },
+): CliToolRegistry {
   if (!registryInstance) {
-    registryInstance = new CliToolRegistryImpl();
+    registryInstance = new CliToolRegistryImpl(deps);
   }
   return registryInstance;
 }

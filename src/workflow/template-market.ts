@@ -17,6 +17,14 @@ export interface TemplateMetadata {
   localPath: string;
 }
 
+export interface TemplateMarketDeps {
+  logger: Pick<Console, 'warn'>;
+}
+
+const silentTemplateMarketLogger: TemplateMarketDeps['logger'] = {
+  warn(): void {},
+};
+
 function getSourcesFile(environment: IEnvironmentService): string {
   return environment.getPath('sources.json');
 }
@@ -86,7 +94,10 @@ export async function updateSource(environment: IEnvironmentService, sourceId: s
   environment.writeFile(sourcesFile, JSON.stringify(sources, null, 2));
 }
 
-export async function updateAllSources(environment: IEnvironmentService): Promise<void> {
+export async function updateAllSources(
+  environment: IEnvironmentService,
+  deps: TemplateMarketDeps = { logger: silentTemplateMarketLogger },
+): Promise<void> {
   const sourcesFile = getSourcesFile(environment);
   const sources = await getSources(environment);
   for (const source of sources) {
@@ -94,7 +105,7 @@ export async function updateAllSources(environment: IEnvironmentService): Promis
       await pullSource(environment, source);
       source.lastUpdate = new Date();
     } catch (error) {
-      console.warn(`Failed to update source ${source.name}: ${(error as Error).message}`);
+      deps.logger.warn(`Failed to update source ${source.name}: ${(error as Error).message}`);
     }
   }
   environment.writeFile(sourcesFile, JSON.stringify(sources, null, 2));
@@ -165,7 +176,8 @@ export async function searchTemplates(
   environment: IEnvironmentService,
   keyword?: string,
   category?: string,
-  tag?: string
+  tag?: string,
+  deps: TemplateMarketDeps = { logger: silentTemplateMarketLogger },
 ): Promise<TemplateMetadata[]> {
   const sources = await getSources(environment);
   const results: TemplateMetadata[] = [];
@@ -195,7 +207,7 @@ export async function searchTemplates(
         });
       }
     } catch (error) {
-      console.warn(`Failed to load templates from ${source.name}: ${(error as Error).message}`);
+      deps.logger.warn(`Failed to load templates from ${source.name}: ${(error as Error).message}`);
     }
   }
   

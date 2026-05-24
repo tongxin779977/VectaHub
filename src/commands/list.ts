@@ -1,9 +1,29 @@
 import { Command } from 'commander';
+import { format } from 'node:util';
 import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { createStorage } from '../workflow/storage.js';
 import { listVersions, rollbackVersion } from '../workflow/versioning.js';
 import type { InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
+
+interface ListCommandOutput {
+  log(message?: unknown, ...optionalParams: unknown[]): void;
+}
+
+function createListCommandOutput(): ListCommandOutput {
+  const formatMessage = (message?: unknown, optionalParams: unknown[] = []): string => {
+    if (message === undefined && optionalParams.length === 0) {
+      return '';
+    }
+    return format(message, ...optionalParams);
+  };
+
+  return {
+    log(message?: unknown, ...optionalParams: unknown[]): void {
+      process.stdout.write(`${formatMessage(message, optionalParams)}\n`);
+    },
+  };
+}
 
 function getVectaHubDir(): string {
   return getVectaHubPath();
@@ -11,12 +31,13 @@ function getVectaHubDir(): string {
 
 export function createListCmd(context: InfrastructureContext): Command {
   const logger = context.logger.getLogger('list');
+  const output = createListCommandOutput();
   const listCmd = new Command('list')
     .description('List saved workflows and manage versions');
 
   listCmd
     .action(async () => {
-      const storage = createStorage({ environment: context.environment });
+      const storage = createStorage({ environment: context.environment, logger: context.logger.getLogger('storage') });
 
       try {
         const workflows = await storage.listWorkflows();
@@ -56,10 +77,10 @@ export function createListCmd(context: InfrastructureContext): Command {
       }
 
       logger.info(`\nVersion history for ${workflowId}:\n`);
-      console.log(`  ${'Version'.padEnd(10)} ${'Date'.padEnd(22)} Message`);
-      console.log(`  ${'─'.repeat(10)} ${'─'.repeat(22)} ${'─'.repeat(30)}`);
+      output.log(`  ${'Version'.padEnd(10)} ${'Date'.padEnd(22)} Message`);
+      output.log(`  ${'─'.repeat(10)} ${'─'.repeat(22)} ${'─'.repeat(30)}`);
       for (const v of versions) {
-        console.log(
+        output.log(
           `  ${String(v.version).padEnd(10)} ${v.createdAt.toISOString().padEnd(22)} ${v.message}`
         );
       }
@@ -71,6 +92,7 @@ export function createListCmd(context: InfrastructureContext): Command {
 
 export function createRollbackCmd(context: InfrastructureContext): Command {
   const logger = context.logger.getLogger('list');
+  const output = createListCommandOutput();
   return new Command('rollback')
     .description('Rollback a workflow to a specific version')
     .argument('<workflowId>', 'Workflow ID')
@@ -87,7 +109,7 @@ export function createRollbackCmd(context: InfrastructureContext): Command {
           logger.info(`Rolled back to version ${version || 'latest'}, saved to ${options.output}`);
         } else {
           logger.info(`\nRolled back to version ${version || 'latest'}:\n`);
-          console.log(yaml);
+          output.log(yaml);
         }
       } catch (error) {
         logger.error(`Rollback failed: ${error instanceof Error ? error.message : 'Unknown error'}`);

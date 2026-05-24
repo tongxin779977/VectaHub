@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { QueueManager } from './queue-manager.js';
+import { MockLoggerService } from '../infrastructure/testing/mock-services.js';
 
 describe('QueueManager', () => {
   let tempDir = '';
@@ -22,21 +23,21 @@ describe('QueueManager', () => {
   });
 
   it('returns empty tasks when queue file is missing', async () => {
-    const manager = QueueManager.createForPath(queueFile);
+    const manager = QueueManager.createForPath(queueFile, { logger: new MockLoggerService().getLogger('queue-manager') });
 
     await expect(manager.loadTasks()).resolves.toEqual([]);
   });
 
   it('throws when queue file contains malformed JSON', async () => {
     writeFileSync(queueFile, '{bad json', 'utf-8');
-    const manager = QueueManager.createForPath(queueFile);
+    const manager = QueueManager.createForPath(queueFile, { logger: new MockLoggerService().getLogger('queue-manager') });
 
     await expect(manager.loadTasks()).rejects.toThrow(`Failed to load diagnostic queue from ${queueFile}`);
   });
 
   it('throws when queue file contains invalid task entries', async () => {
     writeFileSync(queueFile, JSON.stringify([{ id: 'broken-task' }]), 'utf-8');
-    const manager = QueueManager.createForPath(queueFile);
+    const manager = QueueManager.createForPath(queueFile, { logger: new MockLoggerService().getLogger('queue-manager') });
 
     await expect(manager.loadTasks()).rejects.toThrow(`Failed to load diagnostic queue from ${queueFile}`);
   });

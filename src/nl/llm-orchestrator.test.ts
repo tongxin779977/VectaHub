@@ -11,6 +11,10 @@ describe('LLMOrchestrator', () => {
   let mockLLMClient: {
     complete: ReturnType<typeof vi.fn>;
   };
+  let mockLogger: {
+    info: ReturnType<typeof vi.fn>;
+    error: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(() => {
     mockPromptManager = {
@@ -54,6 +58,11 @@ describe('LLMOrchestrator', () => {
         workflow: { name: 'test', steps: [] },
       }),
     };
+
+    mockLogger = {
+      info: vi.fn(),
+      error: vi.fn(),
+    };
   });
 
   describe('ask()', () => {
@@ -63,6 +72,7 @@ describe('LLMOrchestrator', () => {
         sessionManager: mockSessionManager,
         llmConfig: mockLLMConfig,
         llmClient: mockLLMClient as any,
+        logger: mockLogger,
       });
 
       const result = await orchestrator.ask({
@@ -84,6 +94,7 @@ describe('LLMOrchestrator', () => {
         sessionManager: mockSessionManager,
         llmConfig: mockLLMConfig,
         llmClient: mockLLMClient as any,
+        logger: mockLogger,
       });
 
       await orchestrator.ask({
@@ -102,6 +113,7 @@ describe('LLMOrchestrator', () => {
         sessionManager: mockSessionManager,
         llmConfig: mockLLMConfig,
         llmClient: mockLLMClient as any,
+        logger: mockLogger,
       });
 
       await expect(orchestrator.ask({
@@ -116,6 +128,7 @@ describe('LLMOrchestrator', () => {
         sessionManager: mockSessionManager,
         llmConfig: mockLLMConfig,
         llmClient: mockLLMClient as any,
+        logger: mockLogger,
       });
 
       const result = await orchestrator.ask({
@@ -146,6 +159,7 @@ describe('LLMOrchestrator', () => {
         sessionManager: mockSessionManager,
         llmConfig: mockLLMConfig,
         llmClient: mockLLMClient as any,
+        logger: mockLogger,
       });
 
       await orchestrator.ask({
@@ -180,6 +194,7 @@ describe('LLMOrchestrator', () => {
         sessionManager: mockSessionManager,
         llmConfig: mockLLMConfig,
         llmClient: mockLLMClient as any,
+        logger: mockLogger,
       });
 
       const result = await orchestrator.ask({
@@ -199,6 +214,7 @@ describe('LLMOrchestrator', () => {
         sessionManager: mockSessionManager,
         llmConfig: mockLLMConfig,
         llmClient: mockLLMClient as any,
+        logger: mockLogger,
       });
 
       const result = await orchestrator.ask({
@@ -218,6 +234,7 @@ describe('LLMOrchestrator', () => {
         sessionManager: mockSessionManager,
         llmConfig: mockLLMConfig,
         llmClient: mockLLMClient as any,
+        logger: mockLogger,
       });
 
       const trace = orchestrator.getTrace('non-existent-trace');
@@ -232,6 +249,7 @@ describe('LLMOrchestrator', () => {
         sessionManager: mockSessionManager,
         llmConfig: mockLLMConfig,
         llmClient: mockLLMClient as any,
+        logger: mockLogger,
       });
 
       await orchestrator.ask({ input: 'test 1', sessionId: 's1' });
@@ -249,6 +267,7 @@ describe('LLMOrchestrator', () => {
         sessionManager: mockSessionManager,
         llmConfig: mockLLMConfig,
         llmClient: mockLLMClient as any,
+        logger: mockLogger,
       });
 
       for (let i = 0; i < 5; i++) {
@@ -267,6 +286,7 @@ describe('LLMOrchestrator', () => {
         sessionManager: mockSessionManager,
         llmConfig: mockLLMConfig,
         llmClient: mockLLMClient as any,
+        logger: mockLogger,
       });
 
       const result = await orchestrator.ask({
@@ -292,6 +312,7 @@ describe('LLMOrchestrator', () => {
         sessionManager: mockSessionManager,
         llmConfig: mockLLMConfig,
         llmClient: mockLLMClient as any,
+        logger: mockLogger,
       });
 
       const errorTraceId = await orchestrator.ask({
@@ -314,6 +335,7 @@ describe('LLMOrchestrator', () => {
         sessionManager: mockSessionManager,
         llmConfig: mockLLMConfig,
         llmClient: mockLLMClient as any,
+        logger: mockLogger,
       });
 
       const result = await orchestrator.ask({
@@ -340,6 +362,7 @@ describe('LLMOrchestrator', () => {
         sessionManager: mockSessionManager,
         llmConfig: mockLLMConfig,
         llmClient: mockLLMClient as any,
+        logger: mockLogger,
       });
 
       const traceId = await orchestrator.ask({
@@ -361,6 +384,7 @@ describe('LLMOrchestrator', () => {
         sessionManager: mockSessionManager,
         llmConfig: mockLLMConfig,
         llmClient: mockLLMClient as any,
+        logger: mockLogger,
       });
 
       const debugStr = orchestrator.printTrace('non-existent');

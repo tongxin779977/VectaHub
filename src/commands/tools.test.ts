@@ -73,15 +73,21 @@ const cliScannerModule = await import('../setup/cli-scanner.js');
 const setupModule = await import('../setup/first-run-wizard.js');
 
 describe('tools agents --json', () => {
-  const mockLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  const mockStdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+  function getStdoutText(): string {
+    return mockStdoutWrite.mock.calls
+      .map(([chunk]) => String(chunk))
+      .join('');
+  }
 
   beforeEach(() => {
-    mockLog.mockClear();
+    mockStdoutWrite.mockClear();
   });
 
   it('should output installed, invocable and ready in json', async () => {
     await createToolsCmd(getDefaultContext()).parseAsync(['node', 'test', 'agents', '--json']);
-    const output = mockLog.mock.calls[0]?.[0];
+    const output = getStdoutText();
     expect(typeof output).toBe('string');
 
     const parsed = JSON.parse(output);
@@ -141,7 +147,7 @@ describe('tools agents --json', () => {
 
     await createToolsCmd(getDefaultContext()).parseAsync(['node', 'test', 'agents', '--json']);
 
-    const output = mockLog.mock.calls[0]?.[0];
+    const output = getStdoutText();
     expect(typeof output).toBe('string');
 
     const parsed = JSON.parse(output);
@@ -159,6 +165,6 @@ describe('tools agents --json', () => {
   });
 
   afterAll(() => {
-    mockLog.mockRestore();
+    mockStdoutWrite.mockRestore();
   });
 });

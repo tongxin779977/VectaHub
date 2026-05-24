@@ -1,9 +1,30 @@
 import { Command } from 'commander';
+import { format } from 'node:util';
 import type { InfrastructureContext } from '../infrastructure/context.js';
 import type { AuditQueryOptions } from '../infrastructure/interfaces/audit-service.js';
 
+interface AuditCommandOutput {
+  log(message?: unknown, ...optionalParams: unknown[]): void;
+}
+
+function createAuditCommandOutput(): AuditCommandOutput {
+  const formatMessage = (message?: unknown, optionalParams: unknown[] = []): string => {
+    if (message === undefined && optionalParams.length === 0) {
+      return '';
+    }
+    return format(message, ...optionalParams);
+  };
+
+  return {
+    log(message?: unknown, ...optionalParams: unknown[]): void {
+      process.stdout.write(`${formatMessage(message, optionalParams)}\n`);
+    },
+  };
+}
+
 export function createAuditCmd(context: InfrastructureContext): Command {
   const auditLogger = context.audit.getLogger();
+  const output = createAuditCommandOutput();
 
   function queryAuditLogs(options: AuditQueryOptions = {}) {
     return auditLogger.query(options);
@@ -26,19 +47,19 @@ export function createAuditCmd(context: InfrastructureContext): Command {
       });
 
       if (logs.length === 0) {
-        console.log('\n📋 No audit logs found matching the criteria.\n');
+        output.log('\n📋 No audit logs found matching the criteria.\n');
         return;
       }
 
-      console.log('\n📋 Audit Logs:');
-      console.log('─'.repeat(120));
-      console.log('Timestamp'.padEnd(30) + 'Event'.padEnd(20) + 'Module'.padEnd(12) + 'Action'.padEnd(25) + 'Status');
-      console.log('─'.repeat(120));
+      output.log('\n📋 Audit Logs:');
+      output.log('─'.repeat(120));
+      output.log('Timestamp'.padEnd(30) + 'Event'.padEnd(20) + 'Module'.padEnd(12) + 'Action'.padEnd(25) + 'Status');
+      output.log('─'.repeat(120));
 
       for (const log of logs) {
         const timestamp = log.timestamp.split('T')[1]?.substring(0, 8) || log.timestamp;
         const status = log.success ? '✅' : '❌';
-        console.log(
+        output.log(
           timestamp.padEnd(30) +
           (log.event as string).padEnd(20) +
           log.module.padEnd(12) +
@@ -46,8 +67,8 @@ export function createAuditCmd(context: InfrastructureContext): Command {
           status
         );
       }
-      console.log('─'.repeat(120));
-      console.log(`Total: ${logs.length} logs\n`);
+      output.log('─'.repeat(120));
+      output.log(`Total: ${logs.length} logs\n`);
     });
 
   auditCmd
@@ -64,19 +85,19 @@ export function createAuditCmd(context: InfrastructureContext): Command {
       });
 
       if (logs.length === 0) {
-        console.log('\n📋 No audit logs found matching the criteria.\n');
+        output.log('\n📋 No audit logs found matching the criteria.\n');
         return;
       }
 
-      console.log('\n📋 Audit Logs (Most Recent):');
-      console.log('─'.repeat(120));
-      console.log('Timestamp'.padEnd(30) + 'Event'.padEnd(20) + 'Module'.padEnd(12) + 'Action'.padEnd(25) + 'Status');
-      console.log('─'.repeat(120));
+      output.log('\n📋 Audit Logs (Most Recent):');
+      output.log('─'.repeat(120));
+      output.log('Timestamp'.padEnd(30) + 'Event'.padEnd(20) + 'Module'.padEnd(12) + 'Action'.padEnd(25) + 'Status');
+      output.log('─'.repeat(120));
 
       for (const log of logs) {
         const timestamp = log.timestamp.split('T')[1]?.substring(0, 8) || log.timestamp;
         const status = log.success ? '✅' : '❌';
-        console.log(
+        output.log(
           timestamp.padEnd(30) +
           (log.event as string).padEnd(20) +
           log.module.padEnd(12) +
@@ -84,8 +105,8 @@ export function createAuditCmd(context: InfrastructureContext): Command {
           status
         );
       }
-      console.log('─'.repeat(120));
-      console.log(`Total: ${logs.length} logs\n`);
+      output.log('─'.repeat(120));
+      output.log(`Total: ${logs.length} logs\n`);
     });
 
   auditCmd
@@ -105,21 +126,21 @@ export function createAuditCmd(context: InfrastructureContext): Command {
         else stats[key].failed++;
       }
 
-      console.log('\n📊 Audit Statistics (last 1000 entries):');
-      console.log('─'.repeat(60));
-      console.log('Event Type'.padEnd(25) + 'Total'.padEnd(12) + 'Success'.padEnd(12) + 'Failed');
-      console.log('─'.repeat(60));
+      output.log('\n📊 Audit Statistics (last 1000 entries):');
+      output.log('─'.repeat(60));
+      output.log('Event Type'.padEnd(25) + 'Total'.padEnd(12) + 'Success'.padEnd(12) + 'Failed');
+      output.log('─'.repeat(60));
 
       for (const [event, data] of Object.entries(stats)) {
-        console.log(
+        output.log(
           event.padEnd(25) +
           String(data.total).padEnd(12) +
           String(data.success).padEnd(12) +
           String(data.failed)
         );
       }
-      console.log('─'.repeat(60));
-      console.log(`Total Events: ${logs.length}\n`);
+      output.log('─'.repeat(60));
+      output.log(`Total Events: ${logs.length}\n`);
     });
 
   return auditCmd;

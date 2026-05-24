@@ -3,7 +3,7 @@
  * Anomaly Detection and Alert System - Detects abnormal traces and triggers alerts
  */
 
-import { getDefaultContext } from '../context.js';
+import type { Logger } from '../logger/index.js';
 import type {
   TraceSpan,
   AlertRule,
@@ -14,8 +14,8 @@ import type {
   SpanId,
 } from './types.js';
 
-function getModuleLogger() {
-  return getDefaultContext().logger.getLogger('alert-system');
+export interface AlertSystemDeps {
+  logger: Logger;
 }
 
 /** 默认告警规则 */
@@ -62,9 +62,15 @@ export class AlertSystem {
   private callbacks: AlertCallback[] = [];
   private errorWindow: Map<string, number[]> = new Map();
   private windowSizeMs: number = 300000; // 5 分钟窗口
+  private logger: Logger;
 
-  constructor(rules?: AlertRule[]) {
+  constructor(rules: AlertRule[] | undefined, deps: AlertSystemDeps) {
+    if (!deps.logger) {
+      throw new Error('AlertSystem requires a logger dependency');
+    }
+
     const defaultRules = rules ?? DEFAULT_ALERT_RULES;
+    this.logger = deps.logger;
     for (const rule of defaultRules) {
       this.rules.set(rule.id, rule);
     }
@@ -78,7 +84,7 @@ export class AlertSystem {
   /** 添加告警规则 */
   addRule(rule: AlertRule): void {
     this.rules.set(rule.id, rule);
-    getModuleLogger().info(`添加告警规则: ${rule.name}`);
+    this.logger.info(`添加告警规则: ${rule.name}`);
   }
 
   /** 删除告警规则 */
@@ -250,7 +256,7 @@ export class AlertSystem {
       try {
         callback(alert);
       } catch (error) {
-        getModuleLogger().error(`告警回调执行失败: ${(error as Error).message}`);
+        this.logger.error(`告警回调执行失败: ${(error as Error).message}`);
       }
     }
 
@@ -262,7 +268,7 @@ export class AlertSystem {
       }
     }
 
-    getModuleLogger().warn(`[告警] ${alert.level}: ${alert.message}`);
+    this.logger.warn(`[告警] ${alert.level}: ${alert.message}`);
   }
 
   /** 发送通知 */
@@ -300,7 +306,7 @@ export class AlertSystem {
   /** 文件通知 */
   private sendFileNotification(alert: AlertEvent): void {
     // 实际实现中会写入告警日志文件
-    getModuleLogger().info(`告警已记录到文件: ${alert.message}`);
+    this.logger.info(`告警已记录到文件: ${alert.message}`);
   }
 
   /** Webhook 通知 */
@@ -308,14 +314,14 @@ export class AlertSystem {
     const rule = this.rules.get(alert.ruleId);
     if (rule?.webhookUrl) {
       // 实际实现中会发送 HTTP 请求
-      getModuleLogger().info(`Webhook 通知已发送: ${rule.webhookUrl}`);
+      this.logger.info(`Webhook 通知已发送: ${rule.webhookUrl}`);
     }
   }
 
   /** 邮件通知 */
   private sendEmailNotification(alert: AlertEvent): void {
     // 实际实现中会发送邮件
-    getModuleLogger().info(`邮件通知已发送: ${alert.message}`);
+    this.logger.info(`邮件通知已发送: ${alert.message}`);
   }
 
   /** 解决告警 */
@@ -389,6 +395,6 @@ export class AlertSystem {
  * 创建告警系统工厂函数
  * Create Alert System Factory Function
  */
-export function createAlertSystem(rules?: AlertRule[]): AlertSystem {
-  return new AlertSystem(rules);
+export function createAlertSystem(rules: AlertRule[] | undefined, deps: AlertSystemDeps): AlertSystem {
+  return new AlertSystem(rules, deps);
 }

@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { format } from 'node:util';
 import { fileURLToPath } from 'url';
 import { createStorage } from '../workflow/storage.js';
 import { listTemplates, instantiateTemplate, type WorkflowTemplate } from '../workflow/template.js';
@@ -18,14 +19,34 @@ import { type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import type pino from 'pino';
 
+interface TemplatesCommandOutput {
+  log(message?: unknown, ...optionalParams: unknown[]): void;
+}
+
+function createTemplatesCommandOutput(): TemplatesCommandOutput {
+  const formatMessage = (message?: unknown, optionalParams: unknown[] = []): string => {
+    if (message === undefined && optionalParams.length === 0) {
+      return '';
+    }
+    return format(message, ...optionalParams);
+  };
+
+  return {
+    log(message?: unknown, ...optionalParams: unknown[]): void {
+      process.stdout.write(`${formatMessage(message, optionalParams)}\n`);
+    },
+  };
+}
+
 function getTemplatesDir(context: InfrastructureContext): string {
+  const firstRunWizardDeps = { environment: context.environment };
   const envDir = context.environment.getEnv('VECTAHUB_TEMPLATES_DIR');
   if (envDir) {
     return envDir;
   }
 
   try {
-    const config = loadConfig();
+    const config = loadConfig(firstRunWizardDeps);
     if (config.templates?.directory) {
       return config.templates.directory;
     }
@@ -38,17 +59,17 @@ function getTemplatesDir(context: InfrastructureContext): string {
   return context.environment.getPath(__dirname, '..', '..', '..', 'templates');
 }
 
-function formatTemplateTable(templates: WorkflowTemplate[], logger: pino.Logger): void {
+function formatTemplateTable(templates: WorkflowTemplate[], logger: pino.Logger, output: TemplatesCommandOutput): void {
   if (templates.length === 0) {
     logger.info('  (no templates found)');
     return;
   }
-  console.log(`  ${'Name'.padEnd(22)} ${'Category'.padEnd(12)} ${'Tags'.padEnd(20)} Description`);
-  console.log(`  ${'─'.repeat(22)} ${'─'.repeat(12)} ${'─'.repeat(20)} ${'─'.repeat(30)}`);
+  output.log(`  ${'Name'.padEnd(22)} ${'Category'.padEnd(12)} ${'Tags'.padEnd(20)} Description`);
+  output.log(`  ${'─'.repeat(22)} ${'─'.repeat(12)} ${'─'.repeat(20)} ${'─'.repeat(30)}`);
   for (const t of templates) {
     const tags = t.tags.join(', ');
     const params = t.parameters ? t.parameters.length : 0;
-    console.log(
+    output.log(
       `  ${t.name.padEnd(22)} ${t.category.padEnd(12)} ${tags.padEnd(20)} ${t.description}` +
       (params > 0 ? ` (${params} params)` : '')
     );
@@ -60,33 +81,33 @@ function collectParams(value: string, previous: Record<string, string>): Record<
   return { ...previous, [key]: rest.join('=') };
 }
 
-function formatMarketTemplateTable(templates: TemplateMetadata[], logger: pino.Logger): void {
+function formatMarketTemplateTable(templates: TemplateMetadata[], logger: pino.Logger, output: TemplatesCommandOutput): void {
   if (templates.length === 0) {
     logger.info('  (no templates found)');
     return;
   }
-  console.log(`  ${'Source'.padEnd(12)} ${'Name'.padEnd(22)} ${'Category'.padEnd(12)} ${'Tags'.padEnd(20)} Description`);
-  console.log(`  ${'─'.repeat(12)} ${'─'.repeat(22)} ${'─'.repeat(12)} ${'─'.repeat(20)} ${'─'.repeat(30)}`);
+  output.log(`  ${'Source'.padEnd(12)} ${'Name'.padEnd(22)} ${'Category'.padEnd(12)} ${'Tags'.padEnd(20)} Description`);
+  output.log(`  ${'─'.repeat(12)} ${'─'.repeat(22)} ${'─'.repeat(12)} ${'─'.repeat(20)} ${'─'.repeat(30)}`);
   for (const t of templates) {
     const tags = t.template.tags.join(', ');
     const params = t.template.parameters ? t.template.parameters.length : 0;
-    console.log(
+    output.log(
       `  ${t.sourceId.padEnd(12)} ${t.template.name.padEnd(22)} ${t.template.category.padEnd(12)} ${tags.padEnd(20)} ${t.template.description}` +
       (params > 0 ? ` (${params} params)` : '')
     );
   }
 }
 
-function formatSourcesTable(sources: TemplateSource[], logger: pino.Logger): void {
+function formatSourcesTable(sources: TemplateSource[], logger: pino.Logger, output: TemplatesCommandOutput): void {
   if (sources.length === 0) {
     logger.info('  (no sources configured)');
     return;
   }
-  console.log(`  ${'ID'.padEnd(15)} ${'Name'.padEnd(20)} ${'URL'.padEnd(40)} ${'Type'.padEnd(10)} ${'Last Update'}`);
-  console.log(`  ${'─'.repeat(15)} ${'─'.repeat(20)} ${'─'.repeat(40)} ${'─'.repeat(10)} ${'─'.repeat(20)}`);
+  output.log(`  ${'ID'.padEnd(15)} ${'Name'.padEnd(20)} ${'URL'.padEnd(40)} ${'Type'.padEnd(10)} ${'Last Update'}`);
+  output.log(`  ${'─'.repeat(15)} ${'─'.repeat(20)} ${'─'.repeat(40)} ${'─'.repeat(10)} ${'─'.repeat(20)}`);
   for (const s of sources) {
     const lastUpdate = s.lastUpdate ? new Date(s.lastUpdate).toLocaleDateString() : 'Never';
-    console.log(
+    output.log(
       `  ${s.id.padEnd(15)} ${s.name.padEnd(20)} ${s.url.padEnd(40)} ${s.type.padEnd(10)} ${lastUpdate}`
     );
   }
@@ -94,6 +115,7 @@ function formatSourcesTable(sources: TemplateSource[], logger: pino.Logger): voi
 
 export function createTemplatesCmd(context: InfrastructureContext): Command {
   const logger = context.logger.getLogger('templates');
+  const output = createTemplatesCommandOutput();
   const builtinTemplatesDir = getTemplatesDir(context);
 
   const templatesCmd = new Command('templates')
@@ -107,8 +129,8 @@ export function createTemplatesCmd(context: InfrastructureContext): Command {
     .action((options: { category?: string; tag?: string }) => {
       const templates = listTemplates(context.environment, builtinTemplatesDir, options.category, options.tag);
       logger.info('\nAvailable workflow templates:\n');
-      formatTemplateTable(templates, logger);
-      console.log(`\nTotal: ${templates.length} template(s)`);
+      formatTemplateTable(templates, logger, output);
+      output.log(`\nTotal: ${templates.length} template(s)`);
       logger.info('\nUsage: vectahub templates use <name> [--param key=value]');
     });
 
@@ -124,8 +146,8 @@ export function createTemplatesCmd(context: InfrastructureContext): Command {
 
       try {
         const templates = await searchMarketTemplates(context.environment, keyword, options.category, options.tag);
-        formatMarketTemplateTable(templates, logger);
-        console.log(`\n找到 ${templates.length} 个模板`);
+        formatMarketTemplateTable(templates, logger, output);
+        output.log(`\n找到 ${templates.length} 个模板`);
         logger.info('\n使用 `vectahub templates install <name>` 安装模板');
       } catch (error) {
         logger.error(`搜索失败: ${(error as Error).message}`);
@@ -144,7 +166,7 @@ export function createTemplatesCmd(context: InfrastructureContext): Command {
       try {
         const path = await installTemplateByName(context.environment, name, options.output);
         logger.info(`\n✅ 模板安装成功`);
-        console.log(`  路径: ${path}`);
+        output.log(`  路径: ${path}`);
         logger.info(`\n使用: vectahub templates use ${name}`);
       } catch (error) {
         logger.error(`安装失败: ${(error as Error).message}`);
@@ -162,7 +184,7 @@ export function createTemplatesCmd(context: InfrastructureContext): Command {
     .action(async () => {
       const sources = await getSources(context.environment);
       logger.info('\n配置的模板源:\n');
-      formatSourcesTable(sources, logger);
+      formatSourcesTable(sources, logger, output);
     });
 
   sourcesCmd
@@ -229,7 +251,7 @@ export function createTemplatesCmd(context: InfrastructureContext): Command {
     .option('-c, --category <category>', 'Template category', 'general')
     .option('-t, --tags <tags>', 'Comma-separated tags')
     .action(async (workflowId: string, options: { name?: string; description?: string; category?: string; tags?: string }) => {
-      const storage = createStorage({ environment: context.environment });
+      const storage = createStorage({ environment: context.environment, logger: context.logger.getLogger('storage') });
       const workflow = await storage.getWorkflow(workflowId);
 
       if (!workflow) {
@@ -262,9 +284,9 @@ export function createTemplatesCmd(context: InfrastructureContext): Command {
       context.environment.writeFile(outputPath, YAML.default.stringify(templateYAML));
 
       logger.info(`Template saved: ${templateName}`);
-      console.log(`  Name: ${templateName}`);
-      console.log(`  Category: ${category}`);
-      console.log(`  Path: ${outputPath}`);
+      output.log(`  Name: ${templateName}`);
+      output.log(`  Category: ${category}`);
+      output.log(`  Path: ${outputPath}`);
     });
 
   const templatesUseCmd = new Command('use')
@@ -287,12 +309,12 @@ export function createTemplatesCmd(context: InfrastructureContext): Command {
         const workflow = instantiateTemplate(context.environment, path, options.param);
 
         logger.info(`Instantiated template: ${tmpl.name}`);
-        console.log(`  Name: ${workflow.name}`);
-        console.log(`  Steps: ${workflow.steps.length}`);
-        console.log(`  Parameters: ${Object.keys(options.param).length}`);
+        output.log(`  Name: ${workflow.name}`);
+        output.log(`  Steps: ${workflow.steps.length}`);
+        output.log(`  Parameters: ${Object.keys(options.param).length}`);
 
         if (options.save) {
-          const storage = createStorage({ environment: context.environment });
+          const storage = createStorage({ environment: context.environment, logger: context.logger.getLogger('storage') });
           await storage.saveWorkflow(workflow);
           logger.info(`Workflow saved to library: ${workflow.id}`);
         }

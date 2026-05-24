@@ -1,7 +1,7 @@
-import { getDefaultContext } from '../infrastructure/context.js';
 import { type Workflow } from '../types/workflow.js';
 import { type Breakpoint, type DebugState, type StepFrame, type ErrorInfo, type ExecutionHistory, type StepExecution, type WatchExpression, type DebugEvent, BreakpointType } from './debugger-api.js';
 import vm from 'vm';
+import type pino from 'pino';
 
 const ALLOWED_EXPRESSION_CHARS = /^[\w\s.+*/%<>=!&|()[\]'"?:-]*$/;
 
@@ -48,6 +48,10 @@ export interface SandboxOptions {
   memoryLimit?: number;
 }
 
+export interface WorkflowDebuggerDeps {
+  logger: Pick<pino.Logger, 'info' | 'warn'>;
+}
+
 const DEFAULT_TIMEOUT = 1000;
 const DEFAULT_MEMORY_LIMIT = 1024 * 1024 * 10; 
 
@@ -89,7 +93,7 @@ function createSandboxContext(
 }
 
 export class WorkflowDebugger {
-  private logger = getDefaultContext().logger.getLogger('debugger');
+  private readonly logger: Pick<pino.Logger, 'info' | 'warn'>;
   private breakpoints = new Map<string, Breakpoint>();
   private watchExpressions = new Map<string, WatchExpression>();
   private executionHistory: ExecutionHistory[] = [];
@@ -97,6 +101,10 @@ export class WorkflowDebugger {
   private eventListeners: Array<(event: DebugEvent) => void> = [];
   private isPaused = false;
   private stepMode = false;
+
+  constructor(deps: WorkflowDebuggerDeps) {
+    this.logger = deps.logger;
+  }
 
   setBreakpoint(stepId: string, type: BreakpointType = 'step', condition?: string): string {
     const id = `bp-${stepId}-${Date.now()}`;
@@ -417,5 +425,3 @@ export class WorkflowDebugger {
     this.logger.info('Debugger reset');
   }
 }
-
-export const workflowDebugger = new WorkflowDebugger();

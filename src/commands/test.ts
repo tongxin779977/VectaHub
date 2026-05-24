@@ -1,6 +1,27 @@
 import { Command } from 'commander';
+import { format } from 'node:util';
 import type { InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
+
+interface TestCommandOutput {
+  log(message?: unknown, ...optionalParams: unknown[]): void;
+  error(message?: unknown, ...optionalParams: unknown[]): void;
+}
+
+function createTestCommandOutput(): TestCommandOutput {
+  const writeLine = (stream: NodeJS.WriteStream, message?: unknown, optionalParams: unknown[] = []): void => {
+    stream.write(`${format(message, ...optionalParams)}\n`);
+  };
+
+  return {
+    log(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stdout, message, optionalParams);
+    },
+    error(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stderr, message, optionalParams);
+    },
+  };
+}
 
 const moduleMap: Record<string, string[]> = {
   cli: ['src/cli.test.ts'],
@@ -14,17 +35,19 @@ const moduleMap: Record<string, string[]> = {
 };
 
 export function createTestCmd(context: InfrastructureContext): Command {
+  const cliOutput = createTestCommandOutput();
+
   return new Command('test')
     .description('Run module unit tests')
     .argument('[module-name]', 'Specific module to test', 'all')
     .option('--coverage', 'Show test coverage report')
     .action(async (moduleName: string, options: { coverage?: boolean }) => {
-      console.log(`\n🧪 Running ${moduleName === 'all' ? 'all' : moduleName} module tests...\n`);
+      cliOutput.log(`\n🧪 Running ${moduleName === 'all' ? 'all' : moduleName} module tests...\n`);
 
       const patterns = moduleMap[moduleName];
       if (!patterns) {
-        console.error(`❌ Module "${moduleName}" not found.`);
-        console.error('Available modules:', Object.keys(moduleMap).join(', '));
+        cliOutput.error(`❌ Module "${moduleName}" not found.`);
+        cliOutput.error('Available modules:', Object.keys(moduleMap).join(', '));
         throw new VectaHubError(`Module "${moduleName}" not found.`, ErrorType.RUNTIME);
       }
 
@@ -41,7 +64,7 @@ export function createTestCmd(context: InfrastructureContext): Command {
 
       child.on('close', (code: number | null) => {
         if (code === 0) {
-          console.log('\n✅ All tests passed');
+          cliOutput.log('\n✅ All tests passed');
         } else {
           throw new VectaHubError(`Tests failed with exit code ${code}`, ErrorType.RUNTIME);
         }

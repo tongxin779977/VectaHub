@@ -2,9 +2,7 @@ import type { Skill, SkillContext, SkillResult } from './types.js';
 import type { PromptRegistry } from '../nl/prompt/types.js';
 import type { LLMDialogControlSkill } from './llm-dialog-control/index.js';
 import { getAllIntentNames } from '../nl/templates/index.js';
-import { getDefaultContext } from '../infrastructure/context.js';
-
-const logger = getDefaultContext().logger.getLogger('intent-skill');
+import type pino from 'pino';
 
 export interface IntentSkillOutput {
   intent: string;
@@ -14,7 +12,8 @@ export interface IntentSkillOutput {
 
 export function createIntentSkill(
   promptRegistry: PromptRegistry,
-  llmDialogSkill: LLMDialogControlSkill
+  llmDialogSkill: LLMDialogControlSkill,
+  logger: Pick<pino.Logger, 'debug'> = { debug: () => {} },
 ): Skill<string, IntentSkillOutput> {
   return {
     id: 'vectahub.intent',

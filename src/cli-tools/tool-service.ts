@@ -12,15 +12,26 @@ export interface ToolServiceOptions {
   discoveryEnabled?: boolean;
 }
 
+export interface ToolServiceDeps {
+  logger: Pick<Console, 'warn'>;
+}
+
+const silentToolServiceLogger: ToolServiceDeps['logger'] = {
+  warn(): void {},
+};
+
 export class ToolService {
   private registry: CliToolRegistry;
   private options: Required<ToolServiceOptions>;
+  private readonly logger: Pick<Console, 'warn'>;
 
   constructor(
     registry?: CliToolRegistry,
-    options: ToolServiceOptions = {}
+    options: ToolServiceOptions = {},
+    deps: ToolServiceDeps = { logger: silentToolServiceLogger },
   ) {
     this.registry = registry || getCliToolRegistry();
+    this.logger = deps.logger;
     this.options = {
       autoRegister: true,
       includeBuiltin: true,
@@ -80,7 +91,7 @@ export class ToolService {
       try {
         this.registry.register(tool);
       } catch (e) {
-        console.warn(`Failed to load builtin ${tool?.name} tool:`, e);
+        this.logger.warn(`Failed to load builtin ${tool?.name} tool:`, e);
       }
     }
   }
@@ -113,9 +124,9 @@ export class ToolService {
 
 let globalToolService: ToolService | null = null;
 
-export function getToolService(options?: ToolServiceOptions): ToolService {
+export function getToolService(options?: ToolServiceOptions, deps?: ToolServiceDeps): ToolService {
   if (!globalToolService) {
-    globalToolService = new ToolService(undefined, options);
+    globalToolService = new ToolService(undefined, options, deps);
   }
   return globalToolService;
 }

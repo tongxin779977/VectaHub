@@ -13,6 +13,8 @@ import {
   loadProjectBlocklist, 
   loadProjectAllowlist 
 } from '../../command-rules/loader.js';
+import type { CommandRuleLoaderDeps } from '../../command-rules/loader.js';
+import { getVectaHubPath } from '../../infrastructure/paths/index.js';
 
 /**
  * 命令规则评估器
@@ -22,6 +24,14 @@ export class CommandRuleEvaluator implements SecurityEvaluator {
   public readonly name = 'CommandRuleEvaluator';
   private engine: CommandRuleEngine | null = null;
   private lastProjectPath: string | null = null;
+  private readonly loaderDeps: CommandRuleLoaderDeps;
+
+  constructor(loaderDeps?: CommandRuleLoaderDeps) {
+    this.loaderDeps = loaderDeps ?? {
+      logger: console,
+      getGlobalConfigPath: () => getVectaHubPath('command-rules'),
+    };
+  }
 
   /**
    * 获取或初始化规则引擎
@@ -33,10 +43,10 @@ export class CommandRuleEvaluator implements SecurityEvaluator {
     }
 
     this.engine = createCommandRuleEngine({
-      globalBlocklist: loadGlobalBlocklist(),
-      globalAllowlist: loadGlobalAllowlist(),
-      projectBlocklist: loadProjectBlocklist(projectPath),
-      projectAllowlist: loadProjectAllowlist(projectPath),
+      globalBlocklist: loadGlobalBlocklist(this.loaderDeps),
+      globalAllowlist: loadGlobalAllowlist(this.loaderDeps),
+      projectBlocklist: loadProjectBlocklist(projectPath, this.loaderDeps),
+      projectAllowlist: loadProjectAllowlist(projectPath, this.loaderDeps),
       defaultPolicy: 'passthrough', // 强制使用 passthrough，让后续 Evaluator 有机会执行
     });
     this.lastProjectPath = projectPath;

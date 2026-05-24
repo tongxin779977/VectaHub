@@ -1,7 +1,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { createInterface } from 'readline';
-import { loadConfig, saveConfig } from './first-run-wizard.js';
+import { loadConfig, saveConfig, type FirstRunWizardDeps } from './first-run-wizard.js';
 import { getAgentDescriptorById } from '../commands/agent-cli-adapter.js';
 import { bootstrapAgentRuntime } from '../commands/agent-runtime-bootstrap.js';
 import { type InfrastructureContext } from '../infrastructure/context.js';
@@ -19,6 +19,16 @@ export interface CLIToolStatus {
   ready: boolean;
   readyIssue?: string;
 }
+
+export interface CLIScannerOutput {
+  log(message: string): void;
+}
+
+const consoleScannerOutput: CLIScannerOutput = {
+  log: (message: string) => {
+    console.log(message);
+  },
+};
 
 const AI_CLI_TOOLS = [
   { name: 'gemini', command: 'gemini', versionFlag: '--version' },
@@ -44,8 +54,11 @@ export async function scanSingleTool(toolName: string, context: InfrastructureCo
   }
 }
 
-export async function scanCLITools(context: InfrastructureContext): Promise<CLIToolStatus[]> {
-  console.log('🔍 扫描已安装的 AI CLI 工具...\n');
+export async function scanCLITools(
+  context: InfrastructureContext,
+  output: CLIScannerOutput = consoleScannerOutput,
+): Promise<CLIToolStatus[]> {
+  output.log('🔍 扫描已安装的 AI CLI 工具...\n');
 
   const results: CLIToolStatus[] = [];
 
@@ -58,27 +71,27 @@ export async function scanCLITools(context: InfrastructureContext): Promise<CLIT
 
       if (status.installed) {
         if (status.hasPermission) {
-          console.log(`✅ ${tool.name} CLI - 已安装 (${status.version}), 权限正常`);
+          output.log(`✅ ${tool.name} CLI - 已安装 (${status.version}), 权限正常`);
         } else {
-          console.log(`⚠️  ${tool.name} CLI - 已安装，但${status.permissionIssue}`);
+          output.log(`⚠️  ${tool.name} CLI - 已安装，但${status.permissionIssue}`);
           const granted = await askPermission(tool.name);
           status.hasPermission = granted;
           status.permissionIssue = granted ? undefined : status.permissionIssue;
           if (granted) {
-            console.log(`✅ 已授权 ${tool.name}`);
+            output.log(`✅ 已授权 ${tool.name}`);
           }
         }
       } else {
-        console.log(`❌ ${tool.name} CLI - 未安装`);
+        output.log(`❌ ${tool.name} CLI - 未安装`);
       }
     } catch (err) {
-      console.log(`❌ ${tool.name} CLI - 扫描失败: ${err instanceof Error ? err.message : String(err)}`);
+      output.log(`❌ ${tool.name} CLI - 扫描失败: ${err instanceof Error ? err.message : String(err)}`);
       results.push(createFailedStatus(tool.name));
     }
   }
 
   const available = results.filter(r => r.installed && r.hasPermission && r.invocable && r.ready);
-  console.log(`\n发现 ${available.length} 个可用的 AI CLI 工具。\n`);
+  output.log(`\n发现 ${available.length} 个可用的 AI CLI 工具。\n`);
 
   return results;
 }
@@ -244,12 +257,14 @@ async function askPermission(toolName: string): Promise<boolean> {
   });
 }
 
-export function updateCLIToolConfig(tools: CLIToolStatus[]): void {
-  syncCLIToolPermissionState(tools);
+type CLIToolConfigDeps = Pick<FirstRunWizardDeps, 'environment'>;
+
+export function updateCLIToolConfig(tools: CLIToolStatus[], deps: CLIToolConfigDeps): void {
+  syncCLIToolPermissionState(tools, deps);
 }
 
-export function syncCLIToolPermissionState(tools: CLIToolStatus[]): void {
-  const config = loadConfig();
+export function syncCLIToolPermissionState(tools: CLIToolStatus[], deps: CLIToolConfigDeps): void {
+  const config = loadConfig(deps);
 
   for (const tool of tools) {
     const previous = config.external_cli[tool.name] || { enabled: true, has_permission: false };
@@ -259,11 +274,11 @@ export function syncCLIToolPermissionState(tools: CLIToolStatus[]): void {
     };
   }
 
-  saveConfig(config);
+  saveConfig(config, deps);
 }
 
-export function getAvailableExternalCLI(): string[] {
-  const config = loadConfig();
+export function getAvailableExternalCLI(deps: CLIToolConfigDeps): string[] {
+  const config = loadConfig(deps);
   return Object.entries(config.external_cli)
     .filter(([_, v]) => v.enabled && v.has_permission)
     .map(([name, _]) => name);

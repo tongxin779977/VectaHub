@@ -1,8 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { debugCmd } from './debug.js';
-import { workflowDebugger } from '../debugger/workflow-debugger.js';
+import { createDebugCmd, createWorkflowDebugger } from './debug.js';
+import { MockEnvironmentService, MockLoggerService } from '../infrastructure/testing/mock-services.js';
+import type { InfrastructureContext } from '../infrastructure/context.js';
 
 describe('debug command output', () => {
+  const context = {
+    environment: new MockEnvironmentService(),
+    logger: new MockLoggerService(),
+  } as unknown as InfrastructureContext;
+  const workflowDebugger = createWorkflowDebugger(context);
+  const debugCmd = createDebugCmd(context, { workflowDebugger });
+
   afterEach(() => {
     workflowDebugger.reset();
     workflowDebugger.clearHistory();

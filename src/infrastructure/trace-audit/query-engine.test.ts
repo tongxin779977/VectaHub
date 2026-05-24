@@ -6,10 +6,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import pino from 'pino';
 import { QueryEngine, createQueryEngine } from './query-engine.js';
 import type { TraceSpan } from './types.js';
 
 const TEST_LOG_DIR = path.join(process.cwd(), 'test-logs-query');
+const TEST_LOGGER = pino({ level: 'silent' });
 
 describe('QueryEngine', () => {
   let engine: QueryEngine;
@@ -19,7 +21,7 @@ describe('QueryEngine', () => {
       fs.rmSync(TEST_LOG_DIR, { recursive: true, force: true });
     }
     fs.mkdirSync(TEST_LOG_DIR, { recursive: true });
-    engine = createQueryEngine(TEST_LOG_DIR);
+    engine = createQueryEngine(TEST_LOG_DIR, { logger: TEST_LOGGER });
   });
 
   afterEach(() => {

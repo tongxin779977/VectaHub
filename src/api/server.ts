@@ -10,6 +10,7 @@ import type { IEnvironmentService } from '../infrastructure/interfaces/index.js'
 import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import type { Step } from '../types/index.js';
 import type { LLMWorkflowStepInline } from '../nl/llm.js';
+import type pino from 'pino';
 
 function getWorkflowsDir(): string {
   return getVectaHubPath('workflows');
@@ -25,6 +26,7 @@ interface APIServerDeps {
   audit: AuditHelper;
   auditLogger: Pick<AuditLogger, 'getSessionId' | 'query'>;
   environment: IEnvironmentService;
+  logger: pino.Logger;
 }
 
 interface APIExecutionSummary {
@@ -158,7 +160,7 @@ export async function createAPIServer(
   port = 3000,
   deps: APIServerDeps
 ): Promise<ReturnType<typeof createServer>> {
-  const engine = createWorkflowEngine({ audit: deps.audit, environment: deps.environment });
+  const engine = createWorkflowEngine({ audit: deps.audit, environment: deps.environment, logger: deps.logger });
   const scheduler = createScheduleManager({ engine, audit: deps.audit, environment: deps.environment });
   await scheduler.start();
 
@@ -174,7 +176,7 @@ export async function createAPIServer(
         const workflows = listWorkflows();
         jsonResponse(res, 200, { success: true, data: workflows });
       } else if (method === 'GET' && url.pathname === '/api/executions') {
-        const storage = createStorage({ environment: deps.environment });
+        const storage = createStorage({ environment: deps.environment, logger: deps.logger });
         const executions = await storage.list();
         jsonResponse(res, 200, { success: true, data: executions });
       } else if (method === 'GET' && url.pathname === '/api/audit') {

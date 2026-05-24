@@ -1,40 +1,28 @@
-
-import { getDefaultContext } from '../infrastructure/context.js';
 import { Skill, SkillContext, SkillResult, CompositeSkill } from './types.js';
 
 type LoggerType = { debug: (...args: unknown[]) => void; warn: (...args: unknown[]) => void; info?: (...args: unknown[]) => void; error?: (...args: unknown[]) => void };
 
-const nullLogger: LoggerType = {
-  debug: () => {},
-  warn: () => {},
-  info: () => {},
-  error: () => {}
-};
-
-function createSkillLogger(): LoggerType {
-  try {
-    return getDefaultContext().logger.getLogger('skills');
-  } catch {
-    // 测试环境或日志模块不可用时使用 null logger
-    return nullLogger;
-  }
-}
-
-const logger = createSkillLogger();
-
 export interface SkillExecutorOptions {
   maxRetries?: number;
   timeout?: number;
+  logger: LoggerType;
+}
+
+interface ResolvedSkillExecutorOptions {
+  maxRetries: number;
+  timeout: number;
 }
 
 export class SkillExecutor {
-  private options: SkillExecutorOptions;
+  private options: ResolvedSkillExecutorOptions;
+  private readonly logger: LoggerType;
 
-  constructor(options: SkillExecutorOptions = {}) {
+  constructor(options: SkillExecutorOptions) {
     this.options = {
       maxRetries: options.maxRetries ?? 3,
       timeout: options.timeout ?? 120000
     };
+    this.logger = options.logger;
   }
 
   async execute<TInput = unknown, TOutput = unknown>(
@@ -47,7 +35,7 @@ export class SkillExecutor {
 
     while (retries <= this.options.maxRetries!) {
       try {
-        logger.debug(`Executing skill: ${skill.name} (v${skill.version})`);
+        this.logger.debug(`Executing skill: ${skill.name} (v${skill.version})`);
 
         const timeoutPromise = new Promise<never>((_, reject) => {
           setTimeout(() => reject(new Error(`Skill execution timeout after ${this.options.timeout}ms`)), this.options.timeout);
@@ -58,12 +46,11 @@ export class SkillExecutor {
           timeoutPromise
         ]);
 
-        logger.debug(`Skill ${skill.name} executed successfully: ${result.success}, confidence: ${result.confidence}`);
+        this.logger.debug(`Skill ${skill.name} executed successfully: ${result.success}, confidence: ${result.confidence}`);
         return result;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        logger.warn(`Skill ${skill.name} failed (retry ${retries + 1}/${this.options.maxRetries}):`, lastError.message);
-        console.error(`[DEBUG] Skill ${skill.name} failed with error:`, lastError.message);
+        this.logger.warn(`Skill ${skill.name} failed (retry ${retries + 1}/${this.options.maxRetries}):`, lastError.message);
         retries++;
 
         if (retries <= this.options.maxRetries!) {
@@ -198,7 +185,7 @@ export class SkillExecutor {
           return result as SkillResult<TOutput>;
         }
       } catch {
-        logger.debug(`Conditional skill ${skill.id} failed, trying next`);
+        this.logger.debug(`Conditional skill ${skill.id} failed, trying next`);
       }
     }
 
@@ -210,6 +197,6 @@ export class SkillExecutor {
   }
 }
 
-export function createSkillExecutor(options?: SkillExecutorOptions): SkillExecutor {
+export function createSkillExecutor(options: SkillExecutorOptions): SkillExecutor {
   return new SkillExecutor(options);
 }

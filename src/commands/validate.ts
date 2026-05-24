@@ -1,6 +1,26 @@
 import { Command } from 'commander';
+import { format } from 'node:util';
 import type { InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
+
+interface ValidateCommandOutput {
+  log(message?: unknown, ...optionalParams: unknown[]): void;
+}
+
+function createValidateCommandOutput(): ValidateCommandOutput {
+  const formatMessage = (message?: unknown, optionalParams: unknown[] = []): string => {
+    if (message === undefined && optionalParams.length === 0) {
+      return '';
+    }
+    return format(message, ...optionalParams);
+  };
+
+  return {
+    log(message?: unknown, ...optionalParams: unknown[]): void {
+      process.stdout.write(`${formatMessage(message, optionalParams)}\n`);
+    },
+  };
+}
 
 interface ValidationResult {
   module: string;
@@ -187,6 +207,8 @@ function formatValidationResults(results: ValidationResult[]): string {
 }
 
 export function createValidateCmd(context: InfrastructureContext): Command {
+  const output = createValidateCommandOutput();
+
   return new Command('validate')
     .description('Validate module interface contracts')
     .action(async () => {
@@ -197,7 +219,7 @@ export function createValidateCmd(context: InfrastructureContext): Command {
         results.push(result);
       }
 
-      console.log(formatValidationResults(results));
+      output.log(formatValidationResults(results));
 
       const failCount = results.filter(r => r.status === 'fail').length;
       if (failCount > 0) {

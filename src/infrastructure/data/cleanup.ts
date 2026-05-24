@@ -1,11 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { getDefaultContext } from '../context.js';
-import { getVectaHubPath } from '../paths/index.js';
-
-function getModuleLogger() {
-  return getDefaultContext().logger.getLogger('data-cleanup');
-}
+import type pino from 'pino';
 
 /**
  * 数据清理配置
@@ -16,6 +11,18 @@ export interface CleanupConfig {
   workflowRetentionDays: number;
   cleanupIntervalHours: number;
   enabled: boolean;
+}
+
+export type CleanupPathResolver = (...segments: string[]) => string;
+
+export interface DataCleanupDeps {
+  logger: pino.Logger;
+  resolveStoragePath: CleanupPathResolver;
+}
+
+export interface DataCleanupServiceOptions {
+  config?: Partial<CleanupConfig>;
+  deps: DataCleanupDeps;
 }
 
 /**
@@ -33,12 +40,26 @@ const DEFAULT_CONFIG: CleanupConfig = {
  * 数据清理服务
  */
 export class DataCleanupService {
+  private readonly logger: pino.Logger;
+  private readonly resolveStoragePath: CleanupPathResolver;
   private config: CleanupConfig;
   private cleanupIntervalId: ReturnType<typeof setInterval> | null = null;
   private isRunning = false;
 
-  constructor(config?: Partial<CleanupConfig>) {
-    this.config = { ...DEFAULT_CONFIG, ...config };
+  constructor(options: DataCleanupServiceOptions) {
+    this.assertDeps(options);
+    this.logger = options.deps.logger;
+    this.resolveStoragePath = options.deps.resolveStoragePath;
+    this.config = { ...DEFAULT_CONFIG, ...options.config };
+  }
+
+  /**
+   * 显式依赖校验，缺失时直接失败
+   */
+  private assertDeps(options: DataCleanupServiceOptions | undefined): asserts options is DataCleanupServiceOptions {
+    if (!options?.deps?.logger || typeof options.deps.resolveStoragePath !== 'function') {
+      throw new Error('DataCleanupService requires explicit logger and resolveStoragePath dependencies');
+    }
   }
 
   start(): void {
@@ -46,7 +67,7 @@ export class DataCleanupService {
     
     this.isRunning = true;
     this.scheduleCleanup();
-    getModuleLogger().info('Data cleanup service started');
+    this.logger.info('Data cleanup service started');
   }
 
   stop(): void {
@@ -55,17 +76,17 @@ export class DataCleanupService {
       this.cleanupIntervalId = null;
     }
     this.isRunning = false;
-    getModuleLogger().info('Data cleanup service stopped');
+    this.logger.info('Data cleanup service stopped');
   }
 
   private scheduleCleanup(): void {
     this.cleanup().catch(error => {
-      getModuleLogger().error(`Cleanup failed: ${(error as Error).message}`);
+      this.logger.error(`Cleanup failed: ${(error as Error).message}`);
     });
 
     this.cleanupIntervalId = setInterval(() => {
       this.cleanup().catch(error => {
-        getModuleLogger().error(`Cleanup failed: ${(error as Error).message}`);
+        this.logger.error(`Cleanup failed: ${(error as Error).message}`);
       });
     }, this.config.cleanupIntervalHours * 60 * 60 * 1000);
   }
@@ -73,17 +94,17 @@ export class DataCleanupService {
   async cleanup(): Promise<void> {
     if (!this.config.enabled) return;
 
-    getModuleLogger().debug('Starting data cleanup...');
+    this.logger.debug('Starting data cleanup...');
 
     await this.cleanupLogs();
     await this.cleanupExecutions();
     await this.cleanupWorkflows();
 
-    getModuleLogger().debug('Data cleanup completed');
+    this.logger.debug('Data cleanup completed');
   }
 
   private async cleanupLogs(): Promise<void> {
-    const logDir = getVectaHubPath('logs');
+    const logDir = this.resolveStoragePath('logs');
     const cutoffDate = new Date(Date.now() - this.config.logRetentionDays * 24 * 60 * 60 * 1000);
 
     try {
@@ -103,7 +124,7 @@ export class DataCleanupService {
         if (stat.isFile() && stat.mtime < cutoffDate) {
           await fs.unlink(filePath);
           deletedCount++;
-          getModuleLogger().debug(`Deleted old log file: ${file}`);
+          this.logger.debug(`Deleted old log file: ${file}`);
         }
       } catch {
         continue;
@@ -111,12 +132,12 @@ export class DataCleanupService {
     }
 
     if (deletedCount > 0) {
-      getModuleLogger().info(`Cleaned up ${deletedCount} old log files`);
+      this.logger.info(`Cleaned up ${deletedCount} old log files`);
     }
   }
 
   private async cleanupExecutions(): Promise<void> {
-    const executionsDir = getVectaHubPath('executions');
+    const executionsDir = this.resolveStoragePath('executions');
     const cutoffDate = new Date(Date.now() - this.config.executionRetentionDays * 24 * 60 * 60 * 1000);
 
     try {
@@ -138,7 +159,7 @@ export class DataCleanupService {
         if (stat.isFile() && stat.mtime < cutoffDate) {
           await fs.unlink(filePath);
           deletedCount++;
-          getModuleLogger().debug(`Deleted old execution record: ${file}`);
+          this.logger.debug(`Deleted old execution record: ${file}`);
         }
       } catch {
         continue;
@@ -146,12 +167,12 @@ export class DataCleanupService {
     }
 
     if (deletedCount > 0) {
-      getModuleLogger().info(`Cleaned up ${deletedCount} old execution records`);
+      this.logger.info(`Cleaned up ${deletedCount} old execution records`);
     }
   }
 
   private async cleanupWorkflows(): Promise<void> {
-    const workflowsDir = getVectaHubPath('workflows');
+    const workflowsDir = this.resolveStoragePath('workflows');
     const cutoffDate = new Date(Date.now() - this.config.workflowRetentionDays * 24 * 60 * 60 * 1000);
 
     try {
@@ -173,7 +194,7 @@ export class DataCleanupService {
         if (stat.isFile() && stat.mtime < cutoffDate) {
           await fs.unlink(filePath);
           deletedCount++;
-          getModuleLogger().debug(`Deleted old workflow: ${file}`);
+          this.logger.debug(`Deleted old workflow: ${file}`);
         }
       } catch {
         continue;
@@ -181,7 +202,7 @@ export class DataCleanupService {
     }
 
     if (deletedCount > 0) {
-      getModuleLogger().info(`Cleaned up ${deletedCount} old workflows`);
+      this.logger.info(`Cleaned up ${deletedCount} old workflows`);
     }
   }
 
@@ -189,9 +210,9 @@ export class DataCleanupService {
     const cutoffDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     const results = { logs: 0, executions: 0, workflows: 0 };
 
-    const logDir = getVectaHubPath('logs');
-    const executionsDir = getVectaHubPath('executions');
-    const workflowsDir = getVectaHubPath('workflows');
+    const logDir = this.resolveStoragePath('logs');
+    const executionsDir = this.resolveStoragePath('executions');
+    const workflowsDir = this.resolveStoragePath('workflows');
 
     results.logs = await this.deleteOldFiles(logDir, cutoffDate);
     results.executions = await this.deleteOldFiles(executionsDir, cutoffDate);
@@ -228,9 +249,9 @@ export class DataCleanupService {
   }
 
   async getStorageUsage(): Promise<{ logs: number; executions: number; workflows: number; totalBytes: number }> {
-    const logDir = getVectaHubPath('logs');
-    const executionsDir = getVectaHubPath('executions');
-    const workflowsDir = getVectaHubPath('workflows');
+    const logDir = this.resolveStoragePath('logs');
+    const executionsDir = this.resolveStoragePath('executions');
+    const workflowsDir = this.resolveStoragePath('workflows');
 
     const [logStats, executionStats, workflowStats] = await Promise.all([
       this.getDirStats(logDir),
@@ -291,6 +312,6 @@ export class DataCleanupService {
 /**
  * 创建数据清理服务
  */
-export function createDataCleanupService(config?: Partial<CleanupConfig>): DataCleanupService {
-  return new DataCleanupService(config);
+export function createDataCleanupService(options: DataCleanupServiceOptions): DataCleanupService {
+  return new DataCleanupService(options);
 }

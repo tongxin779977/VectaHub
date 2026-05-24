@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { format } from 'node:util';
 import { createLLMConfig, LLMClient } from '../nl/llm.js';
 import { DOC_TASK_PARSER_ID } from '../nl/prompt-manager.js';
 import type { DocTask } from '../types/index.js';
@@ -28,6 +29,29 @@ const GAP_TRIGGER_PATTERNS: Array<{ pattern: RegExp; verb?: string }> = [
 ];
 const STATUS_TABLE_HEADER_PATTERN = /状态/;
 const MARKDOWN_TABLE_DIVIDER_PATTERN = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/;
+
+interface ParseDocCommandOutput {
+  log(message?: unknown, ...optionalParams: unknown[]): void;
+  json(payload: unknown, options?: { space?: number }): void;
+}
+
+function createParseDocCommandOutput(): ParseDocCommandOutput {
+  const formatMessage = (message?: unknown, optionalParams: unknown[] = []): string => {
+    if (message === undefined && optionalParams.length === 0) {
+      return '';
+    }
+    return format(message, ...optionalParams);
+  };
+
+  return {
+    log(message?: unknown, ...optionalParams: unknown[]): void {
+      process.stdout.write(`${formatMessage(message, optionalParams)}\n`);
+    },
+    json(payload: unknown, options?: { space?: number }): void {
+      process.stdout.write(`${JSON.stringify(payload, null, options?.space ?? 2)}\n`);
+    },
+  };
+}
 
 export type ParseDocSource = 'roadmap-table' | 'llm' | 'regex-fallback';
 
@@ -503,6 +527,7 @@ export function parseTasksFromLLMOutput(output: string): DocTask[] {
 
 export function createParseDocCmd(context: InfrastructureContext): Command {
   const logger = context.logger.getLogger('parse-doc');
+  const output = createParseDocCommandOutput();
   return new Command('parse-doc')
     .description('解析开发文档，提取结构化任务列表')
     .argument('<path>', '文档文件路径')
@@ -518,33 +543,33 @@ export function createParseDocCmd(context: InfrastructureContext): Command {
         const { tasks } = result;
 
         if (options.json) {
-          console.log(JSON.stringify({
+          output.json({
             ok: true,
             tasks,
             source: result.source,
             degraded: result.degraded,
             warnings: result.warnings,
-          }, null, 2));
+          });
           return;
         } else {
-          console.log(`\n📋 解析到 ${tasks.length} 个任务:\n`);
+          output.log(`\n📋 解析到 ${tasks.length} 个任务:\n`);
           if (result.degraded) {
             for (const warning of result.warnings) {
-              console.log(`  [warning] ${warning}`);
+              output.log(`  [warning] ${warning}`);
             }
-            console.log('');
+            output.log('');
           }
-          console.log('─'.repeat(60));
+          output.log('─'.repeat(60));
           for (const task of tasks) {
-            console.log(`  ${task.id.padEnd(10)} ${task.label}`);
+            output.log(`  ${task.id.padEnd(10)} ${task.label}`);
           }
-          console.log('─'.repeat(60));
-          console.log('');
+          output.log('─'.repeat(60));
+          output.log('');
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         if (options.json) {
-          console.log(JSON.stringify({ ok: false, error: message }, null, 2));
+          output.json({ ok: false, error: message });
         } else {
           logger.error(`解析失败: ${message}`);
         }

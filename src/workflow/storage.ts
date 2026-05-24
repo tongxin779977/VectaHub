@@ -1,6 +1,5 @@
 import YAML from 'yaml';
 import type { Workflow, ExecutionRecord, StepRecord } from '../types/index.js';
-import { getDefaultContext } from '../infrastructure/context.js';
 import { createOutputStore, type OutputStore } from '../execution/output-store.js';
 import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 import type pino from 'pino';
@@ -14,7 +13,7 @@ export interface StorageOptions {
   storageDir?: string;
   separateOutput?: boolean;
   environment: IEnvironmentService;
-  logger?: pino.Logger;
+  logger: pino.Logger;
 }
 
 export interface Storage {
@@ -72,7 +71,7 @@ function parseWorkflowFromJson(content: string, source: string): Workflow {
 
 export function createStorage(options: StorageOptions): Storage {
   const { environment } = options;
-  const logger = options.logger ?? getDefaultContext().logger.getLogger('storage');
+  const logger = options.logger;
   const storageDir = options.storageDir || environment.getHomePath();
   const executionsDir = environment.joinPath(storageDir, 'executions');
   const workflowsDir = environment.joinPath(storageDir, 'workflows');

@@ -5,11 +5,11 @@
 
 import path from 'node:path';
 import { existsSync, mkdirSync, appendFileSync } from 'node:fs';
-import { getDefaultContext } from '../context.js';
+import type { Logger } from '../logger/index.js';
 import type { TraceSpan, AsyncWriteConfig } from './types.js';
 
-function getModuleLogger() {
-  return getDefaultContext().logger.getLogger('async-log-writer');
+export interface AsyncLogWriterDeps {
+  logger: Logger;
 }
 
 /** 默认配置 */
@@ -35,14 +35,24 @@ export class AsyncLogWriter {
   private static activeWriters: Set<AsyncLogWriter> = new Set();
   private config: AsyncWriteConfig;
   private logDir: string;
+  private logger: Logger;
   private queue: WriteQueueItem[] = [];
   private isFlushing = false;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private isDestroyed = false;
 
-  constructor(logDir: string, config?: Partial<AsyncWriteConfig>) {
+  constructor(
+    logDir: string,
+    config: Partial<AsyncWriteConfig> | undefined,
+    deps: AsyncLogWriterDeps
+  ) {
+    if (!deps.logger) {
+      throw new Error('AsyncLogWriter requires a logger dependency');
+    }
+
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.logDir = logDir;
+    this.logger = deps.logger;
     this.ensureDirectory();
     this.startFlushTimer();
     AsyncLogWriter.activeWriters.add(this);
@@ -74,7 +84,7 @@ export class AsyncLogWriter {
     }
     this.flushTimer = setInterval(() => {
       this.flush().catch((err) => {
-        getModuleLogger().error('定时刷盘失败:', err);
+        this.logger.error('定时刷盘失败:', err);
       });
     }, this.config.flushIntervalMs);
   }
@@ -92,7 +102,7 @@ export class AsyncLogWriter {
     return new Promise((resolve, reject) => {
       // 检查队列长度
       if (this.queue.length >= this.config.maxQueueLength) {
-        getModuleLogger().warn('日志队列已满，丢弃最旧的日志');
+        this.logger.warn('日志队列已满，丢弃最旧的日志');
         this.queue.shift();
       }
 
@@ -101,7 +111,7 @@ export class AsyncLogWriter {
       // 如果缓冲区已满，立即刷盘
       if (this.queue.length >= this.config.bufferSize) {
         this.flush().catch((err) => {
-          getModuleLogger().error('缓冲区满刷盘失败:', err);
+          this.logger.error('缓冲区满刷盘失败:', err);
         });
       }
     });
@@ -138,7 +148,7 @@ export class AsyncLogWriter {
       itemsToFlush.forEach((item) => item.resolve());
     } catch (error) {
       const err = error as Error;
-      getModuleLogger().error('刷盘失败: ' + err.message);
+      this.logger.error('刷盘失败: ' + err.message);
 
       // 将失败的数据重新放回队列头部，保证不丢当前批次
       this.queue = [...itemsToFlush, ...this.queue];
@@ -190,7 +200,8 @@ export class AsyncLogWriter {
  */
 export function createAsyncLogWriter(
   logDir: string,
-  config?: Partial<AsyncWriteConfig>
+  config: Partial<AsyncWriteConfig> | undefined,
+  deps: AsyncLogWriterDeps
 ): AsyncLogWriter {
-  return new AsyncLogWriter(logDir, config);
+  return new AsyncLogWriter(logDir, config, deps);
 }

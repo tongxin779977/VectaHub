@@ -35,7 +35,7 @@ npm install
 
 ### 1. 依赖注入 (DI) 与环境隔离
 严禁在业务代码（`src/utils/` 或 `src/commands/`）中直接调用 Node.js 原生模块（如 `fs`, `process`, `child_process`）。
-- **必须**使用 `getDefaultContext().environment` 进行文件操作、环境变量读取或进程产生。
+- **必须**通过显式注入的 `InfrastructureContext.environment` 或更窄的 `IEnvironmentService` 进行文件操作、环境变量读取或进程产生；不要在普通业务代码里直接解析默认 context。
 - **好处**：确保了代码的可测试性（Hermeticity），支持在内存中运行完整的集成测试。
 
 ### 2. 日志规范 (Logger Discipline)
@@ -133,4 +133,3 @@ npm run compile:extension
 ```
 
 更完整的测试要求见 [测试指南](./testing.md)。
-

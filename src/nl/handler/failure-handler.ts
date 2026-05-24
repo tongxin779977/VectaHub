@@ -1,8 +1,6 @@
 import type { CommandDiscovery } from '../discovery/command-discovery.js';
 import type { KnowledgeBase } from '../knowledge/knowledge-base.js';
-import { getDefaultContext } from '../../infrastructure/context.js';
-
-const logger = getDefaultContext().logger.getLogger('failure-handler');
+import type pino from 'pino';
 
 export interface FailureHandler {
   handle(command: string, error: string): Promise<void>;
@@ -10,15 +8,17 @@ export interface FailureHandler {
 
 export function createFailureHandler(
   discovery: CommandDiscovery,
-  knowledgeBase: KnowledgeBase
+  knowledgeBase: KnowledgeBase,
+  logger: pino.Logger,
 ): FailureHandler {
-  return new FailureHandlerImpl(discovery, knowledgeBase);
+  return new FailureHandlerImpl(discovery, knowledgeBase, logger);
 }
 
 class FailureHandlerImpl implements FailureHandler {
   constructor(
     private discovery: CommandDiscovery,
-    private knowledgeBase: KnowledgeBase
+    private knowledgeBase: KnowledgeBase,
+    private logger: pino.Logger,
   ) {}
 
   async handle(command: string, error: string): Promise<void> {
@@ -33,7 +33,7 @@ class FailureHandlerImpl implements FailureHandler {
     if (tool) {
       this.knowledgeBase.addTool(tool);
       await this.knowledgeBase.save();
-      logger.info(`✨ 系统学到了新工具: ${cmdName}`);
+      this.logger.info(`✨ 系统学到了新工具: ${cmdName}`);
     }
   }
 

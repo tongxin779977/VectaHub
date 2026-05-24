@@ -38,7 +38,11 @@ export class InfrastructureContext {
   }
 
   get audit(): IAuditService {
-    this.auditService ??= new AuditService(this.environment);
+    this.auditService ??= new AuditService(this.environment, {
+      onError: (error) => {
+        this.logger.getLogger('audit').error({ error }, 'Audit log write failed');
+      },
+    });
     return this.auditService;
   }
 
@@ -76,6 +80,13 @@ export function getDefaultContext(): InfrastructureContext {
     defaultContext = new InfrastructureContext();
   }
   return defaultContext;
+}
+
+/**
+ * 设置默认上下文（用于兼容桥和测试）
+ */
+export function setDefaultContext(context: InfrastructureContext): void {
+  defaultContext = context;
 }
 
 /**

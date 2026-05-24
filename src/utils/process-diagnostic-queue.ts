@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'shell-quote';
 import { getQueueManager, type QueueManager } from '../execution/queue-manager.js';
@@ -16,8 +18,26 @@ export interface QueuedCommandResult {
 }
 
 export interface ProcessDiagnosticQueueDependencies {
-  queueManager?: QueueManager;
+  queueManager: QueueManager;
   runCommand?: (command: QueuedCommand) => Promise<QueuedCommandResult> | QueuedCommandResult;
+}
+
+interface DiagnosticQueueOutput {
+  error(message: string): void;
+}
+
+const diagnosticQueueOutput: DiagnosticQueueOutput = {
+  error: (message: string) => process.stderr.write(`${message}\n`),
+};
+
+function createCliQueueManager(): QueueManager {
+  const queueFile = join(process.env.VECTAHUB_HOME || join(homedir(), '.vectahub'), 'diagnostic-queue.json');
+  return getQueueManager(queueFile, {
+    logger: {
+      error: (message: string) => process.stderr.write(`${message}\n`),
+      warn: (message: string) => process.stderr.write(`${message}\n`),
+    },
+  });
 }
 
 export function parseQueuedCommand(commandToFix: string): QueuedCommand {
@@ -89,16 +109,16 @@ function runQueuedCommand(command: QueuedCommand): QueuedCommandResult {
   };
 }
 
-export async function listPendingDiagnosticTasks(queueManager: QueueManager = getQueueManager()): Promise<DiagnosticTask[]> {
+export async function listPendingDiagnosticTasks(queueManager: QueueManager): Promise<DiagnosticTask[]> {
   const tasks = await queueManager.loadTasks();
   return tasks.filter((task) => task.status === 'pending');
 }
 
 export async function processDiagnosticTask(
   taskId: string,
-  deps: ProcessDiagnosticQueueDependencies = {},
+  deps: ProcessDiagnosticQueueDependencies,
 ): Promise<QueuedCommandResult> {
-  const queueManager = deps.queueManager ?? getQueueManager();
+  const queueManager = deps.queueManager;
   const tasks = await queueManager.loadTasks();
   const task = tasks.find((entry) => entry.id === taskId);
 
@@ -138,7 +158,7 @@ async function main(): Promise<void> {
   }
 
   if (action === 'list-pending') {
-    const tasks = await listPendingDiagnosticTasks();
+    const tasks = await listPendingDiagnosticTasks(createCliQueueManager());
     console.log(JSON.stringify(tasks));
     return;
   }
@@ -148,7 +168,9 @@ async function main(): Promise<void> {
       throw new Error('No task ID provided');
     }
 
-    const result = await processDiagnosticTask(taskId);
+    const result = await processDiagnosticTask(taskId, {
+      queueManager: createCliQueueManager(),
+    });
     process.exit(result.exitCode);
     return;
   }
@@ -159,7 +181,7 @@ async function main(): Promise<void> {
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   main().catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`Diagnostic queue command failed: ${message}`);
+    diagnosticQueueOutput.error(`Diagnostic queue command failed: ${message}`);
     process.exit(1);
   });
 }

@@ -1,13 +1,44 @@
 import { Command } from 'commander';
-import { performanceMonitor } from '../monitoring/monitor.js';
+import { format } from 'node:util';
+import { PerformanceMonitor } from '../monitoring/monitor.js';
 import type { InfrastructureContext } from '../infrastructure/context.js';
 import type { Alert, AlertConfig } from '../monitoring/metrics.js';
+
+interface MonitorCommandOutput {
+  log(message?: unknown, ...optionalParams: unknown[]): void;
+}
+
+export interface MonitorCommandDeps {
+  performanceMonitor?: PerformanceMonitor;
+}
+
+function createMonitorCommandOutput(): MonitorCommandOutput {
+  const formatMessage = (message?: unknown, optionalParams: unknown[] = []): string => {
+    if (message === undefined && optionalParams.length === 0) {
+      return '';
+    }
+    return format(message, ...optionalParams);
+  };
+
+  return {
+    log(message?: unknown, ...optionalParams: unknown[]): void {
+      process.stdout.write(`${formatMessage(message, optionalParams)}\n`);
+    },
+  };
+}
+
+export function createPerformanceMonitor(context: InfrastructureContext): PerformanceMonitor {
+  return new PerformanceMonitor({
+    logger: context.logger.getLogger('monitor'),
+    getLogDir: () => context.environment.getPath('logs'),
+  });
+}
 
 function formatTimestamp(ts: number): string {
   return new Date(ts).toLocaleString();
 }
 
-function formatAlertTable(alerts: Alert[], logger: { info: (msg: string) => void }): void {
+function formatAlertTable(alerts: Alert[], logger: { info: (msg: string) => void }, output: MonitorCommandOutput): void {
   if (alerts.length === 0) {
     logger.info('  (no alerts)');
     return;
@@ -19,18 +50,21 @@ function formatAlertTable(alerts: Alert[], logger: { info: (msg: string) => void
     info: '\x1b[32minfo\x1b[0m',
   };
 
-  console.log(`  ${'Time'.padEnd(25)} ${'Type'.padEnd(12)} ${'Metric'.padEnd(18)} ${'Value'.padEnd(10)} ${'Threshold'.padEnd(10)} Message`);
-  console.log(`  ${'─'.repeat(25)} ${'─'.repeat(12)} ${'─'.repeat(18)} ${'─'.repeat(10)} ${'─'.repeat(10)} ${'─'.repeat(40)}`);
+  output.log(`  ${'Time'.padEnd(25)} ${'Type'.padEnd(12)} ${'Metric'.padEnd(18)} ${'Value'.padEnd(10)} ${'Threshold'.padEnd(10)} Message`);
+  output.log(`  ${'─'.repeat(25)} ${'─'.repeat(12)} ${'─'.repeat(18)} ${'─'.repeat(10)} ${'─'.repeat(10)} ${'─'.repeat(40)}`);
 
   for (const alert of alerts) {
     const type = typeColors[alert.type] || alert.type;
-    console.log(
+    output.log(
       `  ${formatTimestamp(alert.timestamp).padEnd(25)} ${type.padEnd(12)} ${alert.metricType.padEnd(18)} ${alert.currentValue.toFixed(2).padEnd(10)} ${alert.threshold.toFixed(2).padEnd(10)} ${alert.message}`
     );
   }
 }
 
-function formatSummary(summary: Record<string, { avg: number; max: number; min: number; count: number }>): void {
+function formatSummary(
+  summary: Record<string, { avg: number; max: number; min: number; count: number }>,
+  output: MonitorCommandOutput
+): void {
   const metricNames: Record<string, string> = {
     memory_used: 'Memory Used',
     memory_total: 'Memory Total',
@@ -51,20 +85,22 @@ function formatSummary(summary: Record<string, { avg: number; max: number; min: 
     success_rate: '%',
   };
 
-  console.log(`  ${'Metric'.padEnd(20)} ${'Count'.padEnd(6)} ${'Avg'.padEnd(12)} ${'Min'.padEnd(12)} ${'Max'.padEnd(12)}`);
-  console.log(`  ${'─'.repeat(20)} ${'─'.repeat(6)} ${'─'.repeat(12)} ${'─'.repeat(12)} ${'─'.repeat(12)}`);
+  output.log(`  ${'Metric'.padEnd(20)} ${'Count'.padEnd(6)} ${'Avg'.padEnd(12)} ${'Min'.padEnd(12)} ${'Max'.padEnd(12)}`);
+  output.log(`  ${'─'.repeat(20)} ${'─'.repeat(6)} ${'─'.repeat(12)} ${'─'.repeat(12)} ${'─'.repeat(12)}`);
 
   for (const [type, stats] of Object.entries(summary)) {
     const name = metricNames[type] || type;
     const unit = unitNames[type] || '';
-    console.log(
+    output.log(
       `  ${name.padEnd(20)} ${stats.count.toString().padEnd(6)} ${`${stats.avg.toFixed(2)}${unit}`.padEnd(12)} ${`${stats.min.toFixed(2)}${unit}`.padEnd(12)} ${`${stats.max.toFixed(2)}${unit}`.padEnd(12)}`
     );
   }
 }
 
-export function createMonitorCmd(context: InfrastructureContext): Command {
+export function createMonitorCmd(context: InfrastructureContext, deps: MonitorCommandDeps = {}): Command {
   const logger = context.logger.getLogger('monitor');
+  const output = createMonitorCommandOutput();
+  const performanceMonitor = deps.performanceMonitor ?? createPerformanceMonitor(context);
 
   const monitorCmd = new Command('monitor')
     .description('Performance monitoring and metrics');
@@ -93,8 +129,8 @@ export function createMonitorCmd(context: InfrastructureContext): Command {
     .action(() => {
       const summary = performanceMonitor.getSummary();
       logger.info('\nPerformance Metrics Summary:\n');
-      formatSummary(summary);
-      console.log();
+      formatSummary(summary, output);
+      output.log();
     });
 
   monitorCmd
@@ -104,8 +140,8 @@ export function createMonitorCmd(context: InfrastructureContext): Command {
     .action((options) => {
       const alerts = performanceMonitor.getAlerts(options.resolved);
       logger.info(`\n${options.resolved ? 'Resolved' : 'Active'} Alerts:\n`);
-      formatAlertTable(alerts, logger);
-      console.log();
+      formatAlertTable(alerts, logger, output);
+      output.log();
     });
 
   monitorCmd

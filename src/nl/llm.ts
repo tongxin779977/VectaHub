@@ -1,7 +1,7 @@
 import type { AuditHelper } from '../infrastructure/audit/index.js';
 import { getAllIntentNames, buildKeywordSummary } from './templates/index.js';
 import createLLMDialogControlSkill from '../skills/llm-dialog-control/index.js';
-import { loadConfig } from '../setup/first-run-wizard.js';
+import { loadConfig } from '../setup/first-run-wizard-bridge.js';
 import {
   createPromptManager,
   DEFAULT_INTENT_PARSER_ID,

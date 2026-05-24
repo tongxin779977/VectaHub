@@ -1,7 +1,28 @@
 import { Command } from 'commander';
+import { format } from 'node:util';
 import type { InfrastructureContext } from '../infrastructure/context.js';
 import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
+
+interface VerifyCommandOutput {
+  log(message?: unknown, ...optionalParams: unknown[]): void;
+  error(message?: unknown, ...optionalParams: unknown[]): void;
+}
+
+function createVerifyCommandOutput(): VerifyCommandOutput {
+  const writeLine = (stream: NodeJS.WriteStream, message?: unknown, optionalParams: unknown[] = []): void => {
+    stream.write(`${format(message, ...optionalParams)}\n`);
+  };
+
+  return {
+    log(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stdout, message, optionalParams);
+    },
+    error(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stderr, message, optionalParams);
+    },
+  };
+}
 
 interface CheckResult {
   name: string;
@@ -106,6 +127,8 @@ function formatReport(report: VerifyReport): string {
 }
 
 export function createVerifyCmd(context: InfrastructureContext): Command {
+  const cliOutput = createVerifyCommandOutput();
+
   return new Command('verify')
     .description('Run verification checks (typecheck, tests, coverage)')
     .option('--type <type>', 'Check type: typecheck, test, coverage, or all (default: all)')
@@ -114,12 +137,12 @@ export function createVerifyCmd(context: InfrastructureContext): Command {
       const validTypes = ['typecheck', 'test', 'coverage', 'all'];
 
       if (!validTypes.includes(type)) {
-        console.error(`Invalid type: ${type}. Must be one of: ${validTypes.join(', ')}`);
+        cliOutput.error(`Invalid type: ${type}. Must be one of: ${validTypes.join(', ')}`);
         throw new VectaHubError(`Invalid verification type: ${type}`, ErrorType.RUNTIME);
       }
 
       const report = await runVerification(type, context.environment);
-      console.log(formatReport(report));
+      cliOutput.log(formatReport(report));
 
       if (report.verdict === 'FAIL') {
         throw new VectaHubError('Verification failed', ErrorType.RUNTIME);

@@ -5,7 +5,13 @@ import { platform } from 'os';
 import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { createHash, timingSafeEqual } from 'crypto';
 import { createDetector, type Detector } from './detector.js';
-import { CommandRuleEngine, createCommandRuleEngine, loadGlobalBlocklist, loadGlobalAllowlist, loadProjectBlocklist, loadProjectAllowlist } from '../command-rules/index.js';
+import { CommandRuleEngine, createCommandRuleEngine } from '../command-rules/index.js';
+import {
+  loadGlobalBlocklist,
+  loadGlobalAllowlist,
+  loadProjectBlocklist,
+  loadProjectAllowlist,
+} from '../command-rules/loader.js';
 import { SANDBOX_EXEC_PATH, BWRAP_PATH, UNSHARE_PATH, SUDOERS_PATH, FALLBACK_PATH, DEFAULT_PROTECTED_DIRS } from './constants.js';
 import type { SandboxMode, CommandDetection } from '../types/index.js';
 import type { DefaultPolicy } from '../command-rules/types.js';
@@ -94,6 +100,10 @@ export interface SandboxManagerDeps {
   ruleEngine?: CommandRuleEngine;
   audit: AuditHelper;
   securityGuard?: SecurityGuard;
+  commandRuleLoader?: {
+    logger: { error: (context: { error: unknown }, message: string) => void };
+    getGlobalConfigPath: () => string;
+  };
 }
 
 export class SandboxManager {
@@ -117,11 +127,15 @@ export class SandboxManager {
     this.config = { ...DEFAULT_CONFIG, ...config, workspace: workspaceDefault };
     this.projectPath = config.projectPath;
     this.detector = deps.detector ?? createDetector();
+    const commandRuleLoader = deps.commandRuleLoader ?? {
+      logger: console,
+      getGlobalConfigPath: () => getVectaHubPath('command-rules'),
+    };
     this.ruleEngine = deps.ruleEngine ?? createCommandRuleEngine({
-      globalBlocklist: loadGlobalBlocklist(),
-      globalAllowlist: loadGlobalAllowlist(),
-      projectBlocklist: loadProjectBlocklist(this.projectPath),
-      projectAllowlist: loadProjectAllowlist(this.projectPath),
+      globalBlocklist: loadGlobalBlocklist(commandRuleLoader),
+      globalAllowlist: loadGlobalAllowlist(commandRuleLoader),
+      projectBlocklist: loadProjectBlocklist(this.projectPath, commandRuleLoader),
+      projectAllowlist: loadProjectAllowlist(this.projectPath, commandRuleLoader),
       defaultPolicy: this.config.defaultPolicy || 'passthrough',
     });
     this.auditHelper = deps.audit;

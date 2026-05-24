@@ -1,23 +1,50 @@
 import { Command } from 'commander';
 import { createConnection } from 'net';
+import { format } from 'node:util';
 import type { SandboxMode } from '../types/index.js';
 import { AuditEventType } from '../infrastructure/audit/index.js';
 import { SocketServer } from '../daemon/socket-server.js';
 import { type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
+import { createLLMConfig } from '../nl/llm.js';
 
 let socketServer: SocketServer | null = null;
+
+interface ServeCommandOutput {
+  log(message?: unknown, ...optionalParams: unknown[]): void;
+  warn(message?: unknown, ...optionalParams: unknown[]): void;
+  error(message?: unknown, ...optionalParams: unknown[]): void;
+}
+
+function createServeCommandOutput(): ServeCommandOutput {
+  const writeLine = (stream: NodeJS.WriteStream, message?: unknown, optionalParams: unknown[] = []): void => {
+    stream.write(`${format(message, ...optionalParams)}\n`);
+  };
+
+  return {
+    log(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stdout, message, optionalParams);
+    },
+    warn(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stderr, message, optionalParams);
+    },
+    error(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stderr, message, optionalParams);
+    },
+  };
+}
 
 export function createServeCommands(context: InfrastructureContext): { serveCmd: Command; clientCmd: Command } {
   const socketPath = context.environment.getPath(context.environment.getTmpDir(), 'vectahub.sock');
   const queueDir = context.environment.getPath(context.environment.getTmpDir(), 'vectahub');
+  const outputWriter = createServeCommandOutput();
 
   const getAuditHelper = () => context.audit.getHelper();
   const getCurrentSessionId = () => context.audit.getLogger().getSessionId();
 
   const handleShutdown = (signal: string) => {
     const sessionId = getCurrentSessionId();
-    console.log('\n\n🛑 Shutting down...');
+    outputWriter.log('\n\n🛑 Shutting down...');
     getAuditHelper().log({
       event: AuditEventType.CLI_COMMAND,
       timestamp: new Date().toISOString(),
@@ -38,9 +65,9 @@ export function createServeCommands(context: InfrastructureContext): { serveCmd:
     .action(async (options) => {
       const sessionId = getCurrentSessionId();
 
-      console.log('\n🚀 Starting VectaHub Service...\n');
-      console.log(`Socket: ${socketPath}`);
-      console.log(`Queue:  ${queueDir}\n`);
+      outputWriter.log('\n🚀 Starting VectaHub Service...\n');
+      outputWriter.log(`Socket: ${socketPath}`);
+      outputWriter.log(`Queue:  ${queueDir}\n`);
 
       getAuditHelper().log({
         event: AuditEventType.CLI_COMMAND,
@@ -52,27 +79,32 @@ export function createServeCommands(context: InfrastructureContext): { serveCmd:
         success: true,
       });
 
-      socketServer = new SocketServer();
+      socketServer = new SocketServer({}, {
+        auditHelper: context.audit.getHelper(),
+        logger: context.logger.getLogger('nl-pipeline'),
+        getSessionId: () => context.audit.getLogger().getSessionId(),
+        llmConfigProvider: () => createLLMConfig(),
+      });
 
       try {
         await socketServer.start();
 
-        console.log('✅ Service running');
-        console.log('\n📋 Usage:');
-        console.log('  vectahub client submit "压缩图片"');
-        console.log('  vectahub client status <task-id>');
-        console.log('  vectahub client list');
-        console.log('  vectahub client mode [STRICT|RELAXED|CONSENSUS]');
-        console.log('  vectahub client config');
-        console.log('  vectahub client shutdown\n');
+        outputWriter.log('✅ Service running');
+        outputWriter.log('\n📋 Usage:');
+        outputWriter.log('  vectahub client submit "压缩图片"');
+        outputWriter.log('  vectahub client status <task-id>');
+        outputWriter.log('  vectahub client list');
+        outputWriter.log('  vectahub client mode [STRICT|RELAXED|CONSENSUS]');
+        outputWriter.log('  vectahub client config');
+        outputWriter.log('  vectahub client shutdown\n');
 
         getAuditHelper().cliOutput('serve', 'Service started on ' + socketPath, sessionId);
 
         if (options.daemon) {
-          console.log('Running in daemon mode. Use "vectahub client shutdown" to stop.\n');
+          outputWriter.log('Running in daemon mode. Use "vectahub client shutdown" to stop.\n');
         }
       } catch (err) {
-        console.error('❌ Server error:', (err as Error).message);
+        outputWriter.error('❌ Server error:', (err as Error).message);
         getAuditHelper().log({
           event: AuditEventType.WORKFLOW_END,
           timestamp: new Date().toISOString(),
@@ -117,15 +149,15 @@ export function createServeCommands(context: InfrastructureContext): { serveCmd:
           const response = JSON.parse(data.toString());
           if (response.type === 'submitted') {
             const output = `\n✅ Task submitted: ${response.taskId}\nCheck status: vectahub client status ${response.taskId}\n`;
-            console.log(output);
+            outputWriter.log(output);
             getAuditHelper().cliOutput('client submit', output, sessionId);
           }
           socket.end();
         });
 
         socket.on('error', () => {
-          console.error('❌ Cannot connect to service. Is it running?');
-          console.error(`Socket: ${socketPath}`);
+          outputWriter.error('❌ Cannot connect to service. Is it running?');
+          outputWriter.error(`Socket: ${socketPath}`);
           getAuditHelper().log({
             event: AuditEventType.CLI_OUTPUT,
             timestamp: new Date().toISOString(),
@@ -169,16 +201,16 @@ export function createServeCommands(context: InfrastructureContext): { serveCmd:
             outputParts.push('');
 
             const output = outputParts.join('\n');
-            console.log(output);
+            outputWriter.log(output);
             getAuditHelper().cliOutput('client status', output, sessionId);
           } else {
-            console.error(`❌ ${response.message}`);
+            outputWriter.error(`❌ ${response.message}`);
           }
           socket.end();
         });
 
         socket.on('error', () => {
-          console.error('❌ Cannot connect to service. Is it running?');
+          outputWriter.error('❌ Cannot connect to service. Is it running?');
           throw new VectaHubError('Cannot connect to service', ErrorType.RUNTIME);
         });
       })
@@ -213,14 +245,14 @@ export function createServeCommands(context: InfrastructureContext): { serveCmd:
             outputParts.push(`\nTotal: ${response.tasks.length} tasks\n`);
 
             const output = outputParts.join('\n');
-            console.log(output);
+            outputWriter.log(output);
             getAuditHelper().cliOutput('client list', output, sessionId);
           }
           socket.end();
         });
 
         socket.on('error', () => {
-          console.error('❌ Cannot connect to service. Is it running?');
+          outputWriter.error('❌ Cannot connect to service. Is it running?');
           throw new VectaHubError('Cannot connect to service', ErrorType.RUNTIME);
         });
       })
@@ -236,7 +268,7 @@ export function createServeCommands(context: InfrastructureContext): { serveCmd:
           if (mode) {
             const upperMode = mode.toUpperCase() as SandboxMode;
             if (!['STRICT', 'RELAXED', 'CONSENSUS'].includes(upperMode)) {
-              console.error('❌ Invalid mode. Use: STRICT | RELAXED | CONSENSUS');
+              outputWriter.error('❌ Invalid mode. Use: STRICT | RELAXED | CONSENSUS');
               socket.end();
               throw new VectaHubError('Invalid mode', ErrorType.CONFIGURATION);
             }
@@ -255,14 +287,14 @@ export function createServeCommands(context: InfrastructureContext): { serveCmd:
           const response = JSON.parse(data.toString());
           if (response.type === 'mode' || response.type === 'modeChanged') {
             const output = `\n🔒 Sandbox Mode: ${response.mode}\n`;
-            console.log(output);
+            outputWriter.log(output);
             getAuditHelper().cliOutput('client mode', output, sessionId);
           }
           socket.end();
         });
 
         socket.on('error', () => {
-          console.error('❌ Cannot connect to service. Is it running?');
+          outputWriter.error('❌ Cannot connect to service. Is it running?');
           throw new VectaHubError('Cannot connect to service', ErrorType.RUNTIME);
         });
       })
@@ -289,14 +321,14 @@ export function createServeCommands(context: InfrastructureContext): { serveCmd:
             outputParts.push('');
 
             const output = outputParts.join('\n');
-            console.log(output);
+            outputWriter.log(output);
             getAuditHelper().cliOutput('client config', output, sessionId);
           }
           socket.end();
         });
 
         socket.on('error', () => {
-          console.error('❌ Cannot connect to service. Is it running?');
+          outputWriter.error('❌ Cannot connect to service. Is it running?');
           throw new VectaHubError('Cannot connect to service', ErrorType.RUNTIME);
         });
       })
@@ -315,13 +347,13 @@ export function createServeCommands(context: InfrastructureContext): { serveCmd:
 
         socket.on('data', () => {
           const output = '\n🛑 Service shutting down...\n';
-          console.log(output);
+          outputWriter.log(output);
           getAuditHelper().cliOutput('client shutdown', output, sessionId);
           socket.end();
         });
 
         socket.on('error', () => {
-          console.error('❌ Cannot connect to service. Is it running?');
+          outputWriter.error('❌ Cannot connect to service. Is it running?');
           throw new VectaHubError('Cannot connect to service', ErrorType.RUNTIME);
         });
       })

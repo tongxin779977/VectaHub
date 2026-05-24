@@ -1,11 +1,20 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PerformanceMonitor } from './monitor.js';
 
+const logger = {
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+};
+
 describe('PerformanceMonitor', () => {
   let monitor: PerformanceMonitor;
 
   beforeEach(() => {
-    monitor = new PerformanceMonitor();
+    monitor = new PerformanceMonitor({
+      logger,
+      getLogDir: () => '.',
+    });
   });
 
   afterEach(() => {

@@ -7,12 +7,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { promisify } from 'node:util';
-import { getDefaultContext } from '../context.js';
+import type { Logger } from '../logger/index.js';
 import type { LogRotationConfig } from './types.js';
 
 const gzip = promisify(zlib.gzip);
-function getModuleLogger() {
-  return getDefaultContext().logger.getLogger('log-rotation');
+
+export interface LogRotationManagerDeps {
+  logger: Logger;
 }
 
 /** 默认配置 */
@@ -31,11 +32,21 @@ export class LogRotationManager {
   private logDir: string;
   private archiveDir: string;
   private config: LogRotationConfig;
+  private logger: Logger;
 
-  constructor(logDir: string, config?: Partial<LogRotationConfig>) {
+  constructor(
+    logDir: string,
+    config: Partial<LogRotationConfig> | undefined,
+    deps: LogRotationManagerDeps
+  ) {
+    if (!deps.logger) {
+      throw new Error('LogRotationManager requires a logger dependency');
+    }
+
     this.logDir = logDir;
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.archiveDir = this.config.archiveDir || path.join(logDir, 'archive');
+    this.logger = deps.logger;
     this.ensureDirectories();
   }
 
@@ -69,9 +80,9 @@ export class LogRotationManager {
       // 3. 清理过期文件
       deleted = await this.cleanupExpiredFiles();
 
-      getModuleLogger().info(`日志轮转完成: 轮转=${rotated}, 归档=${archived}, 删除=${deleted}`);
+      this.logger.info(`日志轮转完成: 轮转=${rotated}, 归档=${archived}, 删除=${deleted}`);
     } catch (error) {
-      getModuleLogger().error(`日志轮转失败: ${(error as Error).message}`);
+      this.logger.error(`日志轮转失败: ${(error as Error).message}`);
     }
 
     return { rotated, archived, deleted };
@@ -91,7 +102,7 @@ export class LogRotationManager {
           count++;
         }
       } catch (error) {
-        getModuleLogger().warn(`检查文件大小失败: ${file}, ${(error as Error).message}`);
+        this.logger.warn(`检查文件大小失败: ${file}, ${(error as Error).message}`);
       }
     }
 
@@ -112,7 +123,7 @@ export class LogRotationManager {
     // 创建新的空文件
     fs.writeFileSync(filePath, '');
 
-    getModuleLogger().info(`文件轮转: ${filePath} -> ${rotatedPath}`);
+    this.logger.info(`文件轮转: ${filePath} -> ${rotatedPath}`);
   }
 
   /** 归档旧文件 */
@@ -132,7 +143,7 @@ export class LogRotationManager {
           count++;
         }
       } catch (error) {
-        getModuleLogger().warn(`归档文件失败: ${file}, ${(error as Error).message}`);
+        this.logger.warn(`归档文件失败: ${file}, ${(error as Error).message}`);
       }
     }
 
@@ -156,7 +167,7 @@ export class LogRotationManager {
     // 删除原文件
     fs.unlinkSync(filePath);
 
-    getModuleLogger().info(`文件归档: ${filePath} -> ${archivePath}`);
+    this.logger.info(`文件归档: ${filePath} -> ${archivePath}`);
   }
 
   /** 清理过期文件 */
@@ -178,10 +189,10 @@ export class LogRotationManager {
         if (age > retentionMs) {
           fs.unlinkSync(file);
           count++;
-          getModuleLogger().info(`文件清理: ${file}`);
+          this.logger.info(`文件清理: ${file}`);
         }
       } catch (error) {
-        getModuleLogger().warn(`清理文件失败: ${file}, ${(error as Error).message}`);
+        this.logger.warn(`清理文件失败: ${file}, ${(error as Error).message}`);
       }
     }
 
@@ -270,7 +281,8 @@ export class LogRotationManager {
  */
 export function createLogRotationManager(
   logDir: string,
-  config?: Partial<LogRotationConfig>
+  config: Partial<LogRotationConfig> | undefined,
+  deps: LogRotationManagerDeps
 ): LogRotationManager {
-  return new LogRotationManager(logDir, config);
+  return new LogRotationManager(logDir, config, deps);
 }

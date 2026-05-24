@@ -2,7 +2,7 @@ import type { NLProcessor, NLContext, NLResult } from './types.js';
 import type { IntentName } from '../../types/index.js';
 import type { ILLMClient } from '../interfaces.js';
 import type { AuditHelper } from '../../infrastructure/audit/index.js';
-import pino from 'pino';
+import type pino from 'pino';
 import YAML from 'yaml';
 import { splitPosixArgs } from '../../utils/shell.js';
 import { LLMClient, createLLMConfig } from '../llm.js';
@@ -22,13 +22,13 @@ export interface NLProcessorDeps {
   semanticDetector?: ReturnType<typeof createSemanticDetector>;
   llmClient?: ILLMClient;
   auditHelper?: AuditHelper;
-  logger?: pino.Logger;
+  logger: Pick<pino.Logger, 'error'>;
 }
 
-export function createNLProcessor(deps: NLProcessorDeps = {}): NLProcessor {
+export function createNLProcessor(deps: NLProcessorDeps): NLProcessor {
   const llmConfig = deps.llmConfig ?? null;
   const semanticDetector = deps.semanticDetector ?? createSemanticDetector();
-  const logger = deps.logger ?? pino({ name: 'nl-pipeline' });
+  const logger = deps.logger;
 
   if (!llmConfig) {
     throw new Error('LLM configuration is required. Keyword fallback has been removed.');

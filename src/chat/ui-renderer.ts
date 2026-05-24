@@ -1,8 +1,6 @@
-import { getDefaultContext } from '../infrastructure/context.js';
 import type { ChatOutput } from './types.js';
 import type { ChatConfig } from './config.js';
-
-const logger = getDefaultContext().logger.getLogger('chat-ui');
+import type pino from 'pino';
 
 export interface UIRenderer {
   render(output: ChatOutput): void;
@@ -13,7 +11,7 @@ export interface UIRenderer {
   renderDebug(message: string): void;
 }
 
-export function createUIRenderer(config: ChatConfig): UIRenderer {
+export function createUIRenderer(config: ChatConfig, logger: pino.Logger): UIRenderer {
   const { logLevel } = config;
 
   return {

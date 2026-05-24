@@ -1,4 +1,4 @@
-import { getDefaultContext } from '../context.js';
+import type { IEventBus, EventListener } from '../interfaces/index.js';
 
 /**
  * 事件管理器接口（保持向后兼容）
@@ -13,28 +13,45 @@ export interface EventManager {
   cleanup(): void;
 }
 
-// 导出 EventBus
-export { EventBus } from './bus.js';
-
 /**
- * 创建事件管理器（向后兼容）
- * @deprecated 建议使用 new EventBus() 或 InfrastructureContext.eventBus
+ * 事件管理器显式依赖契约
  */
-export function createEventManager(): EventManager {
-  // 返回一个包装器，使用默认 context 的 eventBus
-  return {
-    on: (event, listener, context) => getDefaultContext().eventBus.on(event, listener, context),
-    once: (event, listener, context) => getDefaultContext().eventBus.once(event, listener, context),
-    off: (event, listener) => getDefaultContext().eventBus.off(event, listener),
-    offByContext: (context) => getDefaultContext().eventBus.offByContext(context),
-    emit: (event, ...args) => getDefaultContext().eventBus.emit(event, ...args),
-    getListenerCount: (event) => getDefaultContext().eventBus.getListenerCount(event),
-    cleanup: () => getDefaultContext().eventBus.cleanup(),
-  };
+export interface EventManagerDeps {
+  eventBus: IEventBus;
 }
 
 /**
- * 全局事件管理器实例（向后兼容）
- * @deprecated 建议使用 InfrastructureContext.eventBus
+ * 基于显式依赖创建事件管理器
  */
-export const globalEventManager = createEventManager();
+export function createEventManagerWithDeps(deps: EventManagerDeps): EventManager {
+  const eventBus = deps.eventBus;
+
+  return {
+    on(event, listener, context) {
+      eventBus.on(event, listener as EventListener, context);
+    },
+    once(event, listener, context) {
+      eventBus.once(event, listener as EventListener, context);
+    },
+    off(event, listener) {
+      eventBus.off(event, listener as EventListener | undefined);
+    },
+    offByContext(context) {
+      eventBus.offByContext(context);
+    },
+    emit(event, ...args) {
+      eventBus.emit(event, ...args);
+    },
+    getListenerCount(event) {
+      return eventBus.getListenerCount(event);
+    },
+    cleanup() {
+      eventBus.cleanup();
+    },
+  };
+}
+
+// 导出 EventBus
+export { EventBus } from './bus.js';
+
+export { createEventManager, globalEventManager } from './compat-bridge.js';

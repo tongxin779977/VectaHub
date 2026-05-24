@@ -76,11 +76,15 @@ export class AuditLogger {
   private sessionId: string;
   private baseDir: string;
   private filePath: string;
+  private readonly onError: (error: Error) => void;
 
-  constructor(sessionId?: string, baseDir?: string) {
+  constructor(sessionId?: string, baseDir?: string, options?: { onError?: (error: Error) => void }) {
     this.sessionId = sessionId || generateSessionId();
     this.baseDir = baseDir ?? getVectaHubPath('logs', 'audit');
     this.filePath = getAuditFilePath(this.baseDir);
+    this.onError = options?.onError ?? ((error) => {
+      throw error;
+    });
     if (!isAuditDisabled()) {
       ensureDir(this.baseDir);
     }
@@ -101,15 +105,8 @@ export class AuditLogger {
       const line = JSON.stringify(sanitizedEvent) + '\n';
       appendFileSync(this.filePath, line, 'utf-8');
     } catch (error) {
-      // 默认会降级到 stderr；注入 onError 后可由调用方提升为 fail-closed
       const err = error as Error;
-      
-      // 使用注入的错误回调（如果有）
-      if ((this as any).onError) {
-        (this as any).onError(err);
-      } else {
-        console.error('[AUDIT] 审计日志写入失败:', err.message);
-      }
+      this.onError(err);
     }
   }
 
@@ -261,14 +258,12 @@ export function createNoopAuditHelper(): AuditHelper {
 /**
  * 创建审计便捷方法集
  * 接受 AuditLogger 实例注入，返回与全局 audit 对象相同接口的便捷方法
- * @param logger - AuditLogger 实例，不传则使用全局单例
+ * @param logger - AuditLogger 实例
  */
-export function createAuditHelper(logger?: AuditLogger): AuditHelper {
-  const resolveLogger = (): AuditLogger => logger ?? getAuditInstance();
-
+export function createAuditHelper(logger: AuditLogger): AuditHelper {
   return {
     log(event: AuditEvent): void {
-      resolveLogger().write(event);
+      logger.write(event);
     },
 
     cliCommand(cmd: string, args: string[], sessionId: string): void {
@@ -430,7 +425,57 @@ export function createAuditHelper(logger?: AuditLogger): AuditHelper {
 }
 
 /**
- * 全局审计便捷方法对象（向后兼容）
- * 推荐使用 createAuditHelper(logger) 注入 AuditLogger 实例
+ * 兼容桥接层：历史全局 audit 对象仍通过全局 AuditLogger 转发。
+ * @deprecated 推荐使用 createAuditHelper(logger) 注入 AuditLogger 实例
  */
-export const audit: AuditHelper = createAuditHelper();
+export function createCompatAuditHelper(): AuditHelper {
+  const resolveHelper = (): AuditHelper => createAuditHelper(getAuditInstance());
+
+  return {
+    log(event: AuditEvent): void {
+      resolveHelper().log(event);
+    },
+    cliCommand(cmd: string, args: string[], sessionId: string): void {
+      resolveHelper().cliCommand(cmd, args, sessionId);
+    },
+    cliOutput(cmd: string, output: string, sessionId: string): void {
+      resolveHelper().cliOutput(cmd, output, sessionId);
+    },
+    workflowStart(workflowId: string, input: string, sessionId: string): void {
+      resolveHelper().workflowStart(workflowId, input, sessionId);
+    },
+    workflowEnd(workflowId: string, status: string, duration: number, sessionId: string): void {
+      resolveHelper().workflowEnd(workflowId, status, duration, sessionId);
+    },
+    workflowStep(stepId: string, cli: string, args: string[], sessionId: string, metadata?: Record<string, unknown>): void {
+      resolveHelper().workflowStep(stepId, cli, args, sessionId, metadata);
+    },
+    securityAlert(ruleId: string, command: string, severity: string, sessionId: string): void {
+      resolveHelper().securityAlert(ruleId, command, severity, sessionId);
+    },
+    securityAction(action: string, target: string, result: string, sessionId: string): void {
+      resolveHelper().securityAction(action, target, result, sessionId);
+    },
+    configChange(module: string, key: string, oldValue: unknown, newValue: unknown, sessionId: string): void {
+      resolveHelper().configChange(module, key, oldValue, newValue, sessionId);
+    },
+    intentMatch(intent: string, confidence: number, params: Record<string, unknown>, sessionId: string): void {
+      resolveHelper().intentMatch(intent, confidence, params, sessionId);
+    },
+    executorResult(stepId: string, cli: string, exitCode: number, duration: number, sessionId: string, metadata?: Record<string, unknown>): void {
+      resolveHelper().executorResult(stepId, cli, exitCode, duration, sessionId, metadata);
+    },
+    fileOperation(operation: string, path: string, sessionId: string, success: boolean, error?: string): void {
+      resolveHelper().fileOperation(operation, path, sessionId, success, error);
+    },
+    sandboxDetect(command: string, isDangerous: boolean, severity: string, sessionId: string): void {
+      resolveHelper().sandboxDetect(command, isDangerous, severity, sessionId);
+    },
+  };
+}
+
+/**
+ * 全局审计便捷方法对象（向后兼容）
+ * @deprecated 推荐使用 createAuditHelper(logger) 注入 AuditLogger 实例
+ */
+export const audit: AuditHelper = createCompatAuditHelper();

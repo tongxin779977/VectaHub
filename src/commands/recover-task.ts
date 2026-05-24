@@ -24,6 +24,18 @@ import {
 } from '../types/recovery.js';
 import type { DocTaskFailureKind, DocTaskRunStatus } from '../types/doc-task.js';
 
+interface RecoverTaskCommandOutput {
+  json(payload: unknown, options?: { space?: number }): void;
+}
+
+function createRecoverTaskCommandOutput(): RecoverTaskCommandOutput {
+  return {
+    json(payload: unknown, options?: { space?: number }): void {
+      process.stdout.write(`${JSON.stringify(payload, null, options?.space ?? 2)}\n`);
+    },
+  };
+}
+
 export interface RecoverTaskOptions {
   runId: string;
   taskId: string;
@@ -393,6 +405,7 @@ function classifyFailureFromErrorMessage(errorMessage: string): ClassifiedFailur
 
 export function createRecoverTaskCmd(context: InfrastructureContext): Command {
   const logger = context.logger.getLogger('recover-task');
+  const output = createRecoverTaskCommandOutput();
 
   return new Command('recover-task')
     .description('恢复失败的文档任务')
@@ -433,7 +446,7 @@ export function createRecoverTaskCmd(context: InfrastructureContext): Command {
           if (result.error) {
             jsonOutput.error = result.error;
           }
-          console.log(JSON.stringify(jsonOutput, null, 2));
+          output.json(jsonOutput, { space: 2 });
         } else if (!result.ok) {
           if (result.error) {
             logger.error(`恢复失败: ${result.error}`);
@@ -457,7 +470,7 @@ export function createRecoverTaskCmd(context: InfrastructureContext): Command {
         }
         const message = error instanceof Error ? error.message : String(error);
         if (options.json) {
-          console.log(JSON.stringify({ ok: false, error: message }, null, 2));
+          output.json({ ok: false, error: message }, { space: 2 });
         } else {
           logger.error(`恢复执行失败: ${message}`);
         }

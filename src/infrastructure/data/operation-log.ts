@@ -1,12 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { getDefaultContext } from '../context.js';
+import type pino from 'pino';
 import { redactSensitiveData } from '../security/sensitive-data.js';
-import { getVectaHubPath } from '../paths/index.js';
-
-function getModuleLogger() {
-  return getDefaultContext().logger.getLogger('operation-log');
-}
 
 /**
  * 操作日志条目接口
@@ -34,6 +29,18 @@ export interface OperationLogConfig {
   redactSensitive: boolean;
 }
 
+export type OperationLogPathResolver = (...segments: string[]) => string;
+
+export interface OperationLogDeps {
+  logger: pino.Logger;
+  resolveStoragePath: OperationLogPathResolver;
+}
+
+export interface OperationLogOptions {
+  config?: Partial<OperationLogConfig>;
+  deps: OperationLogDeps;
+}
+
 /**
  * 默认操作日志配置
  */
@@ -50,15 +57,29 @@ const DEFAULT_CONFIG: OperationLogConfig = {
  * 负责记录命令的执行记录，支持查询和统计
  */
 export class OperationLog {
+  private readonly logger: pino.Logger;
+  private readonly resolveStoragePath: OperationLogPathResolver;
   private config: OperationLogConfig;
   private entries: OperationLogEntry[] = [];
   private logFile: string;
   private isFlushing = false;
 
-  constructor(config?: Partial<OperationLogConfig>) {
-    this.config = { ...DEFAULT_CONFIG, ...config };
-    this.logFile = this.config.logFile || getVectaHubPath('logs', 'operations.jsonl');
+  constructor(options: OperationLogOptions) {
+    this.assertDeps(options);
+    this.logger = options.deps.logger;
+    this.resolveStoragePath = options.deps.resolveStoragePath;
+    this.config = { ...DEFAULT_CONFIG, ...options.config };
+    this.logFile = this.config.logFile || this.resolveStoragePath('logs', 'operations.jsonl');
     this.loadEntries();
+  }
+
+  /**
+   * 显式依赖校验，缺失时直接失败
+   */
+  private assertDeps(options: OperationLogOptions | undefined): asserts options is OperationLogOptions {
+    if (!options?.deps?.logger || typeof options.deps.resolveStoragePath !== 'function') {
+      throw new Error('OperationLog requires explicit logger and resolveStoragePath dependencies');
+    }
   }
 
   /**
@@ -186,7 +207,7 @@ export class OperationLog {
       const lines = this.entries.map(entry => JSON.stringify(entry));
       await fs.writeFile(this.logFile, lines.join('\n') + '\n', 'utf-8');
     } catch (error) {
-      getModuleLogger().error(`Failed to flush operation log: ${(error as Error).message}`);
+      this.logger.error(`Failed to flush operation log: ${(error as Error).message}`);
     } finally {
       this.isFlushing = false;
     }
@@ -273,7 +294,7 @@ export class OperationLog {
   async clear(): Promise<void> {
     this.entries = [];
     await this.flush();
-    getModuleLogger().info('Operation log cleared');
+    this.logger.info('Operation log cleared');
   }
 
   /**
@@ -282,7 +303,7 @@ export class OperationLog {
   async exportToFile(filePath: string): Promise<void> {
     const lines = this.entries.map(entry => JSON.stringify(entry));
     await fs.writeFile(filePath, lines.join('\n') + '\n', 'utf-8');
-    getModuleLogger().info(`Operation log exported to ${filePath}`);
+    this.logger.info(`Operation log exported to ${filePath}`);
   }
 
   isEnabled(): boolean {
@@ -297,6 +318,6 @@ export class OperationLog {
 /**
  * 创建 OperationLog 实例的工厂函数
  */
-export function createOperationLog(config?: Partial<OperationLogConfig>): OperationLog {
-  return new OperationLog(config);
+export function createOperationLog(options: OperationLogOptions): OperationLog {
+  return new OperationLog(options);
 }
