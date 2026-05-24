@@ -23,6 +23,26 @@ import type { DocTaskFailureKind } from '../types/doc-task.js';
 
 let boundContext: InfrastructureContext | null = null;
 
+interface RunTaskCommandOutput {
+  log(message?: unknown): void;
+  json(payload: unknown, options?: { space?: number }): void;
+  renderedJson(rendered: string): void;
+}
+
+function createRunTaskCommandOutput(): RunTaskCommandOutput {
+  return {
+    log(message?: unknown): void {
+      process.stdout.write(`${message === undefined ? '' : String(message)}\n`);
+    },
+    json(payload: unknown, options?: { space?: number }): void {
+      process.stdout.write(`${JSON.stringify(payload, null, options?.space ?? 2)}\n`);
+    },
+    renderedJson(rendered: string): void {
+      process.stdout.write(`${rendered}\n`);
+    },
+  };
+}
+
 function getContext() {
   if (!boundContext) {
     throw new Error('run-task context is not bound. Use bindRunTaskContext(context) first.');
@@ -2390,6 +2410,7 @@ export async function runTask(options: {
 
 export function createRunTaskCmd(_context: InfrastructureContext): Command {
   bindRunTaskContext(_context);
+  const output = createRunTaskCommandOutput();
   return new Command('run-task')
     .description('执行文档任务：根据任务描述和 Agent CLI 工具生成并执行命令')
     .option('--tool <name>', 'Agent CLI 工具名称（如 aider、claude）')
@@ -2419,7 +2440,7 @@ export function createRunTaskCmd(_context: InfrastructureContext): Command {
         if (options.json) {
           const jsonOutput = formatRunTaskJson(result);
           if (!deferredTraceCloseout) {
-            console.log(JSON.stringify(jsonOutput, null, 2));
+            output.json(jsonOutput);
           } else {
             const traceCloseout = deferredTraceCloseout;
             const formatJsonSpan = startSpan('cli.run-task.formatJson', {
@@ -2430,7 +2451,7 @@ export function createRunTaskCmd(_context: InfrastructureContext): Command {
             });
             try {
               const rendered = JSON.stringify(jsonOutput, null, 2);
-              console.log(rendered);
+              output.renderedJson(rendered);
               await formatJsonSpan.end({ outputLength: rendered.length });
               await traceCloseout.rootSpan.end();
               deferredTraceCloseout = undefined;
@@ -2442,10 +2463,10 @@ export function createRunTaskCmd(_context: InfrastructureContext): Command {
             }
           }
         } else if (!result.success) {
-          console.log(result.output);
+          output.log(result.output);
           throw new VectaHubError('Task execution failed', ErrorType.RUNTIME);
         } else {
-          console.log(result.output);
+          output.log(result.output);
         }
       } catch (error) {
         if (!deferredTraceCloseout && typeof error === 'object' && error !== null) {
@@ -2455,7 +2476,7 @@ export function createRunTaskCmd(_context: InfrastructureContext): Command {
         if (options.json) {
           const errorJson = { ok: false, error: { code: 'CLI_ERROR', message } };
           if (!deferredTraceCloseout) {
-            console.log(JSON.stringify(errorJson, null, 2));
+            output.json(errorJson);
           } else {
             const traceCloseout = deferredTraceCloseout;
             const formatJsonSpan = startSpan('cli.run-task.formatJson', {
@@ -2466,7 +2487,7 @@ export function createRunTaskCmd(_context: InfrastructureContext): Command {
             });
             try {
               const rendered = JSON.stringify(errorJson, null, 2);
-              console.log(rendered);
+              output.renderedJson(rendered);
               await formatJsonSpan.end({ outputLength: rendered.length });
               await traceCloseout.rootSpan.fail(error);
             } catch (formatError) {
@@ -2488,20 +2509,21 @@ export function createRunTaskCmd(_context: InfrastructureContext): Command {
 
 export function createRunTaskCleanLogsCmd(_context: InfrastructureContext): Command {
   bindRunTaskContext(_context);
+  const output = createRunTaskCommandOutput();
   return new Command('run-task-clean-logs')
     .description('清理当前工作目录下的 run-task 失败日志')
     .option('--json', '以 JSON 格式输出')
     .action(async (options: { json?: boolean }) => {
       const cleanupResult = await cleanRunTaskLogs();
       if (options.json) {
-        console.log(JSON.stringify({
+        output.json({
           ok: true,
           removedFiles: cleanupResult.removedFiles,
-        }, null, 2));
+        });
         return;
       }
 
-      console.log(`Cleared ${cleanupResult.removedFiles} run-task failure log files.`);
+      output.log(`Cleared ${cleanupResult.removedFiles} run-task failure log files.`);
     });
 }
 

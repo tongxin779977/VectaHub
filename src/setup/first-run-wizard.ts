@@ -8,7 +8,17 @@ import type pino from 'pino';
 export interface FirstRunWizardDeps {
   environment: Pick<IEnvironmentService, 'exists' | 'ensureDir' | 'readFile' | 'writeFile' | 'getPath' | 'getEnv'>;
   logger?: Pick<pino.Logger, 'error'>;
+  output?: FirstRunWizardOutput;
   configPath?: string;
+}
+
+export type FirstRunWizardRuntimeDeps = FirstRunWizardDeps & {
+  logger: Pick<pino.Logger, 'error'>;
+  output: FirstRunWizardOutput;
+};
+
+export interface FirstRunWizardOutput {
+  log(message: string): void;
 }
 
 let sharedRl: Interface | null = null;
@@ -109,12 +119,12 @@ const DEFAULT_CONFIG: VectaHubConfig = {
   ],
 };
 
-function resolveLogger(deps: FirstRunWizardDeps): Pick<pino.Logger, 'error'> {
-  return deps.logger ?? {
-    error(message: string): void {
-      console.error(message);
-    },
-  };
+function resolveLogger(deps: FirstRunWizardRuntimeDeps): Pick<pino.Logger, 'error'> {
+  return deps.logger;
+}
+
+function resolveOutput(deps: FirstRunWizardRuntimeDeps): FirstRunWizardOutput {
+  return deps.output;
 }
 
 function getConfigPath(deps: FirstRunWizardDeps): string {
@@ -166,20 +176,21 @@ export async function initConfigFile(deps: FirstRunWizardDeps): Promise<StepResu
 }
 
 // Step 3: Configure LLM provider (interactive)
-export async function configureLLMProvider(deps: FirstRunWizardDeps): Promise<StepResult> {
+export async function configureLLMProvider(deps: FirstRunWizardRuntimeDeps): Promise<StepResult> {
+  const output = resolveOutput(deps);
   if (isNonInteractiveModeWithDeps(deps)) {
-    console.log('\n🔧 非交互模式: 跳过 AI 配置\n');
+    output.log('\n🔧 非交互模式: 跳过 AI 配置\n');
     return { success: true };
   }
 
-  console.log('\n👋 Welcome to VectaHub!\n');
-  console.log('首次使用需要配置 AI 能力。\n');
-  console.log('请选择你的 LLM 提供商:');
-  console.log('1. OpenAI (兼容协议，支持 TokenPlan 等)');
-  console.log('2. Anthropic (兼容协议)');
-  console.log('3. Google Gemini (兼容协议)');
-  console.log('4. 本地模型 (Ollama)');
-  console.log('5. 跳过 (仅使用规则匹配)\n');
+  output.log('\n👋 Welcome to VectaHub!\n');
+  output.log('首次使用需要配置 AI 能力。\n');
+  output.log('请选择你的 LLM 提供商:');
+  output.log('1. OpenAI (兼容协议，支持 TokenPlan 等)');
+  output.log('2. Anthropic (兼容协议)');
+  output.log('3. Google Gemini (兼容协议)');
+  output.log('4. 本地模型 (Ollama)');
+  output.log('5. 跳过 (仅使用规则匹配)\n');
 
   const answer = await promptUser('选择 [1-5]: ');
   const choice = answer.trim();
@@ -188,23 +199,23 @@ export async function configureLLMProvider(deps: FirstRunWizardDeps): Promise<St
 
   switch (choice) {
     case '1':
-      await setupOpenAI(config);
+      await setupOpenAI(config, output);
       break;
     case '2':
-      await setupAnthropic(config);
+      await setupAnthropic(config, output);
       break;
     case '3':
-      await setupGemini(config);
+      await setupGemini(config, output);
       break;
     case '4':
-      await setupOllama(config);
+      await setupOllama(config, output);
       break;
     case '5':
-      console.log('⏭️跳过 AI 配置，将仅使用规则匹配\n');
+      output.log('⏭️跳过 AI 配置，将仅使用规则匹配\n');
       closeRl();
       return { success: true };
     default:
-      console.log('❌ 无效选择，跳过 AI 配置\n');
+      output.log('❌ 无效选择，跳过 AI 配置\n');
       closeRl();
       return { success: true };
   }
@@ -254,7 +265,7 @@ export function saveConfig(config: VectaHubConfig, deps: FirstRunWizardDeps): vo
   deps.environment.writeFile(configPath, content);
 }
 
-export async function runFirstRunWizard(deps: FirstRunWizardDeps): Promise<boolean> {
+export async function runFirstRunWizard(deps: FirstRunWizardRuntimeDeps): Promise<boolean> {
   const logger = resolveLogger(deps);
   // Step 1: Create config directory
   const dirResult = await createConfigDir(deps);
@@ -282,7 +293,7 @@ export async function runFirstRunWizard(deps: FirstRunWizardDeps): Promise<boole
   return config.ai_providers.vectahub_llm.enabled;
 }
 
-async function setupOpenAI(config: VectaHubConfig): Promise<void> {
+async function setupOpenAI(config: VectaHubConfig, output: FirstRunWizardOutput): Promise<void> {
   const baseUrl = await promptUser('API 地址 [https://api.openai.com/v1]: ');
   const apiKey = await promptUser('API Key: ');
   const model = await promptUser('模型名称 [gpt-4o-mini]: ');
@@ -295,10 +306,10 @@ async function setupOpenAI(config: VectaHubConfig): Promise<void> {
     enabled: true,
   };
 
-  console.log('✅ OpenAI 兼容协议配置成功!\n');
+  output.log('✅ OpenAI 兼容协议配置成功!\n');
 }
 
-async function setupAnthropic(config: VectaHubConfig): Promise<void> {
+async function setupAnthropic(config: VectaHubConfig, output: FirstRunWizardOutput): Promise<void> {
   const baseUrl = await promptUser('API 地址 [https://api.anthropic.com]: ');
   const apiKey = await promptUser('API Key: ');
   const model = await promptUser('模型名称 [claude-3-5-sonnet-20241022]: ');
@@ -311,10 +322,10 @@ async function setupAnthropic(config: VectaHubConfig): Promise<void> {
     enabled: true,
   };
 
-  console.log('✅ Anthropic 兼容协议配置成功!\n');
+  output.log('✅ Anthropic 兼容协议配置成功!\n');
 }
 
-async function setupGemini(config: VectaHubConfig): Promise<void> {
+async function setupGemini(config: VectaHubConfig, output: FirstRunWizardOutput): Promise<void> {
   const baseUrl = await promptUser('API 地址 [https://generativelanguage.googleapis.com]: ');
   const apiKey = await promptUser('API Key: ');
   const model = await promptUser('模型名称 [gemini-2.0-flash]: ');
@@ -327,10 +338,10 @@ async function setupGemini(config: VectaHubConfig): Promise<void> {
     enabled: true,
   };
 
-  console.log('✅ Gemini 兼容协议配置成功!\n');
+  output.log('✅ Gemini 兼容协议配置成功!\n');
 }
 
-async function setupOllama(config: VectaHubConfig): Promise<void> {
+async function setupOllama(config: VectaHubConfig, output: FirstRunWizardOutput): Promise<void> {
   const baseUrl = await promptUser('Ollama 地址 [http://localhost:11434/v1/chat/completions]: ');
   const model = await promptUser('模型名称 [qwen2.5]: ');
 
@@ -341,5 +352,5 @@ async function setupOllama(config: VectaHubConfig): Promise<void> {
     enabled: true,
   };
 
-  console.log('✅ Ollama 配置成功!\n');
+  output.log('✅ Ollama 配置成功!\n');
 }

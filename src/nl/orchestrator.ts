@@ -9,6 +9,9 @@ import { createLLMConfig, type LLMConfig } from './llm.js';
 import { parseGoal } from './core/goal-parser.js';
 import { createCapabilityRouter } from './capabilities/router.js';
 import { executionPlanToSteps } from './capabilities/plan-adapter.js';
+import type pino from 'pino';
+
+type NLLogger = Pick<pino.Logger, 'error'>;
 
 export function initializeRouter(_intentEntries: Array<{ intent: string; category: string; patterns: RegExp[]; examples: string[]; priority: number }>): void {}
 
@@ -16,13 +19,14 @@ export async function processInput(
   input: string,
   llmConfig?: LLMConfig,
   auditHelper?: AuditHelper,
+  logger?: NLLogger,
 ): Promise<NLResult> {
   const splitter = createIntentSplitter();
   const splitResult = await splitter.split(input);
 
   const clauses = splitResult.clauses?.map(clause => clause.text.trim()).filter(Boolean) ?? [];
   if (splitResult.isMultiIntent && clauses.length > 1) {
-    return handleMultiIntent(clauses, llmConfig, auditHelper);
+    return handleMultiIntent(clauses, llmConfig, auditHelper, logger);
   }
 
   const normalizedInput = input.trim();
@@ -41,6 +45,7 @@ export async function processInput(
   const processor = createNLProcessor({
     llmConfig: requireLLMConfigForFallback(llmConfig),
     auditHelper: requireAuditHelperForFallback(auditHelper),
+    logger: requireLoggerForFallback(logger),
   });
   return processor.parse({ input: normalizedInput });
 }
@@ -59,10 +64,18 @@ function requireAuditHelperForFallback(auditHelper?: AuditHelper): AuditHelper {
   return auditHelper;
 }
 
+function requireLoggerForFallback(logger?: NLLogger): NLLogger {
+  if (!logger) {
+    throw new Error('Logger required for fallback processing. Provide logger when capability routing returns fallback.');
+  }
+  return logger;
+}
+
 async function handleMultiIntent(
   clauses: string[],
   llmConfig?: LLMConfig,
   auditHelper?: AuditHelper,
+  logger?: NLLogger,
 ): Promise<NLResult> {
   let fallbackProcessor: ReturnType<typeof createNLProcessor> | null = null;
   const getFallbackProcessor = (): ReturnType<typeof createNLProcessor> => {
@@ -70,6 +83,7 @@ async function handleMultiIntent(
       fallbackProcessor = createNLProcessor({
         llmConfig: requireLLMConfigForFallback(llmConfig),
         auditHelper: requireAuditHelperForFallback(auditHelper),
+        logger: requireLoggerForFallback(logger),
       });
     }
     return fallbackProcessor;
@@ -321,11 +335,10 @@ function capabilityNoTaskNLResult(
 
 async function orchestrateSingleIntent(
   input: string,
-  options?: { cwd?: string; auditHelper?: AuditHelper },
+  options?: { cwd?: string; auditHelper?: AuditHelper; logger?: NLLogger },
 ): Promise<OrchestrateResult> {
   const context = buildProjectContext(input, options);
   const routeResult = routeCapability(input, context);
-  console.log(`[DEBUG] routeResult: ${JSON.stringify(routeResult)}`);
 
   switch (routeResult.route) {
     case 'auto': {
@@ -377,7 +390,7 @@ async function orchestrateSingleIntent(
     throw new Error('LLM not configured. Run `vectahub setup` or set VECTAHUB_LLM_* environment variables.');
   }
 
-  const llmResult = await processInput(input, llmConfig, options?.auditHelper);
+  const llmResult = await processInput(input, llmConfig, options?.auditHelper, options?.logger);
   const steps = mapTaskListToSteps(llmResult.taskList);
   
   if (steps.length === 0 && !llmResult.reply) {
@@ -395,7 +408,7 @@ async function orchestrateSingleIntent(
 
 export async function orchestrateIntent(
   input: string,
-  options?: { cwd?: string; auditHelper?: AuditHelper },
+  options?: { cwd?: string; auditHelper?: AuditHelper; logger?: NLLogger },
 ): Promise<OrchestrateResult> {
   const splitter = createIntentSplitter();
   const splitResult = await splitter.split(input);
