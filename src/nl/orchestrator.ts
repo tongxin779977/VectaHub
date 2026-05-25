@@ -105,7 +105,7 @@ async function handleMultiIntent(
     return getFallbackProcessor().parse({ input: clause });
   }));
 
-  const hasNonExecutableClause = clauseResults.some(result => mapTaskListToSteps(result.taskList).length === 0);
+  const hasNonExecutableClause = clauseResults.some(result => mapTaskListToSteps(result.taskList).length === 0 && !result.reply);
   if (hasNonExecutableClause) {
     throw new Error('Multi-intent contains non-executable clause; clarification or preview required');
   }

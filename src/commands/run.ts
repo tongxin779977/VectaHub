@@ -13,6 +13,7 @@ import { createSystemWorkflows } from '../workflow/system-workflows.js';
 
 import { type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
+import { markCliOutputHandled } from '../infrastructure/cli-output.js';
 import { createRecordManager } from '../execution/record-manager.js';
 import { runSelfHealingLoop } from './self-healing.js';
 import { getVectaHubPath } from '../infrastructure/paths/index.js';
@@ -51,7 +52,8 @@ function exitWithError(
   } else {
     logger.error(message);
   }
-  throw new VectaHubError(message, ErrorType.RUNTIME, { code });
+  const error = new VectaHubError(message, ErrorType.RUNTIME, { code });
+  throw markCliOutputHandled(error);
 }
 
 function restoreEnvValue(context: InfrastructureContext, name: string, previousValue: string | undefined): void {
@@ -411,19 +413,9 @@ export function createRunCmd(context: InfrastructureContext): Command {
       restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
     
       } catch (error) {
-        const message = error instanceof Error ? error.message : '未知错误';
-        const stackTrace = error instanceof Error ? error.stack : String(error);
-        
-        if (options.json) {
-          output.json({
-            ok: false,
-            error: {
-              code: 'RUNTIME_ERROR',
-              message,
-              stack: stackTrace
-            }
-          });
-        } else {
+        if (!options.json) {
+          const message = error instanceof Error ? error.message : '未知错误';
+          const stackTrace = error instanceof Error ? error.stack : String(error);
           logger.error(`错误: ${message}`);
           logger.debug(stackTrace);
         }

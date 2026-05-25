@@ -41,6 +41,9 @@ export interface AgentDescriptor {
   preflightSpec: AgentPreflightSpec;
   dryRunRenderMode: 'prompt-only' | 'argv';
   runtimePolicy?: AgentRuntimePolicy;
+  description?: string;
+  usageHabits?: string;
+  bestFor?: string[];
 }
 
 export interface AgentAdapterInput {

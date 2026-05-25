@@ -20,7 +20,7 @@ export type AlertHandler = (event: AlertEvent) => void;
 export interface AlertSystem {
   addListener(level: AlertLevel, handler: AlertHandler): void;
   removeListener(level: AlertLevel, handler: AlertHandler): void;
-  emit(level: AlertLevel, message: string, metadata?: Record<string, any>): void;
+  emit(level: AlertLevel, message: string, metadata?: Record<string, unknown>): void;
   getHistory(level?: AlertLevel, limit?: number): AlertEvent[];
 }
 
@@ -42,7 +42,7 @@ export function createAlertSystem(maxHistory: number = 1000): AlertSystem {
     }
   }
 
-  function emit(level: AlertLevel, message: string, metadata?: Record<string, any>): void {
+  function emit(level: AlertLevel, message: string, metadata?: Record<string, unknown>): void {
     const event: AlertEvent = {
       level,
       message,

@@ -1,5 +1,6 @@
 import { INTENT_TEMPLATES } from './templates/index.js';
 import type { LLMTool, LLMToolCall } from './llm.js';
+import { getAgentRegistry } from '../agent-runtime/registry.js';
 import type { Step } from '../types/index.js';
 import type { ToolInfo } from './types/command.js';
 import type { CommandDiscovery } from './discovery/command-discovery.js';
@@ -275,10 +276,67 @@ export function getDiscoveredCLITools(): LLMTool[] {
   return cliToolCache.tools;
 }
 
-export function buildAllTools(): LLMTool[] {
+export function buildAgentToolsFromRegistry(): LLMTool[] {
+  let registry;
+  try {
+    registry = getAgentRegistry();
+  } catch {
+    return [];
+  }
+  if (!registry) return [];
+  const descriptors = registry.getAllDescriptors();
+  return descriptors.map(desc => {
+    const habitsDesc = desc.usageHabits ? ` 使用习惯/偏好：${desc.usageHabits}` : '';
+    const description = `${desc.description || `调用 ${desc.displayName} 来执行对应的任务。`}${habitsDesc}`;
+    return {
+      type: 'function' as const,
+      function: {
+        name: `run_agent_${desc.id}`,
+        description,
+        parameters: {
+          type: 'object',
+          properties: {
+            prompt: {
+              type: 'string',
+              description: `传递给 ${desc.displayName} 的具体任务开发指示与上下文`,
+            },
+            files: {
+              type: 'array',
+              items: {
+                type: 'string',
+              },
+              description: `本次任务中 ${desc.displayName} 需要读取或修改的工程文件相对路径列表 (若该 Agent 习惯接收文件)`,
+            },
+          },
+          required: ['prompt'],
+        },
+      },
+    };
+  });
+}
+
+export function buildAllTools(domains?: string[]): LLMTool[] {
+  if (domains !== undefined && domains.length === 0) {
+    return [];
+  }
+
   const intentTools = buildToolsFromTemplates();
   const cliTools = getDiscoveredCLITools();
-  return [...intentTools, ...cliTools];
+  const agentTools = buildAgentToolsFromRegistry();
+
+  const allTools = [...intentTools, ...cliTools, ...agentTools];
+
+  if (domains && domains.length > 0) {
+    return allTools.filter(tool => {
+      const name = tool.function.name.toLowerCase();
+      return domains.some(domain => {
+        const d = domain.toLowerCase();
+        return name.includes(d) || name.startsWith('run_agent_');
+      });
+    });
+  }
+
+  return allTools;
 }
 
 export function convertToolCallToSteps(toolCall: LLMToolCall): { intent: string; params: Record<string, unknown>; steps: Step[] } {
@@ -293,6 +351,41 @@ export function convertToolCallToSteps(toolCall: LLMToolCall): { intent: string;
       `Invalid JSON in tool call arguments for "${intentName}": ${errorMessage}`,
       { cause: error }
     );
+  }
+
+  if (intentName.startsWith('run_agent_')) {
+    const agentId = intentName.replace('run_agent_', '');
+    const prompt = String(params.prompt || '');
+    const files = Array.isArray(params.files) ? params.files.map(String) : [];
+
+    const registry = getAgentRegistry();
+    const descriptor = registry.getAgentDescriptor(agentId);
+    const adapter = registry.getAgentAdapter(agentId);
+
+    if (!descriptor || !adapter) {
+      throw new Error(`Unknown agent: "${agentId}"`);
+    }
+
+    const rendered = adapter.render({
+      descriptor,
+      workspaceRoot: process.cwd(),
+      taskPrompt: prompt,
+      mode: 'run',
+      outputMode: 'text',
+    });
+
+    const finalArgs = [...rendered.args, ...files];
+
+    return {
+      intent: intentName,
+      params,
+      steps: [{
+        id: `step_run_agent_${agentId}`,
+        type: 'exec' as const,
+        cli: rendered.command,
+        args: finalArgs,
+      }],
+    };
   }
 
   if (intentName.startsWith('cli_')) {

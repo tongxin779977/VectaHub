@@ -60,6 +60,9 @@ export const chatCmd = new Command('chat')
               chatCommandOutput.log(`  - ${task.description}`);
             }
           }
+          if (result.reply) {
+            chatCommandOutput.log(`\n🤖 VectaHub Expert:\n\n${result.reply}\n`);
+          }
           if (result.metadata.usedSkills?.length) {
             chatCommandOutput.log(`Skills: ${result.metadata.usedSkills.join(', ')}`);
           }

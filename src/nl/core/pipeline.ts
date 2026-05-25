@@ -8,6 +8,8 @@ import { splitPosixArgs } from '../../utils/shell.js';
 import { LLMClient, createLLMConfig } from '../llm.js';
 import { buildAllTools, convertToolCallToSteps } from '../tool-calling.js';
 import { createSemanticDetector } from '../../sandbox/semantic-detector.js';
+import { parseGoal } from './goal-parser.js';
+import { getAgentRegistry } from '../../agent-runtime/registry.js';
 
 export interface NLProcessorOptions {
   useLLM?: boolean;
@@ -53,8 +55,36 @@ export function createNLProcessor(deps: NLProcessorDeps): NLProcessor {
       throw new Error(`Semantic Guardrails: ${injectionResult.reason}`);
     }
 
+    const goal = parseGoal(input);
+    let domains: string[] | undefined = goal.domains;
+
+    if (domains.length === 0) {
+      // 检查是否为纯闲聊。如果满足以下所有条件，则判定为纯闲聊，执行工具剪枝：
+      // 1. 无识别出的动作 (action === 'unknown')
+      // 2. 无任何实体提取 (如文件、路径、URL等)
+      // 3. 不包含任何已注册 Agent 的名字/ID
+      const hasEntities = Object.values(goal.evidence).some(arr => Array.isArray(arr) && arr.length > 0);
+      let containsAgentName = false;
+      try {
+        const registry = getAgentRegistry();
+        if (registry) {
+          const agentIds = registry.getAllDescriptors().map(d => d.id.toLowerCase());
+          const lowerInput = input.toLowerCase();
+          containsAgentName = agentIds.some(id => lowerInput.includes(id));
+        }
+      } catch {
+        containsAgentName = false;
+      }
+
+      if (goal.action === 'unknown' && !hasEntities && !containsAgentName) {
+        domains = [];
+      } else {
+        domains = undefined;
+      }
+    }
+
     try {
-      return await executeLLMToolCalling(input, llmClient);
+      return await executeLLMToolCalling(input, llmClient, domains);
     } catch (err) {
       logger.error(`LLM Tool Calling failed: ${err}`);
       throw err;
@@ -66,9 +96,10 @@ export function createNLProcessor(deps: NLProcessorDeps): NLProcessor {
 
 async function executeLLMToolCalling(
   input: string,
-  llmClient: ILLMClient
+  llmClient: ILLMClient,
+  domains?: string[]
 ): Promise<NLResult> {
-  const tools = buildAllTools();
+  const tools = buildAllTools(domains);
   
   const llmResponse = await llmClient.complete('nl-processor-tool-calling', input, {}, { tools, toolChoice: 'auto' });
   

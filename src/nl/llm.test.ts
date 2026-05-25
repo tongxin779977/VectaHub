@@ -432,11 +432,11 @@ describe('LLM Client', () => {
       await expect(client.complete('system prompt', 'test')).rejects.toThrow('OpenAI API error');
     });
 
-    it('handles invalid JSON response', async () => {
+    it('handles invalid JSON response by falling back to reply', async () => {
       const mockResponse = {
         choices: [{
           message: {
-            content: 'not valid json',
+            content: 'hello, I am an AI assistant',
           },
         }],
       };
@@ -448,7 +448,9 @@ describe('LLM Client', () => {
 
       const client = new LLMClient({ provider: 'openai', model: 'gpt-4', apiKey: 'test-key', baseUrl: 'https://api.openai.com/v1' }, { auditHelper: mockAuditHelper });
       
-      await expect(client.complete('system prompt', 'test')).rejects.toThrow('Failed to parse LLM response');
+      const result = await client.complete('system prompt', 'test');
+      expect(result.intent).toBe('UNKNOWN');
+      expect(result.reply).toBe('hello, I am an AI assistant');
     });
 
     it('sets session ID on client', async () => {

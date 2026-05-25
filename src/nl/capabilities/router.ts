@@ -25,8 +25,8 @@ export function createCapabilityRouter(customCapabilities?: Capability[]): Capab
       if (goal.needsClarification) {
         return {
           plan: null,
-          route: 'clarify',
-          reason: 'goal needs clarification',
+          route: 'fallback',
+          reason: 'goal needs clarification, delegated to LLM',
         };
       }
 

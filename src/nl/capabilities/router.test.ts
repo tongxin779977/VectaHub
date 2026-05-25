@@ -79,10 +79,10 @@ describe('createCapabilityRouter', () => {
   });
 
   describe('模糊输入回退', () => {
-    it('needsClarification 的 goal 进入 clarify', () => {
-      const goal = parseGoal('搞一下');
+    it('needsClarification 的 goal 进入 fallback', () => {
+      const goal = parseGoal('修复');
       const result = router.route(goal);
-      expect(result.route).toBe('clarify');
+      expect(result.route).toBe('fallback');
     });
   });
 

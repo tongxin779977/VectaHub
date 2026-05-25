@@ -391,8 +391,27 @@ export class LLMClient {
     let parsed: LLMResponse;
     try {
       parsed = JSON.parse(content) as LLMResponse;
+      const isStructuredIntent = ('intent' in parsed) && ('workflow' in parsed || 'params' in parsed);
+      if (!isStructuredIntent && !parsed.reply && !parsed.tool_calls) {
+        const possibleReplyKeys = ['response', 'message', 'text', 'content'];
+        const tempObj = parsed as Record<string, unknown>;
+        for (const key of possibleReplyKeys) {
+          if (typeof tempObj[key] === 'string' && tempObj[key]) {
+            parsed.reply = tempObj[key] as string;
+            break;
+          }
+        }
+        if (!parsed.reply && (!parsed.workflow || !parsed.workflow.steps || parsed.workflow.steps.length === 0)) {
+          parsed.reply = content;
+        }
+      }
     } catch {
-      throw new Error('Failed to parse LLM response: invalid JSON content');
+      return {
+        intent: 'UNKNOWN',
+        confidence: 0.8,
+        params: {},
+        reply: content,
+      };
     }
 
     if (!parsed.intent || !INTENT_LIST.includes(parsed.intent)) {

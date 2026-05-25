@@ -69,7 +69,6 @@ export default [
       "src/sandbox/memory-monitor.ts",
       "src/skills/ai-modules/agent-delegate/agent-loop.ts",
       "src/types/diagnostic.ts",
-      "src/utils/alert-system.ts",
       "src/utils/lazy-loader.ts",
       "src/utils/shell-tokenizer.ts",
       "src/utils/worker-pool.ts"

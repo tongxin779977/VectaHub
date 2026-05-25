@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { convertToolCallToSteps, buildToolsFromTemplates } from './tool-calling.js';
+import { convertToolCallToSteps, buildToolsFromTemplates, buildAllTools } from './tool-calling.js';
+import { initializeBuiltInAgents } from '../agent-runtime/factory.js';
+initializeBuiltInAgents();
 import type { LLMToolCall } from './llm.js';
 
 describe('buildToolsFromTemplates', () => {
@@ -456,6 +458,47 @@ describe('convertToolCallToSteps', () => {
       };
 
       expect(() => convertToolCallToSteps(toolCall)).toThrow('Invalid JSON in tool call arguments');
+    });
+  });
+
+  describe('Dynamic Pruning & Custom Agent Tools', () => {
+    it('should return empty tools when domains is an empty array (chitchat pruning)', () => {
+      const tools = buildAllTools([]);
+      expect(tools).toEqual([]);
+    });
+
+    it('should return all tools when domains is undefined', () => {
+      const tools = buildAllTools();
+      expect(tools.length).toBeGreaterThan(0);
+      const names = tools.map(t => t.function.name);
+      expect(names).toContain('run_agent_aider');
+      expect(names).toContain('run_agent_gemini');
+    });
+
+    it('should filter tools based on domains, always keeping run_agent_ tools', () => {
+      const tools = buildAllTools(['git']);
+      const names = tools.map(t => t.function.name);
+      expect(names).toContain('git_push');
+      expect(names).toContain('run_agent_aider');
+      expect(names).not.toContain('file_find');
+    });
+
+    it('should parse run_agent_aider tool call and append files', () => {
+      const toolCall: LLMToolCall = {
+        id: 'call_aider',
+        type: 'function',
+        function: {
+          name: 'run_agent_aider',
+          arguments: JSON.stringify({
+            prompt: 'make changes',
+            files: ['src/index.ts', 'src/cli.ts']
+          })
+        }
+      };
+
+      const result = convertToolCallToSteps(toolCall);
+      expect(result.steps[0].cli).toBe('aider');
+      expect(result.steps[0].args).toEqual(['--message', 'make changes', 'src/index.ts', 'src/cli.ts']);
     });
   });
 });

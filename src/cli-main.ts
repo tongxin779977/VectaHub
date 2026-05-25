@@ -143,7 +143,7 @@ async function handleError(error: unknown): Promise<never> {
   }
   
   if (isJson) {
-    output.json(toJSONError(error), { space: 2 });
+    output.json(toJSONError(error, isVerbose()), { space: 2 });
   } else {
     output.error(`\n❌ ${formatErrorMessage(error)}`);
     if (isVerbose()) {
