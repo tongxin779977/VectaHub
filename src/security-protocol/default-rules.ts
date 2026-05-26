@@ -282,6 +282,44 @@ export const DEFAULT_SECURITY_RULES: SecurityRule[] = [
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     source: 'builtin'
+  },
+  {
+    id: 'rule-sensitive-file-read',
+    name: 'Sensitive File Read Access',
+    description: 'Detects attempts to read sensitive system or user credential files such as /etc/shadow, private SSH keys, or TLS keys',
+    category: 'filesystem',
+    severity: 'high',
+    patterns: [
+      '(cat|less|more|head|tail|vi|vim|nano|bat)\\s+.*(/etc/shadow|/etc/master\\.passwd|/etc/gshadow)',
+      '(cat|less|more|head|tail|vi|vim|nano|bat)\\s+.*(id_rsa|id_ed25519|id_ecdsa|id_dsa)',
+      '(cat|less|more|head|tail|vi|vim|nano|bat)\\s+.*\\.pem',
+      '(cat|less|more|head|tail|vi|vim|nano|bat)\\s+.*\\.key',
+      '(cat|less|more|head|tail|vi|vim|nano|bat)\\s+.*(/etc/ssl/private|/etc/letsencrypt/.*private)',
+      '^sudo\\s+cat\\s+.*(/etc/shadow|/etc/master\\.passwd)'
+    ],
+    enabled: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    source: 'builtin'
+  },
+  {
+    id: 'rule-reverse-shell',
+    name: 'Reverse Shell Detection',
+    description: 'Detects reverse shell patterns including netcat with -e flag, bash reverse shells, and telnet-based shells',
+    category: 'network',
+    severity: 'high',
+    patterns: [
+      'nc\\s+.*-e\\s+.*(bash|sh|zsh|/bin/sh|/bin/bash)',
+      'ncat\\s+.*-e\\s+.*(bash|sh|zsh|/bin/sh|/bin/bash)',
+      '/dev/tcp/',
+      'bash\\s+-i\\s+.*>/dev/tcp/',
+      'mkfifo\\s+.*(/tmp/|/dev/).*&&.*nc\\s+',
+      'telnet\\s+.*\\|.*(/bin/bash|/bin/sh)'
+    ],
+    enabled: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    source: 'builtin'
   }
 ];
 
