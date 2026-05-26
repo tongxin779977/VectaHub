@@ -18,6 +18,12 @@ import { createRedactor } from '../security-protocol/redactor.js';
 import { getVectaHubPath, djb2Hash } from '../infrastructure/paths/index.js';
 import { getAgentAdapterById, getAgentDescriptorById } from './agent-cli-adapter.js';
 import { bootstrapAgentRuntime } from './agent-runtime-bootstrap.js';
+import {
+  createRunTaskReviewReport,
+  RunTaskReviewStatus,
+  type RunTaskReviewFinding,
+  type RunTaskReviewReport,
+} from './run-task-review.js';
 import { decideRecovery, type RecoveryDecision, type RecoveryDecisionKind, type RecoveryDecisionMode } from '../types/recovery.js';
 import type { DocTaskFailureKind } from '../types/doc-task.js';
 
@@ -105,6 +111,18 @@ function getAgentProgressIntervalMs(): number {
 const DEFAULT_AGENT_NO_CLOSE_TIMEOUT_MS = 180000;
 function getAgentNoCloseTimeoutMs(): number {
   return getContext().environment.getEnvNumber('AGENT_NO_CLOSE_TIMEOUT_MS', DEFAULT_AGENT_NO_CLOSE_TIMEOUT_MS) ?? DEFAULT_AGENT_NO_CLOSE_TIMEOUT_MS;
+}
+const DEFAULT_AGENT_NO_CLOSE_EXTENSION_MS = 120000;
+function getAgentNoCloseExtensionMs(): number {
+  return getContext().environment.getEnvNumber('AGENT_NO_CLOSE_EXTENSION_MS', DEFAULT_AGENT_NO_CLOSE_EXTENSION_MS) ?? DEFAULT_AGENT_NO_CLOSE_EXTENSION_MS;
+}
+const DEFAULT_AGENT_NO_CLOSE_MAX_EXTENSIONS = 3;
+function getAgentNoCloseMaxExtensions(): number {
+  return getContext().environment.getEnvNumber('AGENT_NO_CLOSE_MAX_EXTENSIONS', DEFAULT_AGENT_NO_CLOSE_MAX_EXTENSIONS) ?? DEFAULT_AGENT_NO_CLOSE_MAX_EXTENSIONS;
+}
+const DEFAULT_AGENT_MAX_WALL_CLOCK_MS = 900000;
+function getAgentMaxWallClockMs(): number {
+  return getContext().environment.getEnvNumber('AGENT_MAX_WALL_CLOCK_MS', DEFAULT_AGENT_MAX_WALL_CLOCK_MS) ?? DEFAULT_AGENT_MAX_WALL_CLOCK_MS;
 }
 const DEFAULT_MAX_JSON_OUTPUT_LENGTH = 50000;
 function getMaxJsonOutputLength(): number {
@@ -246,6 +264,7 @@ export interface RunTaskResult {
   unclosedExecution?: boolean;
   completionSignal?: SpawnCompletionSignal;
   recoveryDecision?: RunTaskRecoveryDecisionSummary;
+  reviewReport?: RunTaskReviewReport;
 }
 
 export interface RunTaskRiskAssessment {
@@ -280,6 +299,7 @@ export interface RunTaskJsonResult {
   unclosedExecution?: boolean;
   completionSignal?: SpawnCompletionSignal;
   recoveryDecision?: RunTaskRecoveryDecisionSummary;
+  reviewReport?: RunTaskReviewReport;
   error?: string | {
     code: string;
     message: string;
@@ -345,7 +365,7 @@ export interface VerificationResult {
   isSystemError?: boolean;
 }
 
-type SpawnCompletionSignal = 'close' | 'exit-stream-drain' | 'exit-flush-grace' | 'output-last-message' | 'timeout';
+type SpawnCompletionSignal = 'close' | 'exit-stream-drain' | 'exit-flush-grace' | 'output-last-message' | 'evidence-closeout' | 'timeout';
 
 interface SpawnCompletionResult {
   exitCode: number;
@@ -495,20 +515,32 @@ export function buildDefaultPrompt(taskId: string, taskLabel: string, docPath: s
 async function readGitDiffSnapshot(): Promise<GitDiffSnapshot | null> {
   try {
     const { stdout: shortStat } = await getContext().environment.exec('git diff --shortstat');
-    if (!shortStat.trim()) return null;
+    const { stdout: statusShort } = await getContext().environment.exec('git status --short --untracked-files=all');
+    const untrackedFiles = statusShort.split('\n')
+      .map(line => line.trim())
+      .filter(line => line.startsWith('?? '))
+      .map(line => line.slice(3).trim())
+      .filter(Boolean);
+    if (!shortStat.trim() && untrackedFiles.length === 0) return null;
 
-    const { stdout: diffStat } = await getContext().environment.exec('git diff --stat');
+    const { stdout: diffStat } = shortStat.trim()
+      ? await getContext().environment.exec('git diff --stat')
+      : { stdout: '' };
     const changedFiles = diffStat.split('\n')
       .map(line => {
         const parts = line.split('|');
         return parts[0]?.trim() || '';
       })
       .filter(f => f && !f.includes('file') && !f.includes('changed'));
+    const allChangedFiles = Array.from(new Set([...changedFiles, ...untrackedFiles]));
 
     return {
-      diffStat: diffStat.trim().substring(0, 3000),
-      shortStat: shortStat.trim(),
-      changedFiles,
+      diffStat: [diffStat.trim(), ...untrackedFiles.map(file => `${file} | untracked`)]
+        .filter(Boolean)
+        .join('\n')
+        .substring(0, 3000),
+      shortStat: shortStat.trim() || `${untrackedFiles.length} untracked file${untrackedFiles.length > 1 ? 's' : ''}`,
+      changedFiles: allChangedFiles,
     };
   } catch {
     return null;
@@ -996,6 +1028,38 @@ function detectAgentExecutionOutcome(output: string): 'implemented' | 'planned_o
   return 'implemented';
 }
 
+function detectAgentTaskAlreadySatisfied(output: string): boolean {
+  const text = output.toLowerCase();
+  const satisfiedSignals = [
+    '已经满足',
+    '已满足',
+    '已覆盖',
+    '无需修改',
+    '不需要修改',
+    'already satisfies',
+    'already satisfied',
+    'no changes needed',
+    'no modification needed',
+    '验证结果',
+    '验证已运行完成',
+    '退出码 `0`',
+    '退出码 0',
+    'validation passed',
+    'exit code 0',
+  ];
+  const blockerSignals = [
+    '无法完成',
+    '不能在不越界',
+    '超出本任务边界',
+    'blocked',
+    'cannot complete',
+    'would need changes outside',
+  ];
+
+  return satisfiedSignals.some(signal => text.includes(signal.toLowerCase()))
+    && !blockerSignals.some(signal => text.includes(signal.toLowerCase()));
+}
+
 function isUnclosedExecutionFailure(input: {
   success: boolean;
   gitChanges?: GitChangeInfo;
@@ -1109,6 +1173,41 @@ function inferExecutionFailureKind(input: {
     return 'test';
   }
   return undefined;
+}
+
+function didRunTaskValidationPass(
+  verification: VerificationResult | undefined,
+  contract: AgentTaskContractSummary,
+): boolean {
+  if (contract.validationCommands.length === 0) {
+    return true;
+  }
+  return !!verification && verification.ok && !verification.isSystemError;
+}
+
+function buildRunTaskReviewReport(input: {
+  taskId: string;
+  taskLabel: string;
+  contract?: AgentTaskContractSummary;
+  gitChanges?: GitChangeInfo;
+  verification?: VerificationResult;
+  agentExecutionOutcome?: 'implemented' | 'planned_only';
+  alreadySatisfied?: boolean;
+}): RunTaskReviewReport | undefined {
+  if (!input.contract || !input.agentExecutionOutcome) {
+    return undefined;
+  }
+
+  return createRunTaskReviewReport({
+    taskId: input.taskId,
+    taskLabel: input.taskLabel,
+    allowedFiles: input.contract.allowedFiles,
+    forbiddenFiles: input.contract.forbiddenFiles,
+    changedFiles: input.gitChanges?.changedFiles ?? [],
+    validationPassed: didRunTaskValidationPass(input.verification, input.contract),
+    agentExecutionOutcome: input.agentExecutionOutcome,
+    alreadySatisfied: input.alreadySatisfied,
+  });
 }
 
 function summarizeRecoveryDecision(decision: RecoveryDecision): RunTaskRecoveryDecisionSummary {
@@ -1519,6 +1618,9 @@ export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
   if (result.recoveryDecision) {
     jsonResult.recoveryDecision = result.recoveryDecision;
   }
+  if (result.reviewReport) {
+    jsonResult.reviewReport = result.reviewReport;
+  }
 
   return jsonResult;
 }
@@ -1526,6 +1628,39 @@ export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
 function formatHumanList(values: string[], emptyText: string): string {
   if (!values.length) return `- ${emptyText}`;
   return values.map(value => `- ${value}`).join('\n');
+}
+
+function formatRunTaskReviewFinding(finding: RunTaskReviewFinding): string {
+  const messageMap: Record<string, string> = {
+    BROAD_ALLOWED_BOUNDARY: '允许修改边界过宽',
+    FORBIDDEN_FILE_CHANGED: '检测到禁止文件变更',
+    OUT_OF_SCOPE_FILE_CHANGED: '检测到越界文件变更',
+    VALIDATION_FAILED: '验证未通过',
+    PLANNED_ONLY_OUTCOME: 'Agent 仅输出计划，未落实实现',
+    ALREADY_SATISFIED: '任务已满足，无需代码变更',
+    NO_CHANGES_RECORDED: '未记录到所需代码变更',
+  };
+  const summary = messageMap[finding.code] ?? finding.code;
+  return finding.evidence ? `${summary}：${finding.evidence}` : summary;
+}
+
+function formatRunTaskReviewSummaryForHuman(report?: RunTaskReviewReport): string[] {
+  if (!report) {
+    return [];
+  }
+
+  const statusText = {
+    [RunTaskReviewStatus.PASS]: '通过',
+    [RunTaskReviewStatus.NEEDS_REVIEW]: '需复核',
+    [RunTaskReviewStatus.FAIL]: '未通过',
+  } satisfies Record<RunTaskReviewReport['status'], string>;
+  const lines = [`审查摘要：${statusText[report.status]}`];
+
+  if (report.findings.length > 0) {
+    lines.push(`审查要点：${formatRunTaskReviewFinding(report.findings[0])}`);
+  }
+
+  return lines;
 }
 
 function formatRunTaskFailureHumanOutput(result: RunTaskResult): string {
@@ -1553,6 +1688,7 @@ function formatRunTaskFailureHumanOutput(result: RunTaskResult): string {
   if (result.recoveryDecision) {
     lines.push(`恢复建议：${result.recoveryDecision.summary}`);
   }
+  lines.push(...(result.reviewReport ? ['', ...formatRunTaskReviewSummaryForHuman(result.reviewReport)] : []));
 
   const summary = buildUserVisibleSummary(result.output);
   if (summary.output) {
@@ -1565,6 +1701,75 @@ function formatRunTaskFailureHumanOutput(result: RunTaskResult): string {
 
   // 失败日志已在执行路径持久化，这里只给控制台摘要，避免 Agent 长输出刷屏。
   lines.push('', '说明：完整 stdout/stderr 已写入失败日志，控制台只显示摘要。');
+
+  return lines.join('\n');
+}
+
+function formatVerificationCommandsForHuman(verification?: VerificationResult, contract?: AgentTaskContractSummary): string[] {
+  if (verification?.commands.length) {
+    return verification.commands.map(command => {
+      return `${command.ok ? '通过' : '失败'}：${command.command}`;
+    });
+  }
+  return contract?.validationCommands || [];
+}
+
+function formatRunTaskSuccessHumanOutput(result: RunTaskResult): string {
+  const contract = result.agentTaskContract;
+  const hasStructuredSummary = !!contract || !!result.gitChanges || !!result.verification;
+  if (!hasStructuredSummary) {
+    const summary = buildUserVisibleSummary(result.output);
+    if (summary.output) return summary.output;
+    return '任务执行成功，但没有可展示输出。';
+  }
+
+  const lines = ['任务执行成功'];
+
+  if (contract) {
+    lines.push(
+      '',
+      '允许修改：',
+      formatHumanList(contract.allowedFiles, '未推导出明确文件'),
+      '',
+      '禁止修改：',
+      formatHumanList(contract.forbiddenFiles, '未配置'),
+    );
+  }
+
+  if (result.gitChanges) {
+    lines.push(
+      '',
+      '实际变更：',
+      formatHumanList(result.gitChanges.changedFiles, '未检测到文件变更'),
+    );
+  }
+
+  const validationCommands = formatVerificationCommandsForHuman(result.verification, contract);
+  lines.push(
+    '',
+    '验证命令：',
+    formatHumanList(validationCommands, '未配置验证命令'),
+  );
+
+  if (result.agentExecutionOutcome) {
+    lines.push('', `Agent 执行判断：${result.agentExecutionOutcome === 'implemented' ? '已实现' : '仅计划'}`);
+  }
+  lines.push(...(result.reviewReport ? ['', ...formatRunTaskReviewSummaryForHuman(result.reviewReport)] : []));
+  if (result.completionSignal) {
+    lines.push(`完成信号：${result.completionSignal}`);
+  }
+  if (result.commandGenerationPath) {
+    lines.push(`命令生成路径：${result.commandGenerationPath}`);
+  }
+
+  const summary = buildUserVisibleSummary(result.output);
+  if (summary.output) {
+    lines.push(
+      '',
+      'Agent 输出摘要：',
+      truncateAtLineBoundary(summary.output, FAILURE_HUMAN_SUMMARY_MAX_LENGTH),
+    );
+  }
 
   return lines.join('\n');
 }
@@ -1608,9 +1813,7 @@ export function formatRunTaskHumanOutput(result: RunTaskResult, options: RunTask
     return formatRunTaskFailureHumanOutput(result);
   }
 
-  const summary = buildUserVisibleSummary(result.output);
-  if (summary.output) return summary.output;
-  return '任务执行成功，但没有可展示输出。';
+  return formatRunTaskSuccessHumanOutput(result);
 }
 
 export async function runTask(options: {
@@ -1623,6 +1826,7 @@ export async function runTask(options: {
   deferTraceCloseout?: boolean;
 }): Promise<RunTaskResult> {
   const { taskId, taskLabel, doc, dryRun, contractPreview } = options;
+  const resolvedTaskLabel = taskLabel || taskId;
   const tool = options.tool || '';
   const deferTraceCloseout = options.deferTraceCloseout === true;
   await pruneExpiredRunTaskLogs();
@@ -2222,7 +2426,10 @@ export async function runTask(options: {
         let exitFlushTimer: NodeJS.Timeout | undefined;
         let idleTimer: NodeJS.Timeout | undefined;
         let outputLastMessageTimer: NodeJS.Timeout | undefined;
+        let noCloseTimer: NodeJS.Timeout | undefined;
         let lastMessageLength = 0;
+        let lastNoCloseProgressLength = 0;
+        let noCloseExtensionCount = 0;
         const startedAt = Date.now();
 
         const cleanup = () => {
@@ -2236,7 +2443,9 @@ export async function runTask(options: {
           if (outputLastMessageTimer) {
             clearInterval(outputLastMessageTimer);
           }
-          clearTimeout(noCloseTimer);
+          if (noCloseTimer) {
+            clearTimeout(noCloseTimer);
+          }
           clearInterval(progressTimer);
           child.off('error', onErr);
           child.off('exit', onExit);
@@ -2273,9 +2482,9 @@ export async function runTask(options: {
           enrichedIdleError.stderr = redactedStderr;
           rejectOnce(enrichedIdleError);
         };
-        const rejectForNoCloseTimeout = () => {
+        const rejectForNoCloseTimeout = (message: string) => {
           child.kill('SIGKILL');
-          const noCloseError = new Error(`Agent CLI did not close after ${getAgentNoCloseTimeoutMs()}ms`);
+          const noCloseError = new Error(message);
           const enrichedNoCloseError = noCloseError as Error & {
             code?: string;
             completionSignal?: SpawnCompletionSignal;
@@ -2287,6 +2496,47 @@ export async function runTask(options: {
           enrichedNoCloseError.stdout = redactedStdout;
           enrichedNoCloseError.stderr = redactedStderr;
           rejectOnce(enrichedNoCloseError);
+        };
+        const scheduleNoCloseCheckpoint = (delayMs: number) => {
+          if (noCloseTimer) {
+            clearTimeout(noCloseTimer);
+          }
+          noCloseTimer = setTimeout(async () => {
+            const elapsedMs = Date.now() - startedAt;
+            if (elapsedMs >= getAgentMaxWallClockMs()) {
+              rejectForNoCloseTimeout(`Agent CLI reached max wall-clock timeout after ${getAgentMaxWallClockMs()}ms`);
+              return;
+            }
+
+            try {
+              const evidenceChanges = await collectGitChanges(gitDiffBefore);
+              if (evidenceChanges && evidenceChanges.changedFiles.length > 0) {
+                child.kill('SIGTERM');
+                resolveOnce({ exitCode: 0, signal: null, completionSignal: 'evidence-closeout' });
+                return;
+              }
+            } catch (error) {
+              onErr(error);
+              return;
+            }
+
+            const currentProgressLength = redactedStdout.length + redactedStderr.length;
+            const hasProgressEvidence = currentProgressLength > lastNoCloseProgressLength;
+            lastNoCloseProgressLength = currentProgressLength;
+            if (!hasProgressEvidence) {
+              rejectForNoCloseTimeout(`Agent CLI did not close after ${getAgentNoCloseTimeoutMs()}ms and produced no new progress evidence`);
+              return;
+            }
+
+            if (noCloseExtensionCount >= getAgentNoCloseMaxExtensions()) {
+              rejectForNoCloseTimeout(`Agent CLI did not close after ${getAgentNoCloseTimeoutMs()}ms and exhausted ${getAgentNoCloseMaxExtensions()} progress extensions`);
+              return;
+            }
+
+            noCloseExtensionCount += 1;
+            getLogger().info(`Agent 仍有输出进展，延长等待 ${getAgentNoCloseExtensionMs()}ms (${noCloseExtensionCount}/${getAgentNoCloseMaxExtensions()})`);
+            scheduleNoCloseCheckpoint(getAgentNoCloseExtensionMs());
+          }, delayMs);
         };
         const refreshIdleTimer = () => {
           if (idleTimer) {
@@ -2396,7 +2646,7 @@ export async function runTask(options: {
 
         streamDrainPromise.catch(onErr);
         refreshIdleTimer();
-        const noCloseTimer = setTimeout(rejectForNoCloseTimeout, getAgentNoCloseTimeoutMs());
+        scheduleNoCloseCheckpoint(getAgentNoCloseTimeoutMs());
         if (outputLastMessagePath) {
           outputLastMessageTimer = setInterval(settleWithOutputLastMessage, OUTPUT_LAST_MESSAGE_POLL_MS);
         }
@@ -2426,7 +2676,7 @@ export async function runTask(options: {
         redactedStderr,
         outputLastMessage,
       ].filter(value => value.trim()).join('\n');
-      const agentExecutionOutcome = detectAgentExecutionOutcome(combinedOutput);
+      const rawAgentExecutionOutcome = detectAgentExecutionOutcome(combinedOutput);
       
       const collectSpan = startSpan('cli.run-task.collectGitChanges', {
         context: traceContext,
@@ -2436,7 +2686,12 @@ export async function runTask(options: {
       });
       const gitChanges = await collectGitChanges(gitDiffBefore) ?? undefined;
       await collectSpan.end({ changedFileCount: gitChanges?.changedFiles.length || 0 });
+      const agentExecutionOutcome = gitChanges && gitChanges.changedFiles.length > 0
+        ? 'implemented'
+        : rawAgentExecutionOutcome;
       const softSystemFailureMessage = detectAgentSoftSystemFailure(combinedOutput, gitChanges);
+      const taskAlreadySatisfied = agentExecutionOutcome === 'planned_only'
+        && detectAgentTaskAlreadySatisfied(combinedOutput);
       const postExecutionConfirmation = detectPostExecutionConfirmation({
         gitChanges,
         allowedFiles: agentTaskContractSummary.allowedFiles,
@@ -2460,6 +2715,15 @@ export async function runTask(options: {
           gitChanges,
           verification: undefined,
           agentTaskContract: agentTaskContractSummary,
+        });
+        const reviewReport = buildRunTaskReviewReport({
+          taskId,
+          taskLabel: resolvedTaskLabel,
+          contract: agentTaskContractSummary,
+          gitChanges,
+          verification: undefined,
+          agentExecutionOutcome: 'implemented',
+          alreadySatisfied: false,
         });
         return {
           success: false,
@@ -2487,12 +2751,13 @@ export async function runTask(options: {
           failureKind,
           unclosedExecution,
           recoveryDecision,
+          reviewReport,
         };
       }
       
       let verification: VerificationResult | undefined;
       const validationCommands = agentTaskContractSummary.validationCommands;
-      if (validationCommands.length > 0 && agentExecutionOutcome !== 'planned_only' && !softSystemFailureMessage) {
+      if (validationCommands.length > 0 && (agentExecutionOutcome !== 'planned_only' || taskAlreadySatisfied) && !softSystemFailureMessage) {
         const verificationSpan = startSpan('cli.run-task.verification', {
           context: traceContext,
           parentSpanId: rootSpan.spanId,
@@ -2520,13 +2785,26 @@ export async function runTask(options: {
         }
       }
 
+      const plannedOnlySatisfied = taskAlreadySatisfied
+        && !!verification
+        && verification.ok
+        && !verification.isSystemError;
       const finalSuccess = !softSystemFailureMessage
-        && agentExecutionOutcome !== 'planned_only'
+        && (agentExecutionOutcome !== 'planned_only' || plannedOnlySatisfied)
         && (verification ? (verification.ok && !verification.isSystemError) : true);
       const unclosedExecution = isUnclosedExecutionFailure({
         success: finalSuccess,
         gitChanges,
         verification,
+      });
+      const reviewReport = buildRunTaskReviewReport({
+        taskId,
+        taskLabel: resolvedTaskLabel,
+        contract: agentTaskContractSummary,
+        gitChanges,
+        verification,
+        agentExecutionOutcome,
+        alreadySatisfied: taskAlreadySatisfied,
       });
       if (softSystemFailureMessage) {
         getLogger().warn('任务 Agent 输出环境受限，按系统错误处理');
@@ -2564,7 +2842,7 @@ export async function runTask(options: {
         fallbackUsed,
         agentExecutionOutcome,
         completionSignal: completion.completionSignal,
-        error: agentExecutionOutcome === 'planned_only'
+        error: agentExecutionOutcome === 'planned_only' && !plannedOnlySatisfied
           ? { code: 'AGENT_PLANNED_ONLY', message: 'Agent 仅输出计划，未执行实现' }
           : softSystemFailureMessage
             ? { code: 'AGENT_SYSTEM_ERROR', message: softSystemFailureMessage }
@@ -2579,6 +2857,7 @@ export async function runTask(options: {
           verification,
         }),
         unclosedExecution,
+        reviewReport,
         recoveryDecision: !finalSuccess
           ? buildRecoveryDecisionSummary({
               failureKind: inferExecutionFailureKind({
@@ -2643,6 +2922,15 @@ export async function runTask(options: {
         verification: undefined,
         agentTaskContract: agentTaskContractSummary,
       });
+      const reviewReport = buildRunTaskReviewReport({
+        taskId,
+        taskLabel: resolvedTaskLabel,
+        contract: agentTaskContractSummary,
+        gitChanges,
+        verification: undefined,
+        agentExecutionOutcome: unclosedExecution ? 'implemented' : undefined,
+        alreadySatisfied: false,
+      });
       return {
         success: false,
         output: errOutput,
@@ -2661,6 +2949,7 @@ export async function runTask(options: {
         failureKind,
         unclosedExecution,
         recoveryDecision,
+        reviewReport,
       };
     }
   };
