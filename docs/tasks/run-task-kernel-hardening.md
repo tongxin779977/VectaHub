@@ -527,3 +527,132 @@ riskNotes:
 - Evidence closeout must not bypass validation.
 - Evidence closeout must not use Agent self-reported completion as the source of truth.
 - Stop if this requires changing Agent adapter behavior.
+
+## Task RTK-006A
+
+taskId: RTK-006A
+
+taskLabel: Document hybrid Agent runtime estimation algorithm.
+
+allowedFiles:
+- docs/tasks/run-task-kernel-hardening.md
+
+forbiddenFiles:
+- src/commands/run-task.ts
+- src/commands/run-task.test.ts
+- src/commands/run-task-runtime-estimator.ts
+- src/commands/run-task-runtime-estimator.test.ts
+- src/commands/run-task-review.ts
+- src/commands/run-task-review.test.ts
+- src/cli.ts
+- src/cli-main.ts
+- src/workflow/engine.ts
+- src/workflow/executor.ts
+- src/agent-runtime/factory.ts
+- src/agent-runtime/registry.ts
+
+implementationSteps:
+- Document a hybrid runtime estimation algorithm using heuristic scoring, LLM structured estimates, and historical Agent runtime samples.
+- State that LLM output is advisory and must be bounded by deterministic local rules.
+- State that historical samples must be bucketed by agentId and workspaceHash.
+- Define derived runtime budget fields: expectedDurationMs, noCloseTimeoutMs, extensionMs, maxExtensions, maxWallClockMs, and progressIntervalMs.
+- Define that large tasks should recommend splitting before execution.
+- Do not modify runtime code in this task.
+
+validationCommands:
+- npm run typecheck
+
+riskNotes:
+- Do not describe runtime estimator integration as implemented until a later task wires it into run-task.
+- Do not allow one Agent CLI runtime profile to calibrate another Agent CLI.
+
+## Task RTK-006B
+
+taskId: RTK-006B
+
+taskLabel: Implement pure hybrid Agent runtime estimator.
+
+allowedFiles:
+- src/commands/run-task-runtime-estimator.ts
+- src/commands/run-task-runtime-estimator.test.ts
+
+forbiddenFiles:
+- docs/tasks/run-task-kernel-hardening.md
+- src/commands/run-task.ts
+- src/commands/run-task.test.ts
+- src/commands/run-task-review.ts
+- src/commands/run-task-review.test.ts
+- src/commands/run-task-review-command.ts
+- src/commands/run-task-review-command.test.ts
+- src/cli.ts
+- src/cli-main.ts
+- src/workflow/engine.ts
+- src/workflow/executor.ts
+- src/agent-runtime/factory.ts
+- src/agent-runtime/registry.ts
+
+implementationSteps:
+- Create AgentRuntimeProfileKey with agentId, optional adapterId, optional model, and workspaceHash.
+- Create TaskRuntimeFeatureInput for objective task features.
+- Create LLMRuntimeEstimate for bounded LLM advisory estimates.
+- Create AgentRuntimeSample for historical execution samples.
+- Implement calculateHeuristicRuntimeEstimate(input) as a pure deterministic function.
+- Implement combineRuntimeEstimates(input) using heuristic, bounded LLM estimate, and same-Agent historical samples.
+- Filter historical samples by agentId and workspaceHash before using them.
+- Use median actual duration for historical runtime estimates.
+- Derive noCloseTimeoutMs, extensionMs, maxExtensions, maxWallClockMs, and progressIntervalMs from the final estimate.
+- Add tests for tiny, large split recommendation, LLM bounds, Agent-specific history filtering, and progress interval calculation.
+- Do not call any LLM.
+- Do not read or write history files.
+- Do not wire this estimator into run-task in this task.
+
+validationCommands:
+- npx vitest run src/commands/run-task-runtime-estimator.test.ts
+- npm run typecheck
+- npm run lint
+
+riskNotes:
+- Keep this task pure and deterministic.
+- Do not make global history affect per-Agent runtime estimates.
+- Do not let LLM estimates bypass local min/max budget bounds.
+
+## Task RTK-006C
+
+taskId: RTK-006C
+
+taskLabel: Wire runtime estimator into run-task preflight summary only.
+
+allowedFiles:
+- src/commands/run-task.ts
+- src/commands/run-task.test.ts
+
+forbiddenFiles:
+- docs/tasks/run-task-kernel-hardening.md
+- src/commands/run-task-runtime-estimator.ts
+- src/commands/run-task-runtime-estimator.test.ts
+- src/commands/run-task-review.ts
+- src/commands/run-task-review.test.ts
+- src/cli.ts
+- src/cli-main.ts
+- src/workflow/engine.ts
+- src/workflow/executor.ts
+- src/agent-runtime/factory.ts
+- src/agent-runtime/registry.ts
+
+implementationSteps:
+- Import the runtime estimator.
+- Build TaskRuntimeFeatureInput from the existing task contract and known command metadata.
+- Print a concise Chinese preflight estimate summary before running the Agent.
+- Include split recommendation when the estimator classifies the task as large.
+- Do not change timeout, no-close, extension, or progress interval behavior in this task.
+- Add tests for the human-readable preflight estimate summary.
+
+validationCommands:
+- npx vitest run src/commands/run-task.test.ts src/commands/run-task-runtime-estimator.test.ts
+- npm run typecheck
+- npm run lint
+
+riskNotes:
+- This task is display-only.
+- Do not block execution based on the estimate yet.
+- Do not persist runtime samples in this task.
