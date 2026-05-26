@@ -15,6 +15,41 @@ P1 的核心目标：
 - 插件只保存摘要，不常驻大日志。
 - 状态读写要快，内存占用要小。
 
+## 1.1 模块必要性
+
+文档任务运行记录与恢复层是必要模块，但必须保持轻量。
+
+它解决的问题不是“保存历史日志”，而是给文档任务提供状态真相：
+
+- 一个文档会拆出多个任务，每个任务可以处于不同状态。
+- Agent 失败时可能已经产生仓库副作用。
+- 超时不代表未执行，可能属于已有 `gitChanges` 但未完成验证的未收口执行。
+- 文档内容或任务合同变化后，旧运行记录可能失效。
+- 批量执行需要知道哪些任务成功、失败、可跳过或可恢复。
+- 恢复必须依赖失败分类、trace、diff 摘要、验证摘要和 instruction hash。
+
+如果没有持久化运行记录，CLI 或插件重启后只能重新执行任务，无法安全判断是否可以重试、继续修复或必须人工处理。
+
+## 1.2 最小能力边界
+
+本层应被理解为 `Doc Task State & Recovery Layer`，不是完整自愈平台。
+
+最小必要能力：
+
+- `latest`：读取每个文档任务的最新状态摘要。
+- `show <runId>`：解释一次运行为什么成功或失败。
+- `recover-plan <runId>`：只生成恢复建议，不执行。
+- `recover-task <runId>`：只允许安全恢复路径；其他情况返回结构化建议或阻断。
+
+本层不负责：
+
+- 自动修复所有失败。
+- 自动 merge 或回滚。
+- 保存完整失败日志。
+- 替代 workflow engine 的通用 history。
+- 替代 trace 系统。
+- 替代用户对高风险修改的确认。
+
 ## 2. 当前基线
 
 当前实现状态：
@@ -50,6 +85,9 @@ P1 不重写任务解析，不重构 workflow engine，不引入数据库。
 - 不重写 `parse-doc` 的 LLM 提取逻辑。
 - 不改变现有 `run-task --json` 字段语义。
 - 不把完整 stdout/stderr 存入 task run 记录。
+- 不把完整文档、完整 prompt、完整 trace spans 或完整 git diff 存入 task run 记录。
+- 不做自动自愈黑箱循环。
+- 不把有 `gitChanges` 的失败直接当成可自动重试。
 
 ## 5. 状态模型
 
@@ -255,9 +293,35 @@ export interface DocTaskRunRecord {
   };
   outputSummary?: string;
   outputTruncated?: boolean;
+  instructionHash?: string;
+  agentTaskContract?: {
+    boundaryConfidence: 'none' | 'low' | 'medium' | 'high';
+    allowedFileCount: number;
+    forbiddenFileCount: number;
+    validationCommandCount: number;
+    executionMode: 'serial' | 'parallel-eligible' | 'isolated-required';
+  };
+  verification?: {
+    ok: boolean;
+    totalCommands: number;
+    passedCommands: number;
+    failedCommands: number;
+    failedCommandSummary?: string;
+  };
+  recovery?: {
+    latestRecoveryRunId?: string;
+    latestRecoveryStatus?: 'planned' | 'running' | 'success' | 'failed' | 'cancelled' | 'blocked';
+  };
   retryOfRunId?: string;
 }
 ```
+
+记录限制：
+
+- `outputSummary` 只能保存摘要，不能保存完整 stdout/stderr。
+- `agentTaskContract` 只能保存摘要，不能保存完整 `docExcerpt`。
+- `verification` 只能保存命令数量、失败摘要和结果，不能保存完整输出。
+- `recovery` 只保存引用和状态，不内嵌完整恢复 trace。
 
 ### 7.2 Batch Run Record
 

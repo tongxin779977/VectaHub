@@ -2,6 +2,10 @@
 
 本文面向 VectaHub CLI 用户，说明常见命令和推荐使用路径。命令面的完整实现规格见 [CLI 命令面规格](./specs/cli-command-surface.md)。
 
+> Document Status: Current Reference
+> Authority: User-facing command guide. For exact field-level or migration-level behavior, read the linked specs and current command source.
+> Recommended Read Order: [Capability Map](./capabilities.md) -> [Capability Reference](./capabilities-reference.md) -> 本文
+
 ## 基础命令
 
 查看版本：

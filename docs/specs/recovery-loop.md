@@ -37,6 +37,20 @@
 - 不允许把 workflow 通用恢复能力和 doc-task 恢复链路混成一个实现。
 - 不允许在 P6 第一版直接引入 worktree 隔离、自动 code review、自动 merge。
 
+定位：
+
+- 本模块是文档任务的恢复决策层。
+- 它不是普通运行日志。
+- 它也不是自动自愈黑箱。
+- 它必须先解释失败，再决定是否允许恢复动作。
+
+最小能力边界：
+
+- `recover-plan`：只生成恢复决策和建议动作，不执行。
+- `recover-task`：只执行 `retry_direct` 等安全路径。
+- `suggest_fix`：必须生成 bounded fix task，不得直接无边界让 Agent 自由修。
+- `blocked`：必须给出人工处理原因和下一步建议。
+
 ## 2. 当前链路事实
 
 当前文档任务主链路：
@@ -70,6 +84,7 @@
 - 文档任务失败后没有统一的恢复决策结构。
 - 插件端没有“建议重试 / 建议人工确认 / 禁止自动修复”的稳定分流。
 - 原始失败 trace 与恢复 trace 没有正式关联合同。
+- 恢复记录需要稳定串起 `sourceRunId -> recoveryRunId -> newRunId`。
 - `self-healing` 原型仍是 workflow 视角，不是 doc-task 视角。
 - 已知性能 gap：插件侧仍有全量读取文档路径，`DocTaskDocIndex` 也仍保留完整文档内容；在大文档/批量任务/恢复前 hash 计算场景会放大内存与 IO 压力。
 - 中期 hardening 要求：必须收敛到同一套流式片段提取或偏移索引能力，避免重复全量扫描。
@@ -117,6 +132,19 @@ Agent 只负责给出诊断建议或执行边界内的修复任务。
 P6 第一版必须先做**恢复决策**，再决定是否真正执行恢复动作。  
 严禁先执行、后补分类。
 
+### 5.2.1 已有副作用优先审查
+
+只要失败记录里存在 `gitChanges.changedFileCount > 0`，恢复流程必须先要求用户审查当前 diff。
+
+这类失败不能直接进入 `retry_direct`，包括：
+
+- Agent 失败但已有改动。
+- timeout 但已有改动。
+- JSON 协议异常但已有改动。
+- verification 失败且保留了 Agent 改动。
+
+这些场景应进入 `suggest_fix` 或 `blocked`，由用户确认后基于现有 diff 继续修复。
+
 ### 5.3 复用现有真相源
 
 以下字段是 P6 的真实输入来源：
@@ -140,6 +168,13 @@ P6 不得重新从终端文案猜测这些信息。
 - P5 性能预算
 
 恢复不是越权通道。
+
+`suggest_fix` 必须遵守：
+
+- 复用原 `AgentTaskContract` 的 allowedFiles、forbiddenFiles 和 validationCommands。
+- 如果原合同边界为 `none` 或 `low`，必须先要求用户查看 `--contract-preview` 并收窄边界。
+- 如果修复必须越界，必须进入人工确认，不能自动执行。
+- 修复任务必须生成新的 run record，不能覆盖原始失败记录。
 
 ### 5.5 instructionHash 真相源
 
@@ -249,6 +284,7 @@ export interface DocTaskRecoveryRecord {
   updatedAt: string;
   endedAt?: string;
   retryOfRunId?: string;
+  newRunId?: string;
 }
 ```
 
@@ -257,6 +293,9 @@ export interface DocTaskRecoveryRecord {
 - `sourceRunId` 关联原始失败运行。
 - `recoveryTraceId` 是新的恢复链路 trace。
 - `retryOfRunId` 用于回写到新的 `DocTaskRunRecord`。
+- `newRunId` 记录恢复动作实际产生的新任务运行记录。
+- 查询时必须能串起 `sourceRunId -> recoveryRunId -> newRunId`。
+- 原始失败 run record 不得被恢复结果覆盖。
 
 ### 6.4 Trace 关联合同
 
@@ -406,6 +445,7 @@ task failed
      run fix task
      run verification
 -> write new run record / recovery record
+-> link sourceRunId -> recoveryRunId -> newRunId
 -> update display status
 ```
 
@@ -430,6 +470,7 @@ blocked
 - 新恢复执行产生新的 run record。
 - 若恢复成功，新 run record 进入 `success` 或 `changed`。
 - 若恢复失败，新 run record 根据真实失败再次分类。
+- recovery record 记录恢复动作本身的状态，不替代 task run record。
 - 插件恢复失败或异常时，不得硬编码 `failed_agent`；必须优先采用本次恢复返回的 `status/failureKind`，缺失时才降级为 `unknown/failed_agent`。
 
 ## 9. 模块职责分配
@@ -478,6 +519,7 @@ CLI 侧负责：
 
 - `--previous-instruction-hash`
 - `--current-instruction-hash`
+- `--plan-only` 或等价 recover-plan 模式，用于只返回恢复决策，不执行
 
 当 hash 不一致时，必须返回 `blocked/manual_only`，`reason=instruction-changed`，并且不得调用 `runTask`。  
 恢复 JSON 摘要需包含本次恢复结果的 `status` 与 `failureKind`，供插件侧按本次结果回写 run record。
@@ -588,8 +630,10 @@ packages/vectahub-vscode-extension/src/project/docTaskState.ts
 4. 新增 CLI `recover-task` 入口，先支持 `retry_direct`。
 5. 接入新的 recovery trace，并关联 `sourceTraceId`。
 6. 将恢复执行结果写回新的 run record 和 recovery record。
-7. 在 `suggest_fix` 场景中接入受边界约束的诊断与修复。
-8. 补充 CLI、插件、trace 和状态机测试。
+7. 增加 `recover-plan` / `plan-only` 只读恢复决策模式。
+8. 在 `suggest_fix` 场景中接入受边界约束的诊断与修复。
+9. 确保恢复记录可串起 `sourceRunId -> recoveryRunId -> newRunId`。
+10. 补充 CLI、插件、trace 和状态机测试。
 
 ## 17. 测试计划
 
@@ -607,6 +651,9 @@ packages/vectahub-vscode-extension/src/project/docTaskState.ts
 9. 恢复输入和记录不包含完整 stdout/stderr
 10. 高风险修复动作必须人工确认
 11. currentHash unavailable -> blocked/manual_only
+12. suggest_fix 必须复用原 AgentTaskContract 边界
+13. 有 gitChanges 的失败不得进入 retry_direct
+14. recovery record 必须能串起 sourceRunId、recoveryRunId 和 newRunId
 ```
 
 建议运行：

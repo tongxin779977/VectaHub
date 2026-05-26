@@ -1,129 +1,122 @@
 # VectaHub 文档
 
-VectaHub 是面向 AI 辅助开发的工程执行控制面。
+VectaHub 当前应被理解为一个**单用户、本地优先的 CLI 自动化内核**，重点在文档处理、结构化执行、可扩展 Agent CLI 注册和编排能力。
 
-它不与底层 Agent 比“聪明”，而是把自然语言、文档任务、CLI 命令和 Agent 执行纳入同一套可预览、可追踪、可约束、可验证、可恢复的工作流。
+这套文档正在围绕“当前真实能力面”重组。
 
-```text
-Agent = Worker
-VectaHub = Orchestrator
-```
+## 从这里开始
 
-## 核心问题
+如果你想用最短路径理解这个项目，建议按下面顺序阅读：
 
-VectaHub 解决的是 AI 执行失控问题：
+1. [仓库首页 README](../README.md)
+2. [能力地图](./capabilities.md)
+3. [能力明细](./capabilities-reference.md)
+4. [CLI 使用手册](./usage.md)
+5. [架构总览](./architecture.md)
 
-- Agent 输入过大，任务边界不清，容易改错文件。
-- Agent 自述完成，但缺少真实验证。
-- 执行过程缺少 trace，失败后难以定位。
-- 高风险命令、权限确认和敏感信息脱敏没有统一闭环。
-- CLI、VS Code 插件和未来服务端协议容易各自复制逻辑。
-- 文档任务、执行记录、恢复记录之间缺少可靠状态来源。
+## 按读者类型阅读
 
-## 关键要求
+### 面向 CLI 用户
 
-所有核心能力必须服务于以下要求：
+- [CLI 使用手册](./usage.md)
+- [配置手册](./configuration.md)
+- [Workflow 规格](./workflow-spec.md)
+- [排障手册](./troubleshooting.md)
 
-| 要求 | 含义 |
+### 面向维护者
+
+- [架构总览](./architecture.md)
+- [能力明细](./capabilities-reference.md)
+- [开发者指南](./development.md)
+- [测试指南](./testing.md)
+- [核心合同](./contracts.md)
+
+### 面向文档任务和 Agent 执行链路
+
+- [Agent 执行系统](./agent-execution.md)
+- [Run-Task 执行合同](./specs/run-task-execution-contract.md)
+- [Agent Worker 合同](./specs/agent-worker-contract.md)
+- [恢复闭环](./specs/recovery-loop.md)
+- [验证闭环](./specs/verification-loop.md)
+
+## 核心文档
+
+| 文档 | 角色 |
 |------|------|
-| **谷歌工程规范** | **严格执行依赖注入 (DI) 与环境隔离，确保测试封闭性 (Hermeticity)。** |
-| 可预览 | 自然语言和文档任务执行前必须能生成 preview。 |
-| 可约束 | Agent 只能执行边界清楚的小任务，修改范围和验证命令必须结构化。 |
-| 可追踪 | **对齐 OpenTelemetry 标准，每次调用关联结构化 Trace。** |
-| 可验证 | Agent 成功后必须进入验证阶段，不能只依赖 Agent 输出。 |
-| 可恢复 | 失败必须分类，并提供恢复、重试或人工处理路径。 |
-| 安全默认 | `dry-run` 零副作用，高风险命令确认，敏感信息不得落盘。 |
-| 单一事实源 | CLI、插件、未来 SDK 不能长期维护重复合同逻辑。 |
+| [capabilities.md](./capabilities.md) | 面向产品和读者的能力地图。 |
+| [capabilities-reference.md](./capabilities-reference.md) | 当前功能细节、边界和状态说明。 |
+| [usage.md](./usage.md) | 面向操作者的命令使用手册。 |
+| [architecture.md](./architecture.md) | 当前系统结构和仓库重点。 |
+| [contracts.md](./contracts.md) | specs 的合同入口索引。 |
+| [archive.md](./archive.md) | 当前主文档、重叠文档、历史文档和清理候选说明。 |
 
-## 用户入口
+## 当前能力重心
 
-| 文档 | 用途 |
-|------|------|
-| [CLI 使用手册](./usage.md) | 安装后常用命令、预览、JSON 输出、执行记录、Agent 文档任务和安全命令。 |
-| [配置手册](./configuration.md) | `VECTAHUB_HOME`、配置查看、Agent CLI 配置边界和数据目录。 |
-| [排障手册](./troubleshooting.md) | JSON 输出异常、超时、Agent 配置、权限、安全拦截和验证失败排查。 |
-| [Workflow 规格](./workflow-spec.md) | Workflow YAML/JSON 的用户级写法、步骤类型、变量和完整示例。 |
-| [UI 操作文档](./ui/vscode-extension.md) | VS Code 插件实际视图、命令和用户路径导航。 |
+当前产品形态建议按下面优先级理解：
 
-## 维护者入口
+1. 文档处理和文档任务执行
+2. 基础交互式 CLI 回复
+3. 工作流执行
+4. 可扩展 Agent CLI 注册
+5. 编排、委托与任务拆解
+6. 安全、trace、验证与恢复
+7. 本地服务与集成层
 
-| 文档 | 用途 |
-|------|------|
-| [开发者指南](./development.md) | 本地开发、构建、调试和命令修改同步要求。 |
-| [测试指南](./testing.md) | 全量测试、定向测试、插件检查和关键链路测试重点。 |
-| [发布指南](./release.md) | 当前可确认的 release、build、VSIX 打包和发布前检查入口。 |
-| [Agent 操作规范](./agent-operating-guide.md) | 开发 Agent 执行项目任务时必须遵守的工程规范。 |
-| [路线图](./roadmap.md) | 当前优先级、下一步任务和不建议立即投入的方向。 |
-| [归档说明](./archive.md) | 旧文档清理原则和仍保留的参考文档。 |
+## 当前文档规则
 
-## 规格入口
+- 面向用户的说明，应该先从能力讲起，而不是从迁移理论讲起。
+- specs 仍然重要，但不应该成为新读者看到的第一批文档。
+- 一个功能可能只存在于代码里、只存在于 specs 里，或者两边都有，文档里必须写清楚。
+- `Current Implementation`、`Partial Implementation`、`Target Design` 不能混写。
 
-| 文档 | 用途 |
-|------|------|
-| [架构总览](./architecture.md) | 项目定位、系统边界、模块职责和演进方向。 |
-| [核心合同](./contracts.md) | CLI JSON、任务状态、Agent 合同、Trace、安全、恢复等协议入口。 |
-| [Agent 执行系统](./agent-execution.md) | `VectaHub = Orchestrator` 的执行模型和阶段边界。 |
-| [Run-Task 执行合同](./specs/run-task-execution-contract.md) | `run-task` 的输入分支、完成边界、失败分类、确认语义和恢复入口真相源。 |
-| [规格合同](./specs/agent-worker-contract.md) | Agent 任务边界、片段提取、文件范围和合同摘要规格。 |
-| [CLI 命令面](./specs/cli-command-surface.md) | 当前 CLI 命令、参数、JSON 支持和副作用边界。 |
-| [工作流生命周期](./specs/workflow-lifecycle.md) | 工作流保存、执行、历史、详情、重跑、恢复和归档。 |
-| [工具与安全规则](./specs/tools-security-management.md) | CLI 工具注册、命令规则、安全规则增删改查和风险检测。 |
-| [生成、模板与调度](./specs/templates-generation-scheduling.md) | LLM 生成 workflow、模板市场、本地模板和 cron 调度。 |
-| [服务与导入导出](./specs/service-import-export.md) | 本地 socket 服务、AI daemon、数据导入导出和模式切换。 |
-| [配置与数据存储](./specs/config-data-storage.md) | `VECTAHUB_HOME`、执行记录、输出、trace、队列和归档落点。 |
+## 这轮重组改了什么
 
-## 设计和 UI 入口
+- 顶层入口不再把 VectaHub 描述成泛化控制面，而是强调它是重执行能力的 CLI 内核。
+- 能力文档现在是主要导航层。
+- 旧设计文档和迁移文档仍然保留，但不再是主入口。
+- 清理策略比较保守：先降级重叠文档的角色，再讨论删除。
 
-| 文档 | 用途 |
-|------|------|
-| [设计文档](./design/agent-execution-system.md) | 关键能力的方案、取舍和非目标。 |
-| [插件/CLI 边界设计](./design/plugin-cli-boundary.md) | 插件与 CLI 的职责边界和结构化协议原则。 |
-| [UI 逻辑设计](./design/vscode-ui-logic.md) | VS Code 插件的统一 UI 设计依据和用户心智规则。 |
-| [UI 修复实施计划](./design/vscode-ui-remediation-plan.md) | UI 设计落地到实现、测试和验收的执行清单。 |
+## 次级参考区域
 
-## 阅读路径
+### 产品和执行参考
 
-新用户按以下顺序阅读：
+- [Agent 执行系统](./agent-execution.md)
+- [Workflow 规格](./workflow-spec.md)
+- [配置手册](./configuration.md)
+- [排障手册](./troubleshooting.md)
 
-1. [CLI 使用手册](./usage.md)
-2. [配置手册](./configuration.md)
-3. [Workflow 规格](./workflow-spec.md)
-4. [排障手册](./troubleshooting.md)
+### 维护参考
 
-新加入维护者按以下顺序阅读：
+- [开发者指南](./development.md)
+- [测试指南](./testing.md)
+- [发布指南](./release.md)
+- [Agent 操作规范](./agent-operating-guide.md)
 
-1. [架构总览](./architecture.md)
-2. [开发者指南](./development.md)
-3. [测试指南](./testing.md)
-4. [核心合同](./contracts.md)
-5. [Agent 执行系统](./agent-execution.md)
-6. [CLI 命令面](./specs/cli-command-surface.md)
-7. [路线图](./roadmap.md)
+### 设计与迁移参考
 
-做插件或 UI 任务时按以下顺序阅读：
+- [design/](./design/)
+- [Agent CLI 注册与 Runtime 架构设计](./design/agent-cli-runtime-architecture.md)
+- [编排、委托与任务拆解架构设计](./design/orchestration-and-delegation-architecture.md)
+- [安全、Trace、执行记录与恢复架构设计](./design/safety-trace-recovery-architecture.md)
+- [本地服务与集成层架构设计](./design/local-service-integration-architecture.md)
+- [工作流引擎架构设计](./design/workflow-engine-architecture.md)
+- [文档处理架构设计](./design/document-processing-architecture.md)
+- [specs/](./specs/)
+- [default-context-migration-summary.md](./default-context-migration-summary.md)
+- [engineering-quality-audit.md](./engineering-quality-audit.md)
 
-1. [VS Code 插件 UI](./ui/vscode-extension.md)
-2. [插件/CLI 边界设计](./design/plugin-cli-boundary.md)
-3. [VS Code 插件 UI 逻辑设计](./design/vscode-ui-logic.md)
-4. [VS Code 插件 UI 修复实施计划](./design/vscode-ui-remediation-plan.md)
+## 当前清理状态
 
-做具体实现时再读取相关规格文档，不要默认通读所有历史材料。
+这个仓库里仍然有不少重叠材料，主要集中在：
 
-## 当前事实边界
+- orchestration 和 control-plane 的措辞冲突，
+- agent execution 和 run-task specs 的内容重叠，
+- command surface 和 usage guidance 的内容重叠，
+- architecture 和 design 文档的边界重叠。
 
-当前仓库是 TypeScript CLI + VS Code 插件 + 共享合同包项目。当前事实来源包括 `src/`、`packages/vectahub-vscode-extension/` 和 `packages/doc-task-contract-core/`。
+当前清理策略是：
 
-文档中的“已有第一版”表示已有设计或实现记录，但最终状态必须以当前代码、测试和运行结果为准。完成任务前仍需运行相关验证命令。
-
-## 文档状态
-
-维护者应按文档状态判断可执行性：
-
-| 状态 | 含义 |
-|------|------|
-| `Current Implementation` | 描述当前代码已经实现、应能通过测试或命令验证的行为。 |
-| `Target Design` | 描述目标架构或产品方向，不能当作当前可用能力。 |
-| `Migration Contract` | 同时描述当前兼容字段和目标合同，必须明确迁移边界。 |
-| `Historical Reference` | 仅保留历史背景，不作为实现事实源。 |
-
-跨模块能力必须能在 [实现追踪矩阵](./specs/implementation-traceability.md) 中找到对应行。没有代码入口或测试入口的能力，不得在用户文档中写成已上线能力。
+1. 先定义主文档入口，
+2. 再把重叠文档降级成参考角色，
+3. 再收敛重复解释，
+4. 最后才讨论删除或归档移动。

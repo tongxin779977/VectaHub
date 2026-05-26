@@ -1,48 +1,111 @@
-# 归档说明
+# 文档清理与归档说明
+
+## 目的
+
+本文说明这套文档将如何在不丢失实现细节、合同细节和迁移信息的前提下进行清理。
+
+当前策略比较保守：
+
+1. 先定义主文档，
+2. 再按角色标记重叠文档，
+3. 再收敛重复解释，
+4. 最后才提删除或归档移动。
+
+## 主文档
+
+下面这些文档现在是主入口：
+
+- [../README.md](../README.md)
+- [README.md](./README.md)
+- [capabilities.md](./capabilities.md)
+- [capabilities-reference.md](./capabilities-reference.md)
+- [usage.md](./usage.md)
+- [architecture.md](./architecture.md)
+
+## 当前文档角色模型
+
+每份文档都应该按下面这些角色之一来理解：
+
+| Role | Meaning |
+|------|------|
+| Primary Entry | 用户或维护者最优先阅读的入口文档。 |
+| Current Reference | 当前仍与代码现实较好对应的指南或参考文档。 |
+| Contract Source | 定义字段级行为或迁移边界的 spec / 合同文档。 |
+| Design Reference | 用于解释设计思路的文档，但默认不能当作当前实现声明。 |
+| Historical / Audit Reference | 对背景或评审有用，但不是当前产品入口。 |
+
+## 当前要消减的重叠区域
+
+目前最大的重叠主要在这些地方：
+
+| Overlap area | Primary destination |
+|------|------|
+| Product positioning | `README.md`, `docs/README.md`, `docs/capabilities.md` |
+| Feature inventory | `docs/capabilities-reference.md` |
+| Operator command guidance | `docs/usage.md` |
+| Current system shape | `docs/architecture.md` |
+| Field-level execution and protocol detail | `docs/specs/` |
+| Design intent and migration reasoning | `docs/design/` 和部分迁移文档 |
+
+## 仍然重要的文档
+
+### 合同与 spec 真相源
+
+下面这些文档仍然重要，不应该轻易删除：
+
+- [specs/agent-worker-contract.md](./specs/agent-worker-contract.md)
+- [specs/run-task-execution-contract.md](./specs/run-task-execution-contract.md)
+- [specs/cli-command-surface.md](./specs/cli-command-surface.md)
+- [specs/config-data-storage.md](./specs/config-data-storage.md)
+- [specs/workflow-lifecycle.md](./specs/workflow-lifecycle.md)
+- [specs/security-permission-loop.md](./specs/security-permission-loop.md)
+- [specs/verification-loop.md](./specs/verification-loop.md)
+- [specs/recovery-loop.md](./specs/recovery-loop.md)
+- [specs/trace-execution.md](./specs/trace-execution.md)
+
+### 设计与迁移参考
+
+下面这些文档仍然有价值，但对大多数读者来说，它们不再应该是第一站：
+
+- [design/agent-execution-system.md](./design/agent-execution-system.md)
+- [design/agent-cli-adapter-architecture.md](./design/agent-cli-adapter-architecture.md)
+- [default-context-migration-summary.md](./default-context-migration-summary.md)
+- [engineering-quality-audit.md](./engineering-quality-audit.md)
 
 ## 清理原则
 
-本轮文档重构删除了过期、重复或容易误导当前实现判断的材料。保留的文档必须满足至少一个条件：
+当前清理原则是：
 
-- 定义当前仍需遵守的合同。
-- 作为未来 V2 蓝图的参考。
-- 作为 Agent 执行项目任务时的工程规范。
+- 只要 spec 仍在描述真实合同或活跃迁移边界，就保留，
+- 只要设计文档仍能解释当前架构选择，就保留，
+- 避免把同一能力说明复制到多个入口文档里，
+- 避免把设计目标写成已经完成的功能，
+- 在有用内容被吸收或明确被替代之前，不轻易删除文档。
 
-删除的内容不再作为项目事实来源。
+## 候选清理类别
 
-## 已删除的历史类别
+下面这些文档类别更适合未来做合并，而不是现在立刻删除：
 
-| 类别 | 原因 |
-|------|------|
-| V1 LLM Self-Bootstrap 阶段文档 | 历史阶段记录过长，且与当前 `VectaHub = Orchestrator` 的文档主线重复或偏移。 |
-| 旧功能开发大纲 | 内容泛化，和当前优先级、合同规格重复。 |
-| 旧 VS Code 插件任务文档 | 具体任务说明已过期，插件后续工作应由路线图和合同规格重新驱动。 |
-| 旧跨项目效率任务文档 | 属于产品扩展方向，不应混入当前核心架构入口。 |
-| 旧 LLM Native 优化记录 | 阶段状态和当前执行系统主线混杂，已被架构总览吸收。 |
-| 空文件和系统文件 | 不具备文档价值。 |
+- 多个顶层文档里重复出现的产品定位描述，
+- 与 `usage.md` 或 `specs/cli-command-surface.md` 冲突的命令摘要，
+- 夸大当前多 agent 成熟度的重复编排描述，
+- 与当前单用户 CLI 定位不一致的 `control plane` 语言。
 
-## 保留的参考文档
+## 这轮重组不做什么
 
-### 当前合同规格
+这轮清理不会：
 
-- [Agent Worker 合同规格](./specs/agent-worker-contract.md)
-- [文档任务状态机规格](./specs/doc-task-state-machine.md)
-- [Trace 执行规格](./specs/trace-execution.md)
-- [任务验证闭环规格](./specs/verification-loop.md)
-- [安全与权限闭环规格](./specs/security-permission-loop.md)
-- [性能与资源预算规格](./specs/performance-budget.md)
-- [恢复闭环规格](./specs/recovery-loop.md)
+- 默认删除 spec 文档，
+- 立刻重写所有 design 文档，
+- 假装所有旧措辞已经统一，
+- 把 `current implementation` 和 `target design` 混成一套叙事。
 
-### 已清理的未来蓝图
+## 下一步清理动作
 
-Go 重构、REST/gRPC 服务化 API 和数据库模型蓝图已从当前文档树中移除。它们不是当前实现声明；如果未来重启，需要重新基于当时代码和产品目标写设计文档。
+等新的入口文档和能力文档稳定后，下一步最安全的动作是出一份逐文件重叠矩阵，把具体文档标成：
 
-## 后续规则
-
-- 新增文档前先判断它属于架构、合同、路线图还是归档参考。
-- 操作型文档优先放在 `docs/` 顶层，作为用户或维护者入口；底层合同仍放在 `docs/specs/`。
-- 用户文档应引用规格文档作为事实来源，不重复大段实现规格。
-- 不再新增按日期或阶段堆叠的长篇流水账。
-- 完成状态必须标明验证证据；没有验证时只能写“设计目标”或“待验证”。
-- 不主动移动、删除或重写现有规格文档；确需清理时必须先说明 diff 和迁移目标。
-- 旧任务文档中的有用结论应先合并进关键文档；是否删除旧文档需要单独确认。
+- keep as primary，
+- keep as current reference，
+- keep as design reference，
+- merge later，
+- delete candidate。

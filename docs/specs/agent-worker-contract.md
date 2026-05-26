@@ -3,6 +3,7 @@
 > Document Status: Current Implementation / Migration Contract
 > Authority: Owns `AgentTaskContract`, prompt input boundaries, document excerpt limits, file scopes, and validation command derivation.
 > Traceability: See `./implementation-traceability.md` for Agent runtime and LLM Context Pack gaps.
+> Related: [文档处理架构设计](../design/document-processing-architecture.md)
 
 ## 1. 任务目标
 
@@ -24,6 +25,7 @@ P2 的核心目标：
 - P0 Trace v1 已完成，插件和 CLI 可通过 trace 关联。
 - P1 文档任务状态机已完成，任务运行记录可以持久化。
 - `parse-doc` 只提取 `id` 和 `label`。
+- `parse-doc` 还没有稳定输出 source map、任务候选合同和 chunk coverage。
 - `run-task` 已接入 `AgentTaskContract`，JSON 输出只包含合同摘要。
 - CLI 和插件已通过 `@vectahub/doc-task-contract-core` 共享合同纯函数。
 - 插件批量执行前已做轻量边界预检。
@@ -45,6 +47,9 @@ P2 不重写 LLM 解析器，不引入数据库，不引入 worktree 隔离。
 
 - 增加真实批量执行的端到端测试。
 - 为运行态配置 digest 提供更完整的 authoritative 来源。
+- 为文档解析补 source map、parse coverage 和 richer task candidate。
+- 为 `AgentTaskContract` 补 `schemaVersion`、`contractVersion`、`sourceRanges` 和 `sourceDocumentHash`。
+- 将权限确认收敛为统一 `PermissionDecision` 合同。
 
 ## 2.2 Agent CLI Runtime Model
 
@@ -88,6 +93,7 @@ The derived `Agent Runtime Catalog` should be safe to inject into LLM context an
 ## 3. In Scope
 
 - 新增 Agent 任务输入合同类型。
+- 新增 `ParsedTaskCandidate`、`SourceRange` 和文档来源字段的目标合同。
 - 新增统一 Agent runtime registry 与 registry record 类型。
 - 新增 Agent CLI onboarding / reprobe 合同。
 - 新增 generic invocation renderer。
@@ -108,6 +114,7 @@ The derived `Agent Runtime Catalog` should be safe to inject into LLM context an
 - 不做完整 P3 验证闭环执行。
 - 不做 UI 时间线。
 - 不改变 `run-task --json` 现有字段语义。
+- 不要求 `parse-doc` 第一阶段一次性输出完整深度语义理解。
 - 不要求所有 Agent CLI 原生支持 JSON 输出。
 - 不要求所有 Agent CLI 原生支持 headless 执行。
 - 不要求 LLM 一次性准确推导所有文件边界。
@@ -116,7 +123,71 @@ The derived `Agent Runtime Catalog` should be safe to inject into LLM context an
 
 ## 5. 合同结构
 
-### 5.1 类型定义
+### 5.1 Source Map 合同
+
+文档任务必须逐步从“只有 id/label”升级为可追溯来源的任务候选。目标 source map：
+
+```ts
+export interface SourceRange {
+  path: string;
+  startLine: number;
+  endLine: number;
+  startOffset: number;
+  endOffset: number;
+  headingPath?: string[];
+  page?: number;
+}
+```
+
+Source map 的用途：
+
+- 让用户确认任务来源。
+- 让 `run-task` 生成更可靠的 `docExcerpt`。
+- 让 trace 能从文档行号追到 Agent、验证和恢复。
+- 让文档变更后可以准确判断旧 run record 是否失效。
+
+当前实现边界：
+
+- `parse-doc` 尚未稳定输出 `SourceRange`。
+- `deriveDocExcerpt` 已能按 `taskId` / `label` 回扫文档，但这不是 source map 的替代品。
+
+### 5.2 ParsedTaskCandidate 目标合同
+
+`parse-doc` 的目标输出不应只停留在 `DocTask[]`。它应兼容旧 `id/label`，同时提供 richer task candidate：
+
+```ts
+export interface ParsedTaskCandidate {
+  schemaVersion: '1.0';
+  id: string;
+  label: string;
+  status?: 'pending' | 'partial' | 'existing' | 'paused' | 'unknown';
+  goal?: string;
+  problem?: string;
+  acceptanceCriteria: string[];
+  suggestedFiles: string[];
+  forbiddenFiles: string[];
+  validationHints: string[];
+  dependencies: string[];
+  riskHints: string[];
+  extractionConfidence: 'low' | 'medium' | 'high';
+  boundaryConfidence: 'none' | 'low' | 'medium' | 'high';
+  executionConfidence: 'low' | 'medium' | 'high';
+  source: {
+    parser: 'roadmap-table' | 'llm' | 'regex-fallback';
+    ranges: SourceRange[];
+    evidenceText: string;
+  };
+  warnings: string[];
+}
+```
+
+三类置信度语义：
+
+- `extractionConfidence`：任务是否被正确从文档中识别。
+- `boundaryConfidence`：文件范围、禁止范围、验证提示是否可靠。
+- `executionConfidence`：任务是否适合交给 Agent CLI 或 workflow 执行。
+
+### 5.3 AgentTaskContract 类型定义
 
 建议放在：
 
@@ -126,10 +197,15 @@ src/types/doc-task.ts
 
 ```ts
 export interface AgentTaskContract {
+  schemaVersion: '1.0';
+  contractVersion: 1;
   taskId: string;
   label: string;
+  instructionHash: string;
   docPath?: string;
   docExcerpt?: string;
+  sourceRanges?: SourceRange[];
+  sourceDocumentHash?: string;
   allowedFiles: string[];
   forbiddenFiles: string[];
   validationCommands: string[];
@@ -140,7 +216,12 @@ export interface AgentTaskContract {
 }
 ```
 
-### 5.2 边界合同
+当前实现边界：
+
+- `instructionHash` 已是运行记录和恢复的重要事实源。
+- `schemaVersion`、`contractVersion`、`sourceRanges`、`sourceDocumentHash` 是目标 hardening 字段，不能写成当前已完整实现。
+
+### 5.4 边界合同
 
 ```ts
 export interface AgentTaskBoundary {
@@ -153,7 +234,7 @@ export interface AgentTaskBoundary {
 }
 ```
 
-### 5.3 并发判定结果
+### 5.5 并发判定结果
 
 ```ts
 export interface AgentTaskConcurrencyDecision {
@@ -163,7 +244,30 @@ export interface AgentTaskConcurrencyDecision {
 }
 ```
 
-### 5.4 任务指纹 (Instruction Hash)
+### 5.6 权限确认合同
+
+文档任务涉及执行前确认、验证前确认和执行后确认。目标上应统一为 `PermissionDecision`：
+
+```ts
+export interface PermissionDecision {
+  schemaVersion: '1.0';
+  phase: 'preflight' | 'verification' | 'post_execution';
+  riskLevel: 'safe' | 'low' | 'medium' | 'high' | 'critical';
+  reason: string;
+  affectedFiles: string[];
+  canContinue: boolean;
+  requiresDiffReview: boolean;
+}
+```
+
+语义要求：
+
+- `preflight` 发生在 Agent spawn 前，不能已有仓库副作用。
+- `verification` 发生在验证命令执行前，必须按验证命令风险处理。
+- `post_execution` 发生在 `gitChanges` 已存在后，必须要求用户先看 diff。
+- 多 Agent workflow 中，每个 Agent step 都必须独立生成权限决策。
+
+### 5.7 任务指纹 (Instruction Hash)
 
 为了精确检测需求变更，每个合同必须包含 `instructionHash`。
 
@@ -193,6 +297,8 @@ export interface AgentTaskConcurrencyDecision {
 - `label`
 - `docPath`
 - `docExcerpt`
+- `sourceRanges`
+- `sourceDocumentHash`
 - `allowedFiles`
 - `forbiddenFiles`
 - `validationCommands`
@@ -208,6 +314,7 @@ export interface AgentTaskConcurrencyDecision {
 - 完整 trace。
 - 完整 git diff。
 - 超大文档全文。
+- 未脱敏的 source evidence 原文大段落。
 
 长度限制：
 
@@ -371,12 +478,21 @@ src/commands/run-task.ts
 在生成 Agent 命令前：
 
 ```text
-load doc content if docPath exists
-derive doc excerpt
+load ParsedTaskCandidate when available
+fallback to docPath + taskId + label when richer task candidate is unavailable
+derive doc excerpt with source map when possible
 derive file boundary
 derive validation commands
-build AgentTaskContract
+build versioned AgentTaskContract
 ```
+
+优先级：
+
+1. 使用 confirmed task contract。
+2. 使用 `ParsedTaskCandidate`。
+3. 使用旧参数 `taskId` / `label` / `docPath` 回扫文档。
+
+第三种是兼容路径，不应成为长期主路径。
 
 ### 11.2 Prompt 合同
 
@@ -385,7 +501,9 @@ build AgentTaskContract
 ```text
 任务编号
 任务描述
+合同版本
 参考文档路径
+文档来源行号
 文档片段
 允许修改范围
 禁止修改范围
@@ -442,14 +560,35 @@ fallbackAndOnboardingRules
 
 ```ts
 agentTaskContract?: {
+  schemaVersion?: string;
+  contractVersion?: number;
   boundaryConfidence: string;
   allowedFiles: string[];
   forbiddenFiles: string[];
   validationCommands: string[];
+  sourceRangeCount?: number;
+  sourceDocumentHash?: string;
 }
 ```
 
 但不得把完整 `docExcerpt` 输出到 JSON。
+
+## 11.4 Trace 关联
+
+文档任务执行应逐步补齐三类 trace：
+
+```text
+docParseTraceId
+contractTraceId
+workflowRunTraceId
+```
+
+要求：
+
+- `docParseTraceId` 记录文档解析、chunk coverage、fallback 和提取任务数量。
+- `contractTraceId` 记录 `AgentTaskContract` 如何由文档片段、文件边界和验证命令推导。
+- `workflowRunTraceId` 记录多 Agent workflow 中每个 step 的 parent/child 关系。
+- run record 和 recovery record 不保存完整 trace，只保存可查询引用。
 
 ## 12. 插件接入要求
 

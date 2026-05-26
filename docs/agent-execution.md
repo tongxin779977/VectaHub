@@ -1,5 +1,9 @@
 # Agent 执行系统
 
+> Document Status: Current Reference / Partial Implementation Summary
+> Authority: Execution-system overview for document-task and Agent-run flows. Exact execution behavior belongs to [Run-Task 执行合同规格](./specs/run-task-execution-contract.md) and current code.
+> Recommended Read Order: [Capability Map](./capabilities.md) -> [Capability Reference](./capabilities-reference.md) -> 本文 -> 相关 specs
+
 ## 核心模型
 
 VectaHub 的 Agent 执行系统遵循一个简单分工：
@@ -21,6 +25,8 @@ Agent 负责执行边界清楚的小任务。VectaHub 负责把任务拆解成�
 Document / Natural Language
   -> Parse Task
   -> Build AgentTaskContract
+  -> Resolve Agent Runtime
+  -> Runtime Bootstrap / Preflight
   -> Security Preflight
   -> Run Agent
   -> Collect Changes
@@ -30,6 +36,88 @@ Document / Natural Language
 ```
 
 任何阶段失败都必须进入结构化失败分类，不能只返回 `failed`。
+
+## Agent Runtime 解析
+
+Agent 执行前必须先解析 Agent Runtime。
+
+当前项目已经有内建 Agent registry 和 adapter 层，覆盖：
+
+- `codex`
+- `gemini`
+- `claude`
+- `aider`
+
+它们的职责是描述外部 Agent CLI 的入口命令、prompt 传递方式、cwd 参数、非交互 flags、preflight 规则和 runtime bootstrap policy。
+
+目标链路：
+
+```text
+AgentTaskContract
+-> Agent Registry
+-> Runtime Catalog
+-> Invocation Renderer
+-> Runtime Bootstrap
+-> Preflight
+-> Spawn
+```
+
+关键边界：
+
+- 已注册 Agent 的最终 argv 应由 registry-backed renderer 生成。
+- LLM 可以选择 Agent 或生成任务语义，但不能为已注册 Agent 发明最终命令行协议。
+- `tools agents --json` 应逐步成为机器可读 runtime catalog。
+- custom Agent 第一版应要求显式 descriptor，不应自动变成 marketplace。
+
+设计细节见 [Agent CLI 注册与 Runtime 架构设计](./design/agent-cli-runtime-architecture.md)。
+
+## 编排入口
+
+当任务不是单一 Agent 工作包，而是包含多个阶段时，应先进入编排层。
+
+目标链路：
+
+```text
+User Intent / Document Task
+-> Plan Proposal
+-> Workflow Draft
+-> Agent Runtime Delegation
+-> Artifact Handoff
+-> Verification
+-> Recovery
+```
+
+边界：
+
+- 单个明确文档任务可以直接进入 `run-task`。
+- 多阶段任务应生成 workflow draft。
+- 普通回复或澄清不应进入执行链路。
+- 多 Agent 任务必须有明确交接物，不能只靠隐式上下文。
+
+设计细节见 [编排、委托与任务拆解架构设计](./design/orchestration-and-delegation-architecture.md)。
+
+## 文档处理入口
+
+文档任务进入 Agent 执行前，目标上应先经过文档编译管线：
+
+```text
+Document
+-> ParsedDocument / SourceMap
+-> ParsedTaskCandidate
+-> AgentTaskContract
+-> Confirmed Task Contract
+-> Agent / Workflow execution
+```
+
+当前实现已经具备 `parse-doc -> run-task -> AgentTaskContract -> verification -> recovery` 的骨架，但 `parse-doc` 输出仍偏薄，主要是 `id` 和 `label`。因此现阶段 `run-task` 仍会根据 `taskId` / `label` 回扫文档片段并推导边界。
+
+目标架构见 [文档处理架构设计](./design/document-processing-architecture.md)。后续收敛方向是：
+
+- `parse-doc` 输出带 source map 的任务候选。
+- 用户先预览、确认或编辑任务合同。
+- `run-task` 消费确认后的合同。
+- 多 Agent CLI 文档任务链路进入 workflow，而不是隐藏在单次 Agent 调用里。
+- 文档解析、合同构建、执行、验证和恢复共享 trace 关联。
 
 ## 状态来源
 
@@ -42,6 +130,8 @@ VectaHub 必须掌控以下状态：
 - 验证结果。
 - 恢复记录。
 - instruction hash / digest 可用性。
+- 文档来源位置和 source map。
+- task contract version。
 
 Agent 输出不是状态来源。Agent 只能提供执行产物和诊断材料。
 
@@ -95,17 +185,31 @@ Agent 输出不是状态来源。Agent 只能提供执行产物和诊断材料�
 
 - 当前任务说明是否与历史记录匹配。
 - authoritative `instructionHash` 是否可用。
+- 当前 `AgentTaskContract` 版本是否兼容。
+- 文档 source hash 是否与历史记录一致。
 - git 工作区是否存在冲突或不相关改动。
 - 上次失败是否属于可恢复类型。
 - 验证命令是否仍然有效。
 
 hash 或 digest 不可用时必须保守处理，不能用 guessed digest 误判需求未变。
 
+未收口执行不能直接自动重试。如果 Agent 已经产生 `gitChanges`，但执行未完成权威收口，恢复应进入基于现有 diff 的 bounded fix task，不能从头覆盖现场。
+
+安全、trace、执行记录和恢复的统一设计见 [安全、Trace、执行记录与恢复架构设计](./design/safety-trace-recovery-architecture.md)。该设计的核心是：
+
+- 副作用前先确认。
+- 副作用后先审查。
+- 记录只存摘要和引用。
+- 失败先分类，再决定动作。
+- 上下文过期就阻断。
+
 ## 关键规格
 
 - [文档任务状态机规格](./specs/doc-task-state-machine.md)
 - [Run-Task 执行合同规格](./specs/run-task-execution-contract.md)
 - [Agent Worker 合同规格](./specs/agent-worker-contract.md)
+- [Agent CLI 注册与 Runtime 架构设计](./design/agent-cli-runtime-architecture.md)
+- [安全、Trace、执行记录与恢复架构设计](./design/safety-trace-recovery-architecture.md)
 - [Trace 执行规格](./specs/trace-execution.md)
 - [任务验证闭环规格](./specs/verification-loop.md)
 - [安全与权限闭环规格](./specs/security-permission-loop.md)

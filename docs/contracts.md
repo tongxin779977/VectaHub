@@ -5,6 +5,7 @@
 > Document Status: Current Implementation / Migration Contract
 > Authority: Contract index only. Field-level behavior is owned by the linked spec files.
 > Traceability: See `docs/specs/implementation-traceability.md` before treating a cross-module target as implemented.
+> Recommended Usage: Read this after [Capability Reference](./capabilities-reference.md) when you need protocol, storage, recovery, or JSON contract detail.
 
 ## 合同边界
 
