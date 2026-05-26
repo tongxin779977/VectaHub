@@ -30,7 +30,7 @@ describe('agent-cli-adapter registry', () => {
     expect(codex?.workingDirectoryArgAliases).toEqual(['-C', '--cd']);
     expect(codex?.preflightSpec.invocableArgs).toEqual(['exec', '--help']);
     expect(codex?.preflightSpec.readyArgs).toEqual(['exec', '--sandbox', 'workspace-write', '--help']);
-    expect(codex?.nonInteractiveFlags).toEqual(['--sandbox', 'workspace-write']);
+    expect(codex?.nonInteractiveFlags).toEqual(['--sandbox', 'workspace-write', '--color', 'never', '--ephemeral']);
     expect(codex?.runtimePolicy?.configSemantics).toBe('inherit-user-default');
     expect(codex?.runtimePolicy?.writableRuntimeHome).toEqual({
       envVar: 'CODEX_HOME',
@@ -75,9 +75,28 @@ describe('agent-cli-adapter registry', () => {
 
     expect(rendered.command).toBe('codex');
     expect(rendered.args.slice(0, 3)).toEqual(['exec', '--cd', '/workspace/project']);
-    expect(rendered.args.slice(3, 5)).toEqual(['--sandbox', 'workspace-write']);
-    expect(rendered.args[5]).toBe('实现任务');
+    expect(rendered.args.slice(3, 8)).toEqual(['--sandbox', 'workspace-write', '--color', 'never', '--ephemeral']);
+    expect(rendered.args[8]).toBe('-');
+    expect(rendered.stdinInput).toBe('实现任务');
     expect(rendered.envPatch).toBeUndefined();
+  });
+
+  it('should render codex output-last-message path when provided', () => {
+    const descriptor = getAgentDescriptorById('codex');
+    const adapter = getAgentAdapterById('codex');
+    const rendered = adapter!.render({
+      descriptor: descriptor!,
+      workspaceRoot: '/workspace/project',
+      taskPrompt: '实现任务',
+      mode: 'run',
+      outputMode: 'text',
+      outputLastMessagePath: '/tmp/vectahub-last-message.md',
+    });
+
+    expect(rendered.args).toContain('--output-last-message');
+    expect(rendered.args).toContain('/tmp/vectahub-last-message.md');
+    expect(rendered.args.at(-1)).toBe('-');
+    expect(rendered.stdinInput).toBe('实现任务');
   });
 
   it('should render aider invocation via adapter', () => {

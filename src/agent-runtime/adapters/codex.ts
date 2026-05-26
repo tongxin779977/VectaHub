@@ -16,10 +16,14 @@ export class CodexAdapter implements AgentAdapter {
     for (const flag of input.descriptor.nonInteractiveFlags) {
       args.push(flag);
     }
-    args.push(input.taskPrompt);
+    if (input.outputLastMessagePath) {
+      args.push('--output-last-message', input.outputLastMessagePath);
+    }
+    args.push('-');
     return {
       command: input.descriptor.entryCommand,
       args,
+      stdinInput: input.taskPrompt,
       preview: [input.descriptor.entryCommand, ...args].join(' '),
     };
   }

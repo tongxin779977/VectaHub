@@ -94,6 +94,18 @@ const DEFAULT_AGENT_EXIT_FLUSH_GRACE_MS = 1500;
 function getAgentExitFlushGraceMs(): number {
   return getContext().environment.getEnvNumber('AGENT_EXIT_FLUSH_GRACE_MS', DEFAULT_AGENT_EXIT_FLUSH_GRACE_MS) ?? DEFAULT_AGENT_EXIT_FLUSH_GRACE_MS;
 }
+const DEFAULT_AGENT_IDLE_TIMEOUT_MS = 120000;
+function getAgentIdleTimeoutMs(): number {
+  return getContext().environment.getEnvNumber('AGENT_IDLE_TIMEOUT_MS', DEFAULT_AGENT_IDLE_TIMEOUT_MS) ?? DEFAULT_AGENT_IDLE_TIMEOUT_MS;
+}
+const DEFAULT_AGENT_PROGRESS_INTERVAL_MS = 30000;
+function getAgentProgressIntervalMs(): number {
+  return getContext().environment.getEnvNumber('AGENT_PROGRESS_INTERVAL_MS', DEFAULT_AGENT_PROGRESS_INTERVAL_MS) ?? DEFAULT_AGENT_PROGRESS_INTERVAL_MS;
+}
+const DEFAULT_AGENT_NO_CLOSE_TIMEOUT_MS = 180000;
+function getAgentNoCloseTimeoutMs(): number {
+  return getContext().environment.getEnvNumber('AGENT_NO_CLOSE_TIMEOUT_MS', DEFAULT_AGENT_NO_CLOSE_TIMEOUT_MS) ?? DEFAULT_AGENT_NO_CLOSE_TIMEOUT_MS;
+}
 const DEFAULT_MAX_JSON_OUTPUT_LENGTH = 50000;
 function getMaxJsonOutputLength(): number {
   if (!boundContext) {
@@ -118,6 +130,8 @@ const TRACE_TEXT_MAX_LENGTH = 500;
 const PROMPT_CONTRACT_MAX_LENGTH = 12000;
 const MAX_VERIFICATION_COMMANDS = 10;
 const VERIFICATION_SUMMARY_MAX_LENGTH = 600;
+const FAILURE_HUMAN_SUMMARY_MAX_LENGTH = 600;
+const OUTPUT_LAST_MESSAGE_POLL_MS = 100;
 const RUN_TASK_FAILURE_LOG_RETENTION_DAYS = 7;
 const redactor = createRedactor();
 
@@ -191,6 +205,7 @@ interface GeneratedCommand {
   command: string;
   args: string[];
   explanation: string;
+  stdinInput?: string;
 }
 
 export interface GitChangeInfo {
@@ -271,6 +286,10 @@ export interface RunTaskJsonResult {
   };
 }
 
+export interface RunTaskHumanOutputOptions {
+  mode?: 'default' | 'contract-preview' | 'dry-run';
+}
+
 export interface RunTaskRecoveryDecisionSummary {
   kind: RecoveryDecisionKind;
   mode: RecoveryDecisionMode;
@@ -326,7 +345,7 @@ export interface VerificationResult {
   isSystemError?: boolean;
 }
 
-type SpawnCompletionSignal = 'close' | 'exit-stream-drain' | 'exit-flush-grace' | 'timeout';
+type SpawnCompletionSignal = 'close' | 'exit-stream-drain' | 'exit-flush-grace' | 'output-last-message' | 'timeout';
 
 interface SpawnCompletionResult {
   exitCode: number;
@@ -390,6 +409,25 @@ function buildCommandString(command: string, args: string[]): string {
     return a;
   });
   return [command, ...escaped].join(' ');
+}
+
+function summarizeAgentCommandForLog(input: {
+  command: string;
+  tool: string;
+  taskId: string;
+  allowedFileCount: number;
+  forbiddenFileCount: number;
+  validationCommandCount: number;
+  commandGenerationPath?: 'adapter' | 'llm-fallback';
+}): string {
+  return [
+    `正在执行 Agent：${input.tool || input.command}`,
+    `任务：${input.taskId}`,
+    `允许修改：${input.allowedFileCount} 个文件`,
+    `禁止修改：${input.forbiddenFileCount} 个文件`,
+    `验证命令：${input.validationCommandCount} 条`,
+    `命令生成路径：${input.commandGenerationPath || 'unknown'}`,
+  ].join('\n');
 }
 
 function buildAgentChildEnv(
@@ -536,6 +574,20 @@ function sanitizeUserVisibleLine(line: string): string | null {
     'diff --git',
     'index ',
     '@@',
+    'openai codex',
+    'workdir:',
+    'model:',
+    'provider:',
+    'approval:',
+    'sandbox:',
+    'reasoning effort:',
+    'reasoning summaries:',
+    'tokens used',
+    '任务编号：',
+    '任务描述：',
+    '文档片段：',
+    '执行要求：',
+    'codex',
   ];
   if (hiddenPrefixes.some(prefix => lower.startsWith(prefix))) {
     return null;
@@ -550,6 +602,8 @@ function sanitizeUserVisibleLine(line: string): string | null {
     '建议验证命令',
     '边界可信度',
     '执行步骤',
+    '请基于任务边界合同执行任务',
+    '未提供文档片段',
     'yolo mode is enabled',
     'completion_tokens',
     'prompt_tokens',
@@ -559,6 +613,10 @@ function sanitizeUserVisibleLine(line: string): string | null {
     '"session"',
     '"trace"',
     '"prompt"',
+    'warn codex_',
+    'startup remote plugin sync failed',
+    'state db discrepancy',
+    'failed to warm featured plugin ids cache',
   ];
   if (hiddenFragments.some(fragment => lower.includes(fragment))) {
     return null;
@@ -567,7 +625,16 @@ function sanitizeUserVisibleLine(line: string): string | null {
   if (/^(##+|\d+\.)\s/.test(trimmed)) {
     return null;
   }
+  if (/^-{3,}$/.test(trimmed)) {
+    return null;
+  }
   if (/^[-*]\s+(allow|forbid|validation|task|trace|session|prompt)\b/i.test(trimmed)) {
+    return null;
+  }
+  if (/^[-*]\s+(\[REDACTED\]|\.env|src\/|docs\/|\*\*\/|node_modules|\.git|npm\s+|npx\s+|只围绕|优先|不要|完成后|当前文档|若无法)/i.test(trimmed)) {
+    return null;
+  }
+  if (/^\d[\d,]*$/.test(trimmed)) {
     return null;
   }
   if (/[`{}[\]]/.test(trimmed) && trimmed.length > 120) {
@@ -809,6 +876,18 @@ async function ensureRunTaskOutputDir(): Promise<string> {
   throw lastError instanceof Error
     ? lastError
     : new Error('Unable to create run-task output directory');
+}
+
+async function createRunTaskOutputFilePath(taskId: string, extension: string): Promise<string> {
+  const outputDir = await ensureRunTaskOutputDir();
+  return getContext().environment.resolvePath(outputDir, `${taskId}-${Date.now()}.${extension}`);
+}
+
+function readRunTaskOutputFile(path: string | undefined): string {
+  if (!path || !getContext().environment.exists(path)) {
+    return '';
+  }
+  return getContext().environment.readFile(path);
 }
 
 type RunTaskOutputStreamKind = 'stdout' | 'stderr';
@@ -1444,6 +1523,96 @@ export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
   return jsonResult;
 }
 
+function formatHumanList(values: string[], emptyText: string): string {
+  if (!values.length) return `- ${emptyText}`;
+  return values.map(value => `- ${value}`).join('\n');
+}
+
+function formatRunTaskFailureHumanOutput(result: RunTaskResult): string {
+  const lines = [
+    '任务执行失败',
+    '',
+    `原因：${result.error?.message || 'Agent 执行失败，但没有明确错误信息。'}`,
+  ];
+
+  if (result.error?.code) {
+    lines.push(`错误码：${result.error.code}`);
+  }
+  if (result.failureKind) {
+    lines.push(`失败类型：${result.failureKind}`);
+  }
+  if (result.completionSignal) {
+    lines.push(`完成信号：${result.completionSignal}`);
+  }
+  if (result.unclosedExecution !== undefined) {
+    lines.push(`执行是否未收口：${result.unclosedExecution ? '是' : '否'}`);
+  }
+  if (result.output) {
+    lines.push(`已捕获输出：${result.output.length} chars`);
+  }
+  if (result.recoveryDecision) {
+    lines.push(`恢复建议：${result.recoveryDecision.summary}`);
+  }
+
+  const summary = buildUserVisibleSummary(result.output);
+  if (summary.output) {
+    lines.push(
+      '',
+      '输出摘要：',
+      truncateAtLineBoundary(summary.output, FAILURE_HUMAN_SUMMARY_MAX_LENGTH),
+    );
+  }
+
+  // 失败日志已在执行路径持久化，这里只给控制台摘要，避免 Agent 长输出刷屏。
+  lines.push('', '说明：完整 stdout/stderr 已写入失败日志，控制台只显示摘要。');
+
+  return lines.join('\n');
+}
+
+export function formatRunTaskHumanOutput(result: RunTaskResult, options: RunTaskHumanOutputOptions = {}): string {
+  if (options.mode === 'dry-run') {
+    return result.output || 'dry-run 预览已生成，但没有可展示内容。';
+  }
+
+  if (options.mode === 'contract-preview' && result.agentTaskContract) {
+    const contract = result.agentTaskContract;
+    const lines = [
+      '合同预览',
+      '',
+      `结论：${result.success ? '可继续评估' : '不建议执行'}`,
+      `边界可信度：${contract.boundaryConfidence}`,
+      `执行模式：${contract.executionMode}`,
+      '',
+      '允许修改：',
+      formatHumanList(contract.allowedFiles, '未推导出明确文件'),
+      '',
+      '禁止修改：',
+      formatHumanList(contract.forbiddenFiles, '未配置'),
+      '',
+      '验证命令：',
+      formatHumanList(contract.validationCommands, 'npm run typecheck'),
+      '',
+      `命令生成路径：${result.commandGenerationPath || 'unknown'}`,
+      `Fallback：${result.fallbackUsed ? 'yes' : 'no'}`,
+    ];
+
+    if (result.error) {
+      lines.push('', `错误：${result.error.message}`);
+    }
+
+    // 合同预览不展示 docExcerpt，避免把长文档或提示词泄漏到控制台。
+    return lines.join('\n');
+  }
+
+  if (!result.success) {
+    return formatRunTaskFailureHumanOutput(result);
+  }
+
+  const summary = buildUserVisibleSummary(result.output);
+  if (summary.output) return summary.output;
+  return '任务执行成功，但没有可展示输出。';
+}
+
 export async function runTask(options: {
   tool?: string;
   taskId: string;
@@ -1545,10 +1714,24 @@ export async function runTask(options: {
           preview: '',
         };
       const dryRunCommand = buildCommandString(dryRunGenerated.command, dryRunGenerated.args);
-      getLogger().info(`[dry-run] 将预览: ${dryRunCommand}`);
+      getLogger().info(`[dry-run] 已生成 Agent 执行预览：${dryRunGenerated.command} (${agentTaskContractSummary.allowedFiles.length} 个允许文件，${agentTaskContractSummary.forbiddenFiles.length} 个禁止文件)`);
       return {
         success: true,
-        output: '',
+        output: [
+          'dry-run 预览',
+          '',
+          summarizeAgentCommandForLog({
+            command: dryRunGenerated.command,
+            tool,
+            taskId,
+            allowedFileCount: agentTaskContractSummary.allowedFiles.length,
+            forbiddenFileCount: agentTaskContractSummary.forbiddenFiles.length,
+            validationCommandCount: agentTaskContractSummary.validationCommands.length,
+            commandGenerationPath: knownAgentDescriptor && knownAgentAdapter ? 'adapter' : 'llm-fallback',
+          }),
+          '',
+          '完整命令已保存在结构化结果中；如需机器读取，请使用 --json。',
+        ].join('\n'),
         command: dryRunCommand,
         commandGenerationPath: knownAgentDescriptor && knownAgentAdapter ? 'adapter' : 'llm-fallback',
         fallbackUsed: false,
@@ -1559,6 +1742,9 @@ export async function runTask(options: {
     let generated: GeneratedCommand;
     let fallbackUsed = false;
     const commandGenerationPath = knownAgentDescriptor && knownAgentAdapter ? 'adapter' : 'llm-fallback';
+    const outputLastMessagePath = knownAgentDescriptor?.id === 'codex'
+      ? await createRunTaskOutputFilePath(taskId, 'last-message.md')
+      : undefined;
 
     if (knownAgentDescriptor && knownAgentAdapter) {
       const adapterOutput = knownAgentAdapter.render({
@@ -1567,10 +1753,12 @@ export async function runTask(options: {
         taskPrompt: buildDefaultPrompt(taskId, label, docPath, agentTaskContract),
         mode: 'run',
         outputMode: 'text',
+        outputLastMessagePath,
       });
       generated = {
         command: adapterOutput.command,
         args: adapterOutput.args,
+        stdinInput: adapterOutput.stdinInput,
         explanation: `使用 ${knownAgentDescriptor.id} adapter 生成确定性命令`,
       };
       const globalConfigDigest = `adapter=${knownAgentDescriptor.id}`;
@@ -1958,7 +2146,15 @@ export async function runTask(options: {
       }
     }
 
-    getLogger().info(`执行: ${fullCommand}`);
+    getLogger().info(summarizeAgentCommandForLog({
+      command: generated.command,
+      tool,
+      taskId,
+      allowedFileCount: agentTaskContractSummary.allowedFiles.length,
+      forbiddenFileCount: agentTaskContractSummary.forbiddenFiles.length,
+      validationCommandCount: agentTaskContractSummary.validationCommands.length,
+      commandGenerationPath,
+    }));
     if (generated.explanation) {
       getLogger().info(`说明: ${generated.explanation}`);
     }
@@ -1981,8 +2177,11 @@ export async function runTask(options: {
       const child = getContext().environment.spawn(generated.command, generated.args, {
         cwd: getContext().environment.getCwd(),
         env: childEnv,
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: [generated.stdinInput ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       });
+      if (generated.stdinInput && child.stdin) {
+        child.stdin.end(generated.stdinInput);
+      }
 
       let capturedUsage: TokenUsage | undefined;
       const onToken = (u: TokenUsage) => {
@@ -2021,15 +2220,29 @@ export async function runTask(options: {
         let exitCode: number | null = null;
         let exitSignal: NodeJS.Signals | null = null;
         let exitFlushTimer: NodeJS.Timeout | undefined;
+        let idleTimer: NodeJS.Timeout | undefined;
+        let outputLastMessageTimer: NodeJS.Timeout | undefined;
+        let lastMessageLength = 0;
+        const startedAt = Date.now();
 
         const cleanup = () => {
           clearTimeout(timer);
+          if (idleTimer) {
+            clearTimeout(idleTimer);
+          }
           if (exitFlushTimer) {
             clearTimeout(exitFlushTimer);
           }
+          if (outputLastMessageTimer) {
+            clearInterval(outputLastMessageTimer);
+          }
+          clearTimeout(noCloseTimer);
+          clearInterval(progressTimer);
           child.off('error', onErr);
           child.off('exit', onExit);
           child.off('close', onClose);
+          stdoutRedactor.off('data', onOutput);
+          stderrRedactor.off('data', onOutput);
           stdoutRedactor.off('error', onErr);
           stderrRedactor.off('error', onErr);
         };
@@ -2044,6 +2257,57 @@ export async function runTask(options: {
           settled = true;
           cleanup();
           rejectPromise(error as Error);
+        };
+        const rejectForIdleTimeout = () => {
+          child.kill('SIGKILL');
+          const idleError = new Error(`Agent CLI idle timeout after ${getAgentIdleTimeoutMs()}ms`);
+          const enrichedIdleError = idleError as Error & {
+            code?: string;
+            completionSignal?: SpawnCompletionSignal;
+            stdout?: string;
+            stderr?: string;
+          };
+          enrichedIdleError.code = 'TIMEOUT';
+          enrichedIdleError.completionSignal = 'timeout';
+          enrichedIdleError.stdout = redactedStdout;
+          enrichedIdleError.stderr = redactedStderr;
+          rejectOnce(enrichedIdleError);
+        };
+        const rejectForNoCloseTimeout = () => {
+          child.kill('SIGKILL');
+          const noCloseError = new Error(`Agent CLI did not close after ${getAgentNoCloseTimeoutMs()}ms`);
+          const enrichedNoCloseError = noCloseError as Error & {
+            code?: string;
+            completionSignal?: SpawnCompletionSignal;
+            stdout?: string;
+            stderr?: string;
+          };
+          enrichedNoCloseError.code = 'TIMEOUT';
+          enrichedNoCloseError.completionSignal = 'timeout';
+          enrichedNoCloseError.stdout = redactedStdout;
+          enrichedNoCloseError.stderr = redactedStderr;
+          rejectOnce(enrichedNoCloseError);
+        };
+        const refreshIdleTimer = () => {
+          if (idleTimer) {
+            clearTimeout(idleTimer);
+          }
+          idleTimer = setTimeout(rejectForIdleTimeout, getAgentIdleTimeoutMs());
+        };
+        const settleWithOutputLastMessage = () => {
+          const outputLastMessage = readRunTaskOutputFile(outputLastMessagePath);
+          if (!outputLastMessage.trim()) {
+            lastMessageLength = 0;
+            return;
+          }
+
+          if (outputLastMessage.length !== lastMessageLength) {
+            lastMessageLength = outputLastMessage.length;
+            return;
+          }
+
+          child.kill('SIGTERM');
+          resolveOnce({ exitCode: 0, signal: null, completionSignal: 'output-last-message' });
         };
         const settleWithExit = (code: number | null, signal: NodeJS.Signals | null, completionSignal: SpawnCompletionSignal) => {
           const normalizedCode = typeof code === 'number' ? code : 1;
@@ -2077,7 +2341,7 @@ export async function runTask(options: {
           enrichedTimeoutError.completionSignal = 'timeout';
           enrichedTimeoutError.stdout = redactedStdout;
           enrichedTimeoutError.stderr = redactedStderr;
-          rejectOnce(timeoutError);
+          rejectOnce(enrichedTimeoutError);
         }, getAgentCliTimeout());
         const onErr = (err: unknown) => {
           const executionError = err as CommandExecutionError;
@@ -2088,6 +2352,9 @@ export async function runTask(options: {
             executionError.stderr = redactedStderr;
           }
           rejectOnce(executionError);
+        };
+        const onOutput = () => {
+          refreshIdleTimer();
         };
         const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
           exitCode = code;
@@ -2120,6 +2387,7 @@ export async function runTask(options: {
           if (exitFlushTimer) {
             clearTimeout(exitFlushTimer);
           }
+          // 有些 Agent CLI 或测试替身不会让 Transform 触发 finish/close；close 后用宽限时间兜底，避免 run-task 永久挂起。
           exitFlushTimer = setTimeout(() => {
             if (settled) return;
             settleWithExit(code, signal, 'close');
@@ -2127,9 +2395,20 @@ export async function runTask(options: {
         };
 
         streamDrainPromise.catch(onErr);
+        refreshIdleTimer();
+        const noCloseTimer = setTimeout(rejectForNoCloseTimeout, getAgentNoCloseTimeoutMs());
+        if (outputLastMessagePath) {
+          outputLastMessageTimer = setInterval(settleWithOutputLastMessage, OUTPUT_LAST_MESSAGE_POLL_MS);
+        }
+        const progressTimer = setInterval(() => {
+          const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
+          getLogger().info(`Agent 仍在执行：${tool || generated.command}，已运行 ${elapsedSeconds}s，等待完成...`);
+        }, getAgentProgressIntervalMs());
         child.on('error', onErr);
         child.on('exit', onExit);
         child.on('close', onClose);
+        stdoutRedactor.on('data', onOutput);
+        stderrRedactor.on('data', onOutput);
         stdoutRedactor.on('error', onErr);
         stderrRedactor.on('error', onErr);
       });
@@ -2141,7 +2420,12 @@ export async function runTask(options: {
         completionSignal: completion.completionSignal,
       });
 
-      const combinedOutput = `${redactedStdout}${redactedStderr ? `\n${redactedStderr}` : ''}`;
+      const outputLastMessage = readRunTaskOutputFile(outputLastMessagePath);
+      const combinedOutput = [
+        redactedStdout,
+        redactedStderr,
+        outputLastMessage,
+      ].filter(value => value.trim()).join('\n');
       const agentExecutionOutcome = detectAgentExecutionOutcome(combinedOutput);
       
       const collectSpan = startSpan('cli.run-task.collectGitChanges', {
@@ -2344,7 +2628,7 @@ export async function runTask(options: {
         unclosedExecution,
       });
       getAuditHelper().securityAction('RUN_TASK', `${tool}:${taskId}`, 'FAILED', 'run-task');
-      getLogger().error(`任务执行失败: ${errOutput}`);
+      getLogger().error(`任务执行失败: ${execError.message || String(error)} (stdout=${errStdout.length} chars, stderr=${errStderr.length} chars)`);
       if (unclosedExecution) {
         getLogger().warn('检测到未收口执行：失败 + 已有 gitChanges + verification 缺失');
       }
@@ -2463,10 +2747,14 @@ export function createRunTaskCmd(_context: InfrastructureContext): Command {
             }
           }
         } else if (!result.success) {
-          output.log(result.output);
+          output.log(formatRunTaskHumanOutput(result, {
+            mode: options.contractPreview ? 'contract-preview' : options.dryRun ? 'dry-run' : 'default',
+          }));
           throw new VectaHubError('Task execution failed', ErrorType.RUNTIME);
         } else {
-          output.log(result.output);
+          output.log(formatRunTaskHumanOutput(result, {
+            mode: options.contractPreview ? 'contract-preview' : options.dryRun ? 'dry-run' : 'default',
+          }));
         }
       } catch (error) {
         if (!deferredTraceCloseout && typeof error === 'object' && error !== null) {

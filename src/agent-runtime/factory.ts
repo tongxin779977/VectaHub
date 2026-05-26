@@ -14,7 +14,7 @@ const BUILT_IN_AGENT_DESCRIPTORS: Record<string, AgentDescriptor> = {
     promptTransport: 'positional',
     workingDirectoryArg: '--cd',
     workingDirectoryArgAliases: ['-C', '--cd'],
-    nonInteractiveFlags: ['--sandbox', 'workspace-write'],
+    nonInteractiveFlags: ['--sandbox', 'workspace-write', '--color', 'never', '--ephemeral'],
     approvalPolicySupport: 'unknown',
     structuredOutputSupport: false,
     preflightSpec: {

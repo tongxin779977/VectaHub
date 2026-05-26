@@ -52,11 +52,13 @@ export interface AgentAdapterInput {
   taskPrompt: string;
   mode: 'run' | 'dry-run';
   outputMode: 'text' | 'json';
+  outputLastMessagePath?: string;
 }
 
 export interface AgentAdapterOutput {
   command: string;
   args: string[];
+  stdinInput?: string;
   envPatch?: Record<string, string>;
   preview: string;
   redactionHints?: string[];

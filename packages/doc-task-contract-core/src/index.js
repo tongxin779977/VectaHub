@@ -233,29 +233,38 @@ export function normalizeAgentTaskFiles(input) {
 }
 
 export function deriveAgentTaskBoundary(input) {
-  const candidateFiles = extractCandidateFiles(`${input.docExcerpt}\n${input.label}`);
+  const explicitSections = extractExplicitFileSections(input.docExcerpt);
+  const candidateFiles = explicitSections.allowedFiles.length > 0
+    ? explicitSections.allowedFiles
+    : extractCandidateFiles(`${input.docExcerpt}\n${input.label}`);
   const allowedFiles = normalizeAgentTaskFiles({
     files: candidateFiles,
     projectRoot: input.projectRoot,
   });
   const forbiddenFiles = normalizeAgentTaskFiles({
-    files: DEFAULT_FORBIDDEN_FILES,
+    files: [...DEFAULT_FORBIDDEN_FILES, ...explicitSections.forbiddenFiles],
     projectRoot: input.projectRoot,
   });
+  const forbiddenSet = new Set(forbiddenFiles);
+  const safeAllowedFiles = allowedFiles.filter(file => !forbiddenSet.has(file));
   const validationCommands = deriveValidationCommands({
-    allowedFiles,
+    allowedFiles: safeAllowedFiles,
     taskLabel: input.label,
     packageScripts: input.packageScripts,
   });
-  const boundaryConfidence = allowedFiles.length > 0 ? 'medium' : 'none';
+  const boundaryConfidence = safeAllowedFiles.length > 0
+    ? explicitSections.allowedFiles.length > 0 ? 'high' : 'medium'
+    : 'none';
 
   return {
-    allowedFiles,
+    allowedFiles: safeAllowedFiles,
     forbiddenFiles,
     validationCommands,
     boundaryConfidence,
-    parallelEligible: allowedFiles.length > 0,
-    reason: allowedFiles.length > 0 ? 'deterministic-path-extraction' : 'no-path-detected',
+    parallelEligible: safeAllowedFiles.length > 0,
+    reason: safeAllowedFiles.length > 0
+      ? explicitSections.allowedFiles.length > 0 ? 'explicit-file-sections' : 'deterministic-path-extraction'
+      : 'no-path-detected',
   };
 }
 
@@ -358,6 +367,62 @@ export function extractCandidateFiles(text) {
   }
 
   return candidates;
+}
+
+function extractExplicitFileSections(text) {
+  const allowedFiles = [];
+  const forbiddenFiles = [];
+  let currentSection = null;
+
+  for (const rawLine of String(text ?? '').split(/\r?\n/)) {
+    const line = rawLine.trim();
+    const section = detectFileSection(line);
+    if (section) {
+      currentSection = section;
+      continue;
+    }
+    if (isSectionBoundary(line)) {
+      currentSection = null;
+      continue;
+    }
+    if (!currentSection) continue;
+
+    // 显式文件分区是安全边界来源，只读取列表项，避免把说明文字误当成文件路径。
+    const item = line.match(/^[-*]\s+(.+)$/);
+    if (!item) continue;
+
+    const candidates = extractCandidateFiles(item[1]);
+    if (currentSection === 'allowed') {
+      allowedFiles.push(...candidates);
+    } else {
+      forbiddenFiles.push(...candidates);
+    }
+  }
+
+  return { allowedFiles, forbiddenFiles };
+}
+
+function detectFileSection(line) {
+  const normalized = line
+    .replace(/^#+\s*/, '')
+    .replace(/[*_`]/g, '')
+    .trim()
+    .toLowerCase();
+
+  if (/^allowedfiles\s*:?\s*$/.test(normalized) || /^allowed files\s*:?\s*$/.test(normalized)) {
+    return 'allowed';
+  }
+  if (/^forbiddenfiles\s*:?\s*$/.test(normalized) || /^forbidden files\s*:?\s*$/.test(normalized)) {
+    return 'forbidden';
+  }
+  return null;
+}
+
+function isSectionBoundary(line) {
+  if (!line) return false;
+  if (/^#{1,6}\s+/.test(line)) return true;
+  if (/^[A-Za-z][A-Za-z0-9 _-]{1,80}:\s*$/.test(line)) return true;
+  return false;
 }
 
 function addCommand(commands, seen, command) {

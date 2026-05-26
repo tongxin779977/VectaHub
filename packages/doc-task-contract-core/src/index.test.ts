@@ -3,6 +3,7 @@ import {
   buildGlobalConfigDigest,
   computeInstructionHash,
   decideAgentTaskConcurrency,
+  deriveAgentTaskBoundary,
   deriveDocExcerptFromText,
   deriveDocExcerptFromTextSync,
   deriveValidationCommands,
@@ -108,6 +109,65 @@ describe('doc-task-contract-core', () => {
       'npm run typecheck',
       'npm run compile -w packages/vectahub-vscode-extension',
     ]);
+  });
+
+  it('显式 allowedFiles 和 forbiddenFiles 分区应分别解析', () => {
+    const boundary = deriveAgentTaskBoundary({
+      docExcerpt: [
+        '## Task RTK-001',
+        '',
+        'allowedFiles:',
+        '- src/commands/run-task.test.ts',
+        '- src/commands/run-task.trace-closeout.test.ts',
+        '',
+        'forbiddenFiles:',
+        '- src/cli.ts',
+        '- src/cli-main.ts',
+        '- src/workflow/engine.ts',
+        '- src/agent-runtime/factory.ts',
+        '',
+        'implementationSteps:',
+        '- Do not modify production source code in this task.',
+      ].join('\n'),
+      label: 'Add characterization tests for current Agent process completion behavior.',
+      projectRoot: '/repo/project',
+      packageScripts: ['typecheck', 'test'],
+    });
+
+    expect(boundary.boundaryConfidence).toBe('high');
+    expect(boundary.allowedFiles).toEqual([
+      'src/commands/run-task.test.ts',
+      'src/commands/run-task.trace-closeout.test.ts',
+    ]);
+    expect(boundary.forbiddenFiles).toEqual(expect.arrayContaining([
+      '.env',
+      '.env.*',
+      'src/cli.ts',
+      'src/cli-main.ts',
+      'src/workflow/engine.ts',
+      'src/agent-runtime/factory.ts',
+    ]));
+    expect(boundary.allowedFiles).not.toContain('src/cli.ts');
+    expect(boundary.allowedFiles).not.toContain('src/workflow/engine.ts');
+    expect(boundary.reason).toBe('explicit-file-sections');
+  });
+
+  it('显式 forbiddenFiles 与 allowedFiles 重叠时禁止文件优先', () => {
+    const boundary = deriveAgentTaskBoundary({
+      docExcerpt: [
+        'allowedFiles:',
+        '- src/a.ts',
+        '- src/blocked.ts',
+        '',
+        'forbiddenFiles:',
+        '- src/blocked.ts',
+      ].join('\n'),
+      label: '重叠边界',
+      projectRoot: '/repo/project',
+    });
+
+    expect(boundary.allowedFiles).toEqual(['src/a.ts']);
+    expect(boundary.forbiddenFiles).toContain('src/blocked.ts');
   });
 
   it('验证命令优先匹配项目真实 type-check 脚本名', () => {

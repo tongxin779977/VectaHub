@@ -211,7 +211,7 @@ vi.mock('../utils/logger.js', () => ({
   })),
 }));
 
-import { runTask, runTaskCleanLogsCmd, collectGitChanges, formatRunTaskJson, runVerificationCommands, splitCommandArgs, buildDefaultPrompt, bindRunTaskContext, type RunTaskResult } from './run-task.js';
+import { runTask, runTaskCleanLogsCmd, collectGitChanges, formatRunTaskHumanOutput, formatRunTaskJson, runVerificationCommands, splitCommandArgs, buildDefaultPrompt, bindRunTaskContext, type RunTaskResult } from './run-task.js';
 import { getDefaultContext } from '../infrastructure/context.js';
 import { createLLMConfig, createLLMConfigDigestSource } from '../nl/llm.js';
 import { assessCommandRisk } from '../security-protocol/engine.js';
@@ -277,7 +277,9 @@ describe('runTask', () => {
 
     expect(result.success).toBe(true);
     expect(result.command).toContain('aider');
-    expect(result.output).toBe('');
+    expect(result.output).toContain('dry-run 预览');
+    expect(result.output).toContain('正在执行 Agent：aider');
+    expect(result.output).toContain('完整命令已保存在结构化结果中');
   });
 
   it('should keep dryRun local and skip LLM/tool discovery', async () => {
@@ -790,7 +792,8 @@ describe('runTask', () => {
 
       const outputDir = getRunTaskFailureLogDir(tempVectaHubHome);
       expect(result.success).toBe(true);
-      expect(existsSync(outputDir)).toBe(false);
+      const files = existsSync(outputDir) ? readdirSync(outputDir) : [];
+      expect(files.some(name => name.startsWith('P2-SUCCESS-NO-LOGS-') && (name.endsWith('.stdout') || name.endsWith('.stderr')))).toBe(false);
     } finally {
       restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
       restoreEnvVar('CODEX_HOME', originalCodexHome);
@@ -1633,6 +1636,161 @@ describe('runTask', () => {
     }
   });
 
+  it('should preserve current successful codex close completion behavior', async () => {
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
+        cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --shortstat') {
+        cb(null, '', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+
+    let capturedSpawnArgs: string[] | undefined;
+    let capturedSpawnOptions: { stdio?: unknown } | undefined;
+    const stdinEnd = vi.fn();
+    vi.mocked(spawn).mockImplementation(((file: any, args: any, options: any) => {
+      capturedSpawnArgs = args;
+      capturedSpawnOptions = options;
+      const child = new EventEmitter() as any;
+      child.stdin = { end: stdinEnd };
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      process.nextTick(() => {
+        child.stdout.write('implemented change set\n');
+        child.stderr.write('minor diagnostic\n');
+        child.stdout.end();
+        child.stderr.end();
+        child.emit('close', 0, null);
+      });
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'P2-CODEX-SUCCESS-CLOSE',
+        taskLabel: 'successful close completion',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.output).toBe('implemented change set\n\nminor diagnostic\n');
+      expect(result.output).toContain('implemented change set');
+      expect(result.output).toContain('minor diagnostic');
+      expect(result.agentExecutionOutcome).toBe('implemented');
+      expect(result.completionSignal).toBe('close');
+      expect(result.error).toBeUndefined();
+      expect(result.verification?.ok).toBe(true);
+      expect(result.verification?.commands.map(command => command.command)).toEqual(['npm run typecheck']);
+      expect(capturedSpawnArgs?.at(-1)).toBe('-');
+      expect(capturedSpawnArgs).not.toContain('successful close completion');
+      expect(capturedSpawnOptions?.stdio).toEqual(['pipe', 'pipe', 'pipe']);
+      expect(stdinEnd).toHaveBeenCalledWith(expect.stringContaining('任务编号：P2-CODEX-SUCCESS-CLOSE'));
+    } finally {
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+    }
+  });
+
+  it('should complete codex execution when output-last-message is written but process does not close', async () => {
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const originalIdleTimeout = process.env.AGENT_IDLE_TIMEOUT_MS;
+    const originalNoCloseTimeout = process.env.AGENT_NO_CLOSE_TIMEOUT_MS;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+    process.env.AGENT_IDLE_TIMEOUT_MS = '1000';
+    process.env.AGENT_NO_CLOSE_TIMEOUT_MS = '1000';
+
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
+        cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --shortstat') {
+        cb(null, '', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+
+    vi.mocked(spawn).mockImplementation(((file: any, args: any) => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      const lastMessageIndex = Array.isArray(args) ? args.indexOf('--output-last-message') : -1;
+      const lastMessagePath = lastMessageIndex >= 0 ? args[lastMessageIndex + 1] : undefined;
+      process.nextTick(() => {
+        if (lastMessagePath) {
+          writeFileSync(lastMessagePath, 'implemented via last message\n');
+        }
+      });
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'P2-CODEX-LAST-MESSAGE',
+        taskLabel: 'complete from output last message',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.output).toContain('implemented via last message');
+      expect(result.agentExecutionOutcome).toBe('implemented');
+      expect(result.completionSignal).toBe('output-last-message');
+      expect(result.verification?.ok).toBe(true);
+      expect(vi.mocked(spawn).mock.calls[0]?.[1]).toContain('--output-last-message');
+    } finally {
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
+      restoreEnvVar('AGENT_IDLE_TIMEOUT_MS', originalIdleTimeout);
+      restoreEnvVar('AGENT_NO_CLOSE_TIMEOUT_MS', originalNoCloseTimeout);
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+    }
+  });
+
   it('should bootstrap codex runtime home from minimal config files and surface stderr when agent exits non-zero', async () => {
     const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
     const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
@@ -1661,10 +1819,11 @@ describe('runTask', () => {
       child.stderr = new PassThrough();
       child.kill = vi.fn();
       process.nextTick(() => {
+        child.stdout.write('partial implementation log\n');
         child.stderr.write('mock codex stderr\n');
         child.stdout.end();
         child.stderr.end();
-        child.emit('close', 1);
+        child.emit('close', 1, null);
       });
       return child;
     }) as any);
@@ -1679,8 +1838,14 @@ describe('runTask', () => {
       });
 
       expect(result.success).toBe(false);
+      expect(result.output).toBe('partial implementation log\n\nmock codex stderr\n');
+      expect(result.output).toContain('partial implementation log');
       expect(result.output).toContain('mock codex stderr');
       expect(result.error?.code).toBe('AGENT_FAILED');
+      expect(result.error?.message).toBe('Agent process exited with code 1');
+      expect(result.completionSignal).toBe('close');
+      expect(result.failureKind).toBe('agent');
+      expect(result.verification).toBeUndefined();
       expect(capturedEnv?.CODEX_HOME).toContain('agent-homes/codex');
       expect(capturedEnv?.CODEX_HOME).not.toBe(process.env.CODEX_HOME);
       expect(readFileSync(join(capturedEnv!.CODEX_HOME, 'config.toml'), 'utf8')).toContain('provider = "right_code"');
@@ -1970,6 +2135,8 @@ describe('runTask', () => {
       expect(raced.kind).toBe('result');
       if (raced.kind === 'result') {
         expect(raced.result.success).toBe(true);
+        expect(raced.result.agentExecutionOutcome).toBe('implemented');
+        expect(raced.result.completionSignal).toBe('exit-stream-drain');
       }
     } finally {
       restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
@@ -2038,6 +2205,7 @@ describe('runTask', () => {
       child.kill = vi.fn();
       process.nextTick(() => {
         child.stdout.write('task wrote files but process did not close yet\n');
+        child.stderr.write('stderr before timeout\n');
         child.stdout.end();
         child.stderr.end();
         const timeoutError = new Error('Agent CLI timeout after 600000ms');
@@ -2059,6 +2227,10 @@ describe('runTask', () => {
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('TIMEOUT');
+      expect(result.error?.message).toBe('Agent CLI timeout after 600000ms');
+      expect(result.output).toBe('task wrote files but process did not close yet\n\nstderr before timeout\n');
+      expect(result.output).toContain('task wrote files but process did not close yet');
+      expect(result.output).toContain('stderr before timeout');
       expect(result.agentExecutionOutcome).toBe('implemented');
       expect(result.gitChanges).toBeDefined();
       expect(result.gitChanges?.changedFiles).toContain('src/commands/run-task.ts');
@@ -2071,6 +2243,87 @@ describe('runTask', () => {
     } finally {
       restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
       restoreEnvVar('CODEX_HOME', originalCodexHome);
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+    }
+  });
+
+  it('should preserve current exit-flush-grace completion behavior when exit arrives without close or stream drain', async () => {
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const originalExitFlushGraceMs = process.env.AGENT_EXIT_FLUSH_GRACE_MS;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+    process.env.AGENT_EXIT_FLUSH_GRACE_MS = '10';
+
+    let spawnedChild: {
+      stdout: PassThrough;
+      stderr: PassThrough;
+    } | undefined;
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
+        cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --shortstat') {
+        cb(null, '', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+
+    vi.mocked(spawn).mockImplementation((() => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      spawnedChild = child;
+      process.nextTick(() => {
+        child.stdout.write('implemented before flush grace\n');
+        child.stderr.write('diagnostic before flush grace\n');
+        child.emit('exit', 0, null);
+      });
+      return child;
+    }) as any);
+
+    try {
+      const raced = await Promise.race([
+        runTask({
+          tool: 'codex',
+          taskId: 'P2-CODEX-EXIT-FLUSH-GRACE',
+          taskLabel: 'exit without close or stream drain',
+          doc: '/path/to/doc.md',
+          dryRun: false,
+        }).then(result => ({ kind: 'result' as const, result })),
+        new Promise<{ kind: 'timeout' }>(resolve => setTimeout(() => resolve({ kind: 'timeout' }), 3000)),
+      ]);
+
+      expect(raced.kind).toBe('result');
+      if (raced.kind === 'result') {
+        expect(raced.result.success).toBe(true);
+        expect(raced.result.output).toContain('implemented before flush grace');
+        expect(raced.result.output).toContain('diagnostic before flush grace');
+        expect(raced.result.agentExecutionOutcome).toBe('implemented');
+        expect(raced.result.completionSignal).toBe('exit-flush-grace');
+      }
+    } finally {
+      spawnedChild?.stdout.end();
+      spawnedChild?.stderr.end();
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
+      restoreEnvVar('AGENT_EXIT_FLUSH_GRACE_MS', originalExitFlushGraceMs);
       rmSync(tempVectaHubHome, { recursive: true, force: true });
       rmSync(tempConfigRoot, { recursive: true, force: true });
       if (originalExecFileImpl) {
@@ -2151,6 +2404,158 @@ describe('runTask', () => {
     } finally {
       restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
       restoreEnvVar('CODEX_HOME', originalCodexHome);
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+    }
+  });
+
+  it('should fail with idle timeout when agent stops producing output and never closes', async () => {
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const originalIdleTimeout = process.env.AGENT_IDLE_TIMEOUT_MS;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+    process.env.AGENT_IDLE_TIMEOUT_MS = '10';
+
+    let npmCalled = false;
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
+        cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --shortstat') {
+        cb(null, { stdout: '', stderr: '' });
+        return {} as any;
+      }
+      if (file === 'npm') {
+        npmCalled = true;
+        cb(null, '', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+
+    vi.mocked(spawn).mockImplementation((() => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      process.nextTick(() => {
+        child.stdout.write('started but then stalled\n');
+      });
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'P2-CODEX-IDLE-TIMEOUT',
+        taskLabel: 'idle timeout without close',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('TIMEOUT');
+      expect(result.error?.message).toContain('idle timeout');
+      expect(result.output).toContain('started but then stalled');
+      expect(result.completionSignal).toBe('timeout');
+      expect(result.failureKind).toBe('timeout');
+      expect(result.verification).toBeUndefined();
+      expect(npmCalled).toBe(false);
+    } finally {
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
+      restoreEnvVar('AGENT_IDLE_TIMEOUT_MS', originalIdleTimeout);
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+    }
+  });
+
+  it('should fail with no-close timeout even when agent keeps producing output', async () => {
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const originalIdleTimeout = process.env.AGENT_IDLE_TIMEOUT_MS;
+    const originalNoCloseTimeout = process.env.AGENT_NO_CLOSE_TIMEOUT_MS;
+    const originalProgressInterval = process.env.AGENT_PROGRESS_INTERVAL_MS;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+    process.env.AGENT_IDLE_TIMEOUT_MS = '1000';
+    process.env.AGENT_NO_CLOSE_TIMEOUT_MS = '20';
+    process.env.AGENT_PROGRESS_INTERVAL_MS = '1000';
+
+    let outputTimer: NodeJS.Timeout | undefined;
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
+        cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --shortstat') {
+        cb(null, { stdout: '', stderr: '' });
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+
+    vi.mocked(spawn).mockImplementation((() => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      outputTimer = setInterval(() => {
+        child.stdout.write('still running\n');
+      }, 2);
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'P2-CODEX-NO-CLOSE-TIMEOUT',
+        taskLabel: 'no close while output continues',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('TIMEOUT');
+      expect(result.error?.message).toContain('did not close');
+      expect(result.output).toContain('still running');
+      expect(result.completionSignal).toBe('timeout');
+      expect(result.failureKind).toBe('timeout');
+    } finally {
+      if (outputTimer) {
+        clearInterval(outputTimer);
+      }
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
+      restoreEnvVar('AGENT_IDLE_TIMEOUT_MS', originalIdleTimeout);
+      restoreEnvVar('AGENT_NO_CLOSE_TIMEOUT_MS', originalNoCloseTimeout);
+      restoreEnvVar('AGENT_PROGRESS_INTERVAL_MS', originalProgressInterval);
       rmSync(tempVectaHubHome, { recursive: true, force: true });
       rmSync(tempConfigRoot, { recursive: true, force: true });
       if (originalExecFileImpl) {
@@ -2701,6 +3106,22 @@ describe('formatRunTaskJson', () => {
     });
   });
 
+  it('should include completionSignal in JSON when current agent completion behavior exposes it', () => {
+    const result = formatRunTaskJson({
+      success: true,
+      command: 'codex exec test',
+      output: 'implemented change set\n\nminor diagnostic\n',
+      agentExecutionOutcome: 'implemented',
+      completionSignal: 'close',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.agentExecutionOutcome).toBe('implemented');
+    expect(result.completionSignal).toBe('close');
+    expect(result.output).toContain('implemented change set');
+    expect(result.output).toContain('minor diagnostic');
+  });
+
   it('should not include verification in JSON when absent', () => {
     const result = formatRunTaskJson({
       success: true,
@@ -2709,6 +3130,91 @@ describe('formatRunTaskJson', () => {
     });
 
     expect(result.verification).toBeUndefined();
+  });
+});
+
+describe('formatRunTaskHumanOutput', () => {
+  it('should render contract preview as human-readable output', () => {
+    const output = formatRunTaskHumanOutput({
+      success: true,
+      command: '',
+      output: '',
+      commandGenerationPath: 'adapter',
+      fallbackUsed: false,
+      agentTaskContract: {
+        boundaryConfidence: 'medium',
+        allowedFiles: [
+          'src/commands/run-task.test.ts',
+          'src/commands/run-task.trace-closeout.test.ts',
+        ],
+        forbiddenFiles: [
+          'src/cli.ts',
+          'src/workflow/engine.ts',
+        ],
+        validationCommands: [
+          'npm run typecheck',
+          'npx vitest run src/commands/run-task.test.ts',
+        ],
+        executionMode: 'parallel-eligible',
+        docExcerptTruncated: false,
+        excerptStrategy: 'task-heading',
+        instructionHash: '1234567890abcdef',
+        globalConfigDigest: 'adapter=codex',
+      },
+    }, { mode: 'contract-preview' });
+
+    expect(output).toContain('合同预览');
+    expect(output).toContain('结论：可继续评估');
+    expect(output).toContain('允许修改：');
+    expect(output).toContain('- src/commands/run-task.test.ts');
+    expect(output).toContain('禁止修改：');
+    expect(output).toContain('- src/cli.ts');
+    expect(output).toContain('验证命令：');
+    expect(output).toContain('- npm run typecheck');
+    expect(output).toContain('命令生成路径：adapter');
+  });
+
+  it('should avoid empty human output when command output is blank', () => {
+    const output = formatRunTaskHumanOutput({
+      success: true,
+      command: '',
+      output: '',
+    });
+
+    expect(output).toBe('任务执行成功，但没有可展示输出。');
+  });
+
+  it('should summarize failed agent output instead of printing the full transcript', () => {
+    const longTranscript = Array.from({ length: 80 }, (_, index) => {
+      return `Agent diagnostic line ${index} with verbose internal prompt and execution details`;
+    }).join('\n');
+
+    const output = formatRunTaskHumanOutput({
+      success: false,
+      command: 'codex exec task',
+      output: longTranscript,
+      error: {
+        code: 'AGENT_NO_CLOSE_TIMEOUT',
+        message: 'Agent process did not close before timeout',
+      },
+      failureKind: 'timeout',
+      unclosedExecution: true,
+      completionSignal: 'timeout',
+      recoveryDecision: {
+        kind: 'resume',
+        mode: 'manual',
+        summary: '检查已产生的改动，再决定是否恢复执行。',
+      },
+    });
+
+    expect(output).toContain('任务执行失败');
+    expect(output).toContain('错误码：AGENT_NO_CLOSE_TIMEOUT');
+    expect(output).toContain('完成信号：timeout');
+    expect(output).toContain('已捕获输出：');
+    expect(output).toContain('输出摘要：');
+    expect(output).toContain('完整 stdout/stderr 已写入失败日志');
+    expect(output.length).toBeLessThan(1400);
+    expect(output).not.toContain('Agent diagnostic line 79');
   });
 });
 
