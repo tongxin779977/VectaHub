@@ -211,7 +211,7 @@ vi.mock('../utils/logger.js', () => ({
   })),
 }));
 
-import { runTask, runTaskCleanLogsCmd, collectGitChanges, formatRunTaskHumanOutput, formatRunTaskJson, runVerificationCommands, splitCommandArgs, buildDefaultPrompt, bindRunTaskContext, type RunTaskResult } from './run-task.js';
+import { runTask, runTaskCleanLogsCmd, collectGitChanges, formatRunTaskHumanOutput, formatRunTaskJson, runVerificationCommands, splitCommandArgs, buildDefaultPrompt, bindRunTaskContext, buildTaskRuntimeFeatures, formatPreflightEstimateSummary, buildRuntimeResolvedConfig, type RunTaskResult } from './run-task.js';
 import { getDefaultContext } from '../infrastructure/context.js';
 import { createLLMConfig, createLLMConfigDigestSource } from '../nl/llm.js';
 import { assessCommandRisk } from '../security-protocol/engine.js';
@@ -385,6 +385,35 @@ describe('runTask', () => {
       expect(json.agentTaskContract?.instructionHash).toMatch(/^[0-9a-f]{16}$/);
       expect(Object.prototype.hasOwnProperty.call(json.agentTaskContract ?? {}, 'docExcerpt')).toBe(false);
       expect(createLLMConfig).not.toHaveBeenCalled();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should fail when doc exists but task contract is missing', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'vectahub-run-task-missing-contract-'));
+    const docPath = join(tempDir, 'tasks.md');
+    writeFileSync(docPath, [
+      '# Tasks',
+      '## Task EXISTING',
+      '',
+      'taskId: EXISTING',
+      '',
+      'allowedFiles:',
+      '- src/commands/run-task.ts',
+    ].join('\n'));
+
+    try {
+      await expect(runTask({
+        tool: 'codex',
+        taskId: 'MISSING-TASK',
+        taskLabel: 'Missing task contract',
+        doc: docPath,
+        dryRun: true,
+      })).rejects.toThrow(`Task contract not found in doc: taskId=MISSING-TASK, docPath=${docPath}`);
+
+      expect(createLLMConfig).not.toHaveBeenCalled();
+      expect(spawn).not.toHaveBeenCalled();
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -1706,6 +1735,373 @@ describe('runTask', () => {
     } finally {
       restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
       restoreEnvVar('CODEX_HOME', originalCodexHome);
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+    }
+  });
+
+
+  it('should override estimate-derived no-close timeout with AGENT_NO_CLOSE_TIMEOUT_MS env var', async () => {
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const originalIdleTimeout = process.env.AGENT_IDLE_TIMEOUT_MS;
+    const originalNoCloseTimeout = process.env.AGENT_NO_CLOSE_TIMEOUT_MS;
+    const originalNoCloseExtension = process.env.AGENT_NO_CLOSE_EXTENSION_MS;
+    const originalNoCloseMaxExtensions = process.env.AGENT_NO_CLOSE_MAX_EXTENSIONS;
+    const originalMaxWallClock = process.env.AGENT_MAX_WALL_CLOCK_MS;
+    const originalProgressInterval = process.env.AGENT_PROGRESS_INTERVAL_MS;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+    process.env.AGENT_IDLE_TIMEOUT_MS = '500';
+    // Set a specific no-close timeout via env var
+    process.env.AGENT_NO_CLOSE_TIMEOUT_MS = '25';
+    // Set max extensions to 0 to prevent extensions
+    process.env.AGENT_NO_CLOSE_MAX_EXTENSIONS = '0';
+    process.env.AGENT_MAX_WALL_CLOCK_MS = '5000';
+    delete process.env.AGENT_NO_CLOSE_EXTENSION_MS;
+    delete process.env.AGENT_PROGRESS_INTERVAL_MS;
+
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
+        cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --shortstat') {
+        cb(null, '', '');
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'status --short --untracked-files=all') {
+        cb(null, '', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+
+    vi.mocked(spawn).mockImplementation((() => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      process.nextTick(() => {
+        child.stdout.write('agent working...\n');
+      });
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'RTK-006D-ENV-OVERRIDE',
+        taskLabel: 'env override estimate no-close timeout',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('TIMEOUT');
+      // The env var value should take priority over the estimate
+      expect(result.error?.message).toContain('did not close after 25ms');
+      expect(result.completionSignal).toBe('timeout');
+    } finally {
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
+      restoreEnvVar('AGENT_IDLE_TIMEOUT_MS', originalIdleTimeout);
+      restoreEnvVar('AGENT_NO_CLOSE_TIMEOUT_MS', originalNoCloseTimeout);
+      restoreEnvVar('AGENT_NO_CLOSE_EXTENSION_MS', originalNoCloseExtension);
+      restoreEnvVar('AGENT_NO_CLOSE_MAX_EXTENSIONS', originalNoCloseMaxExtensions);
+      restoreEnvVar('AGENT_MAX_WALL_CLOCK_MS', originalMaxWallClock);
+      restoreEnvVar('AGENT_PROGRESS_INTERVAL_MS', originalProgressInterval);
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+    }
+  });
+
+  it('should override estimate-derived max wall clock with AGENT_MAX_WALL_CLOCK_MS env var', async () => {
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const originalIdleTimeout = process.env.AGENT_IDLE_TIMEOUT_MS;
+    const originalNoCloseTimeout = process.env.AGENT_NO_CLOSE_TIMEOUT_MS;
+    const originalNoCloseExtension = process.env.AGENT_NO_CLOSE_EXTENSION_MS;
+    const originalNoCloseMaxExtensions = process.env.AGENT_NO_CLOSE_MAX_EXTENSIONS;
+    const originalMaxWallClock = process.env.AGENT_MAX_WALL_CLOCK_MS;
+    const originalProgressInterval = process.env.AGENT_PROGRESS_INTERVAL_MS;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+    process.env.AGENT_IDLE_TIMEOUT_MS = '500';
+    // Set no-close to a small value so the no-close fires quickly
+    process.env.AGENT_NO_CLOSE_TIMEOUT_MS = '20';
+    process.env.AGENT_NO_CLOSE_EXTENSION_MS = '20';
+    process.env.AGENT_NO_CLOSE_MAX_EXTENSIONS = '5';
+    // Set max wall clock to a specific value via env var
+    process.env.AGENT_MAX_WALL_CLOCK_MS = '50';
+    delete process.env.AGENT_PROGRESS_INTERVAL_MS;
+
+    let outputTimer: NodeJS.Timeout | undefined;
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
+        cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --shortstat') {
+        cb(null, '', '');
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'status --short --untracked-files=all') {
+        cb(null, '', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+
+    vi.mocked(spawn).mockImplementation((() => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      // Produce continuous output to have progress evidence
+      outputTimer = setInterval(() => {
+        child.stdout.write('still working\n');
+      }, 5);
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'RTK-006D-MAX-WALL-CLOCK',
+        taskLabel: 'env override max wall clock',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('TIMEOUT');
+      // The max wall clock timeout should use the env var value (50ms)
+      expect(result.error?.message).toContain('max wall-clock timeout after 50ms');
+      expect(result.completionSignal).toBe('timeout');
+    } finally {
+      if (outputTimer) clearInterval(outputTimer);
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
+      restoreEnvVar('AGENT_IDLE_TIMEOUT_MS', originalIdleTimeout);
+      restoreEnvVar('AGENT_NO_CLOSE_TIMEOUT_MS', originalNoCloseTimeout);
+      restoreEnvVar('AGENT_NO_CLOSE_EXTENSION_MS', originalNoCloseExtension);
+      restoreEnvVar('AGENT_NO_CLOSE_MAX_EXTENSIONS', originalNoCloseMaxExtensions);
+      restoreEnvVar('AGENT_MAX_WALL_CLOCK_MS', originalMaxWallClock);
+      restoreEnvVar('AGENT_PROGRESS_INTERVAL_MS', originalProgressInterval);
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+    }
+  });
+
+
+  it('should override estimate-derived max extensions with AGENT_NO_CLOSE_MAX_EXTENSIONS env var', async () => {
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const originalIdleTimeout = process.env.AGENT_IDLE_TIMEOUT_MS;
+    const originalNoCloseTimeout = process.env.AGENT_NO_CLOSE_TIMEOUT_MS;
+    const originalNoCloseExtension = process.env.AGENT_NO_CLOSE_EXTENSION_MS;
+    const originalNoCloseMaxExtensions = process.env.AGENT_NO_CLOSE_MAX_EXTENSIONS;
+    const originalMaxWallClock = process.env.AGENT_MAX_WALL_CLOCK_MS;
+    const originalProgressInterval = process.env.AGENT_PROGRESS_INTERVAL_MS;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+    process.env.AGENT_IDLE_TIMEOUT_MS = '500';
+    process.env.AGENT_NO_CLOSE_TIMEOUT_MS = '20';
+    process.env.AGENT_NO_CLOSE_EXTENSION_MS = '20';
+    // Set max extensions to 0 via env var to override estimate
+    process.env.AGENT_NO_CLOSE_MAX_EXTENSIONS = '0';
+    process.env.AGENT_MAX_WALL_CLOCK_MS = '5000';
+    delete process.env.AGENT_PROGRESS_INTERVAL_MS;
+
+    let outputCount = 0;
+    let outputTimer: NodeJS.Timeout | undefined;
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
+        cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --shortstat') {
+        cb(null, '', '');
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'status --short --untracked-files=all') {
+        cb(null, '', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+
+    vi.mocked(spawn).mockImplementation((() => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      // Produce continuous output to have progress evidence
+      outputTimer = setInterval(() => {
+        outputCount += 1;
+        child.stdout.write('still working ' + outputCount + '\n');
+      }, 5);
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'RTK-006D-MAX-EXT-OVERRIDE',
+        taskLabel: 'env override max extensions',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('TIMEOUT');
+      // With max extensions = 0, no extensions should be granted
+      expect(result.error?.message).toContain('exhausted 0 progress extensions');
+      expect(result.completionSignal).toBe('timeout');
+    } finally {
+      if (outputTimer) clearInterval(outputTimer);
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
+      restoreEnvVar('AGENT_IDLE_TIMEOUT_MS', originalIdleTimeout);
+      restoreEnvVar('AGENT_NO_CLOSE_TIMEOUT_MS', originalNoCloseTimeout);
+      restoreEnvVar('AGENT_NO_CLOSE_EXTENSION_MS', originalNoCloseExtension);
+      restoreEnvVar('AGENT_NO_CLOSE_MAX_EXTENSIONS', originalNoCloseMaxExtensions);
+      restoreEnvVar('AGENT_MAX_WALL_CLOCK_MS', originalMaxWallClock);
+      restoreEnvVar('AGENT_PROGRESS_INTERVAL_MS', originalProgressInterval);
+      rmSync(tempVectaHubHome, { recursive: true, force: true });
+      rmSync(tempConfigRoot, { recursive: true, force: true });
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
+      if (originalSpawnImpl) {
+        vi.mocked(spawn).mockImplementation(originalSpawnImpl as any);
+      }
+    }
+  });
+
+  it('should use estimate-derived max extensions when AGENT_NO_CLOSE_MAX_EXTENSIONS env var is not set', async () => {
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    const originalSpawnImpl = vi.mocked(spawn).getMockImplementation();
+    const originalVectaHubHome = process.env.VECTAHUB_HOME;
+    const originalCodexHome = process.env.CODEX_HOME;
+    const originalIdleTimeout = process.env.AGENT_IDLE_TIMEOUT_MS;
+    const originalNoCloseTimeout = process.env.AGENT_NO_CLOSE_TIMEOUT_MS;
+    const originalNoCloseExtension = process.env.AGENT_NO_CLOSE_EXTENSION_MS;
+    const originalNoCloseMaxExtensions = process.env.AGENT_NO_CLOSE_MAX_EXTENSIONS;
+    const originalMaxWallClock = process.env.AGENT_MAX_WALL_CLOCK_MS;
+    const originalProgressInterval = process.env.AGENT_PROGRESS_INTERVAL_MS;
+    const tempVectaHubHome = mkdtempSync(join(tmpdir(), 'vectahub-home-'));
+    const tempConfigRoot = mkdtempSync(join(tmpdir(), 'codex-home-'));
+    process.env.VECTAHUB_HOME = tempVectaHubHome;
+    process.env.CODEX_HOME = seedCodexUserHome(tempConfigRoot);
+    process.env.AGENT_IDLE_TIMEOUT_MS = '500';
+    process.env.AGENT_NO_CLOSE_TIMEOUT_MS = '20';
+    process.env.AGENT_NO_CLOSE_EXTENSION_MS = '20';
+    process.env.AGENT_MAX_WALL_CLOCK_MS = '5000';
+    // Remove max extensions env var to test estimate-derived default
+    delete process.env.AGENT_NO_CLOSE_MAX_EXTENSIONS;
+    delete process.env.AGENT_PROGRESS_INTERVAL_MS;
+
+    let outputCount = 0;
+    let outputTimer: NodeJS.Timeout | undefined;
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
+        cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --shortstat') {
+        cb(null, '', '');
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'status --short --untracked-files=all') {
+        cb(null, '', '');
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+
+    vi.mocked(spawn).mockImplementation((() => {
+      const child = new EventEmitter() as any;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+      outputTimer = setInterval(() => {
+        outputCount += 1;
+        child.stdout.write('still working ' + outputCount + '\n');
+      }, 5);
+      return child;
+    }) as any);
+
+    try {
+      const result = await runTask({
+        tool: 'codex',
+        taskId: 'RTK-006D-MAX-EXT-ESTIMATE',
+        taskLabel: 'estimate-derived max extensions',
+        doc: '/path/to/doc.md',
+        dryRun: false,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('TIMEOUT');
+      // The estimate for a small codex task should give maxExtensions >= 1
+      // (since default is 3 from HARDCODED_DEFAULTS, estimate-derived will be >= 1 for small tasks)
+      // The error message should reference extensions > 0
+      expect(result.error?.message).toMatch(/exhausted \d+ progress extensions/);
+      const extensionMatch = result.error?.message.match(/exhausted (\d+) progress extensions/);
+      if (extensionMatch) {
+        const extensionsUsed = parseInt(extensionMatch[1], 10);
+        expect(extensionsUsed).toBeGreaterThanOrEqual(1);
+      }
+      expect(result.completionSignal).toBe('timeout');
+    } finally {
+      if (outputTimer) clearInterval(outputTimer);
+      restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+      restoreEnvVar('CODEX_HOME', originalCodexHome);
+      restoreEnvVar('AGENT_IDLE_TIMEOUT_MS', originalIdleTimeout);
+      restoreEnvVar('AGENT_NO_CLOSE_TIMEOUT_MS', originalNoCloseTimeout);
+      restoreEnvVar('AGENT_NO_CLOSE_EXTENSION_MS', originalNoCloseExtension);
+      restoreEnvVar('AGENT_NO_CLOSE_MAX_EXTENSIONS', originalNoCloseMaxExtensions);
+      restoreEnvVar('AGENT_MAX_WALL_CLOCK_MS', originalMaxWallClock);
+      restoreEnvVar('AGENT_PROGRESS_INTERVAL_MS', originalProgressInterval);
       rmSync(tempVectaHubHome, { recursive: true, force: true });
       rmSync(tempConfigRoot, { recursive: true, force: true });
       if (originalExecFileImpl) {
@@ -4014,4 +4410,312 @@ describe('splitCommandArgs', () => {
   it('should throw on unclosed quote', () => {
     expect(() => splitCommandArgs(`echo "abc`)).toThrow();
   });
+});
+
+describe('buildTaskRuntimeFeatures', () => {
+  it('should classify a single-file contract-only task with typecheck', () => {
+    const contract = {
+      taskId: 'RTK-006C-test',
+      label: 'test task',
+      instructionHash: 'abc123',
+      allowedFiles: ['src/commands/run-task.ts'],
+      forbiddenFiles: [],
+      validationCommands: ['npm run typecheck'],
+      timeoutMs: 600000,
+      executionMode: 'serial' as const,
+      boundaryConfidence: 'medium' as const,
+    };
+    const contractSummary = {
+      boundaryConfidence: 'medium' as const,
+      allowedFiles: ['src/commands/run-task.ts'],
+      forbiddenFiles: [],
+      validationCommands: ['npm run typecheck'],
+      executionMode: 'serial' as const,
+      docExcerptTruncated: false,
+      excerptStrategy: 'task-heading' as const,
+      instructionHash: 'abc123',
+    };
+
+    const features = buildTaskRuntimeFeatures(contract, contractSummary);
+
+    expect(features.taskId).toBe('RTK-006C-test');
+    expect(features.allowedFileCount).toBe(1);
+    expect(features.hasTypecheck).toBe(true);
+    expect(features.hasVitest).toBe(false);
+    expect(features.hasLint).toBe(false);
+    expect(features.isSinglePureFunction).toBe(true);
+    expect(features.mustReuseForbiddenFileLogic).toBe(false);
+  });
+
+  it('should detect vitest, lint, and test file modifications', () => {
+    const contract = {
+      taskId: 'RTK-006C-wide',
+      label: 'wide task',
+      instructionHash: 'def456',
+      allowedFiles: ['src/foo.ts', 'src/bar.ts', 'src/foo.test.ts'],
+      forbiddenFiles: ['src/cli.ts'],
+      validationCommands: ['npx vitest run src/foo.test.ts', 'npm run lint'],
+      timeoutMs: 600000,
+      executionMode: 'serial' as const,
+      boundaryConfidence: 'high' as const,
+    };
+    const contractSummary = {
+      boundaryConfidence: 'high' as const,
+      allowedFiles: ['src/foo.ts', 'src/bar.ts', 'src/foo.test.ts'],
+      forbiddenFiles: ['src/cli.ts'],
+      validationCommands: ['npx vitest run src/foo.test.ts', 'npm run lint'],
+      executionMode: 'serial' as const,
+      docExcerptTruncated: false,
+      excerptStrategy: 'task-heading' as const,
+      instructionHash: 'def456',
+    };
+
+    const features = buildTaskRuntimeFeatures(contract, contractSummary);
+
+    expect(features.hasVitest).toBe(true);
+    expect(features.hasLint).toBe(true);
+    expect(features.modifiesTests).toBe(true);
+    expect(features.mustReuseForbiddenFileLogic).toBe(true);
+    expect(features.isSinglePureFunction).toBe(false);
+  });
+
+  it('should detect docs-only tasks', () => {
+    const contract = {
+      taskId: 'RTK-006C-docs',
+      label: 'docs task',
+      instructionHash: 'ghi789',
+      allowedFiles: ['docs/tasks/something.md'],
+      forbiddenFiles: [],
+      validationCommands: [],
+      timeoutMs: 600000,
+      executionMode: 'serial' as const,
+      boundaryConfidence: 'medium' as const,
+    };
+    const contractSummary = {
+      boundaryConfidence: 'medium' as const,
+      allowedFiles: ['docs/tasks/something.md'],
+      forbiddenFiles: [],
+      validationCommands: [],
+      executionMode: 'serial' as const,
+      docExcerptTruncated: false,
+      excerptStrategy: 'task-heading' as const,
+      instructionHash: 'ghi789',
+    };
+
+    const features = buildTaskRuntimeFeatures(contract, contractSummary);
+
+    expect(features.isDocsOnly).toBe(true);
+    expect(features.isSinglePureFunction).toBe(true);
+    expect(features.allowedFileCount).toBe(1);
+    expect(features.validationCommandCount).toBe(0);
+  });
+});
+
+describe('formatPreflightEstimateSummary', () => {
+  it('should format a tiny estimate with duration in seconds', () => {
+    const estimate = {
+      taskId: 'test',
+      complexity: 'tiny' as const,
+      score: 15,
+      expectedDurationMs: 150_000,
+      heuristicEstimateMs: 150_000,
+      noCloseTimeoutMs: 120_000,
+      extensionMs: 60_000,
+      maxExtensions: 1,
+      maxWallClockMs: 300_000,
+      progressIntervalMs: 30_000,
+      splitRecommended: false,
+      reasons: [],
+      weights: { heuristic: 1, llm: 0, historical: 0 },
+    };
+
+    const lines = formatPreflightEstimateSummary(estimate);
+
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines[0]).toContain('tiny');
+    expect(lines[0]).toContain('2m 30s');
+    expect(lines[0]).toContain('运行时预估');
+    expect(lines.some(line => line.includes('暂无历史数据'))).toBe(true);
+  });
+
+  it('should include split recommendation for large tasks', () => {
+    const estimate = {
+      taskId: 'test-large',
+      complexity: 'large' as const,
+      score: 95,
+      expectedDurationMs: 1_200_000,
+      heuristicEstimateMs: 1_200_000,
+      noCloseTimeoutMs: 420_000,
+      extensionMs: 180_000,
+      maxExtensions: 0,
+      maxWallClockMs: 1_800_000,
+      progressIntervalMs: 120_000,
+      splitRecommended: true,
+      reasons: ['many allowed files', 'runtime behavior change'],
+      weights: { heuristic: 1, llm: 0, historical: 0 },
+    };
+
+    const lines = formatPreflightEstimateSummary(estimate);
+
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines[0]).toContain('large');
+    expect(lines[0]).toContain('20m 0s');
+    expect(lines.some(line => line.includes('建议拆分'))).toBe(true);
+  });
+
+  it('should format duration without minutes for short estimates', () => {
+    const estimate = {
+      taskId: 'test-short',
+      complexity: 'tiny' as const,
+      score: 10,
+      expectedDurationMs: 45_000,
+      heuristicEstimateMs: 45_000,
+      noCloseTimeoutMs: 120_000,
+      extensionMs: 60_000,
+      maxExtensions: 1,
+      maxWallClockMs: 300_000,
+      progressIntervalMs: 30_000,
+      splitRecommended: false,
+      reasons: [],
+      weights: { heuristic: 1, llm: 0, historical: 0 },
+    };
+
+    const lines = formatPreflightEstimateSummary(estimate);
+
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines[0]).toContain('45s');
+    expect(lines[0]).not.toContain('m');
+  });
+
+  it('should display historical estimate when available', () => {
+    const estimate = {
+      taskId: 'test-historical',
+      complexity: 'medium' as const,
+      score: 55,
+      expectedDurationMs: 500_000,
+      heuristicEstimateMs: 450_000,
+      historicalEstimateMs: 600_000,
+      noCloseTimeoutMs: 200_000,
+      extensionMs: 90_000,
+      maxExtensions: 3,
+      maxWallClockMs: 810_000,
+      progressIntervalMs: 75_000,
+      splitRecommended: false,
+      reasons: [],
+      weights: { heuristic: 0.45, llm: 0, historical: 0.55 },
+    };
+
+    const lines = formatPreflightEstimateSummary(estimate);
+
+    expect(lines.some(line => line.includes('历史中位数'))).toBe(true);
+    expect(lines.some(line => line.includes('权重'))).toBe(true);
+  });
+});
+
+describe('buildRuntimeResolvedConfig', () => {
+  const sampleEstimate = {
+    taskId: 'test',
+    complexity: 'medium' as const,
+    score: 55,
+    expectedDurationMs: 450_000,
+    heuristicEstimateMs: 450_000,
+    noCloseTimeoutMs: 200_000,
+    extensionMs: 90_000,
+    maxExtensions: 3,
+    maxWallClockMs: 810_000,
+    progressIntervalMs: 75_000,
+    splitRecommended: false,
+    reasons: [],
+    weights: { heuristic: 1, llm: 0, historical: 0 },
+  };
+
+  it('should use estimate values when no env vars are set', () => {
+    const config = buildRuntimeResolvedConfig(sampleEstimate, () => undefined);
+
+    expect(config.noCloseTimeoutMs).toBe(200_000);
+    expect(config.extensionMs).toBe(90_000);
+    expect(config.maxExtensions).toBe(3);
+    expect(config.maxWallClockMs).toBe(810_000);
+    expect(config.progressIntervalMs).toBe(75_000);
+  });
+
+  it('should use env vars when explicitly set, overriding estimate values', () => {
+    const envVars: Record<string, number> = {
+      AGENT_NO_CLOSE_TIMEOUT_MS: 50_000,
+      AGENT_NO_CLOSE_EXTENSION_MS: 30_000,
+      AGENT_NO_CLOSE_MAX_EXTENSIONS: 5,
+      AGENT_MAX_WALL_CLOCK_MS: 200_000,
+      AGENT_PROGRESS_INTERVAL_MS: 10_000,
+      AGENT_CLI_TIMEOUT: 300_000,
+      AGENT_EXIT_FLUSH_GRACE_MS: 2000,
+      AGENT_IDLE_TIMEOUT_MS: 60_000,
+    };
+    const config = buildRuntimeResolvedConfig(sampleEstimate, (name) => envVars[name]);
+
+    expect(config.noCloseTimeoutMs).toBe(50_000);
+    expect(config.extensionMs).toBe(30_000);
+    expect(config.maxExtensions).toBe(5);
+    expect(config.maxWallClockMs).toBe(200_000);
+    expect(config.progressIntervalMs).toBe(10_000);
+    expect(config.cliTimeoutMs).toBe(300_000);
+    expect(config.exitFlushGraceMs).toBe(2000);
+    expect(config.idleTimeoutMs).toBe(60_000);
+  });
+
+  it('should use hardcoded defaults when no estimate and no env vars', () => {
+    const config = buildRuntimeResolvedConfig(undefined, () => undefined);
+
+    expect(config.cliTimeoutMs).toBe(600_000);
+    expect(config.exitFlushGraceMs).toBe(1500);
+    expect(config.idleTimeoutMs).toBe(120_000);
+    expect(config.progressIntervalMs).toBe(30_000);
+    expect(config.noCloseTimeoutMs).toBe(180_000);
+    expect(config.extensionMs).toBe(120_000);
+    expect(config.maxExtensions).toBe(3);
+    expect(config.maxWallClockMs).toBe(900_000);
+  });
+
+  it('should prefer env var over estimate when both are available', () => {
+    const config = buildRuntimeResolvedConfig(sampleEstimate, (name) => {
+      if (name === 'AGENT_NO_CLOSE_TIMEOUT_MS') return 42_000;
+      return undefined;
+    });
+
+    expect(config.noCloseTimeoutMs).toBe(42_000);
+    expect(config.extensionMs).toBe(sampleEstimate.extensionMs);
+    expect(config.maxExtensions).toBe(sampleEstimate.maxExtensions);
+  });
+
+  it('should derive progress interval from estimate when AGENT_PROGRESS_INTERVAL_MS is not set', () => {
+    const config = buildRuntimeResolvedConfig(sampleEstimate, (name) => {
+      if (name === 'AGENT_PROGRESS_INTERVAL_MS') return undefined;
+      return undefined;
+    });
+
+    expect(config.progressIntervalMs).toBe(sampleEstimate.progressIntervalMs);
+    // Verify it uses the estimate value, not the hardcoded 30000
+    expect(config.progressIntervalMs).toBe(75_000);
+    expect(config.progressIntervalMs).not.toBe(30_000);
+  });
+
+  it('should derive all timeout and progress fields from estimate when only non-estimate env vars are set', () => {
+    const config = buildRuntimeResolvedConfig(sampleEstimate, (name) => {
+      if (name === 'AGENT_CLI_TIMEOUT') return 300_000;
+      if (name === 'AGENT_EXIT_FLUSH_GRACE_MS') return 2000;
+      if (name === 'AGENT_IDLE_TIMEOUT_MS') return 60_000;
+      return undefined;
+    });
+
+    // Non-estimate env vars should use their provided values
+    expect(config.cliTimeoutMs).toBe(300_000);
+    expect(config.exitFlushGraceMs).toBe(2000);
+    expect(config.idleTimeoutMs).toBe(60_000);
+    // Estimate-derived fields should use estimate values
+    expect(config.noCloseTimeoutMs).toBe(sampleEstimate.noCloseTimeoutMs);
+    expect(config.extensionMs).toBe(sampleEstimate.extensionMs);
+    expect(config.maxExtensions).toBe(sampleEstimate.maxExtensions);
+    expect(config.maxWallClockMs).toBe(sampleEstimate.maxWallClockMs);
+    expect(config.progressIntervalMs).toBe(sampleEstimate.progressIntervalMs);
+  });
+
 });

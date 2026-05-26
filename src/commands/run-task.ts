@@ -26,6 +26,15 @@ import {
 } from './run-task-review.js';
 import { decideRecovery, type RecoveryDecision, type RecoveryDecisionKind, type RecoveryDecisionMode } from '../types/recovery.js';
 import type { DocTaskFailureKind } from '../types/doc-task.js';
+import {
+  combineRuntimeEstimates,
+  type TaskRuntimeEstimate,
+  type TaskRuntimeFeatureInput,
+} from './run-task-runtime-estimator.js';
+import {
+  createRuntimeSampleStore,
+  createRuntimeSample,
+} from './run-task-runtime-sample-store.js';
 
 let boundContext: InfrastructureContext | null = null;
 
@@ -95,34 +104,6 @@ function stripIDEEnv(): Record<string, string | undefined> {
 const DEFAULT_AGENT_CLI_TIMEOUT = 600000;
 function getAgentCliTimeout(): number {
   return getContext().environment.getEnvNumber('AGENT_CLI_TIMEOUT', DEFAULT_AGENT_CLI_TIMEOUT) ?? DEFAULT_AGENT_CLI_TIMEOUT;
-}
-const DEFAULT_AGENT_EXIT_FLUSH_GRACE_MS = 1500;
-function getAgentExitFlushGraceMs(): number {
-  return getContext().environment.getEnvNumber('AGENT_EXIT_FLUSH_GRACE_MS', DEFAULT_AGENT_EXIT_FLUSH_GRACE_MS) ?? DEFAULT_AGENT_EXIT_FLUSH_GRACE_MS;
-}
-const DEFAULT_AGENT_IDLE_TIMEOUT_MS = 120000;
-function getAgentIdleTimeoutMs(): number {
-  return getContext().environment.getEnvNumber('AGENT_IDLE_TIMEOUT_MS', DEFAULT_AGENT_IDLE_TIMEOUT_MS) ?? DEFAULT_AGENT_IDLE_TIMEOUT_MS;
-}
-const DEFAULT_AGENT_PROGRESS_INTERVAL_MS = 30000;
-function getAgentProgressIntervalMs(): number {
-  return getContext().environment.getEnvNumber('AGENT_PROGRESS_INTERVAL_MS', DEFAULT_AGENT_PROGRESS_INTERVAL_MS) ?? DEFAULT_AGENT_PROGRESS_INTERVAL_MS;
-}
-const DEFAULT_AGENT_NO_CLOSE_TIMEOUT_MS = 180000;
-function getAgentNoCloseTimeoutMs(): number {
-  return getContext().environment.getEnvNumber('AGENT_NO_CLOSE_TIMEOUT_MS', DEFAULT_AGENT_NO_CLOSE_TIMEOUT_MS) ?? DEFAULT_AGENT_NO_CLOSE_TIMEOUT_MS;
-}
-const DEFAULT_AGENT_NO_CLOSE_EXTENSION_MS = 120000;
-function getAgentNoCloseExtensionMs(): number {
-  return getContext().environment.getEnvNumber('AGENT_NO_CLOSE_EXTENSION_MS', DEFAULT_AGENT_NO_CLOSE_EXTENSION_MS) ?? DEFAULT_AGENT_NO_CLOSE_EXTENSION_MS;
-}
-const DEFAULT_AGENT_NO_CLOSE_MAX_EXTENSIONS = 3;
-function getAgentNoCloseMaxExtensions(): number {
-  return getContext().environment.getEnvNumber('AGENT_NO_CLOSE_MAX_EXTENSIONS', DEFAULT_AGENT_NO_CLOSE_MAX_EXTENSIONS) ?? DEFAULT_AGENT_NO_CLOSE_MAX_EXTENSIONS;
-}
-const DEFAULT_AGENT_MAX_WALL_CLOCK_MS = 900000;
-function getAgentMaxWallClockMs(): number {
-  return getContext().environment.getEnvNumber('AGENT_MAX_WALL_CLOCK_MS', DEFAULT_AGENT_MAX_WALL_CLOCK_MS) ?? DEFAULT_AGENT_MAX_WALL_CLOCK_MS;
 }
 const DEFAULT_MAX_JSON_OUTPUT_LENGTH = 50000;
 function getMaxJsonOutputLength(): number {
@@ -740,6 +721,15 @@ function buildDryRunPrompt(taskId: string, label: string, contractSummary: Agent
   ].join('\n');
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function docExcerptContainsTaskId(docExcerpt: string, taskId: string): boolean {
+  const escapedTaskId = escapeRegExp(taskId);
+  return new RegExp(`(^|[^\\w.-])${escapedTaskId}([^\\w.-]|$)`).test(docExcerpt);
+}
+
 async function buildAgentTaskContract(input: {
   taskId: string;
   label: string;
@@ -762,6 +752,9 @@ async function buildAgentTaskContract(input: {
     docExcerpt = excerpt.excerpt;
     docExcerptTruncated = excerpt.truncated;
     excerptStrategy = excerpt.strategy;
+    if (excerptStrategy === 'head-fallback' || !docExcerptContainsTaskId(docExcerpt, input.taskId)) {
+      throw new Error(`Task contract not found in doc: taskId=${input.taskId}, docPath=${input.docPath}`);
+    }
   } else if (input.docPath) {
     notes.push('doc-not-found');
   } else {
@@ -1816,6 +1809,109 @@ export function formatRunTaskHumanOutput(result: RunTaskResult, options: RunTask
   return formatRunTaskSuccessHumanOutput(result);
 }
 
+export function buildTaskRuntimeFeatures(
+  contract: AgentTaskContract,
+  contractSummary: AgentTaskContractSummary,
+): TaskRuntimeFeatureInput {
+  const allowed = contractSummary.allowedFiles;
+  const validationCmds = contractSummary.validationCommands.join(' ');
+  return {
+    taskId: contract.taskId,
+    allowedFileCount: allowed.length,
+    newSourceFileCount: 0,
+    newTestFileCount: 0,
+    validationCommandCount: contractSummary.validationCommands.length,
+    hasVitest: /\bnpm\s+run\s+vitest\b|\bnpx\s+vitest\b/.test(validationCmds),
+    hasTypecheck: /\btypecheck\b/.test(validationCmds),
+    hasLint: /\blint\b/.test(validationCmds),
+    modifiesTests: allowed.some(f => /\.test\./.test(f) || /\.spec\./.test(f)),
+    requiresReadableAndJsonOutput: false,
+    requiresAsyncProcessTimeoutTests: false,
+    hasCliRegistration: allowed.some(f => /cli[-.]?[jt]s$/.test(f)),
+    changesPublicContract: allowed.some(f => /\/types\//.test(f) || /index\.[jt]s$/.test(f)),
+    changesRuntimeBehavior: allowed.length > 2,
+    changesPersistence: false,
+    changesSecurityOrSandbox: false,
+    mustReuseForbiddenFileLogic: contractSummary.forbiddenFiles.length > 0,
+    hasStopIfBroadRefactorNote: /\bbroad\s*refactor\b/i.test(contract.notes?.join(' ') ?? ''),
+    isDocsOnly: allowed.length > 0 && allowed.every(f => /\.md$/i.test(f)),
+    isContractOnly: allowed.length > 0 && allowed.every(f => /\/types\//.test(f) || /contract/i.test(f)),
+    isSinglePureFunction: allowed.length === 1,
+    noRuntimeBehaviorChange: false,
+  };
+}
+
+export interface RuntimeResolvedConfig {
+  cliTimeoutMs: number;
+  exitFlushGraceMs: number;
+  idleTimeoutMs: number;
+  progressIntervalMs: number;
+  noCloseTimeoutMs: number;
+  extensionMs: number;
+  maxExtensions: number;
+  maxWallClockMs: number;
+}
+
+const HARDCODED_DEFAULTS = {
+  AGENT_CLI_TIMEOUT: 600000,
+  AGENT_EXIT_FLUSH_GRACE_MS: 1500,
+  AGENT_IDLE_TIMEOUT_MS: 120000,
+  AGENT_PROGRESS_INTERVAL_MS: 30000,
+  AGENT_NO_CLOSE_TIMEOUT_MS: 180000,
+  AGENT_NO_CLOSE_EXTENSION_MS: 120000,
+  AGENT_NO_CLOSE_MAX_EXTENSIONS: 3,
+  AGENT_MAX_WALL_CLOCK_MS: 900000,
+} as const;
+
+export function buildRuntimeResolvedConfig(
+  estimate: TaskRuntimeEstimate | undefined,
+  getEnvNumber: (name: string, defaultValue?: number) => number | undefined,
+): RuntimeResolvedConfig {
+  const resolve = (envName: keyof typeof HARDCODED_DEFAULTS, estimateValue?: number): number => {
+    const envValue = getEnvNumber(envName);
+    if (envValue !== undefined) return envValue;
+    if (estimateValue !== undefined) return estimateValue;
+    return HARDCODED_DEFAULTS[envName];
+  };
+
+  return {
+    cliTimeoutMs: resolve('AGENT_CLI_TIMEOUT'),
+    exitFlushGraceMs: resolve('AGENT_EXIT_FLUSH_GRACE_MS'),
+    idleTimeoutMs: resolve('AGENT_IDLE_TIMEOUT_MS'),
+    progressIntervalMs: resolve('AGENT_PROGRESS_INTERVAL_MS', estimate?.progressIntervalMs),
+    noCloseTimeoutMs: resolve('AGENT_NO_CLOSE_TIMEOUT_MS', estimate?.noCloseTimeoutMs),
+    extensionMs: resolve('AGENT_NO_CLOSE_EXTENSION_MS', estimate?.extensionMs),
+    maxExtensions: resolve('AGENT_NO_CLOSE_MAX_EXTENSIONS', estimate?.maxExtensions),
+    maxWallClockMs: resolve('AGENT_MAX_WALL_CLOCK_MS', estimate?.maxWallClockMs),
+  };
+}
+
+export function formatPreflightEstimateSummary(estimate: TaskRuntimeEstimate): string[] {
+  const minutes = Math.floor(estimate.expectedDurationMs / 60_000);
+  const seconds = Math.round((estimate.expectedDurationMs % 60_000) / 1000);
+  const durationText = minutes > 0 ? `~${minutes}m ${seconds}s` : `~${seconds}s`;
+  
+  const lines = [
+    `运行时预估：复杂度 ${estimate.complexity}，${durationText}`,
+  ];
+  
+  if (estimate.historicalEstimateMs !== undefined) {
+    const histMinutes = Math.floor(estimate.historicalEstimateMs / 60_000);
+    const histSeconds = Math.round((estimate.historicalEstimateMs % 60_000) / 1000);
+    const histDurationText = histMinutes > 0 ? `${histMinutes}m ${histSeconds}s` : `${histSeconds}s`;
+    const histPercent = Math.round(estimate.weights.historical * 100);
+    const heuristicPercent = Math.round(estimate.weights.heuristic * 100);
+    lines.push(`历史校准：历史中位数 ${histDurationText}，权重 ${histPercent}%，启发式权重 ${heuristicPercent}%`);
+  } else if (estimate.weights.historical === 0) {
+    lines.push('历史校准：暂无历史数据，使用启发式估计');
+  }
+  
+  if (estimate.splitRecommended) {
+    lines.push('提示：任务规模较大，建议拆分后执行');
+  }
+  return lines;
+}
+
 export async function runTask(options: {
   tool?: string;
   taskId: string;
@@ -1900,6 +1996,27 @@ export async function runTask(options: {
 
     if (!tool) {
       throw new Error('缺少 Agent CLI 工具名称，请传入 --tool <name>');
+    }
+
+    // Runtime estimate preflight summary (for both regular and dry-run)
+    const runtimeFeatures = buildTaskRuntimeFeatures(agentTaskContract, agentTaskContractSummary);
+    const workspaceHash = djb2Hash(getContext().environment.getCwd());
+    const profileKey = {
+      agentId: tool,
+      adapterId: knownAgentDescriptor ? `adapter=${knownAgentDescriptor.id}` : undefined,
+      model: undefined,
+      workspaceHash,
+    };
+    const sampleStore = createRuntimeSampleStore();
+    const history = await sampleStore.load(profileKey);
+    const runtimeEstimate = combineRuntimeEstimates({
+      profileKey,
+      taskShapeHash: agentTaskContract.instructionHash,
+      features: runtimeFeatures,
+      history,
+    });
+    for (const line of formatPreflightEstimateSummary(runtimeEstimate)) {
+      getLogger().info(line);
     }
 
     if (dryRun) {
@@ -2363,7 +2480,14 @@ export async function runTask(options: {
       getLogger().info(`说明: ${generated.explanation}`);
     }
 
+
+    // Resolve timeout/progress config using already-computed runtime estimate
+    const runtimeConfig = buildRuntimeResolvedConfig(
+      runtimeEstimate,
+      (name, defaultValue) => getContext().environment.getEnvNumber(name, defaultValue),
+    );
     const gitDiffBefore = await readGitDiffSnapshot();
+    const taskStartTime = Date.now();
     try {
       const spawnSpan = startSpan('cli.run-task.spawnAgent', {
         context: traceContext,
@@ -2374,7 +2498,7 @@ export async function runTask(options: {
           commandGenerationPath,
           fallbackUsed,
           command: limitText(fullCommand),
-          timeoutMs: getAgentCliTimeout(),
+          timeoutMs: runtimeConfig.cliTimeoutMs,
         },
       });
 
@@ -2469,7 +2593,7 @@ export async function runTask(options: {
         };
         const rejectForIdleTimeout = () => {
           child.kill('SIGKILL');
-          const idleError = new Error(`Agent CLI idle timeout after ${getAgentIdleTimeoutMs()}ms`);
+          const idleError = new Error(`Agent CLI idle timeout after ${runtimeConfig.idleTimeoutMs}ms`);
           const enrichedIdleError = idleError as Error & {
             code?: string;
             completionSignal?: SpawnCompletionSignal;
@@ -2503,8 +2627,8 @@ export async function runTask(options: {
           }
           noCloseTimer = setTimeout(async () => {
             const elapsedMs = Date.now() - startedAt;
-            if (elapsedMs >= getAgentMaxWallClockMs()) {
-              rejectForNoCloseTimeout(`Agent CLI reached max wall-clock timeout after ${getAgentMaxWallClockMs()}ms`);
+            if (elapsedMs >= runtimeConfig.maxWallClockMs) {
+              rejectForNoCloseTimeout(`Agent CLI reached max wall-clock timeout after ${runtimeConfig.maxWallClockMs}ms`);
               return;
             }
 
@@ -2524,25 +2648,25 @@ export async function runTask(options: {
             const hasProgressEvidence = currentProgressLength > lastNoCloseProgressLength;
             lastNoCloseProgressLength = currentProgressLength;
             if (!hasProgressEvidence) {
-              rejectForNoCloseTimeout(`Agent CLI did not close after ${getAgentNoCloseTimeoutMs()}ms and produced no new progress evidence`);
+              rejectForNoCloseTimeout(`Agent CLI did not close after ${runtimeConfig.noCloseTimeoutMs}ms and produced no new progress evidence`);
               return;
             }
 
-            if (noCloseExtensionCount >= getAgentNoCloseMaxExtensions()) {
-              rejectForNoCloseTimeout(`Agent CLI did not close after ${getAgentNoCloseTimeoutMs()}ms and exhausted ${getAgentNoCloseMaxExtensions()} progress extensions`);
+            if (noCloseExtensionCount >= runtimeConfig.maxExtensions) {
+              rejectForNoCloseTimeout(`Agent CLI did not close after ${runtimeConfig.noCloseTimeoutMs}ms and exhausted ${runtimeConfig.maxExtensions} progress extensions`);
               return;
             }
 
             noCloseExtensionCount += 1;
-            getLogger().info(`Agent 仍有输出进展，延长等待 ${getAgentNoCloseExtensionMs()}ms (${noCloseExtensionCount}/${getAgentNoCloseMaxExtensions()})`);
-            scheduleNoCloseCheckpoint(getAgentNoCloseExtensionMs());
+            getLogger().info(`Agent 仍有输出进展，延长等待 ${runtimeConfig.extensionMs}ms (${noCloseExtensionCount}/${runtimeConfig.maxExtensions})`);
+            scheduleNoCloseCheckpoint(runtimeConfig.extensionMs);
           }, delayMs);
         };
         const refreshIdleTimer = () => {
           if (idleTimer) {
             clearTimeout(idleTimer);
           }
-          idleTimer = setTimeout(rejectForIdleTimeout, getAgentIdleTimeoutMs());
+          idleTimer = setTimeout(rejectForIdleTimeout, runtimeConfig.idleTimeoutMs);
         };
         const settleWithOutputLastMessage = () => {
           const outputLastMessage = readRunTaskOutputFile(outputLastMessagePath);
@@ -2580,7 +2704,7 @@ export async function runTask(options: {
 
         const timer = setTimeout(() => {
           child.kill('SIGKILL');
-          const timeoutError = new Error(`Agent CLI timeout after ${getAgentCliTimeout()}ms`);
+          const timeoutError = new Error(`Agent CLI timeout after ${runtimeConfig.cliTimeoutMs}ms`);
           const enrichedTimeoutError = timeoutError as Error & {
             code?: string;
             completionSignal?: SpawnCompletionSignal;
@@ -2592,7 +2716,7 @@ export async function runTask(options: {
           enrichedTimeoutError.stdout = redactedStdout;
           enrichedTimeoutError.stderr = redactedStderr;
           rejectOnce(enrichedTimeoutError);
-        }, getAgentCliTimeout());
+        }, runtimeConfig.cliTimeoutMs);
         const onErr = (err: unknown) => {
           const executionError = err as CommandExecutionError;
           if (executionError.stdout === undefined) {
@@ -2623,7 +2747,7 @@ export async function runTask(options: {
           exitFlushTimer = setTimeout(() => {
             if (settled || closeObserved) return;
             settleWithExit(exitCode, exitSignal, 'exit-flush-grace');
-          }, getAgentExitFlushGraceMs());
+          }, runtimeConfig.exitFlushGraceMs);
         };
         const onClose = (code: number | null, signal: NodeJS.Signals | null) => {
           closeObserved = true;
@@ -2641,19 +2765,19 @@ export async function runTask(options: {
           exitFlushTimer = setTimeout(() => {
             if (settled) return;
             settleWithExit(code, signal, 'close');
-          }, getAgentExitFlushGraceMs());
+          }, runtimeConfig.exitFlushGraceMs);
         };
 
         streamDrainPromise.catch(onErr);
         refreshIdleTimer();
-        scheduleNoCloseCheckpoint(getAgentNoCloseTimeoutMs());
+        scheduleNoCloseCheckpoint(runtimeConfig.noCloseTimeoutMs);
         if (outputLastMessagePath) {
           outputLastMessageTimer = setInterval(settleWithOutputLastMessage, OUTPUT_LAST_MESSAGE_POLL_MS);
         }
         const progressTimer = setInterval(() => {
           const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
           getLogger().info(`Agent 仍在执行：${tool || generated.command}，已运行 ${elapsedSeconds}s，等待完成...`);
-        }, getAgentProgressIntervalMs());
+        }, runtimeConfig.progressIntervalMs);
         child.on('error', onErr);
         child.on('exit', onExit);
         child.on('close', onClose);
@@ -2834,6 +2958,28 @@ export async function runTask(options: {
           stderr: redactedStderr,
         });
       }
+
+      // Record runtime sample
+      const actualDurationMs = Date.now() - taskStartTime;
+      const failureKind = inferExecutionFailureKind({
+        agentExecutionOutcome,
+        softSystemFailureMessage,
+        verification,
+      });
+      const sample = createRuntimeSample(
+        profileKey,
+        agentTaskContract.instructionHash,
+        runtimeEstimate.complexity,
+        runtimeEstimate.score,
+        actualDurationMs,
+        finalSuccess,
+        {
+          failureKind,
+          completionSignal: completion.completionSignal,
+        }
+      );
+      await sampleStore.append(sample);
+
       return {
         success: finalSuccess,
         output: combinedOutput,
@@ -2846,25 +2992,17 @@ export async function runTask(options: {
           ? { code: 'AGENT_PLANNED_ONLY', message: 'Agent 仅输出计划，未执行实现' }
           : softSystemFailureMessage
             ? { code: 'AGENT_SYSTEM_ERROR', message: softSystemFailureMessage }
-          : undefined,
+            : undefined,
         gitChanges,
         agentTaskContract: agentTaskContractSummary,
         verification,
         usage,
-        failureKind: inferExecutionFailureKind({
-          agentExecutionOutcome,
-          softSystemFailureMessage,
-          verification,
-        }),
+        failureKind,
         unclosedExecution,
         reviewReport,
         recoveryDecision: !finalSuccess
           ? buildRecoveryDecisionSummary({
-              failureKind: inferExecutionFailureKind({
-                agentExecutionOutcome,
-                softSystemFailureMessage,
-                verification,
-              }),
+              failureKind,
               gitChanges,
               verification,
               agentTaskContract: agentTaskContractSummary,
@@ -2889,7 +3027,7 @@ export async function runTask(options: {
           ...baseAttributes,
           fallbackUsed,
           command: limitText(fullCommand),
-          timeoutMs: getAgentCliTimeout(),
+          timeoutMs: runtimeConfig.cliTimeoutMs,
         },
       });
       const completionSignal = execError.completionSignal;
@@ -2931,6 +3069,23 @@ export async function runTask(options: {
         agentExecutionOutcome: unclosedExecution ? 'implemented' : undefined,
         alreadySatisfied: false,
       });
+
+      // Record runtime sample for failed task
+      const actualDurationMs = Date.now() - taskStartTime;
+      const sample = createRuntimeSample(
+        profileKey,
+        agentTaskContract.instructionHash,
+        runtimeEstimate.complexity,
+        runtimeEstimate.score,
+        actualDurationMs,
+        false,
+        {
+          failureKind,
+          completionSignal,
+        }
+      );
+      await sampleStore.append(sample);
+
       return {
         success: false,
         output: errOutput,

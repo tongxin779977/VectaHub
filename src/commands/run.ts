@@ -17,6 +17,7 @@ import { markCliOutputHandled } from '../infrastructure/cli-output.js';
 import { createRecordManager } from '../execution/record-manager.js';
 import { runSelfHealingLoop } from './self-healing.js';
 import { getVectaHubPath } from '../infrastructure/paths/index.js';
+import { createRunDispatch, formatRunDispatchText } from './run-dispatch.js';
 
 interface RunCommandOutput {
   json(payload: unknown, options?: { space?: number }): void;
@@ -297,6 +298,24 @@ export function createRunCmd(context: InfrastructureContext): Command {
               logger.info(`  ${s.cli} ${(s.args ?? []).join(' ')}`);
             }
             logger.info('\nDry-run: 未执行任何命令。');
+          }
+          restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+          return;
+        }
+
+        const dispatch = createRunDispatch({
+          text,
+          steps: orchestrateSteps,
+          reply: result.reply,
+        });
+        if (!dispatch.executable) {
+          if (options.json) {
+            output.json({
+              ok: false,
+              dispatch,
+            });
+          } else {
+            logger.info(`\n${formatRunDispatchText(dispatch)}`);
           }
           restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
           return;

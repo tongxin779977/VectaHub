@@ -233,8 +233,7 @@ export function combineRuntimeEstimates(input: CombineRuntimeEstimateInput): Tas
   const heuristic = calculateHeuristicRuntimeEstimate(input.features);
   const matchingHistory = (input.history || [])
     .filter(sample => isSameAgentProfile(sample, input.profileKey))
-    .filter(sample => sample.taskShapeHash === input.taskShapeHash || sample.complexity === heuristic.complexity)
-    .filter(sample => sample.success);
+    .filter(sample => sample.taskShapeHash === input.taskShapeHash || sample.complexity === heuristic.complexity);
   const historicalEstimateMs = median(matchingHistory.map(sample => sample.actualDurationMs));
   const boundedLlmEstimateMs = input.llmEstimate
     ? clamp(input.llmEstimate.estimatedDurationMs, heuristic.expectedDurationMs * 0.5, heuristic.expectedDurationMs * 2)

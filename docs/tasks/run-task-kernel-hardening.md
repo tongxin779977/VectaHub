@@ -656,3 +656,47 @@ riskNotes:
 - This task is display-only.
 - Do not block execution based on the estimate yet.
 - Do not persist runtime samples in this task.
+
+## Task RTK-006D
+
+taskId: RTK-006D
+
+taskLabel: Wire runtime estimate into run-task timeout and progress defaults when env vars are not explicitly set.
+
+allowedFiles:
+- src/commands/run-task.ts
+- src/commands/run-task.test.ts
+
+forbiddenFiles:
+- docs/tasks/run-task-kernel-hardening.md
+- src/commands/run-task-runtime-estimator.ts
+- src/commands/run-task-runtime-estimator.test.ts
+- src/cli.ts
+- src/cli-main.ts
+- src/workflow/engine.ts
+- src/workflow/executor.ts
+- src/agent-runtime/factory.ts
+- src/agent-runtime/registry.ts
+
+implementationSteps:
+- Import and reuse the existing runtime estimate result already produced before Agent execution.
+- Use estimate-derived defaults only when AGENT_NO_CLOSE_TIMEOUT_MS is not explicitly set.
+- Use estimate-derived defaults only when AGENT_NO_CLOSE_EXTENSION_MS is not explicitly set.
+- Use estimate-derived defaults only when AGENT_NO_CLOSE_MAX_EXTENSIONS is not explicitly set.
+- Use estimate-derived defaults only when AGENT_MAX_WALL_CLOCK_MS is not explicitly set.
+- Use estimate-derived defaults only when AGENT_PROGRESS_INTERVAL_MS is not explicitly set.
+- Preserve user environment variable override priority for all timeout and progress values.
+- Add tests proving env overrides take priority over estimates.
+- Add tests proving estimate defaults are used when env vars are absent.
+- Add tests proving progress interval is derived from the estimate when AGENT_PROGRESS_INTERVAL_MS is absent.
+
+validationCommands:
+- npx vitest run src/commands/run-task.test.ts src/commands/run-task-runtime-estimator.test.ts
+- npm run typecheck
+- npm run lint
+
+riskNotes:
+- Do not change Agent adapter rendering.
+- Do not bypass evidence-closeout.
+- Do not bypass validation execution.
+- Do not change the runtime estimator implementation in this task.
