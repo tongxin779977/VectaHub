@@ -26,3 +26,13 @@ export interface CliPluginCapabilities {
   outputFormats: string[];
   requiresAuth: boolean;
 }
+
+export interface CreateCliPluginOptions {
+  id: string;
+  name: string;
+  version?: string;
+  cliCommand: string;
+  versionCommand?: string;
+  delegateTo: string;
+  capabilities: CliPluginCapabilities;
+}

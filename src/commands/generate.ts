@@ -5,7 +5,7 @@ import type { InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import { Workflow } from '../types/index.js';
 import YAML from 'yaml';
-import createLLMDialogControlSkill from '../skills/llm-dialog-control/index.js';
+import { createLLMDialogControlSkill } from '../skills/llm-dialog-control/index.js';
 
 interface GenerateCommandOutput {
   log(message?: unknown, ...optionalParams: unknown[]): void;

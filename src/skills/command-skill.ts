@@ -4,7 +4,19 @@ import { join, extname } from 'path';
 import { execSync } from 'child_process';
 import { getVectaHubHome } from '../infrastructure/paths/index.js';
 
-const CORE_SKILLS = [
+/**
+ * Definition of a core skill with its keywords
+ */
+interface CoreSkillDefinition {
+  name: string;
+  description: string;
+  keywords: string[];
+}
+
+/**
+ * List of core skills available in the command skill
+ */
+const CORE_SKILLS: CoreSkillDefinition[] = [
   {
     name: 'file-ops',
     description: 'File operations (CRUD, backup, sync)',
@@ -27,21 +39,33 @@ const CORE_SKILLS = [
   },
 ];
 
+/**
+ * Default search paths for file operations
+ */
 const DEFAULT_SEARCH_PATHS = [
   getVectaHubHome(),
   join(getVectaHubHome(), 'Documents'),
   join(getVectaHubHome(), 'Desktop'),
 ];
 
+/**
+ * Maximum number of file search results to return
+ */
 const MAX_RESULTS = 100;
 
-interface FileMatch {
+/**
+ * Represents a matched file with relevance score
+ */
+export interface FileMatch {
   path: string;
   name: string;
   relevance: number;
   snippet: string;
 }
 
+/**
+ * Command Skill interface extending the base Skill with additional methods
+ */
 export interface CommandSkill extends Skill {
   searchFiles(query: string, paths?: string[]): FileMatch[];
   readFile(path: string): string;
@@ -49,6 +73,48 @@ export interface CommandSkill extends Skill {
   executeCommand(command: string): string;
 }
 
+/**
+ * Result of a core skill detection
+ */
+interface CoreSkillMatch {
+  name: string;
+  score: number;
+}
+
+/**
+ * Intent analysis result
+ */
+interface IntentAnalysisResult {
+  type: 'execute' | 'query' | 'clarify' | 'fallback';
+  command?: string;
+  query?: string;
+  confidence: number;
+  needsClarification: boolean;
+  clarificationMessage?: string;
+  suggestions?: string[];
+}
+
+/**
+ * Command execution result
+ */
+interface CommandExecutionResult {
+  output: string;
+  success: boolean;
+}
+
+/**
+ * Fallback matching result
+ */
+interface FallbackMatchResult {
+  success: boolean;
+  data?: { type: string };
+  confidence?: number;
+}
+
+/**
+ * Creates a CommandSkill instance that handles file operations, commands, and intent analysis
+ * @returns A new CommandSkill instance
+ */
 export function createCommandSkill(): CommandSkill {
   return {
     id: 'vectahub.file-ops',
@@ -57,10 +123,20 @@ export function createCommandSkill(): CommandSkill {
     description: 'Core command skill that handles file operations, git commands, code generation, and system commands',
     tags: ['file', 'git', 'command', 'system'],
 
+    /**
+     * Determines if this skill can handle the given context
+     * @returns Always returns true as this is a fallback skill
+     */
     async canHandle(): Promise<boolean> {
       return true;
     },
 
+    /**
+     * Executes the skill with the given input
+     * @param input - The user input to process
+     * @param _context - The skill context
+     * @returns A promise resolving to a SkillResult
+     */
     async execute(input: string, _context: SkillContext): Promise<SkillResult> {
       const skills = detectCoreSkills(input);
       const matchedSkills = skills.map(s => s.name);
@@ -82,7 +158,7 @@ export function createCommandSkill(): CommandSkill {
 
       if (intent.type === 'execute') {
         try {
-          const result = executeCommand(intent.command!);
+          const result = executeCommandInternal(intent.command!);
           return {
             success: true,
             data: {
@@ -129,6 +205,12 @@ export function createCommandSkill(): CommandSkill {
       };
     },
 
+    /**
+     * Searches for files matching the query in the given paths
+     * @param query - The search query
+     * @param paths - Optional paths to search in (defaults to DEFAULT_SEARCH_PATHS)
+     * @returns Array of FileMatch results
+     */
     searchFiles(query: string, paths: string[] = DEFAULT_SEARCH_PATHS): FileMatch[] {
       const results: FileMatch[] = [];
 
@@ -162,21 +244,41 @@ export function createCommandSkill(): CommandSkill {
         .slice(0, MAX_RESULTS);
     },
 
+    /**
+     * Reads a file's content
+     * @param path - The path to the file
+     * @returns The file content as a string
+     */
     readFile(path: string): string {
       return readFileSync(path, 'utf-8');
     },
 
+    /**
+     * Lists files in a directory
+     * @param dirPath - The directory path
+     * @returns Array of file names
+     */
     listFiles(dirPath: string): string[] {
       return readdirSync(dirPath);
     },
 
+    /**
+     * Executes a shell command
+     * @param command - The command to execute
+     * @returns The command output
+     */
     executeCommand(command: string): string {
-      return executeCommand(command).output;
+      return executeCommandInternal(command).output;
     },
   };
 }
 
-function detectCoreSkills(input: string): Array<{ name: string; score: number }> {
+/**
+ * Detects core skills based on input keywords
+ * @param input - The user input
+ * @returns Array of matched skills with scores
+ */
+function detectCoreSkills(input: string): CoreSkillMatch[] {
   const lowerInput = input.toLowerCase();
   return CORE_SKILLS
     .map(skill => ({
@@ -187,15 +289,12 @@ function detectCoreSkills(input: string): Array<{ name: string; score: number }>
     .sort((a, b) => b.score - a.score);
 }
 
-async function analyzeIntent(input: string): Promise<{
-  type: 'execute' | 'query' | 'clarify' | 'fallback';
-  command?: string;
-  query?: string;
-  confidence: number;
-  needsClarification: boolean;
-  clarificationMessage?: string;
-  suggestions?: string[];
-}> {
+/**
+ * Analyzes the user intent from input
+ * @param input - The user input
+ * @returns Intent analysis result
+ */
+async function analyzeIntent(input: string): Promise<IntentAnalysisResult> {
   if (input.includes('run') || input.includes('execute') || input.includes('执行')) {
     return {
       type: 'execute',
@@ -249,6 +348,11 @@ async function analyzeIntent(input: string): Promise<{
   };
 }
 
+/**
+ * Extracts a command from user input
+ * @param input - The user input
+ * @returns The extracted command
+ */
 function extractCommand(input: string): string {
   const commandPatterns = [
     /(?:run|execute|执行)\s+(.+)/i,
@@ -266,6 +370,11 @@ function extractCommand(input: string): string {
   return input;
 }
 
+/**
+ * Extracts a query from user input
+ * @param input - The user input
+ * @returns The extracted query
+ */
 function extractQuery(input: string): string {
   const queryPatterns = [
     /(?:list|find|search|列出|查找)\s+(.+)/i,
@@ -282,6 +391,12 @@ function extractQuery(input: string): string {
   return input;
 }
 
+/**
+ * Calculates relevance score between a query and filename
+ * @param query - The search query
+ * @param filename - The filename to match against
+ * @returns Relevance score between 0 and 1
+ */
 function calculateRelevance(query: string, filename: string): number {
   const lowerQuery = query.toLowerCase();
   const lowerFilename = filename.toLowerCase();
@@ -298,6 +413,12 @@ function calculateRelevance(query: string, filename: string): number {
   return 0;
 }
 
+/**
+ * Reads a snippet from a file
+ * @param filePath - The path to the file
+ * @param maxLines - Maximum number of lines to read (default: 5)
+ * @returns The file snippet or empty string if error
+ */
 function readFileSnippet(filePath: string, maxLines = 5): string {
   try {
     const content = readFileSync(filePath, 'utf-8');
@@ -307,7 +428,12 @@ function readFileSnippet(filePath: string, maxLines = 5): string {
   }
 }
 
-function executeCommand(command: string): { output: string; success: boolean } {
+/**
+ * Executes a command internally (renamed to avoid name conflict with skill method)
+ * @param command - The command to execute
+ * @returns Command execution result
+ */
+function executeCommandInternal(command: string): CommandExecutionResult {
   try {
     const output = execSync(command, { encoding: 'utf-8', timeout: 30000 });
     return { output, success: true };
@@ -319,10 +445,20 @@ function executeCommand(command: string): { output: string; success: boolean } {
   }
 }
 
+/**
+ * Executes a query (placeholder implementation)
+ * @param query - The query to execute
+ * @returns Query result
+ */
 function executeQuery(query: string): unknown {
   return { query, results: [] };
 }
 
+/**
+ * Generates helpful suggestions for the user
+ * @param _input - The user input
+ * @returns Array of suggestion strings
+ */
 function generateSuggestions(_input: string): string[] {
   return [
     'Try being more specific',
@@ -331,7 +467,12 @@ function generateSuggestions(_input: string): string[] {
   ];
 }
 
-function fallbackToKeywordMatching(input: string): { success: boolean; data?: { type: string }; confidence?: number } {
+/**
+ * Falls back to keyword matching for intent detection
+ * @param input - The user input
+ * @returns Fallback match result
+ */
+function fallbackToKeywordMatching(input: string): FallbackMatchResult {
   const lowerInput = input.toLowerCase();
   for (const skill of CORE_SKILLS) {
     const matchedKeywords = skill.keywords.filter(kw => lowerInput.includes(kw));

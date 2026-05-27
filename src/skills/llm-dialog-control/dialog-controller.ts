@@ -7,6 +7,7 @@ import type {
   OutputFormat
 } from './types.js';
 import { validateOutput, extractCleanOutput, createRetryPrompt } from './validator.js';
+import { httpRequest } from './http-client.js';
 
 export class LLMError extends Error {
   constructor(public message: string, public status?: number, public isFatal: boolean = false) {
@@ -167,39 +168,21 @@ export function createDialogController(
 
     const timeout = config.timeout || 30000;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-      controller.abort();
-    }, timeout);
+    const response = await httpRequest<{
+      choices?: Array<{ message?: { content?: string } }>;
+    }>(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {},
+      body: {
+        model: config.model,
+        messages,
+        temperature: config.temperature || 0.3,
+        max_tokens: config.maxTokens || 2048
+      },
+      timeout,
+    });
     
-    try {
-      const response = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {})
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model: config.model,
-          messages,
-          temperature: config.temperature || 0.3,
-          max_tokens: config.maxTokens || 2048
-        })
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new LLMNetworkError(`API error: ${response.status} - ${errorText}`, response.status);
-      }
-      
-      const data = await response.json() as {
-        choices?: Array<{ message?: { content?: string } }>;
-      };
-      return data.choices?.[0]?.message?.content || '';
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    return response.data.choices?.[0]?.message?.content || '';
   }
   
   async function callAnthropic(
@@ -212,39 +195,29 @@ export function createDialogController(
     }
     
     const timeout = config.timeout || 30000;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
     
     const systemMessage = messages.find(m => m.role === 'system');
     const userMessages = messages.filter(m => m.role !== 'system');
     
-    try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await httpRequest<{ content?: Array<{ text?: string }> }>(
+      'https://api.anthropic.com/v1/messages',
+      {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           'x-api-key': apiKey,
           'anthropic-version': '2023-06-01'
         },
-        signal: controller.signal,
-        body: JSON.stringify({
+        body: {
           model: config.model,
           max_tokens: config.maxTokens || 2048,
           ...(systemMessage ? { system: systemMessage.content } : {}),
           messages: userMessages
-        })
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`API error: ${response.status} - ${errorText}`);
+        },
+        timeout,
       }
-      
-      const data = await response.json() as { content?: Array<{ text?: string }> };
-      return data.content?.[0]?.text || '';
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    );
+    
+    return response.data.content?.[0]?.text || '';
   }
   
   function sleep(ms: number): Promise<void> {

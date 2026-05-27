@@ -1,12 +1,20 @@
 
 import { Skill, SkillContext, SkillMetadata } from './types.js';
 
+/**
+ * Result of a skill match operation
+ */
 export interface SkillMatchResult {
   skill: Skill;
   score: number;
   reason: string;
 }
 
+/**
+ * Stems a word for matching purposes
+ * @param word - The word to stem
+ * @returns The stemmed word
+ */
 function stem(word: string): string {
   if (word.length <= 3) return word;
   if (word.endsWith('ing') && word.length > 4) return word.slice(0, -3);
@@ -30,32 +38,64 @@ function stem(word: string): string {
   return word;
 }
 
+/**
+ * Checks if two words stem-match
+ * @param a - First word
+ * @param b - Second word
+ * @returns True if the words stem-match
+ */
 function stemMatch(a: string, b: string): boolean {
   if (a === b) return true;
   if (a.includes(b) || b.includes(a)) return true;
   return stem(a) === stem(b);
 }
 
+/**
+ * Registry for managing and discovering skills
+ */
 export class SkillRegistry {
   private skills: Map<string, Skill> = new Map();
   private metadata: Map<string, SkillMetadata> = new Map();
 
+  /**
+   * Registers a new skill in the registry
+   * @param skill - The skill to register
+   */
   register(skill: Skill): void {
     this.skills.set(skill.id, skill);
   }
 
+  /**
+   * Gets a skill by ID
+   * @param id - The skill ID
+   * @returns The skill or undefined if not found
+   */
   get(id: string): Skill | undefined {
     return this.skills.get(id);
   }
 
+  /**
+   * Checks if a skill exists in the registry
+   * @param id - The skill ID
+   * @returns True if the skill exists
+   */
   has(id: string): boolean {
     return this.skills.has(id);
   }
 
+  /**
+   * Lists all registered skills
+   * @returns Array of all skills
+   */
   list(): Skill[] {
     return Array.from(this.skills.values());
   }
 
+  /**
+   * Lists skills by category
+   * @param category - The category to filter by
+   * @returns Array of skills in the category
+   */
   listByCategory(category?: string): Skill[] {
     if (!category) return this.list();
     return this.list().filter(skill => {
@@ -65,41 +105,78 @@ export class SkillRegistry {
     });
   }
 
+  /**
+   * Removes a skill from the registry
+   * @param id - The skill ID to remove
+   */
   remove(id: string): void {
     this.skills.delete(id);
     this.metadata.delete(id);
   }
 
+  /**
+   * Clears all skills and metadata from the registry
+   */
   clear(): void {
     this.skills.clear();
     this.metadata.clear();
   }
 
+  /**
+   * Sets metadata for a skill
+   * @param id - The skill ID
+   * @param meta - The metadata to set
+   */
   setMetadata(id: string, meta: SkillMetadata): void {
     this.metadata.set(id, meta);
   }
 
+  /**
+   * Gets metadata for a skill
+   * @param id - The skill ID
+   * @returns The metadata or undefined if not found
+   */
   getMetadata(id: string): SkillMetadata | undefined {
     return this.metadata.get(id);
   }
 
+  /**
+   * Checks if a skill is enabled
+   * @param id - The skill ID
+   * @returns True if the skill is enabled
+   */
   isEnabled(id: string): boolean {
     const meta = this.metadata.get(id);
     return meta?.enabled !== false;
   }
 
+  /**
+   * Finds applicable skills for a given context
+   * @param context - The skill context
+   * @returns Promise resolving to array of applicable skills
+   */
   async findApplicableSkills(context: SkillContext): Promise<Skill[]> {
     const applicable: Skill[] = [];
     for (const skill of this.skills.values()) {
       const meta = this.metadata.get(skill.id);
       if (meta?.enabled === false) continue;
-      if (await skill.canHandle(context)) {
-        applicable.push(skill);
+      try {
+        if (await skill.canHandle(context)) {
+          applicable.push(skill);
+        }
+      } catch (error) {
+        // Individual skill failed to check applicability, skip it
       }
     }
     return applicable.sort((a, b) => b.tags.length - a.tags.length);
   }
 
+  /**
+   * Finds skills by semantic matching
+   * @param input - The input text to match against
+   * @param options - Optional matching options
+   * @returns Promise resolving to array of SkillMatchResult
+   */
   async findSkillsBySemantic(
     input: string,
     options?: {
@@ -156,6 +233,10 @@ export class SkillRegistry {
   }
 }
 
+/**
+ * Creates a new SkillRegistry instance
+ * @returns A new SkillRegistry
+ */
 export function createSkillRegistry(): SkillRegistry {
   return new SkillRegistry();
 }

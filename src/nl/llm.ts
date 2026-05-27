@@ -11,7 +11,7 @@ import {
   getDefaultModel,
 } from './llm-config.js';
 import { getAllIntentNames } from './templates/index.js';
-import createLLMDialogControlSkill from '../skills/llm-dialog-control/index.js';
+import { createLLMDialogControlSkill } from '../skills/llm-dialog-control/index.js';
 import { DEFAULT_WORKFLOW_YAML_ID } from './prompt-manager.js';
 
 export type { LLMConfig, LLMTool, LLMResponse, LLMToolCall, LLMWorkflowStepInline };
