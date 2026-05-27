@@ -411,6 +411,77 @@ steps:
       uses: 0,
     },
   },
+  {
+    id: 'post-execution-review-v1',
+    name: 'Post-Execution Review',
+    version: '1.0.0',
+    description: '审查 Agent 执行后的 git 变更，判断越界文件修改是否合理',
+    category: 'review',
+    tags: ['review', 'post-execution', 'boundary'],
+    systemTemplate: `你是代码变更审查专家。Agent 执行任务后，某些变更文件超出了允许范围。请根据 git diff 内容和任务描述，判断这些越界变更是否合理。
+
+审查原则：
+- 如果越界变更是完成任务所必需的（如跨文件协调修复、类型定义联动修改），判定为 pass
+- 如果越界变更与任务相关但非必需（如附带的格式调整、注释补充），判定为 warn
+- 如果越界变更与任务无关或有风险（如修改了不相关的模块、引入了不必要的依赖），判定为 fail
+- forbidden 文件（.env, .pem, .key, node_modules, .git）被修改必须判定为 fail
+
+任务描述：{{taskLabel}}
+允许修改的文件：{{allowedFiles}}
+禁止修改的文件：{{forbiddenFiles}}
+实际变更的文件：{{changedFiles}}
+越界变更的文件：{{outOfScopeFiles}}
+
+Git diff 摘要：
+{{gitDiffSummary}}
+
+请以 JSON 格式输出审查结论：
+{
+  "verdict": "pass 或 warn 或 fail",
+  "reason": "判断原因",
+  "confidence": 0.0-1.0,
+  "suggestedAction": "建议的操作"
+}`,
+    userTemplate: '审查任务 {{taskLabel}} 的越界文件变更',
+    variables: [
+      { name: 'taskLabel', type: 'string', required: true },
+      { name: 'allowedFiles', type: 'string', required: true },
+      { name: 'forbiddenFiles', type: 'string', required: true },
+      { name: 'changedFiles', type: 'string', required: true },
+      { name: 'outOfScopeFiles', type: 'string', required: true },
+      { name: 'gitDiffSummary', type: 'string', required: true },
+    ],
+    examples: [
+      {
+        input: {
+          taskLabel: '修复 TOCTOU 竞态',
+          allowedFiles: 'src/log-rotation.ts',
+          forbiddenFiles: '.env',
+          changedFiles: 'src/log-rotation.ts, src/async-writer.ts',
+          outOfScopeFiles: 'src/async-writer.ts',
+          gitDiffSummary: 'async-writer.ts: added pause()/resume() methods',
+        },
+        output: {
+          verdict: 'pass',
+          reason: 'TOCTOU 修复需要在 async-writer 中添加 pause/resume 方法以协调轮转操作',
+          confidence: 0.9,
+          suggestedAction: 'accept changes',
+        },
+      },
+    ],
+    constraints: [
+      { type: 'format', rule: '输出必须是合法的 JSON' },
+      { type: 'content', rule: 'verdict 只能是 pass, warn, fail 之一' },
+      { type: 'content', rule: 'confidence 必须在 0 到 1 之间' },
+    ],
+    metadata: {
+      author: 'VectaHub Team',
+      createdAt: new Date('2026-05-27'),
+      lastUpdated: new Date('2026-05-27'),
+      effectiveness: 0.8,
+      uses: 0,
+    },
+  },
 ];
 
 export class PromptManager implements PromptRepository {
@@ -590,3 +661,4 @@ export const DEFAULT_WORKFLOW_YAML_ID = 'workflow-yaml-v1';
 export const DOC_TASK_PARSER_ID = 'doc-task-parser-v1';
 export const AGENT_CMD_GENERATOR_ID = 'agent-cmd-generator-v1';
 export const TOOL_CAPABILITY_PARSER_ID = 'tool-capability-parser-v1';
+export const POST_EXECUTION_REVIEW_ID = 'post-execution-review-v1';

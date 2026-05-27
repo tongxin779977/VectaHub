@@ -4,8 +4,8 @@ import { type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import { getSecurityGuard } from '../security-protocol/factory.js';
 import type { SecurityContext, CommandIntention } from '../types/security.js';
-import { createLLMConfig, createLLMConfigDigestSource, LLMClient } from '../nl/llm.js';
-import { AGENT_CMD_GENERATOR_ID } from '../nl/prompt-manager.js';
+import { createLLMConfig, resolveLLMConfig, createLLMConfigDigestSource, LLMClient } from '../nl/llm.js';
+import { AGENT_CMD_GENERATOR_ID, POST_EXECUTION_REVIEW_ID } from '../nl/prompt-manager.js';
 import { getToolCacheManager } from '../cli-tools/discovery/cache-manager.js';
 import { getSecurityManager } from '../security-protocol/manager.js';
 import { assessCommandRisk } from '../security-protocol/engine.js';
@@ -35,6 +35,10 @@ import {
   createRuntimeSampleStore,
   createRuntimeSample,
 } from './run-task-runtime-sample-store.js';
+import { createReviewRecordStore, createExecutionReviewRecord } from './run-task-review-record.js';
+import type { ExecutionReviewRecord } from './run-task-review-record.js';
+import { createInterface } from 'node:readline';
+import { createNoopAuditHelper } from '../infrastructure/audit/index.js';
 
 let boundContext: InfrastructureContext | null = null;
 
@@ -251,6 +255,12 @@ export interface RunTaskResult {
     reason: string;
     matchedFiles: string[];
   };
+  llmReview?: {
+    verdict: 'pass' | 'warn' | 'fail';
+    reason: string;
+    confidence: number;
+    humanFeedback: 'agree' | 'disagree' | 'override_pass' | 'override_fail';
+  };
 }
 
 export interface RunTaskRiskAssessment {
@@ -290,6 +300,12 @@ export interface RunTaskJsonResult {
     level: 'related' | 'out_of_scope';
     reason: string;
     matchedFiles: string[];
+  };
+  llmReview?: {
+    verdict: 'pass' | 'warn' | 'fail';
+    reason: string;
+    confidence: number;
+    humanFeedback: 'agree' | 'disagree' | 'override_pass' | 'override_fail';
   };
   error?: string | {
     code: string;
@@ -1198,6 +1214,11 @@ function buildRunTaskReviewReport(input: {
   verification?: VerificationResult;
   agentExecutionOutcome?: 'implemented' | 'planned_only';
   alreadySatisfied?: boolean;
+  llmReview?: {
+    verdict: 'pass' | 'warn' | 'fail';
+    reason: string;
+    confidence: number;
+  };
 }): RunTaskReviewReport | undefined {
   if (!input.contract || !input.agentExecutionOutcome) {
     return undefined;
@@ -1212,6 +1233,7 @@ function buildRunTaskReviewReport(input: {
     validationPassed: didRunTaskValidationPass(input.verification, input.contract),
     agentExecutionOutcome: input.agentExecutionOutcome,
     alreadySatisfied: input.alreadySatisfied,
+    llmReview: input.llmReview,
   });
 }
 
@@ -1644,6 +1666,9 @@ export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
   if (result.warning) {
     jsonResult.warning = result.warning;
   }
+  if (result.llmReview) {
+    jsonResult.llmReview = result.llmReview;
+  }
 
   return jsonResult;
 }
@@ -1658,6 +1683,7 @@ function formatRunTaskReviewFinding(finding: RunTaskReviewFinding): string {
     BROAD_ALLOWED_BOUNDARY: '允许修改边界过宽',
     FORBIDDEN_FILE_CHANGED: '检测到禁止文件变更',
     OUT_OF_SCOPE_FILE_CHANGED: '检测到越界文件变更',
+    OUT_OF_SCOPE_LLM_REVIEWED: '越界变更已由 LLM 审查',
     VALIDATION_FAILED: '验证未通过',
     PLANNED_ONLY_OUTCOME: 'Agent 仅输出计划，未落实实现',
     ALREADY_SATISFIED: '任务已满足，无需代码变更',
@@ -1786,6 +1812,16 @@ function formatRunTaskSuccessHumanOutput(result: RunTaskResult): string {
       `原因：${result.warning.reason}`,
       '涉及文件：',
       formatHumanList(result.warning.matchedFiles, '无'),
+    );
+  }
+  if (result.llmReview) {
+    const verdictText = result.llmReview.verdict === 'pass' ? '通过' : result.llmReview.verdict === 'warn' ? '警告' : '失败';
+    const feedbackText = result.llmReview.humanFeedback === 'agree' ? '同意' : result.llmReview.humanFeedback === 'override_pass' ? '覆盖通过' : result.llmReview.humanFeedback === 'override_fail' ? '覆盖失败' : '不同意';
+    lines.push(
+      '',
+      `LLM 审查: ${verdictText} (置信度: ${Math.round(result.llmReview.confidence * 100)}%)`,
+      `原因: ${result.llmReview.reason}`,
+      `人工反馈: ${feedbackText}`,
     );
   }
   if (result.completionSignal) {
@@ -1950,6 +1986,59 @@ export function formatPreflightEstimateSummary(estimate: TaskRuntimeEstimate): s
     lines.push('提示：任务规模较大，建议拆分后执行');
   }
   return lines;
+}
+
+async function reviewOutOfScopeWithLLM(input: {
+  taskLabel: string;
+  allowedFiles: string[];
+  forbiddenFiles: string[];
+  changedFiles: string[];
+  outOfScopeFiles: string[];
+  gitDiffSummary: string;
+}): Promise<{ verdict: 'pass' | 'warn' | 'fail'; reason: string; confidence: number; suggestedAction: string } | null> {
+  try {
+    const llmConfig = resolveLLMConfig();
+    if (llmConfig.state !== 'configured' || !llmConfig.config) return null;
+    const client = new LLMClient(llmConfig.config, { auditHelper: createNoopAuditHelper() });
+    const raw = await client.completeRaw(POST_EXECUTION_REVIEW_ID, '', {
+      taskLabel: input.taskLabel,
+      allowedFiles: input.allowedFiles.join(', '),
+      forbiddenFiles: input.forbiddenFiles.join(', '),
+      changedFiles: input.changedFiles.join(', '),
+      outOfScopeFiles: input.outOfScopeFiles.join(', '),
+      gitDiffSummary: input.gitDiffSummary.slice(0, 4000),
+    });
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.verdict === 'string' && typeof parsed.reason === 'string') {
+      return {
+        verdict: parsed.verdict,
+        reason: parsed.reason,
+        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,
+        suggestedAction: typeof parsed.suggestedAction === 'string' ? parsed.suggestedAction : '',
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function promptForReviewFeedback(verdict: string, reason: string, confidence: number): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(
+      `\nLLM 审查结论: ${verdict} (置信度: ${Math.round(confidence * 100)}%)\n原因: ${reason}\n\n你的判断？ [1=同意 2=不同意 3=覆盖通过 4=覆盖失败]: `,
+      (answer) => { rl.close(); resolve(answer.trim()); },
+    );
+  });
+}
+
+function mapFeedbackToCode(answer: string, verdict: string): ExecutionReviewRecord['humanFeedback'] {
+  if (answer === '1') return 'agree';
+  if (answer === '2') return 'disagree';
+  if (answer === '3') return 'override_pass';
+  if (answer === '4') return 'override_fail';
+  return verdict === 'fail' ? 'disagree' : 'agree';
 }
 
 export async function runTask(options: {
@@ -2921,13 +3010,83 @@ export async function runTask(options: {
       }
 
       let postExecutionWarning: RunTaskResult['warning'];
-      if (postExecutionConfirmation && postExecutionConfirmation.level !== 'forbidden') {
+      let llmReviewResult: RunTaskResult['llmReview'];
+      if (postExecutionConfirmation && postExecutionConfirmation.level === 'related') {
         postExecutionWarning = {
-          level: postExecutionConfirmation.level,
+          level: 'related',
           reason: postExecutionConfirmation.reason,
           matchedFiles: postExecutionConfirmation.matchedFiles,
         };
         getLogger().warn(`检测到边界警告: ${postExecutionConfirmation.reason} (${postExecutionConfirmation.matchedFiles.join(', ')})`);
+      }
+      if (postExecutionConfirmation && postExecutionConfirmation.level === 'out_of_scope') {
+        getLogger().warn(`检测到越界变更，启动 LLM 审查: ${postExecutionConfirmation.matchedFiles.join(', ')}`);
+        const outOfScopeFiles = postExecutionConfirmation.matchedFiles;
+        const gitDiffSummary = gitChanges ? gitChanges.diffStat : '';
+        const llmVerdict = await reviewOutOfScopeWithLLM({
+          taskLabel: resolvedTaskLabel,
+          allowedFiles: agentTaskContractSummary.allowedFiles,
+          forbiddenFiles: agentTaskContractSummary.forbiddenFiles,
+          changedFiles: gitChanges ? gitChanges.changedFiles : [],
+          outOfScopeFiles,
+          gitDiffSummary,
+        });
+        if (llmVerdict) {
+          getLogger().info(`LLM 审查结论: ${llmVerdict.verdict} (置信度: ${Math.round(llmVerdict.confidence * 100)}%)`);
+          const feedbackAnswer = await promptForReviewFeedback(llmVerdict.verdict, llmVerdict.reason, llmVerdict.confidence);
+          const humanFeedback = mapFeedbackToCode(feedbackAnswer, llmVerdict.verdict);
+          const reviewRecordStore = createReviewRecordStore();
+          await reviewRecordStore.append(createExecutionReviewRecord({
+            taskId,
+            instructionHash: agentTaskContractSummary.instructionHash,
+            agentId: tool,
+            changedFiles: gitChanges ? gitChanges.changedFiles : [],
+            outOfScopeFiles,
+            llmVerdict: llmVerdict.verdict,
+            llmReason: llmVerdict.reason,
+            llmConfidence: llmVerdict.confidence,
+            humanFeedback,
+          }));
+          llmReviewResult = {
+            verdict: llmVerdict.verdict,
+            reason: llmVerdict.reason,
+            confidence: llmVerdict.confidence,
+            humanFeedback,
+          };
+          const shouldPass = (llmVerdict.verdict === 'pass' && humanFeedback !== 'override_fail')
+            || humanFeedback === 'override_pass';
+          if (!shouldPass) {
+            await persistRunTaskFailureLogs(taskId, { stdout: redactedStdout, stderr: redactedStderr });
+            getAuditHelper().securityAction('RUN_TASK', `${tool}:${taskId}`, 'COMPLETED', 'run-task');
+            getLogger().warn(`LLM 审查未通过: ${llmVerdict.reason}`);
+            const failureKind = 'agent';
+            const reviewReport = buildRunTaskReviewReport({
+              taskId, taskLabel: resolvedTaskLabel, contract: agentTaskContractSummary,
+              gitChanges, verification: undefined, agentExecutionOutcome: 'implemented', alreadySatisfied: false,
+              llmReview: llmReviewResult,
+            });
+            return {
+              success: false, output: combinedOutput, command: fullCommand, commandGenerationPath, fallbackUsed,
+              agentExecutionOutcome: 'implemented', completionSignal: completion.completionSignal,
+              riskAssessment: {
+                level: 'high', ruleName: 'llm_review_failed', needsConfirmation: true,
+                enforcement: 'confirm_required', confirmationSource: 'post-execution',
+                blockedCommand: outOfScopeFiles.join(', '),
+              },
+              error: { code: 'LLM_REVIEW_FAILED', message: `LLM 审查未通过: ${llmVerdict.reason}` },
+              gitChanges, agentTaskContract: agentTaskContractSummary, usage: capturedUsage,
+              failureKind, unclosedExecution: false, recoveryDecision: undefined, reviewReport, llmReview: llmReviewResult,
+            };
+          }
+          getLogger().info('LLM 审查通过，继续执行');
+        } else {
+          getLogger().warn('LLM 审查调用失败，降级为 warning');
+          postExecutionWarning = {
+            level: 'out_of_scope',
+            reason: postExecutionConfirmation.reason,
+            matchedFiles: postExecutionConfirmation.matchedFiles,
+          };
+        }
       }
       
       let verification: VerificationResult | undefined;
@@ -2980,6 +3139,7 @@ export async function runTask(options: {
         verification,
         agentExecutionOutcome,
         alreadySatisfied: taskAlreadySatisfied,
+        llmReview: llmReviewResult,
       });
       if (softSystemFailureMessage) {
         getLogger().warn('任务 Agent 输出环境受限，按系统错误处理');
@@ -3052,6 +3212,7 @@ export async function runTask(options: {
         unclosedExecution,
         reviewReport,
         warning: postExecutionWarning,
+        llmReview: llmReviewResult,
         recoveryDecision: !finalSuccess
           ? buildRecoveryDecisionSummary({
               failureKind,

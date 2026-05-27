@@ -32,6 +32,11 @@ export interface RunTaskReviewInput {
   validationPassed: boolean;
   agentExecutionOutcome: 'implemented' | 'planned_only';
   alreadySatisfied?: boolean;
+  llmReview?: {
+    verdict: 'pass' | 'warn' | 'fail';
+    reason: string;
+    confidence: number;
+  };
 }
 
 export interface RunTaskReviewReport {
@@ -106,14 +111,29 @@ export function createRunTaskReviewReport(
   if (!broadBoundary) {
     for (const changedFile of changedFiles) {
       if (!allowedFiles.has(changedFile)) {
-        findings.push(
-          createFinding(
-            RunTaskReviewFindingSeverity.error,
-            'OUT_OF_SCOPE_FILE_CHANGED',
-            'Changed files must stay within allowed files.',
-            changedFile,
-          ),
-        );
+        if (input.llmReview) {
+          findings.push(
+            createFinding(
+              input.llmReview.verdict === 'pass'
+                ? RunTaskReviewFindingSeverity.info
+                : input.llmReview.verdict === 'warn'
+                  ? RunTaskReviewFindingSeverity.warning
+                  : RunTaskReviewFindingSeverity.error,
+              'OUT_OF_SCOPE_LLM_REVIEWED',
+              `越界变更已由 LLM 审查: ${input.llmReview.verdict} - ${input.llmReview.reason}`,
+              changedFile,
+            ),
+          );
+        } else {
+          findings.push(
+            createFinding(
+              RunTaskReviewFindingSeverity.error,
+              'OUT_OF_SCOPE_FILE_CHANGED',
+              'Changed files must stay within allowed files.',
+              changedFile,
+            ),
+          );
+        }
       }
     }
   }
