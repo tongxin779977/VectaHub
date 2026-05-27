@@ -218,22 +218,25 @@ export class ProviderRegistrar implements IProviderRegistrar {
       }
 
       const providers = config.ai_providers as Record<string, unknown>;
-      providers[descriptor.id] = {
+      const providerConfig: Record<string, unknown> = {
         provider: descriptor.id,
         displayName: descriptor.displayName,
-        description: descriptor.description,
         entryCommand: descriptor.entryCommand,
-        version,
-        subcommand: descriptor.subcommand,
         promptTransport: descriptor.promptTransport,
-        promptArgName: descriptor.promptArgName,
-        workingDirectoryArg: descriptor.workingDirectoryArg,
         nonInteractiveFlags: descriptor.nonInteractiveFlags,
         enabled: true,
         priority: 50,
         registeredAt: new Date().toISOString(),
         lastChecked: new Date().toISOString(),
       };
+
+      if (descriptor.description) providerConfig.description = descriptor.description;
+      if (version) providerConfig.version = version;
+      if (descriptor.subcommand) providerConfig.subcommand = descriptor.subcommand;
+      if (descriptor.promptArgName) providerConfig.promptArgName = descriptor.promptArgName;
+      if (descriptor.workingDirectoryArg) providerConfig.workingDirectoryArg = descriptor.workingDirectoryArg;
+
+      providers[descriptor.id] = providerConfig;
 
       this.configSaver(config);
     } catch (error) {
