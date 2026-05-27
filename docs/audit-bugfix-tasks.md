@@ -13,7 +13,7 @@
 ## Task audit-bug-2: destroy() 在 flush 失败时状态不一致
 
 - **严重程度**: P0
-- **文件**: `src/infrastructure/trace-audit/async-writer.ts`
+- **文件**: `src/infrastructure/trace-audit/async-writer.ts`, `src/infrastructure/trace-audit/async-writer.test.ts`
 - **位置**: L183-194
 - **问题**: 当 `flush()` 因 EPERM 等错误抛出异常时，`isDestroyed` 不会被设为 true，writer 也不会从 activeWriters 静态集合中移除
 - **修复要求**: 用 `try/finally` 包裹 `flush()` 调用，确保 `isDestroyed` 和 `activeWriters.delete` 在 finally 块中执行
@@ -43,7 +43,7 @@
 ## Task audit-bug-5: AsyncLogWriter 无熔断机制
 
 - **严重程度**: P1
-- **文件**: `src/infrastructure/trace-audit/async-writer.ts`
+- **文件**: `src/infrastructure/trace-audit/async-writer.ts`, `src/infrastructure/trace-audit/async-writer.test.ts`
 - **位置**: L85-89
 - **问题**: 当目录权限为 EPERM 时，每次定时器触发都会执行 flush() 失败，没有任何退避或熔断机制
 - **修复要求**: 添加 `consecutiveFailures` 计数器，超过阈值时停止重试，实现指数退避
@@ -63,7 +63,7 @@
 ## Task audit-bug-7: flush() 并发调用时静默跳过
 
 - **严重程度**: P1
-- **文件**: `src/infrastructure/trace-audit/async-writer.ts`
+- **文件**: `src/infrastructure/trace-audit/async-writer.ts`, `src/infrastructure/trace-audit/async-writer.test.ts`
 - **位置**: L127-130
 - **问题**: 当 flush() 正在进行时，后续调用直接返回 void，但队列中的 Promise 仍处于 pending 状态
 - **修复要求**: 在 `isFlushing` 为 true 时等待当前 flush 完成后再检查队列
@@ -93,7 +93,7 @@
 ## Task audit-bug-10: flush() 失败后重试不会 reject 已失败的项
 
 - **严重程度**: P2
-- **文件**: `src/infrastructure/trace-audit/async-writer.ts`
+- **文件**: `src/infrastructure/trace-audit/async-writer.ts`, `src/infrastructure/trace-audit/async-writer.test.ts`
 - **位置**: L149-158
 - **问题**: 失败的项被放回队列等待重试，但如果失败原因是持久性的（如 EPERM），这些项会一直被重试，Promise 永远 pending
 - **修复要求**: 为 WriteQueueItem 添加 retryCount 字段，超过最大重试次数后 reject

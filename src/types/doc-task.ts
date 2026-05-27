@@ -65,6 +65,7 @@ export interface AgentTaskContract {
 export interface AgentTaskBoundary {
   allowedFiles: string[];
   forbiddenFiles: string[];
+  relatedFiles: string[];
   validationCommands: string[];
   boundaryConfidence: 'none' | 'low' | 'medium' | 'high';
   parallelEligible: boolean;

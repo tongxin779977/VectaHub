@@ -34,6 +34,7 @@ export interface NormalizeAgentTaskFilesInput {
 export interface AgentTaskBoundary {
   allowedFiles: string[];
   forbiddenFiles: string[];
+  relatedFiles: string[];
   validationCommands: string[];
   boundaryConfidence: 'none' | 'low' | 'medium' | 'high';
   parallelEligible: boolean;
@@ -91,3 +92,4 @@ export function deriveAgentTaskBoundary(input: DeriveAgentTaskBoundaryInput): Ag
 export function deriveValidationCommands(input: DeriveValidationCommandsInput): string[];
 export function decideAgentTaskConcurrency(input: AgentTaskConcurrencyInput[]): AgentTaskConcurrencyDecision;
 export function extractCandidateFiles(text: string): string[];
+export function expandRelatedFiles(allowedFiles: string[], projectRoot: string): string[];

@@ -246,6 +246,11 @@ export interface RunTaskResult {
   completionSignal?: SpawnCompletionSignal;
   recoveryDecision?: RunTaskRecoveryDecisionSummary;
   reviewReport?: RunTaskReviewReport;
+  warning?: {
+    level: 'related' | 'out_of_scope';
+    reason: string;
+    matchedFiles: string[];
+  };
 }
 
 export interface RunTaskRiskAssessment {
@@ -281,6 +286,11 @@ export interface RunTaskJsonResult {
   completionSignal?: SpawnCompletionSignal;
   recoveryDecision?: RunTaskRecoveryDecisionSummary;
   reviewReport?: RunTaskReviewReport;
+  warning?: {
+    level: 'related' | 'out_of_scope';
+    reason: string;
+    matchedFiles: string[];
+  };
   error?: string | {
     code: string;
     message: string;
@@ -322,6 +332,7 @@ export interface AgentTaskContractSummary {
   boundaryConfidence: AgentTaskContract['boundaryConfidence'];
   allowedFiles: string[];
   forbiddenFiles: string[];
+  relatedFiles: string[];
   validationCommands: string[];
   executionMode: AgentTaskContract['executionMode'];
   docExcerptTruncated: boolean;
@@ -797,6 +808,7 @@ async function buildAgentTaskContract(input: {
     boundaryConfidence: contract.boundaryConfidence,
     allowedFiles: contract.allowedFiles,
     forbiddenFiles: contract.forbiddenFiles,
+    relatedFiles: boundary.relatedFiles ?? [],
     validationCommands: contract.validationCommands,
     executionMode: contract.executionMode,
     docExcerptTruncated,
@@ -1271,7 +1283,8 @@ function detectPostExecutionConfirmation(input: {
   gitChanges?: GitChangeInfo;
   allowedFiles: string[];
   forbiddenFiles: string[];
-}): { reason: string; matchedFiles: string[] } | null {
+  relatedFiles: string[];
+}): { level: 'forbidden' | 'related' | 'out_of_scope'; reason: string; matchedFiles: string[] } | null {
   const changedFiles = input.gitChanges?.changedFiles ?? [];
   if (!changedFiles.length) {
     return null;
@@ -1280,6 +1293,7 @@ function detectPostExecutionConfirmation(input: {
   const normalizedChanged = changedFiles.map(normalizeContractPath);
   const allowed = new Set(input.allowedFiles.map(normalizeContractPath).filter(Boolean));
   const forbidden = new Set(input.forbiddenFiles.map(normalizeContractPath).filter(Boolean));
+  const related = new Set(input.relatedFiles.map(normalizeContractPath).filter(Boolean));
   const isForbiddenMatch = (file: string): boolean => {
     if (forbidden.has(file)) return true;
     for (const pattern of forbidden) {
@@ -1308,15 +1322,28 @@ function detectPostExecutionConfirmation(input: {
   const forbiddenMatches = normalizedChanged.filter(file => isForbiddenMatch(file));
   if (forbiddenMatches.length > 0) {
     return {
+      level: 'forbidden',
       reason: 'forbidden_files_modified',
       matchedFiles: forbiddenMatches,
     };
+  }
+
+  if (related.size > 0) {
+    const relatedMatches = normalizedChanged.filter(file => related.has(file));
+    if (relatedMatches.length > 0) {
+      return {
+        level: 'related',
+        reason: 'related_file_changes',
+        matchedFiles: relatedMatches,
+      };
+    }
   }
 
   if (allowed.size > 0) {
     const outOfScope = normalizedChanged.filter(file => !allowed.has(file));
     if (outOfScope.length > 0) {
       return {
+        level: 'out_of_scope',
         reason: 'out_of_scope_changes',
         matchedFiles: outOfScope,
       };
@@ -1614,6 +1641,9 @@ export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
   if (result.reviewReport) {
     jsonResult.reviewReport = result.reviewReport;
   }
+  if (result.warning) {
+    jsonResult.warning = result.warning;
+  }
 
   return jsonResult;
 }
@@ -1748,6 +1778,16 @@ function formatRunTaskSuccessHumanOutput(result: RunTaskResult): string {
     lines.push('', `Agent 执行判断：${result.agentExecutionOutcome === 'implemented' ? '已实现' : '仅计划'}`);
   }
   lines.push(...(result.reviewReport ? ['', ...formatRunTaskReviewSummaryForHuman(result.reviewReport)] : []));
+  if (result.warning) {
+    const warningLevelText = result.warning.level === 'related' ? '相关文件' : '越界文件';
+    lines.push(
+      '',
+      `⚠ 边界警告 [${warningLevelText}]`,
+      `原因：${result.warning.reason}`,
+      '涉及文件：',
+      formatHumanList(result.warning.matchedFiles, '无'),
+    );
+  }
   if (result.completionSignal) {
     lines.push(`完成信号：${result.completionSignal}`);
   }
@@ -2820,8 +2860,9 @@ export async function runTask(options: {
         gitChanges,
         allowedFiles: agentTaskContractSummary.allowedFiles,
         forbiddenFiles: agentTaskContractSummary.forbiddenFiles,
+        relatedFiles: agentTaskContractSummary.relatedFiles,
       });
-      if (postExecutionConfirmation) {
+      if (postExecutionConfirmation && postExecutionConfirmation.level === 'forbidden') {
         await persistRunTaskFailureLogs(taskId, {
           stdout: redactedStdout,
           stderr: redactedStderr,
@@ -2877,6 +2918,16 @@ export async function runTask(options: {
           recoveryDecision,
           reviewReport,
         };
+      }
+
+      let postExecutionWarning: RunTaskResult['warning'];
+      if (postExecutionConfirmation && postExecutionConfirmation.level !== 'forbidden') {
+        postExecutionWarning = {
+          level: postExecutionConfirmation.level,
+          reason: postExecutionConfirmation.reason,
+          matchedFiles: postExecutionConfirmation.matchedFiles,
+        };
+        getLogger().warn(`检测到边界警告: ${postExecutionConfirmation.reason} (${postExecutionConfirmation.matchedFiles.join(', ')})`);
       }
       
       let verification: VerificationResult | undefined;
@@ -3000,6 +3051,7 @@ export async function runTask(options: {
         failureKind,
         unclosedExecution,
         reviewReport,
+        warning: postExecutionWarning,
         recoveryDecision: !finalSuccess
           ? buildRecoveryDecisionSummary({
               failureKind,

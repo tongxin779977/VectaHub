@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { isAbsolute, normalize, relative, resolve, posix, win32 } from 'node:path';
 
 const DEFAULT_MAX_EXCERPT_CHARS = 8000;
@@ -247,6 +248,7 @@ export function deriveAgentTaskBoundary(input) {
   });
   const forbiddenSet = new Set(forbiddenFiles);
   const safeAllowedFiles = allowedFiles.filter(file => !forbiddenSet.has(file));
+  const relatedFiles = expandRelatedFiles(safeAllowedFiles, input.projectRoot);
   const validationCommands = deriveValidationCommands({
     allowedFiles: safeAllowedFiles,
     taskLabel: input.label,
@@ -258,6 +260,7 @@ export function deriveAgentTaskBoundary(input) {
 
   return {
     allowedFiles: safeAllowedFiles,
+    relatedFiles,
     forbiddenFiles,
     validationCommands,
     boundaryConfidence,
@@ -517,4 +520,22 @@ function serialDecision(contracts, reason) {
     reason,
     groups: contracts.map(contract => [contract.taskId]),
   };
+}
+
+export function expandRelatedFiles(allowedFiles, projectRoot) {
+  if (!Array.isArray(allowedFiles)) return [];
+  const result = new Set();
+  for (const file of allowedFiles) {
+    if (typeof file !== 'string') continue;
+    if (file.endsWith('.ts') && !file.endsWith('.test.ts')) {
+      const testFile = file.replace(/\.ts$/, '.test.ts');
+      const resolvedPath = resolve(projectRoot, testFile);
+      if (existsSync(resolvedPath)) result.add(testFile);
+    } else if (file.endsWith('.test.ts')) {
+      const srcFile = file.replace(/\.test\.ts$/, '.ts');
+      const resolvedPath = resolve(projectRoot, srcFile);
+      if (existsSync(resolvedPath)) result.add(srcFile);
+    }
+  }
+  return [...result];
 }
