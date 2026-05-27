@@ -58,6 +58,9 @@ export interface Detector {
   };
 }
 
+/**
+ * 创建命令检测器实例
+ */
 export function createDetector(): Detector {
   let securityManager: ReturnType<typeof getSecurityManager> | null = null;
 

@@ -1,3 +1,6 @@
+/**
+ * 内存监控器
+ */
 export class MemoryMonitor {
   private maxMemoryMB: number;
   private checkIntervalMS: number;

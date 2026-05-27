@@ -209,6 +209,9 @@ function scanSemanticCommands(command: string): SemanticDetectionResult {
   return { detected: false, threatType: 'none', severity: 'none' };
 }
 
+/**
+ * 创建语义检测器实例
+ */
 export function createSemanticDetector(): SemanticDetector {
   return {
     detectInjection(input: string): SemanticDetectionResult {

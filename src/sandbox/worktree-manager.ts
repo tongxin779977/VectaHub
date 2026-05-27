@@ -30,6 +30,9 @@ function toBranchName(traceId: string): string {
   return `vectahub/sandbox/${traceId}`;
 }
 
+/**
+ * 创建工作树沙箱
+ */
 export async function createSandbox(options: SandboxOptions): Promise<SandboxContext> {
   const branchName = toBranchName(options.traceId);
   let isInsideWorktree: boolean;
@@ -78,6 +81,9 @@ export async function createSandbox(options: SandboxOptions): Promise<SandboxCon
   };
 }
 
+/**
+ * 清理工作树沙箱
+ */
 export async function teardownSandbox(context: SandboxContext): Promise<void> {
   const repoCwd = context.isFallback ? context.worktreePath : join(context.worktreePath, '..', '..', '..');
 
