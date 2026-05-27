@@ -7,6 +7,7 @@ import path from 'node:path';
 import { existsSync, mkdirSync, appendFileSync } from 'node:fs';
 import type { Logger } from '../logger/index.js';
 import type { TraceSpan, AsyncWriteConfig } from './types.js';
+import { VectaHubError, ErrorType } from '../errors/index.js';
 
 export interface AsyncLogWriterDeps {
   logger: Logger;
@@ -48,7 +49,7 @@ export class AsyncLogWriter {
     deps: AsyncLogWriterDeps
   ) {
     if (!deps.logger) {
-      throw new Error('AsyncLogWriter requires a logger dependency');
+      throw new VectaHubError('AsyncLogWriter requires a logger dependency', ErrorType.CONFIGURATION);
     }
 
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -133,7 +134,7 @@ export class AsyncLogWriter {
   /** 写入单条日志 */
   async write(data: TraceSpan): Promise<void> {
     if (this.isDestroyed) {
-      throw new Error('写入器已销毁');
+      throw new VectaHubError('写入器已销毁', ErrorType.RUNTIME);
     }
 
     if (!this.config.enabled) {

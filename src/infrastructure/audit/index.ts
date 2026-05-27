@@ -1,5 +1,5 @@
-import { mkdirSync, existsSync, appendFileSync, readFileSync, readdirSync } from 'fs';
-import { join } from 'path';
+import { mkdirSync, existsSync, appendFileSync, readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { VectaHubError, ErrorType } from '../errors/index.js';
 import { redactSensitiveData } from '../../utils/sensitive-data.js';
 import { getVectaHubPath } from '../paths/index.js';

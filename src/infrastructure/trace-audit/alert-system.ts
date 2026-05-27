@@ -13,6 +13,7 @@ import type {
   TraceId,
   SpanId,
 } from './types.js';
+import { VectaHubError, ErrorType } from '../errors/index.js';
 
 export interface AlertSystemDeps {
   logger: Logger;
@@ -80,7 +81,7 @@ export class AlertSystem {
 
   constructor(rules: AlertRule[] | undefined, deps: AlertSystemDeps) {
     if (!deps.logger) {
-      throw new Error('AlertSystem requires a logger dependency');
+      throw new VectaHubError('AlertSystem requires a logger dependency', ErrorType.CONFIGURATION);
     }
 
     const defaultRules = rules ?? DEFAULT_ALERT_RULES;

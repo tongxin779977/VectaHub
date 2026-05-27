@@ -4,11 +4,19 @@
  */
 import { redactString } from '../../utils/sensitive-data.js';
 
+/**
+ * Options for the redact transport
+ */
 interface RedactTransportOptions {
   destination?: NodeJS.WritableStream | string;
 }
 
-export default function createRedactTransport(options: RedactTransportOptions = {}) {
+/**
+ * Creates a Pino transport that redacts sensitive data before writing
+ * @param options - Configuration options for the transport
+ * @returns A Pino-compatible transport object
+ */
+export function createRedactTransport(options: RedactTransportOptions = {}) {
   const dest = options.destination ?? process.stdout;
 
   return {
@@ -22,7 +30,7 @@ export default function createRedactTransport(options: RedactTransportOptions = 
         } else {
           (dest as NodeJS.WritableStream).write(redacted + '\n');
         }
-      } catch {
+      } catch (error) {
         // Fallback: write original if redaction fails
         if (typeof dest !== 'string') {
           (dest as NodeJS.WritableStream).write(msg + '\n');

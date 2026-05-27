@@ -6,6 +6,7 @@ import { TraceCore } from './trace-core.js';
 import { QueryEngine } from './query-engine.js';
 import { LogRotationManager } from './log-rotation.js';
 import { AlertSystem } from './alert-system.js';
+import { VectaHubError, ErrorType } from '../errors/index.js';
 import type {
   AlertEvent,
   AlertRule,
@@ -156,7 +157,7 @@ export class TraceAuditSystem {
    */
   private assertDeps(deps: TraceAuditSystemDeps | undefined): asserts deps is TraceAuditSystemDeps {
     if (!deps?.environment || !deps.logger) {
-      throw new Error('TraceAuditSystem requires explicit environment and logger dependencies');
+      throw new VectaHubError('TraceAuditSystem requires explicit environment and logger dependencies', ErrorType.CONFIGURATION);
     }
   }
 

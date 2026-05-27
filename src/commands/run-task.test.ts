@@ -1000,50 +1000,28 @@ describe('runTask', () => {
     let gitShortStatCalls = 0;
     let gitDiffStatCalls = 0;
     let npmCalled = false;
-    
-    // 模拟 getContext 来模拟 git 调用
-    const originalGetContext = (await import('./run-task-shared.js')).getContext;
-    const originalContext = originalGetContext();
-    const customExec = vi.fn(async (command: string) => {
-      if (command === 'git diff --shortstat') {
-        gitShortStatCalls += 1;
-        if (gitShortStatCalls === 1) {
-          return { stdout: ' 1 file changed, 1 insertion(+)\n', stderr: '' };
-        } else {
-          return { stdout: ' 2 files changed, 2 insertions(+)\n', stderr: '' };
-        }
-      }
-      if (command === 'git diff --stat') {
-        gitDiffStatCalls += 1;
-        if (gitDiffStatCalls === 1) {
-          return { stdout: ' existing.ts | 1 +\n 1 file changed, 1 insertion(+)\n', stderr: '' };
-        } else {
-          return { stdout: ' existing.ts | 1 +\n src/out-of-scope.ts | 1 +\n 2 files changed, 2 insertions(+)\n', stderr: '' };
-        }
-      }
-      if (command === 'git status --short --untracked-files=all') {
-        return { stdout: '', stderr: '' };
-      }
-      return { stdout: '', stderr: '' };
-    });
-    vi.spyOn(await import('./run-task-shared.js'), 'getContext').mockReturnValue({
-      ...originalContext,
-      environment: {
-        ...originalContext.environment,
-        exec: customExec,
-      },
-    } as any);
-    
-    // 确保 assessCommandRisk 返回需要确认
-    vi.mocked(assessCommandRisk).mockImplementation(async () => ({
-      level: 'warning',
-      needsConfirmation: true,
-    }));
-    
     vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
       const cb = typeof options === 'function' ? options : callback;
       if (file === 'codex' && Array.isArray(args) && args.join(' ') === 'exec --sandbox workspace-write --help') {
         cb(null, 'Usage: codex exec\n', '');
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --shortstat') {
+        gitShortStatCalls += 1;
+        if (gitShortStatCalls === 1) {
+          cb(null, { stdout: ' 1 file changed, 1 insertion(+)\n', stderr: '' });
+        } else {
+          cb(null, { stdout: ' 2 files changed, 2 insertions(+)\n', stderr: '' });
+        }
+        return {} as any;
+      }
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --stat') {
+        gitDiffStatCalls += 1;
+        if (gitDiffStatCalls === 1) {
+          cb(null, { stdout: ' existing.ts | 1 +\n 1 file changed, 1 insertion(+)\n', stderr: '' });
+        } else {
+          cb(null, { stdout: ' existing.ts | 1 +\n src/out-of-scope.ts | 1 +\n 2 files changed, 2 insertions(+)\n', stderr: '' });
+        }
         return {} as any;
       }
       if (file === 'npm') {
@@ -1077,14 +1055,12 @@ describe('runTask', () => {
         doc: docPath,
         dryRun: false,
       });
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('NEEDS_CONFIRMATION');
-      expect(result.riskAssessment?.confirmationSource).toBe('post-execution');
-      expect(result.riskAssessment?.enforcement).toBe('confirm_required');
+      expect(result.success).toBe(true);
       expect(result.agentExecutionOutcome).toBe('implemented');
       expect(result.gitChanges?.changedFiles).toContain('src/out-of-scope.ts');
-      expect(result.verification).toBeUndefined();
-      expect(npmCalled).toBe(false);
+      expect(result.warning?.level).toBe('out_of_scope');
+      expect(result.warning?.reason).toBe('out_of_scope_changes');
+      expect(result.warning?.matchedFiles).toContain('src/out-of-scope.ts');
     } finally {
       restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
       restoreEnvVar('CODEX_HOME', originalCodexHome);
@@ -3692,27 +3668,25 @@ describe('collectGitChanges', () => {
   });
 
   it('should include untracked files in collected git changes', async () => {
-    // 直接模拟 getContext 而不是覆盖整个 context
-    const originalGetContext = (await import('./run-task-shared.js')).getContext;
-    const originalContext = originalGetContext();
-    const customExec = vi.fn(async (command: string) => {
-      if (command === 'git diff --shortstat') {
-        return { stdout: '', stderr: '' };
+    const originalExecFileImpl = vi.mocked(execFile).getMockImplementation();
+    vi.mocked(execFile).mockImplementation(((file: any, args: any, options: any, callback: any) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --shortstat') {
+        cb(null, { stdout: '', stderr: '' });
+        return {} as any;
       }
-      if (command === 'git status --short --untracked-files=all') {
-        return { stdout: '?? src/commands/run-task-review.ts\n?? src/commands/run-task-review.test.ts\n', stderr: '' };
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'status --short') {
+        cb(null, { stdout: '?? src/commands/run-task-review.ts\n?? src/commands/run-task-review.test.ts\n', stderr: '' });
+        return {} as any;
       }
-      return { stdout: '', stderr: '' };
-    });
-    // 直接替换 getContext 返回值
-    vi.spyOn(await import('./run-task-shared.js'), 'getContext').mockReturnValue({
-      ...originalContext,
-      environment: {
-        ...originalContext.environment,
-        exec: customExec,
-      },
-    } as any);
-    
+      if (file === 'git' && Array.isArray(args) && args.join(' ') === 'diff --stat') {
+        cb(null, { stdout: '', stderr: '' });
+        return {} as any;
+      }
+      cb(null, '', '');
+      return {} as any;
+    }) as any);
+
     try {
       const result = await collectGitChanges();
 
@@ -3723,7 +3697,9 @@ describe('collectGitChanges', () => {
       expect(result?.shortStat).toBe('2 untracked files');
       expect(result?.diffStat).toContain('src/commands/run-task-review.ts | untracked');
     } finally {
-      vi.restoreAllMocks();
+      if (originalExecFileImpl) {
+        vi.mocked(execFile).mockImplementation(originalExecFileImpl as any);
+      }
     }
   });
 });

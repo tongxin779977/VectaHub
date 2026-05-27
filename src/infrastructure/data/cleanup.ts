@@ -13,13 +13,22 @@ export interface CleanupConfig {
   enabled: boolean;
 }
 
+/**
+ * Resolves storage path from segments
+ */
 export type CleanupPathResolver = (...segments: string[]) => string;
 
+/**
+ * Dependencies for DataCleanupService
+ */
 export interface DataCleanupDeps {
   logger: pino.Logger;
   resolveStoragePath: CleanupPathResolver;
 }
 
+/**
+ * Options for creating a DataCleanupService
+ */
 export interface DataCleanupServiceOptions {
   config?: Partial<CleanupConfig>;
   deps: DataCleanupDeps;
@@ -62,6 +71,9 @@ export class DataCleanupService {
     }
   }
 
+  /**
+   * Starts the data cleanup service with periodic cleanup
+   */
   start(): void {
     if (this.isRunning || !this.config.enabled) return;
     
@@ -70,6 +82,9 @@ export class DataCleanupService {
     this.logger.info('Data cleanup service started');
   }
 
+  /**
+   * Stops the data cleanup service
+   */
   stop(): void {
     if (this.cleanupIntervalId) {
       clearInterval(this.cleanupIntervalId);
@@ -91,6 +106,9 @@ export class DataCleanupService {
     }, this.config.cleanupIntervalHours * 60 * 60 * 1000);
   }
 
+  /**
+   * Performs data cleanup for logs, executions, and workflows
+   */
   async cleanup(): Promise<void> {
     if (!this.config.enabled) return;
 
@@ -109,7 +127,8 @@ export class DataCleanupService {
 
     try {
       await fs.access(logDir);
-    } catch {
+    } catch (error) {
+      this.logger.debug(`Log directory ${logDir} not accessible, skipping log cleanup`, error);
       return;
     }
 
@@ -126,7 +145,8 @@ export class DataCleanupService {
           deletedCount++;
           this.logger.debug(`Deleted old log file: ${file}`);
         }
-      } catch {
+      } catch (error) {
+        this.logger.warn(`Failed to process log file ${filePath}`, error);
         continue;
       }
     }
@@ -142,7 +162,8 @@ export class DataCleanupService {
 
     try {
       await fs.access(executionsDir);
-    } catch {
+    } catch (error) {
+      this.logger.debug(`Executions directory ${executionsDir} not accessible, skipping execution cleanup`, error);
       return;
     }
 
@@ -161,7 +182,8 @@ export class DataCleanupService {
           deletedCount++;
           this.logger.debug(`Deleted old execution record: ${file}`);
         }
-      } catch {
+      } catch (error) {
+        this.logger.warn(`Failed to process execution file ${filePath}`, error);
         continue;
       }
     }
@@ -177,7 +199,8 @@ export class DataCleanupService {
 
     try {
       await fs.access(workflowsDir);
-    } catch {
+    } catch (error) {
+      this.logger.debug(`Workflows directory ${workflowsDir} not accessible, skipping workflow cleanup`, error);
       return;
     }
 
@@ -196,7 +219,8 @@ export class DataCleanupService {
           deletedCount++;
           this.logger.debug(`Deleted old workflow: ${file}`);
         }
-      } catch {
+      } catch (error) {
+        this.logger.warn(`Failed to process workflow file ${filePath}`, error);
         continue;
       }
     }
@@ -206,6 +230,11 @@ export class DataCleanupService {
     }
   }
 
+  /**
+   * Cleans up old files by age
+   * @param days - Number of days to retain files
+   * @returns Object containing counts of deleted files
+   */
   async cleanupByAge(days: number): Promise<{ logs: number; executions: number; workflows: number }> {
     const cutoffDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     const results = { logs: 0, executions: 0, workflows: 0 };
@@ -224,7 +253,8 @@ export class DataCleanupService {
   private async deleteOldFiles(dirPath: string, cutoffDate: Date): Promise<number> {
     try {
       await fs.access(dirPath);
-    } catch {
+    } catch (error) {
+      this.logger.debug(`Directory ${dirPath} not accessible, skipping age-based cleanup`, error);
       return 0;
     }
 
@@ -240,7 +270,8 @@ export class DataCleanupService {
           await fs.unlink(filePath);
           deletedCount++;
         }
-      } catch {
+      } catch (error) {
+        this.logger.warn(`Failed to process file ${filePath} during age-based cleanup`, error);
         continue;
       }
     }
@@ -248,6 +279,10 @@ export class DataCleanupService {
     return deletedCount;
   }
 
+  /**
+   * Gets storage usage statistics
+   * @returns Object containing file counts and total bytes
+   */
   async getStorageUsage(): Promise<{ logs: number; executions: number; workflows: number; totalBytes: number }> {
     const logDir = this.resolveStoragePath('logs');
     const executionsDir = this.resolveStoragePath('executions');
@@ -270,7 +305,8 @@ export class DataCleanupService {
   private async getDirStats(dirPath: string): Promise<{ count: number; bytes: number }> {
     try {
       await fs.access(dirPath);
-    } catch {
+    } catch (error) {
+      this.logger.debug(`Directory ${dirPath} not accessible for stats, returning empty stats`, error);
       return { count: 0, bytes: 0 };
     }
 
@@ -287,7 +323,8 @@ export class DataCleanupService {
           count++;
           bytes += stat.size;
         }
-      } catch {
+      } catch (error) {
+        this.logger.warn(`Failed to get stats for file ${filePath}`, error);
         continue;
       }
     }
@@ -295,10 +332,18 @@ export class DataCleanupService {
     return { count, bytes };
   }
 
+  /**
+   * Checks if the cleanup service is enabled
+   * @returns True if enabled
+   */
   isEnabled(): boolean {
     return this.config.enabled;
   }
 
+  /**
+   * Updates the cleanup configuration
+   * @param config - Partial configuration to update
+   */
   updateConfig(config: Partial<CleanupConfig>): void {
     this.config = { ...this.config, ...config };
     

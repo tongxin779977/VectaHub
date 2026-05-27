@@ -14,6 +14,7 @@ import type {
   ExecutionStatus,
 } from './types.js';
 import { AsyncLogWriter } from './async-writer.js';
+import { VectaHubError, ErrorType } from '../errors/index.js';
 
 export interface TraceCoreDeps {
   logger: Logger;
@@ -37,7 +38,7 @@ export class TraceCore {
 
   constructor(writer: AsyncLogWriter, deps: TraceCoreDeps) {
     if (!deps.logger) {
-      throw new Error('TraceCore requires a logger dependency');
+      throw new VectaHubError('TraceCore requires a logger dependency', ErrorType.CONFIGURATION);
     }
 
     this.writer = writer;
@@ -98,7 +99,7 @@ export class TraceCore {
   ): Promise<TraceSpan> {
     const trace = this.activeTraces.get(traceId);
     if (!trace) {
-      throw new Error(`链路追踪不存在: ${traceId}`);
+      throw new VectaHubError(`链路追踪不存在: ${traceId}`, ErrorType.RUNTIME);
     }
 
     const spanId = generateId('span');
@@ -135,7 +136,7 @@ export class TraceCore {
   ): Promise<void> {
     const span = this.spanIndex.get(spanId);
     if (!span) {
-      throw new Error(`跨度不存在: ${spanId}`);
+      throw new VectaHubError(`跨度不存在: ${spanId}`, ErrorType.RUNTIME);
     }
 
     const endTime = new Date().toISOString();

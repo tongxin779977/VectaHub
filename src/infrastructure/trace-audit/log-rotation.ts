@@ -10,6 +10,7 @@ import { promisify } from 'node:util';
 import type { Logger } from '../logger/index.js';
 import type { LogRotationConfig } from './types.js';
 import { AsyncLogWriter } from './async-writer.js';
+import { VectaHubError, ErrorType } from '../errors/index.js';
 
 const gzip = promisify(zlib.gzip);
 
@@ -41,7 +42,7 @@ export class LogRotationManager {
     deps: LogRotationManagerDeps
   ) {
     if (!deps.logger) {
-      throw new Error('LogRotationManager requires a logger dependency');
+      throw new VectaHubError('LogRotationManager requires a logger dependency', ErrorType.CONFIGURATION);
     }
 
     this.logDir = logDir;

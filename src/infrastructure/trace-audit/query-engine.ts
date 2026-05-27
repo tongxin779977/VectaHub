@@ -17,6 +17,7 @@ import type {
   ModuleName,
   ExecutionStatus,
 } from './types.js';
+import { VectaHubError, ErrorType } from '../errors/index.js';
 
 export interface QueryEngineDeps {
   logger: Logger;
@@ -36,7 +37,7 @@ export class QueryEngine {
 
   constructor(logDir: string, deps: QueryEngineDeps) {
     if (!deps.logger) {
-      throw new Error('QueryEngine requires a logger dependency');
+      throw new VectaHubError('QueryEngine requires a logger dependency', ErrorType.CONFIGURATION);
     }
 
     this.logDir = logDir;

@@ -1,4 +1,4 @@
-import { dirname } from 'path';
+import { dirname } from 'node:path';
 import { parse, stringify } from 'yaml';
 import type { DefaultPolicy } from '../../command-rules/types.js';
 import type { IEnvironmentService, IConfigService } from '../interfaces/index.js';

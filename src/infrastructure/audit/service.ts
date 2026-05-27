@@ -1,5 +1,6 @@
 import type { IEnvironmentService, IAuditService } from '../interfaces/index.js';
 import type { AuditFailureMode, AuditQueryOptions } from '../interfaces/audit-service.js';
+import { VectaHubError, ErrorType } from '../errors/index.js';
 import {
   AuditLogger,
   createAuditHelper,
@@ -31,7 +32,7 @@ export class AuditService implements IAuditService {
     this.environment = environment;
     this.failureMode = options?.failureMode ?? 'fail-open';
     if (!options?.onError && this.failureMode === 'fail-open') {
-      throw new Error('AuditService fail-open mode requires an explicit onError handler');
+      throw new VectaHubError('AuditService fail-open mode requires an explicit onError handler', ErrorType.CONFIGURATION);
     }
     this.onError = options?.onError ?? ((error) => {
       throw error;

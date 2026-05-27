@@ -1,6 +1,6 @@
 import pino from 'pino';
-import { mkdirSync, existsSync } from 'fs';
-import { join } from 'path';
+import { mkdirSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { redactString } from '../../utils/sensitive-data.js';
 import type { ILoggerService } from '../interfaces/index.js';
 import type { IEnvironmentService } from '../interfaces/index.js';

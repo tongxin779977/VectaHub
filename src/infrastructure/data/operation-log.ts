@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type pino from 'pino';
 import { redactSensitiveData } from '../security/sensitive-data.js';
+import { VectaHubError, ErrorType } from '../errors/index.js';
 
 /**
  * 操作日志条目接口
@@ -78,7 +79,7 @@ export class OperationLog {
    */
   private assertDeps(options: OperationLogOptions | undefined): asserts options is OperationLogOptions {
     if (!options?.deps?.logger || typeof options.deps.resolveStoragePath !== 'function') {
-      throw new Error('OperationLog requires explicit logger and resolveStoragePath dependencies');
+      throw new VectaHubError('OperationLog requires explicit logger and resolveStoragePath dependencies', ErrorType.CONFIGURATION);
     }
   }
 

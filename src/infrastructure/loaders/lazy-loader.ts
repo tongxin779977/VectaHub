@@ -3,6 +3,8 @@
  *
  * 用于延迟加载模块，只在第一次使用时才实例化
  */
+import { VectaHubError, ErrorType } from '../errors/index.js';
+
 export class LazyModuleLoader {
   private moduleCache: Map<string, unknown> = new Map();
   private moduleFactories: Map<string, () => Promise<unknown>> = new Map();
@@ -24,7 +26,7 @@ export class LazyModuleLoader {
 
     const factory = this.moduleFactories.get(id);
     if (!factory) {
-      throw new Error(`Module ${id} not registered`);
+      throw new VectaHubError(`Module ${id} not registered`, ErrorType.RUNTIME);
     }
 
     const module = await factory();

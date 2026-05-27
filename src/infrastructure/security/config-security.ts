@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
 import type pino from 'pino';
+import { VectaHubError, ErrorType } from '../errors/index.js';
 
 /**
  * 配置安全选项接口
@@ -80,7 +81,7 @@ export class ConfigSecurity {
    */
   private assertDeps(options: ConfigSecurityCreateOptions | undefined): asserts options is ConfigSecurityCreateOptions {
     if (!options?.deps?.logger || typeof options.deps.resolveStoragePath !== 'function') {
-      throw new Error('ConfigSecurity requires explicit logger and resolveStoragePath dependencies');
+      throw new VectaHubError('ConfigSecurity requires explicit logger and resolveStoragePath dependencies', ErrorType.CONFIGURATION);
     }
   }
 
