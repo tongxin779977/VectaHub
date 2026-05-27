@@ -323,8 +323,9 @@ export function buildAllTools(domains?: string[]): LLMTool[] {
   const intentTools = buildToolsFromTemplates();
   const cliTools = getDiscoveredCLITools();
   const agentTools = buildAgentToolsFromRegistry();
+  const providerTools = buildProviderManagementTools();
 
-  const allTools = [...intentTools, ...cliTools, ...agentTools];
+  const allTools = [...intentTools, ...cliTools, ...agentTools, ...providerTools];
 
   if (domains && domains.length > 0) {
     return allTools.filter(tool => {
@@ -337,6 +338,65 @@ export function buildAllTools(domains?: string[]): LLMTool[] {
   }
 
   return allTools;
+}
+
+export function buildProviderManagementTools(): LLMTool[] {
+  return [
+    {
+      type: 'function',
+      function: {
+        name: 'register_provider',
+        description: '注册一个新的 AI Provider。当用户说"我安装了 xxx"、"添加 xxx provider"等时使用。',
+        parameters: {
+          type: 'object',
+          properties: {
+            cliCommand: {
+              type: 'string',
+              description: 'CLI 命令名称（如 gemini、codex、claude、aider 等）',
+            },
+            displayName: {
+              type: 'string',
+              description: 'Provider 的显示名称（可选）',
+            },
+            description: {
+              type: 'string',
+              description: 'Provider 的描述（可选）',
+            },
+          },
+          required: ['cliCommand'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'unregister_provider',
+        description: '移除一个已注册的 AI Provider。',
+        parameters: {
+          type: 'object',
+          properties: {
+            providerId: {
+              type: 'string',
+              description: '要移除的 Provider ID',
+            },
+          },
+          required: ['providerId'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'list_providers',
+        description: '列出所有已注册的 AI Providers。',
+        parameters: {
+          type: 'object',
+          properties: {},
+          required: [],
+        },
+      },
+    },
+  ];
 }
 
 export function convertToolCallToSteps(toolCall: LLMToolCall): { intent: string; params: Record<string, unknown>; steps: Step[] } {
@@ -384,6 +444,47 @@ export function convertToolCallToSteps(toolCall: LLMToolCall): { intent: string;
         type: 'exec' as const,
         cli: rendered.command,
         args: finalArgs,
+      }],
+    };
+  }
+
+  if (intentName === 'register_provider') {
+    const cliCommand = String(params.cliCommand || '');
+    return {
+      intent: intentName,
+      params,
+      steps: [{
+        id: 'step_register_provider',
+        type: 'exec' as const,
+        cli: 'vectahub',
+        args: ['provider', 'add', cliCommand],
+      }],
+    };
+  }
+
+  if (intentName === 'unregister_provider') {
+    const providerId = String(params.providerId || '');
+    return {
+      intent: intentName,
+      params,
+      steps: [{
+        id: 'step_unregister_provider',
+        type: 'exec' as const,
+        cli: 'vectahub',
+        args: ['provider', 'remove', providerId],
+      }],
+    };
+  }
+
+  if (intentName === 'list_providers') {
+    return {
+      intent: intentName,
+      params,
+      steps: [{
+        id: 'step_list_providers',
+        type: 'exec' as const,
+        cli: 'vectahub',
+        args: ['provider', 'list'],
       }],
     };
   }

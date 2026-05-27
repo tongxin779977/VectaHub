@@ -44,6 +44,15 @@ const AIConfigSchema = z.object({
 // AI Provider Config
 const AIProviderConfigSchema = z.object({
   provider: z.string(),
+  displayName: z.string().optional(),
+  description: z.string().optional(),
+  entryCommand: z.string().optional(),
+  version: z.string().optional(),
+  subcommand: z.string().optional(),
+  promptTransport: z.enum(['arg', 'stdin', 'file', 'positional']).optional(),
+  promptArgName: z.string().optional(),
+  workingDirectoryArg: z.string().optional(),
+  nonInteractiveFlags: z.array(z.string()).optional(),
   baseUrl: z.string().optional(),
   apiKey: z.string().optional(),
   model: z.string().optional(),
@@ -51,6 +60,9 @@ const AIProviderConfigSchema = z.object({
   temperature: z.number().optional(),
   timeout_ms: z.number().min(1000).optional(),
   enabled: z.boolean(),
+  priority: z.number().min(0).max(100).optional(),
+  registeredAt: z.string().optional(),
+  lastChecked: z.string().optional(),
 });
 
 // External CLI Config

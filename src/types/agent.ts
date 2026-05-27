@@ -71,8 +71,11 @@ export interface AgentAdapter {
 
 export interface AgentRegistry {
   register(descriptor: AgentDescriptor, adapter: AgentAdapter): void;
+  unregister(id: string): boolean;
   getAgentDescriptor(id: string): AgentDescriptor | null;
   getAgentAdapter(id: string): AgentAdapter | null;
   getAllDescriptors(): AgentDescriptor[];
   isKnownAgent(id: string): boolean;
+  has(id: string): boolean;
+  clear(): void;
 }

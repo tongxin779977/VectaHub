@@ -178,9 +178,6 @@ async function executeLLMToolCalling(
   throw new Error('LLM failed to generate a result: no tool calls, workflow or reply produced');
 }
 
-
-
-
 /** 最小 step 合同：只要有 type 可选、cli 可选、body 可选即可递归校验 */
 interface MinimalStep {
   type?: string;

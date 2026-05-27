@@ -393,7 +393,7 @@ export class LLMClient {
       parsed = JSON.parse(content) as LLMResponse;
       const isStructuredIntent = ('intent' in parsed) && ('workflow' in parsed || 'params' in parsed);
       if (!isStructuredIntent && !parsed.reply && !parsed.tool_calls) {
-        const possibleReplyKeys = ['response', 'message', 'text', 'content'];
+        const possibleReplyKeys = ['response', 'message', 'text', 'content', 'name', 'answer', 'description'];
         const tempObj = parsed as unknown as Record<string, unknown>;
         for (const key of possibleReplyKeys) {
           if (typeof tempObj[key] === 'string' && tempObj[key]) {

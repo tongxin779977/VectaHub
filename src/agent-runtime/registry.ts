@@ -27,6 +27,14 @@ class AgentRegistryImpl implements AgentRegistry {
     this.adapters.set(id, adapter);
   }
 
+  unregister(id: string): boolean {
+    const normalizedId = id.toLowerCase();
+    const existed = this.descriptors.has(normalizedId);
+    this.descriptors.delete(normalizedId);
+    this.adapters.delete(normalizedId);
+    return existed;
+  }
+
   getAgentDescriptor(id: string): AgentDescriptor | null {
     return this.descriptors.get(id.toLowerCase()) ?? null;
   }
@@ -41,6 +49,15 @@ class AgentRegistryImpl implements AgentRegistry {
 
   isKnownAgent(id: string): boolean {
     return this.descriptors.has(id.toLowerCase());
+  }
+
+  has(id: string): boolean {
+    return this.descriptors.has(id.toLowerCase());
+  }
+
+  clear(): void {
+    this.descriptors.clear();
+    this.adapters.clear();
   }
 }
 

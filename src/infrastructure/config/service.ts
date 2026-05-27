@@ -41,13 +41,7 @@ function createDefaultConfig(env: IEnvironmentService): Config {
         max_attempts: 3,
         timeout_ms: 30000,
       },
-      provider_priority: [
-        { name: 'gemini', enabled: true, priority: 90 },
-        { name: 'claude', enabled: true, priority: 85 },
-        { name: 'codex', enabled: true, priority: 80 },
-        { name: 'aider', enabled: true, priority: 75 },
-        { name: 'opencli', enabled: true, priority: 70 },
-      ],
+      provider_priority: [],
       built_in_ai: {
         enabled: true,
         model: 'vectahub-ai-v1',
@@ -56,12 +50,7 @@ function createDefaultConfig(env: IEnvironmentService): Config {
     },
     ai_providers: {},
     ai_modules: {},
-    external_cli: {
-      gemini: { enabled: true, has_permission: true },
-      claude: { enabled: true, has_permission: true },
-      codex: { enabled: true, has_permission: true },
-      aider: { enabled: true, has_permission: true },
-    },
+    external_cli: {},
     cli_tools: {
       version: '1.0.0',
       registeredTools: ['git'],

@@ -320,6 +320,13 @@ export function createREPL(
       return handleWorkflowGeneration(nlResult, input);
     }
 
+    if (nlResult.reply) {
+      return {
+        type: 'text',
+        content: nlResult.reply,
+      };
+    }
+
     const metadata: ReplWorkflowMetadata = {
       intent: nlResult.intent,
       confidence: nlResult.confidence,

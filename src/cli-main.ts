@@ -423,6 +423,14 @@ async function lazyLoadCommand(commandName: string): Promise<void> {
         loadedCommands.add('dev');
         break;
       }
+      case 'provider': {
+        await lazyLoadAgentRuntime();
+        const { createProviderCmd } = await import('./commands/provider.js');
+        removeLazyProxyCommand('provider');
+        program.addCommand(createProviderCmd(ctx));
+        loadedCommands.add('provider');
+        break;
+      }
       case 'queue': {
         const { createQueueCmd } = await import('./commands/queue.js');
         removeLazyProxyCommand('queue');
@@ -466,7 +474,7 @@ async function lazyLoadCliTools(): Promise<void> {
 }
 
 /**
- * 懒加载 Agent 运行时（保持原有逻辑）
+ * 懒加载 Agent 运行时（从配置加载 providers）
  */
 async function lazyLoadAgentRuntime(): Promise<void> {
   if (loadedCommands.has('agent-runtime')) return;
@@ -475,8 +483,8 @@ async function lazyLoadAgentRuntime(): Promise<void> {
     if (getCliMainTestFailureMode() === 'agent-runtime') {
       throw new Error('forced agent-runtime failure');
     }
-    const { initializeBuiltInAgents } = await import('./agent-runtime/index.js');
-    initializeBuiltInAgents();
+    const { loadProvidersFromConfig } = await import('./agent-runtime/provider-registrar.js');
+    await loadProvidersFromConfig();
     loadedCommands.add('agent-runtime');
   } catch (error) {
     throw new Error(`Agent runtime initialization failed: ${formatErrorMessage(error, 'Agent 运行时')}`, { cause: error });
@@ -777,6 +785,7 @@ const lazyLoadableCommands = [
   { name: 'recover-task', description: '恢复失败的文档任务' },
   { name: 'trace', description: '查看链路追踪数据' },
   { name: 'queue', description: '管理诊断队列' },
+  { name: 'provider', description: 'AI Provider 管理' },
   { name: 'dev', description: '开发命令' },
 ];
 

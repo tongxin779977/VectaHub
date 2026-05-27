@@ -228,6 +228,15 @@ export const INTENT_TEMPLATES: IntentTemplate[] = [
     examples: ['Run self-healing on failed command', 'Auto retry and fix', '自动重试并修复失败命令'],
     priority: 1,
   },
+  {
+    intent: 'DIALOG_GREETING',
+    name: 'DIALOG_GREETING',
+    description: 'Greeting or casual conversation that does not require workflow generation',
+    category: 'dialog',
+    patterns: [/^(hi|hello|hey|nihao|你好|您好|嗨|哈喽|早上好|下午好|晚上好|你是谁|who are you)\b/i],
+    examples: ['nihao', '你好', 'hi', 'hello', '你是谁', 'who are you'],
+    priority: 0,
+  },
 ];
 
 export function getAllIntentNames(): string[] {

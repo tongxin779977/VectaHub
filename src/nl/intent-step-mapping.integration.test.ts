@@ -16,7 +16,7 @@ function extractToolSchemas(): ToolSchema[] {
   }));
 }
 
-const NON_EXEC_INTENTS = new Set(['QUERY_INFO']);
+const NON_EXEC_INTENTS = new Set(['QUERY_INFO', 'DIALOG_GREETING']);
 
 describe('Intent-to-Workflow Mapping Drift Tests', () => {
   describe('1. Schema Coverage: every executable intent must have a mapping', () => {
