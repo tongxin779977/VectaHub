@@ -81,11 +81,29 @@ export interface LLMProviderConfig {
   enabled: boolean;
 }
 
+export interface AgentProviderConfig {
+  provider: string;
+  displayName?: string;
+  entryCommand: string;
+  subcommand?: string;
+  promptTransport: 'arg' | 'stdin' | 'file' | 'positional';
+  promptArgName?: string;
+  workingDirectoryArg?: string;
+  nonInteractiveFlags: string[];
+  description?: string;
+  version?: string;
+  enabled: boolean;
+  priority: number;
+  registeredAt: string;
+  lastChecked: string;
+}
+
 export interface VectaHubConfig {
   version: number;
   first_run_completed: boolean;
   ai_providers: {
     vectahub_llm: LLMProviderConfig;
+    [key: string]: LLMProviderConfig | AgentProviderConfig;
   };
   external_cli: Record<string, {
     enabled: boolean;

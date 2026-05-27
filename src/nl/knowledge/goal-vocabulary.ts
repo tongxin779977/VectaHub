@@ -49,7 +49,7 @@ export const DOMAIN_KEYWORDS: Record<string, string[]> = {
   frontend: ['component', 'render', 'ui', 'page', 'view', 'layout', 'style', 'template', 'dom', 'css', 'html'],
   testing: ['test', 'assertion', 'mock', 'coverage', 'spec', 'e2e', 'unit', 'integration', 'jest', 'vitest', '测试', '断言', '覆盖'],
   devops: ['deploy', 'pipeline', 'docker', 'container', 'infrastructure', 'kubernetes', 'terraform'],
-  git: ['git', 'commit', '提交', '推送', 'branch', 'merge', 'rebase', 'stash', 'tag', 'remote', 'origin', 'repository'],
+  git: ['git', 'commit', '提交', '推送', 'push', 'pull', 'branch', 'merge', 'rebase', 'stash', 'tag', 'remote', 'origin', 'repository'],
   'github-actions': ['github-actions', 'github action', 'workflow', 'action', 'actions', 'gh run', 'gh workflow', 'ci'],
   ci: ['ci', 'cd', 'continuous integration', 'continuous deployment', 'pipeline'],
   performance: ['slow', 'latency', 'memory', 'cpu', 'optimization', 'cache', 'bottleneck', 'timeout', 'performance', 'profile'],

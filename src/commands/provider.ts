@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { format } from 'node:util';
-import { getProviderRegistrar, loadProvidersFromConfig } from '../agent-runtime/provider-registrar.js';
+import { getProviderRegistrar } from '../agent-runtime/provider-registrar.js';
+import { loadProvidersFromConfig } from '../agent-runtime/config-loader.js';
 import { getAgentRegistry } from '../agent-runtime/registry.js';
 import type { AgentDescriptor } from '../types/agent.js';
 import type { InfrastructureContext } from '../infrastructure/context.js';

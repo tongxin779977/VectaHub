@@ -2,20 +2,23 @@ import type { ILlmInferencer, LlmInferenceResult, CliDetectionResult } from '../
 import type { AgentDescriptor } from '../types/agent.js';
 import { LLMClient, resolveLLMConfig } from '../nl/llm.js';
 import { createNoopAuditHelper } from '../infrastructure/audit/index.js';
+import { createSingleton, createSilentLogger, formatErrorMessage } from './utils.js';
 
+/**
+ * LLM 推理器依赖项
+ */
 export interface LlmInferencerDeps {
+  /** 自定义 LLM 客户端 */
   llmClient?: LLMClient;
-  logger: Pick<Console, 'warn' | 'error' | 'info'>;
+  /** 自定义 logger */
+  logger?: Pick<Console, 'warn' | 'error' | 'info'>;
 }
 
 const noopAuditHelper = createNoopAuditHelper();
 
-const silentLogger: LlmInferencerDeps['logger'] = {
-  warn(): void {},
-  error(): void {},
-  info(): void {},
-};
-
+/**
+ * 用于生成 Agent 配置的 LLM 提示词模板
+ */
 const PROVIDER_INFERENCE_PROMPT = `You are an expert at analyzing CLI tools and generating configuration for them.
 
 Given a CLI tool's name, version, and help output, generate a complete AgentDescriptor configuration.
@@ -85,15 +88,25 @@ Generate a JSON object with the following structure:
 
 Respond ONLY with the JSON object, no additional text.`;
 
+/**
+ * LLM 推理器实现类
+ * 使用 LLM 分析 CLI 工具并生成 Agent 配置
+ */
 export class LlmInferencer implements ILlmInferencer {
   private llmClient: LLMClient | null = null;
 
-  constructor(private readonly deps: LlmInferencerDeps = { logger: silentLogger }) {
+  constructor(private readonly deps: LlmInferencerDeps = {}) {
     if (deps.llmClient) {
       this.llmClient = deps.llmClient;
     }
   }
 
+  /**
+   * 推理 CLI 工具的 Agent 配置
+   * @param cliCommand CLI 命令
+   * @param detectionResult CLI 检测结果
+   * @returns 推理结果
+   */
   async infer(cliCommand: string, detectionResult: CliDetectionResult): Promise<LlmInferenceResult> {
     if (!this.llmClient) {
       this.llmClient = this.createLLMClient();
@@ -106,22 +119,28 @@ export class LlmInferencer implements ILlmInferencer {
     const prompt = this.buildPrompt(cliCommand, detectionResult);
 
     try {
-      this.deps.logger.info(`Inferring configuration for CLI: ${cliCommand}`);
+      this.deps.logger?.info(`Inferring configuration for CLI: ${cliCommand}`);
 
       const response = await this.llmClient.completeRaw('provider-inference', prompt);
 
       const result = this.parseResponse(response);
 
-      this.deps.logger.info(`Successfully inferred configuration for CLI: ${cliCommand}`);
+      this.deps.logger?.info(`Successfully inferred configuration for CLI: ${cliCommand}`);
 
       return result;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.deps.logger.error(`Failed to infer configuration for CLI ${cliCommand}:`, error);
+      const errorMessage = formatErrorMessage(error);
+      this.deps.logger?.error(`Failed to infer configuration for CLI ${cliCommand}:`, error);
       throw new Error(`LLM inference failed: ${errorMessage}`);
     }
   }
 
+  /**
+   * 构建 LLM 提示词
+   * @param cliCommand CLI 命令
+   * @param detectionResult CLI 检测结果
+   * @returns 构建好的提示词
+   */
   private buildPrompt(cliCommand: string, detectionResult: CliDetectionResult): string {
     return PROVIDER_INFERENCE_PROMPT
       .replace('{{cliCommand}}', cliCommand)
@@ -129,6 +148,11 @@ export class LlmInferencer implements ILlmInferencer {
       .replace('{{helpOutput}}', detectionResult.helpOutput || 'No help output available');
   }
 
+  /**
+   * 解析 LLM 响应
+   * @param response LLM 响应文本
+   * @returns 解析后的推理结果
+   */
   private parseResponse(response: string): LlmInferenceResult {
     try {
       const jsonMatch = response.match(/\{[\s\S]*\}/);
@@ -142,11 +166,15 @@ export class LlmInferencer implements ILlmInferencer {
 
       return parsed;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = formatErrorMessage(error);
       throw new Error(`Failed to parse LLM response: ${errorMessage}`);
     }
   }
 
+  /**
+   * 验证 Agent 描述符
+   * @param descriptor Agent 描述符
+   */
   private validateDescriptor(descriptor: AgentDescriptor): void {
     const requiredFields = ['id', 'displayName', 'entryCommand', 'promptTransport', 'nonInteractiveFlags', 'preflightSpec'];
 
@@ -166,6 +194,10 @@ export class LlmInferencer implements ILlmInferencer {
     }
   }
 
+  /**
+   * 创建 LLM 客户端
+   * @returns LLM 客户端或 null
+   */
   private createLLMClient(): LLMClient | null {
     try {
       const configResolution = resolveLLMConfig();
@@ -175,21 +207,20 @@ export class LlmInferencer implements ILlmInferencer {
 
       return new LLMClient(configResolution.config, { auditHelper: noopAuditHelper });
     } catch (error) {
-      this.deps.logger.error('Failed to create LLM client:', error);
+      this.deps.logger?.error('Failed to create LLM client:', error);
       return null;
     }
   }
 }
 
-let instance: ILlmInferencer | null = null;
+/**
+ * 获取 LLM Inferencer 单例实例
+ * @param deps 依赖项
+ * @returns LLM Inferencer 实例
+ */
+const { getInstance: getLlmInferencer, reset: resetLlmInferencer } = createSingleton<
+  ILlmInferencer,
+  LlmInferencerDeps
+>((deps) => new LlmInferencer({ logger: createSilentLogger(), ...deps }));
 
-export function getLlmInferencer(deps?: LlmInferencerDeps): ILlmInferencer {
-  if (!instance) {
-    instance = new LlmInferencer(deps);
-  }
-  return instance;
-}
-
-export function resetLlmInferencer(): void {
-  instance = null;
-}
+export { getLlmInferencer, resetLlmInferencer };

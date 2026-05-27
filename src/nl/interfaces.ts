@@ -4,7 +4,7 @@
  */
 
 import type {
-  IntentMatch, MultiIntentResult } from './types.js';
+  IntentMatch, MultiIntentResult, NLResult, NLContext } from './types.js';
 import type { IntentName } from '../types/index.js';
 
 /**
@@ -80,34 +80,7 @@ export interface LLMResponse {
   };
 }
 
-/**
- * NL 上下文接口
- */
-export interface NLContext {
-  input: string;
-  sessionId?: string;
-  projectPath?: string;
-  previousOutputs?: Record<string, unknown>;
-  previousIntents?: string[];
-}
-
-/**
- * NL 处理结果接口
- */
-export interface NLResult {
-  success: boolean;
-  intent?: IntentName;
-  confidence: number;
-  workflowYAML?: string;
-  params?: Record<string, unknown>;
-  metadata?: Record<string, unknown>;
-  taskList?: Array<{
-    id: string;
-    type: string;
-    description: string;
-  }>;
-  error?: string;
-}
+// 已从 types.ts 导入 NLContext 和 NLResult
 
 /**
  * NL 处理器接口

@@ -6,90 +6,55 @@ import type {
   ICliDetector,
   ILlmInferencer,
 } from '../types/provider.js';
-import type { AgentDescriptor, AgentAdapter, AgentAdapterInput, AgentAdapterOutput } from '../types/agent.js';
-import { getAgentRegistry, type AgentRegistryDeps } from './registry.js';
+import type { AgentDescriptor } from '../types/agent.js';
+import type { VectaHubConfig, AgentProviderConfig } from '../setup/first-run-wizard.js';
+import { getAgentRegistry } from './registry.js';
 import { getCliDetector } from './cli-detector.js';
 import { getLlmInferencer } from './llm-inferencer.js';
 import { loadConfig, saveConfig } from '../setup/first-run-wizard-bridge.js';
+import { GenericAdapter } from './generic-adapter.js';
+import { createSingleton, createSilentLogger, formatErrorMessage } from './utils.js';
 
+/**
+ * Provider Registrar 依赖项
+ */
 export interface ProviderRegistrarDeps {
+  /** 自定义 CLI 检测器 */
   cliDetector?: ICliDetector;
+  /** 自定义 LLM 推理器 */
   llmInferencer?: ILlmInferencer;
-  logger: Pick<Console, 'warn' | 'error' | 'info'>;
-  configLoader?: () => Record<string, unknown>;
-  configSaver?: (config: Record<string, unknown>) => void;
+  /** 自定义 logger */
+  logger?: Pick<Console, 'warn' | 'error' | 'info'>;
+  /** 自定义配置加载函数 */
+  configLoader?: () => VectaHubConfig;
+  /** 自定义配置保存函数 */
+  configSaver?: (config: VectaHubConfig) => void;
 }
 
-const silentLogger: ProviderRegistrarDeps['logger'] = {
-  warn(): void {},
-  error(): void {},
-  info(): void {},
-};
-
-class GenericAdapter implements AgentAdapter {
-  constructor(private readonly descriptor: AgentDescriptor) {}
-
-  supports(descriptor: AgentDescriptor): boolean {
-    return descriptor.id === this.descriptor.id;
-  }
-
-  render(input: AgentAdapterInput): AgentAdapterOutput {
-    const { descriptor, taskPrompt, workspaceRoot, outputLastMessagePath } = input;
-    const args: string[] = [];
-
-    if (descriptor.subcommand) {
-      args.push(descriptor.subcommand);
-    }
-
-    if (descriptor.workingDirectoryArg) {
-      args.push(descriptor.workingDirectoryArg, workspaceRoot);
-    }
-
-    if (descriptor.promptTransport === 'arg' && descriptor.promptArgName) {
-      args.push(descriptor.promptArgName, taskPrompt);
-    } else if (descriptor.promptTransport === 'positional') {
-      args.push(taskPrompt);
-    }
-
-    for (const flag of descriptor.nonInteractiveFlags) {
-      args.push(flag);
-    }
-
-    if (outputLastMessagePath && descriptor.id === 'codex') {
-      args.push('--output-last-message', outputLastMessagePath);
-    }
-
-    if (descriptor.promptTransport === 'stdin') {
-      args.push('-');
-    }
-
-    const command = descriptor.entryCommand;
-    const stdinInput = descriptor.promptTransport === 'stdin' ? taskPrompt : undefined;
-
-    return {
-      command,
-      args,
-      stdinInput,
-      preview: [command, ...args].join(' '),
-    };
-  }
-}
-
+/**
+ * Provider Registrar 实现类
+ * 负责注册、取消注册、测试和刷新 AI Providers
+ */
 export class ProviderRegistrar implements IProviderRegistrar {
   private readonly cliDetector: ICliDetector;
   private readonly llmInferencer: ILlmInferencer;
-  private readonly logger: ProviderRegistrarDeps['logger'];
-  private readonly configLoader: () => Record<string, unknown>;
-  private readonly configSaver: (config: Record<string, unknown>) => void;
+  private readonly logger: Pick<Console, 'warn' | 'error' | 'info'>;
+  private readonly configLoader: () => VectaHubConfig;
+  private readonly configSaver: (config: VectaHubConfig) => void;
 
-  constructor(deps: ProviderRegistrarDeps = { logger: silentLogger }) {
+  constructor(deps: ProviderRegistrarDeps = {}) {
     this.cliDetector = deps.cliDetector || getCliDetector();
     this.llmInferencer = deps.llmInferencer || getLlmInferencer();
-    this.logger = deps.logger;
-    this.configLoader = deps.configLoader || (() => loadConfig() as unknown as Record<string, unknown>);
-    this.configSaver = deps.configSaver || ((config) => saveConfig(config as unknown as import('../setup/first-run-wizard.js').VectaHubConfig));
+    this.logger = deps.logger || createSilentLogger();
+    this.configLoader = deps.configLoader || loadConfig;
+    this.configSaver = deps.configSaver || saveConfig;
   }
 
+  /**
+   * 注册新的 Provider
+   * @param request 注册请求
+   * @returns 注册结果
+   */
   async register(request: ProviderRegistrationRequest): Promise<ProviderRegistrationResult> {
     const { cliCommand } = request;
 
@@ -134,7 +99,7 @@ export class ProviderRegistrar implements IProviderRegistrar {
         descriptor,
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = formatErrorMessage(error);
       this.logger.error(`Failed to register provider '${cliCommand}':`, error);
       return {
         success: false,
@@ -143,6 +108,11 @@ export class ProviderRegistrar implements IProviderRegistrar {
     }
   }
 
+  /**
+   * 取消注册 Provider
+   * @param providerId Provider ID
+   * @returns 是否成功
+   */
   async unregister(providerId: string): Promise<boolean> {
     const registry = getAgentRegistry();
 
@@ -159,11 +129,20 @@ export class ProviderRegistrar implements IProviderRegistrar {
     return true;
   }
 
+  /**
+   * 列出所有已注册的 Providers
+   * @returns Agent 描述符数组
+   */
   list(): AgentDescriptor[] {
     const registry = getAgentRegistry();
     return registry.getAllDescriptors();
   }
 
+  /**
+   * 测试 Provider 是否可用
+   * @param providerId Provider ID
+   * @returns 测试结果
+   */
   async test(providerId: string): Promise<ProviderTestResult> {
     const registry = getAgentRegistry();
     const descriptor = registry.getAgentDescriptor(providerId);
@@ -186,11 +165,16 @@ export class ProviderRegistrar implements IProviderRegistrar {
     } catch (error) {
       return {
         available: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: formatErrorMessage(error),
       };
     }
   }
 
+  /**
+   * 刷新 Provider 配置
+   * @param providerId Provider ID
+   * @returns 刷新结果
+   */
   async refresh(providerId: string): Promise<ProviderRegistrationResult> {
     const registry = getAgentRegistry();
     const descriptor = registry.getAgentDescriptor(providerId);
@@ -209,16 +193,16 @@ export class ProviderRegistrar implements IProviderRegistrar {
     });
   }
 
+  /**
+   * 持久化 Provider 配置
+   * @param descriptor Agent 描述符
+   * @param version 版本号
+   */
   private async persistProvider(descriptor: AgentDescriptor, version?: string): Promise<void> {
     try {
-      const config = this.configLoader() as Record<string, unknown>;
+      const config = this.configLoader();
 
-      if (!config.ai_providers) {
-        config.ai_providers = {};
-      }
-
-      const providers = config.ai_providers as Record<string, unknown>;
-      const providerConfig: Record<string, unknown> = {
+      const providerConfig: AgentProviderConfig = {
         provider: descriptor.id,
         displayName: descriptor.displayName,
         entryCommand: descriptor.entryCommand,
@@ -236,7 +220,7 @@ export class ProviderRegistrar implements IProviderRegistrar {
       if (descriptor.promptArgName) providerConfig.promptArgName = descriptor.promptArgName;
       if (descriptor.workingDirectoryArg) providerConfig.workingDirectoryArg = descriptor.workingDirectoryArg;
 
-      providers[descriptor.id] = providerConfig;
+      config.ai_providers[descriptor.id] = providerConfig;
 
       this.configSaver(config);
     } catch (error) {
@@ -244,13 +228,16 @@ export class ProviderRegistrar implements IProviderRegistrar {
     }
   }
 
+  /**
+   * 从配置中移除 Provider
+   * @param providerId Provider ID
+   */
   private async removeProviderFromConfig(providerId: string): Promise<void> {
     try {
-      const config = this.configLoader() as Record<string, unknown>;
+      const config = this.configLoader();
 
-      if (config.ai_providers) {
-        const providers = config.ai_providers as Record<string, unknown>;
-        delete providers[providerId];
+      if (config.ai_providers && config.ai_providers[providerId]) {
+        delete config.ai_providers[providerId];
         this.configSaver(config);
       }
     } catch (error) {
@@ -259,55 +246,14 @@ export class ProviderRegistrar implements IProviderRegistrar {
   }
 }
 
-export async function loadProvidersFromConfig(): Promise<void> {
-  try {
-    const config = loadConfig() as unknown as Record<string, unknown>;
-    const providers = (config.ai_providers || {}) as Record<string, Record<string, unknown>>;
-    const registry = getAgentRegistry();
+/**
+ * 获取 Provider Registrar 单例实例
+ * @param deps 依赖项
+ * @returns Provider Registrar 实例
+ */
+const { getInstance: getProviderRegistrar, reset: resetProviderRegistrar } = createSingleton<
+  IProviderRegistrar,
+  ProviderRegistrarDeps
+>((deps) => new ProviderRegistrar(deps));
 
-    for (const [id, providerConfig] of Object.entries(providers)) {
-      if (!providerConfig.enabled) continue;
-
-      const descriptor: AgentDescriptor = {
-        id,
-        displayName: (providerConfig.displayName as string) || id,
-        entryCommand: (providerConfig.entryCommand as string) || id,
-        subcommand: providerConfig.subcommand as string | undefined,
-        promptTransport: (providerConfig.promptTransport as 'arg' | 'stdin' | 'file' | 'positional') || 'arg',
-        promptArgName: providerConfig.promptArgName as string | undefined,
-        workingDirectoryArg: providerConfig.workingDirectoryArg as string | undefined,
-        nonInteractiveFlags: (providerConfig.nonInteractiveFlags as string[]) || [],
-        approvalPolicySupport: 'unknown',
-        structuredOutputSupport: false,
-        preflightSpec: {
-          versionArgs: ['--version'],
-          invocableArgs: ['--help'],
-          readyArgs: ['--help'],
-        },
-        dryRunRenderMode: 'prompt-only',
-        runtimePolicy: {
-          configSemantics: 'inherit-user-default',
-        },
-        description: providerConfig.description as string | undefined,
-      };
-
-      const adapter = new GenericAdapter(descriptor);
-      registry.register(descriptor, adapter);
-    }
-  } catch (error) {
-    console.error('Failed to load providers from config:', error);
-  }
-}
-
-let instance: IProviderRegistrar | null = null;
-
-export function getProviderRegistrar(deps?: ProviderRegistrarDeps): IProviderRegistrar {
-  if (!instance) {
-    instance = new ProviderRegistrar(deps);
-  }
-  return instance;
-}
-
-export function resetProviderRegistrar(): void {
-  instance = null;
-}
+export { getProviderRegistrar, resetProviderRegistrar };

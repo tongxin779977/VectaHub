@@ -483,7 +483,7 @@ async function lazyLoadAgentRuntime(): Promise<void> {
     if (getCliMainTestFailureMode() === 'agent-runtime') {
       throw new Error('forced agent-runtime failure');
     }
-    const { loadProvidersFromConfig } = await import('./agent-runtime/provider-registrar.js');
+    const { loadProvidersFromConfig } = await import('./agent-runtime/config-loader.js');
     await loadProvidersFromConfig();
     loadedCommands.add('agent-runtime');
   } catch (error) {

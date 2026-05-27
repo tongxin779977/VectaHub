@@ -1,6 +1,8 @@
 import { promises as fs } from 'node:fs';
 import { getVectaHubHome, getVectaHubPath } from '../../infrastructure/paths/index.js';
 import type { ToolInfo, CommandInfo, KnowledgeBaseData } from '../types/command.js';
+import { getLogger } from '../../infrastructure/logger/index.js';
+import type { Logger } from '../../infrastructure/logger/index.js';
 
 const KB_VERSION = '1.0.0';
 
@@ -21,12 +23,17 @@ export interface KnowledgeBase {
   getAllTools(): ToolInfo[];
 }
 
-export function createKnowledgeBase(): KnowledgeBase {
-  return new KnowledgeBaseImpl();
+export function createKnowledgeBase(logger?: Logger): KnowledgeBase {
+  return new KnowledgeBaseImpl(logger);
 }
 
 class KnowledgeBaseImpl implements KnowledgeBase {
   private tools: ToolInfo[] = [];
+  private logger: Logger;
+
+  constructor(logger?: Logger) {
+    this.logger = logger ?? getLogger('knowledge-base');
+  }
 
   async load(): Promise<void> {
     const knowledgeBasePath = getKnowledgeBasePath();
@@ -38,7 +45,8 @@ class KnowledgeBaseImpl implements KnowledgeBase {
       } else {
         await this.init();
       }
-    } catch {
+    } catch (error) {
+      this.logger.warn(`Failed to load knowledge base, initializing empty: ${error instanceof Error ? error.message : String(error)}`);
       await this.init();
     }
   }

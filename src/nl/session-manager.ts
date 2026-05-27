@@ -10,6 +10,8 @@ import {
   RecentAction,
 } from '../types/index.js';
 import { LifecycleManager } from '../utils/lifecycle-manager.js';
+import { getLogger } from '../infrastructure/logger/index.js';
+import type { Logger } from '../infrastructure/logger/index.js';
 
 const execAsync = promisify(exec);
 
@@ -31,6 +33,7 @@ export interface SessionManagerOptions {
   cleanupIntervalMs?: number;
   maxSessions?: number;
   l1WindowRounds?: number;
+  logger?: Logger;
 }
 
 interface MemoryLayers {
@@ -201,9 +204,11 @@ class SessionSummary implements MemoryLayer {
 
 class ProjectContextMemory implements MemoryLayer {
   private context: ProjectContext;
+  private logger: Logger;
 
-  constructor(context: ProjectContext) {
+  constructor(context: ProjectContext, logger: Logger) {
     this.context = context;
+    this.logger = logger;
   }
 
   getContent(): string {
@@ -231,7 +236,7 @@ class ProjectContextMemory implements MemoryLayer {
   }
 
   async refresh(): Promise<void> {
-    const updated = await ProjectContextMemory.fetchProjectContext(this.context.cwd);
+    const updated = await ProjectContextMemory.fetchProjectContext(this.context.cwd, this.logger);
     if (updated.gitStatus) this.context.gitStatus = updated.gitStatus;
     if (updated.packageJson) this.context.packageJson = updated.packageJson;
   }
@@ -247,9 +252,10 @@ class ProjectContextMemory implements MemoryLayer {
     return this.context;
   }
 
-  static async fetchProjectContext(cwd: string): Promise<ProjectContext> {
+  static async fetchProjectContext(cwd: string, logger?: Logger): Promise<ProjectContext> {
     let gitStatus: ProjectContext['gitStatus'];
     let packageJson: ProjectContext['packageJson'];
+    const localLogger = logger ?? getLogger('session-manager');
 
     try {
       const { stdout: branchOutput } = await execAsync('git branch --show-current', { cwd });
@@ -272,8 +278,8 @@ class ProjectContextMemory implements MemoryLayer {
       }
 
       gitStatus = { branch: branchOutput.trim(), modified, staged };
-    } catch {
-      // Git unavailable
+    } catch (error) {
+      localLogger.debug(`Git unavailable in ${cwd}: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     const packagePath = join(cwd, 'package.json');
@@ -282,8 +288,8 @@ class ProjectContextMemory implements MemoryLayer {
         const { readFile } = await import('fs/promises');
         const content = await readFile(packagePath, 'utf-8');
         packageJson = JSON.parse(content);
-      } catch {
-        // parse failure
+      } catch (error) {
+        localLogger.warn(`Failed to parse package.json at ${packagePath}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
@@ -302,9 +308,11 @@ export class SessionManager {
   };
   private onSessionExpired?: (sessionId: string) => void;
   private l1WindowRounds: number;
+  private logger: Logger;
 
   constructor(options: SessionManagerOptions = {}) {
     this.l1WindowRounds = options.l1WindowRounds ?? L1_WINDOW_ROUNDS;
+    this.logger = options.logger ?? getLogger('session-manager');
     this.lifecycle = new LifecycleManager<SessionContext>({
       ttl: options.sessionTimeoutMs ?? DEFAULT_SESSION_TIMEOUT_MS,
       maxCount: options.maxSessions ?? 50,
@@ -324,7 +332,7 @@ export class SessionManager {
     const layers: MemoryLayers = {
       l1: new WorkingMemory(this.l1WindowRounds),
       l2: new SessionSummary(),
-      l3: new ProjectContextMemory({ cwd }),
+      l3: new ProjectContextMemory({ cwd }, this.logger),
     };
     this.memoryLayers.set(sessionId, layers);
     return layers;
@@ -538,7 +546,8 @@ export class SessionManager {
   async refreshProjectContext(sessionId: string): Promise<void> {
     const session = this.getOrCreateSession(sessionId);
     const context = await ProjectContextMemory.fetchProjectContext(
-      session.projectContext.cwd
+      session.projectContext.cwd,
+      this.logger
     );
     this.updateProjectContext(sessionId, context);
 

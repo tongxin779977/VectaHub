@@ -41,7 +41,6 @@ export class AsyncLogWriter {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private isDestroyed = false;
   private isPaused = false;
-  private pauseResolve: (() => void) | null = null;
 
   constructor(
     logDir: string,
@@ -119,11 +118,6 @@ export class AsyncLogWriter {
 
     // 刷盘完成后再设置暂停标志，阻止后续的定时刷盘和缓冲区满触发刷盘
     this.isPaused = true;
-
-    // 返回一个 Promise，由 resume() 解除
-    return new Promise<void>((resolve) => {
-      this.pauseResolve = resolve;
-    });
   }
 
   /**
@@ -134,10 +128,6 @@ export class AsyncLogWriter {
       return;
     }
     this.isPaused = false;
-    if (this.pauseResolve) {
-      this.pauseResolve();
-      this.pauseResolve = null;
-    }
   }
 
   /** 写入单条日志 */
