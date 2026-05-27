@@ -103,7 +103,10 @@ export class AsyncLogWriter {
       // 检查队列长度
       if (this.queue.length >= this.config.maxQueueLength) {
         this.logger.warn('日志队列已满，丢弃最旧的日志');
-        this.queue.shift();
+        const discarded = this.queue.shift();
+        if (discarded) {
+          discarded.reject(new Error('日志队列已满，该条日志被丢弃'));
+        }
       }
 
       this.queue.push({ data, resolve, reject });

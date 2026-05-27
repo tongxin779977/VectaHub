@@ -59,6 +59,42 @@ describe('AsyncLogWriter', () => {
       expect(writer.getQueueLength()).toBeGreaterThanOrEqual(0);
     });
 
+    it('should reject discarded promise when queue overflows', async () => {
+      const overflowWriter = createAsyncLogWriter(TEST_LOG_DIR, {
+        bufferSize: 100,
+        flushIntervalMs: 10_000,
+        maxQueueLength: 2,
+      }, { logger: TEST_LOGGER });
+
+      const makeSpan = (id: string): TraceSpan => ({
+        spanId: id,
+        traceId: 'trace_001',
+        caller: 'CLI',
+        callee: 'Workflow',
+        startTime: new Date().toISOString(),
+        status: 'RUNNING',
+      });
+
+      // Fill the queue to maxQueueLength (2)
+      const p1 = overflowWriter.write(makeSpan('span_001'));
+      const p2 = overflowWriter.write(makeSpan('span_002'));
+      expect(overflowWriter.getQueueLength()).toBe(2);
+
+      // This write should trigger queue overflow, discarding span_001
+      const p3 = overflowWriter.write(makeSpan('span_003'));
+      expect(overflowWriter.getQueueLength()).toBe(2);
+
+      // The discarded item's promise should be rejected
+      await expect(p1).rejects.toThrow('日志队列已满，该条日志被丢弃');
+
+      // The other promises should still be resolvable via flush
+      await overflowWriter.flush();
+      await expect(p2).resolves.toBeUndefined();
+      await expect(p3).resolves.toBeUndefined();
+
+      await overflowWriter.destroy();
+    });
+
     it('should flush when buffer is full', async () => {
       const spans: TraceSpan[] = Array.from({ length: 10 }, (_, i) => ({
         spanId: `span_${i}`,
