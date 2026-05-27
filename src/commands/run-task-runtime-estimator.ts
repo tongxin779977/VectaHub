@@ -216,6 +216,9 @@ function chooseWeights(hasLlm: boolean, historicalSampleCount: number): TaskRunt
   if (historicalSampleCount >= 2) {
     return { heuristic: 0.45, llm: hasLlm ? 0.30 : 0, historical: hasLlm ? 0.25 : 0.55 };
   }
+  if (historicalSampleCount >= 1) {
+    return { heuristic: hasLlm ? 0.50 : 0.65, llm: hasLlm ? 0.30 : 0, historical: hasLlm ? 0.20 : 0.35 };
+  }
   return { heuristic: hasLlm ? 0.60 : 1, llm: hasLlm ? 0.40 : 0, historical: 0 };
 }
 
@@ -234,7 +237,13 @@ export function combineRuntimeEstimates(input: CombineRuntimeEstimateInput): Tas
   const matchingHistory = (input.history || [])
     .filter(sample => isSameAgentProfile(sample, input.profileKey))
     .filter(sample => sample.taskShapeHash === input.taskShapeHash || sample.complexity === heuristic.complexity);
-  const historicalEstimateMs = median(matchingHistory.map(sample => sample.actualDurationMs));
+  const adjustedDurations = matchingHistory.map(sample => {
+    if (!sample.success && sample.failureKind === 'timeout') {
+      return Math.round(sample.actualDurationMs * 1.5);
+    }
+    return sample.actualDurationMs;
+  });
+  const historicalEstimateMs = median(adjustedDurations);
   const boundedLlmEstimateMs = input.llmEstimate
     ? clamp(input.llmEstimate.estimatedDurationMs, heuristic.expectedDurationMs * 0.5, heuristic.expectedDurationMs * 2)
     : undefined;
@@ -248,7 +257,7 @@ export function combineRuntimeEstimates(input: CombineRuntimeEstimateInput): Tas
   const reasons = [
     ...heuristic.reasons,
     ...(input.llmEstimate?.reasons.map(reason => `llm: ${reason}`) || []),
-    ...(historicalEstimateMs ? [`historical median=${historicalEstimateMs}ms samples=${matchingHistory.length}`] : []),
+    ...(historicalEstimateMs ? [`historical median=${historicalEstimateMs}ms samples=${matchingHistory.length}${adjustedDurations.some((d, i) => d !== matchingHistory[i].actualDurationMs) ? ' (timeout samples adjusted 1.5x)' : ''}`] : []),
   ];
 
   return deriveRuntimeBudget({
@@ -286,8 +295,8 @@ function deriveRuntimeBudget(input: {
     heuristicEstimateMs: input.heuristicEstimateMs,
     llmEstimateMs: input.llmEstimateMs,
     historicalEstimateMs: input.historicalEstimateMs,
-    noCloseTimeoutMs: clamp(Math.round(expectedDurationMs * 0.45), 120_000, 420_000),
-    extensionMs: clamp(Math.round(expectedDurationMs * 0.20), 60_000, 180_000),
+    noCloseTimeoutMs: clamp(Math.round(expectedDurationMs * 0.65), 120_000, 600_000),
+    extensionMs: clamp(Math.round(expectedDurationMs * 0.25), 60_000, 180_000),
     maxExtensions: getMaxExtensions(input.complexity),
     maxWallClockMs: clamp(Math.round(expectedDurationMs * 1.8), 300_000, getMaxWallClockCap(input.complexity)),
     progressIntervalMs: clamp(Math.round(expectedDurationMs / 6), 30_000, 120_000),

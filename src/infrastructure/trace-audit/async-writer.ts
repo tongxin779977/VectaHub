@@ -40,6 +40,8 @@ export class AsyncLogWriter {
   private isFlushing = false;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private isDestroyed = false;
+  private isPaused = false;
+  private pauseResolve: (() => void) | null = null;
 
   constructor(
     logDir: string,
@@ -62,6 +64,19 @@ export class AsyncLogWriter {
   static async flushAll(): Promise<void> {
     const promises = Array.from(AsyncLogWriter.activeWriters).map(writer => writer.flush());
     await Promise.all(promises);
+  }
+
+  /** 暂停所有活跃的写入器（用于日志轮转等操作） */
+  static async pauseAll(): Promise<void> {
+    const promises = Array.from(AsyncLogWriter.activeWriters).map(writer => writer.pause());
+    await Promise.all(promises);
+  }
+
+  /** 恢复所有活跃的写入器 */
+  static resumeAll(): void {
+    for (const writer of AsyncLogWriter.activeWriters) {
+      writer.resume();
+    }
   }
 
   /** 确保日志目录存在 */
@@ -89,6 +104,39 @@ export class AsyncLogWriter {
     }, this.config.flushIntervalMs);
   }
 
+  /**
+   * 暂停写入器 - flush 已缓冲数据并阻止后续刷盘，直到 resume()
+   * 用于日志轮转等需要独占文件的场景
+   */
+  async pause(): Promise<void> {
+    if (this.isPaused) {
+      return;
+    }
+    this.isPaused = true;
+
+    // 刷盘当前缓冲区，确保所有数据写入磁盘
+    await this.flush();
+
+    // 返回一个 Promise，由 resume() 解除
+    return new Promise<void>((resolve) => {
+      this.pauseResolve = resolve;
+    });
+  }
+
+  /**
+   * 恢复写入器 - 允许正常刷盘
+   */
+  resume(): void {
+    if (!this.isPaused) {
+      return;
+    }
+    this.isPaused = false;
+    if (this.pauseResolve) {
+      this.pauseResolve();
+      this.pauseResolve = null;
+    }
+  }
+
   /** 写入单条日志 */
   async write(data: TraceSpan): Promise<void> {
     if (this.isDestroyed) {
@@ -111,8 +159,8 @@ export class AsyncLogWriter {
 
       this.queue.push({ data, resolve, reject });
 
-      // 如果缓冲区已满，立即刷盘
-      if (this.queue.length >= this.config.bufferSize) {
+      // 暂停时不触发刷盘，等待 resume 后由定时器或手动触发
+      if (!this.isPaused && this.queue.length >= this.config.bufferSize) {
         this.flush().catch((err) => {
           this.logger.error('缓冲区满刷盘失败:', err);
         });
@@ -128,7 +176,7 @@ export class AsyncLogWriter {
 
   /** 刷盘操作 */
   async flush(): Promise<void> {
-    if (this.isFlushing || this.queue.length === 0 || this.isDestroyed) {
+    if (this.isPaused || this.isFlushing || this.queue.length === 0 || this.isDestroyed) {
       return;
     }
 
@@ -172,12 +220,14 @@ export class AsyncLogWriter {
     queueLength: number;
     isFlushing: boolean;
     isDestroyed: boolean;
+    isPaused: boolean;
     bufferSize: number;
   } {
     return {
       queueLength: this.queue.length,
       isFlushing: this.isFlushing,
       isDestroyed: this.isDestroyed,
+      isPaused: this.isPaused,
       bufferSize: this.config.bufferSize,
     };
   }

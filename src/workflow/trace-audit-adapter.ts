@@ -90,6 +90,7 @@ const EMPTY_TRACE_SYSTEM_STATS: TraceSystemStats = {
     queueLength: 0,
     isFlushing: false,
     isDestroyed: false,
+    isPaused: false,
     bufferSize: 0,
   },
 };

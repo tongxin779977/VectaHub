@@ -9,6 +9,7 @@ import zlib from 'node:zlib';
 import { promisify } from 'node:util';
 import type { Logger } from '../logger/index.js';
 import type { LogRotationConfig } from './types.js';
+import { AsyncLogWriter } from './async-writer.js';
 
 const gzip = promisify(zlib.gzip);
 
@@ -70,6 +71,9 @@ export class LogRotationManager {
     let archived = 0;
     let deleted = 0;
 
+    // 暂停所有 AsyncLogWriter 写入并 flush，防止轮转期间的数据竞态
+    await AsyncLogWriter.pauseAll();
+
     try {
       // 1. 检查并轮转过大的文件
       rotated = await this.rotateLargeFiles();
@@ -83,6 +87,9 @@ export class LogRotationManager {
       this.logger.info(`日志轮转完成: 轮转=${rotated}, 归档=${archived}, 删除=${deleted}`);
     } catch (error) {
       this.logger.error(`日志轮转失败: ${(error as Error).message}`);
+    } finally {
+      // 恢复所有 AsyncLogWriter 写入
+      AsyncLogWriter.resumeAll();
     }
 
     return { rotated, archived, deleted };
