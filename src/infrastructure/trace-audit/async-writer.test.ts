@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import pino from 'pino';
 import { AsyncLogWriter, createAsyncLogWriter } from './async-writer.js';
+import { LogRotationManager } from './log-rotation.js';
 import type { TraceSpan } from './types.js';
 
 const TEST_LOG_DIR = path.join(process.cwd(), 'test-logs-traces');
@@ -299,6 +300,193 @@ describe('AsyncLogWriter', () => {
       };
 
       await expect(writer.write(span)).rejects.toThrow('写入器已销毁');
+    });
+  });
+  describe('pause / resume', () => {
+    it('should flush buffered data before pausing', async () => {
+      const span: TraceSpan = {
+        spanId: 'span_pause_001',
+        traceId: 'trace_pause_001',
+        caller: 'CLI',
+        callee: 'Workflow',
+        startTime: new Date().toISOString(),
+        status: 'RUNNING',
+      };
+
+      // Write to queue (won't auto-flush because bufferSize=5)
+      await writer.write(span);
+      expect(writer.getQueueLength()).toBe(1);
+
+      // pause() should flush the buffer first
+      const pausePromise = writer.pause();
+
+      // pause() returns a Promise that only resolves on resume()
+      // But the flush should have happened synchronously before isPaused is set
+      // We need to resume to unblock the pause promise
+      writer.resume();
+      await pausePromise;
+
+      // After pause+resume, the data should have been flushed to disk
+      expect(writer.getQueueLength()).toBe(0);
+
+      const logFile = path.join(TEST_LOG_DIR, `${new Date().toISOString().split('T')[0]}-traces.jsonl`);
+      expect(fs.existsSync(logFile)).toBe(true);
+      const fileContent = fs.readFileSync(logFile, 'utf-8');
+      expect(fileContent).toContain('span_pause_001');
+    });
+
+    it('should block flush while paused', async () => {
+      const span: TraceSpan = {
+        spanId: 'span_blocked_001',
+        traceId: 'trace_blocked_001',
+        caller: 'CLI',
+        callee: 'Workflow',
+        startTime: new Date().toISOString(),
+        status: 'RUNNING',
+      };
+
+      // Write and flush first so queue is empty
+      await writer.write(span);
+      await writer.flush();
+      expect(writer.getQueueLength()).toBe(0);
+
+      // Now pause the writer
+      const pausePromise = writer.pause();
+
+      // Write while paused - data should queue but NOT flush
+      const span2: TraceSpan = {
+        spanId: 'span_blocked_002',
+        traceId: 'trace_blocked_002',
+        caller: 'CLI',
+        callee: 'Workflow',
+        startTime: new Date().toISOString(),
+        status: 'RUNNING',
+      };
+      await writer.write(span2);
+
+      // Attempting flush while paused should return immediately
+      await writer.flush();
+      // Data should still be in queue
+      expect(writer.getQueueLength()).toBe(1);
+
+      // Resume and flush
+      writer.resume();
+      await pausePromise;
+      await writer.flush();
+      expect(writer.getQueueLength()).toBe(0);
+
+      const logFile = path.join(TEST_LOG_DIR, `${new Date().toISOString().split('T')[0]}-traces.jsonl`);
+      const fileContent = fs.readFileSync(logFile, 'utf-8');
+      expect(fileContent).toContain('span_blocked_002');
+    });
+
+    it('pauseAll should pause all active writers and resumeAll should resume them', async () => {
+      const writer2 = createAsyncLogWriter(
+        path.join(TEST_LOG_DIR, 'sub'),
+        { bufferSize: 5, flushIntervalMs: 100 },
+        { logger: TEST_LOGGER }
+      );
+
+      try {
+        const span1: TraceSpan = {
+          spanId: 'span_all_001',
+          traceId: 'trace_all_001',
+          caller: 'CLI',
+          callee: 'Workflow',
+          startTime: new Date().toISOString(),
+          status: 'RUNNING',
+        };
+        const span2: TraceSpan = {
+          spanId: 'span_all_002',
+          traceId: 'trace_all_002',
+          caller: 'CLI',
+          callee: 'Workflow',
+          startTime: new Date().toISOString(),
+          status: 'RUNNING',
+        };
+
+        await writer.write(span1);
+        await writer2.write(span2);
+
+        // pauseAll should flush all writers
+        const pauseAllPromise = AsyncLogWriter.pauseAll();
+
+        // Both writers should be paused
+        expect(writer.getStats().isPaused).toBe(true);
+        expect(writer2.getStats().isPaused).toBe(true);
+
+        // Data should have been flushed before pause
+        expect(writer.getQueueLength()).toBe(0);
+        expect(writer2.getQueueLength()).toBe(0);
+
+        // Resume all
+        AsyncLogWriter.resumeAll();
+        await pauseAllPromise;
+
+        // Writers should no longer be paused
+        expect(writer.getStats().isPaused).toBe(false);
+        expect(writer2.getStats().isPaused).toBe(false);
+      } finally {
+        await writer2.destroy();
+      }
+    });
+  });
+
+  describe('LogRotationManager integration', () => {
+    it('should pause writers during rotation and resume after', async () => {
+      const rotationDir = path.join(TEST_LOG_DIR, 'rotation-test');
+      fs.mkdirSync(rotationDir, { recursive: true });
+
+      // Create a writer in the rotation directory
+      const rotWriter = createAsyncLogWriter(
+        rotationDir,
+        { bufferSize: 100, flushIntervalMs: 10_000 },
+        { logger: TEST_LOGGER }
+      );
+
+      try {
+        // Write some data
+        const span: TraceSpan = {
+          spanId: 'span_rotation_001',
+          traceId: 'trace_rotation_001',
+          caller: 'CLI',
+          callee: 'Workflow',
+          startTime: new Date().toISOString(),
+          status: 'RUNNING',
+        };
+        await rotWriter.write(span);
+
+        // Create a rotation manager
+        const rotationManager = new LogRotationManager(
+          rotationDir,
+          { enabled: true, maxFileSizeMB: 0.001, retentionDays: 30, compressArchive: false },
+          { logger: TEST_LOGGER }
+        );
+
+        // rotate() should pause all writers, do rotation, then resume
+        await rotationManager.rotate();
+
+        // Writer should be resumed after rotation
+        expect(rotWriter.getStats().isPaused).toBe(false);
+
+        // Writer should still be functional after rotation
+        const span2: TraceSpan = {
+          spanId: 'span_rotation_002',
+          traceId: 'trace_rotation_002',
+          caller: 'CLI',
+          callee: 'Workflow',
+          startTime: new Date().toISOString(),
+          status: 'RUNNING',
+        };
+        await rotWriter.write(span2);
+        await rotWriter.flush();
+
+        const logFile = path.join(rotationDir, `${new Date().toISOString().split('T')[0]}-traces.jsonl`);
+        expect(fs.existsSync(logFile)).toBe(true);
+      } finally {
+        await rotWriter.destroy();
+        fs.rmSync(rotationDir, { recursive: true, force: true });
+      }
     });
   });
 });

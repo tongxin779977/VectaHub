@@ -507,7 +507,7 @@ export function buildDefaultPrompt(taskId: string, taskLabel: string, docPath: s
 async function readGitDiffSnapshot(): Promise<GitDiffSnapshot | null> {
   try {
     const { stdout: shortStat } = await getContext().environment.exec('git diff --shortstat');
-    const { stdout: statusShort } = await getContext().environment.exec('git status --short --untracked-files=all');
+    const { stdout: statusShort } = await getContext().environment.exec('git status --short');
     const untrackedFiles = statusShort.split('\n')
       .map(line => line.trim())
       .filter(line => line.startsWith('?? '))

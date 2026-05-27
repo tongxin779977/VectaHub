@@ -112,10 +112,13 @@ export class AsyncLogWriter {
     if (this.isPaused) {
       return;
     }
-    this.isPaused = true;
 
-    // 刷盘当前缓冲区，确保所有数据写入磁盘
+    // 先刷盘当前缓冲区，确保所有数据写入磁盘
+    // 必须在设置 isPaused 之前完成，因为 flush() 会在 isPaused=true 时直接返回
     await this.flush();
+
+    // 刷盘完成后再设置暂停标志，阻止后续的定时刷盘和缓冲区满触发刷盘
+    this.isPaused = true;
 
     // 返回一个 Promise，由 resume() 解除
     return new Promise<void>((resolve) => {
