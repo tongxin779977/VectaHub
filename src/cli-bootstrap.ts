@@ -1,9 +1,5 @@
-import { dirname, join } from 'node:path';
 import { format } from 'node:util';
-import { fileURLToPath } from 'node:url';
-import { getDefaultContext } from './infrastructure/context.js';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import { getVersion } from './utils/version.js';
 
 interface BootstrapOutput {
   log(message?: unknown, ...optionalParams: unknown[]): void;
@@ -27,13 +23,6 @@ function createBootstrapOutput(): BootstrapOutput {
       process.stdout.write(`${JSON.stringify(payload)}\n`);
     },
   };
-}
-
-function getVersion(): string {
-  const ctx = getDefaultContext();
-  const pkgPath = join(__dirname, '../package.json');
-  const pkg = JSON.parse(ctx.environment.readFile(pkgPath));
-  return pkg.version;
 }
 
 async function main(): Promise<void> {

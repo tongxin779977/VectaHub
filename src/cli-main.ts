@@ -1,119 +1,55 @@
 #!/usr/bin/env node
 
-import { Command } from 'commander';
-import { join, dirname } from 'node:path';
+// --- Standard library ---
+import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// 引入基础设施模块
+// --- Third-party ---
+import { Command } from 'commander';
+
+// --- Internal: infrastructure ---
 import { getDefaultContext } from './infrastructure/context.js';
-import { Signal } from './infrastructure/interfaces/environment-service.js';
 import { AuditService } from './infrastructure/audit/service.js';
-import { AsyncLogWriter } from './infrastructure/trace-audit/async-writer.js';
 import { AuditEventType } from './infrastructure/audit/index.js';
+import { AsyncLogWriter } from './infrastructure/trace-audit/async-writer.js';
 import { createCliOutput, isCliOutputHandledError } from './infrastructure/cli-output.js';
-
-// 路径常量
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-// 全局 InfrastructureContext 实例
-const ctx = getDefaultContext();
-
-// 初始化标记
-let _version: string | undefined;
-let _auditLoggerInitialized = false;
-let policyWarningShown = false;
-let _signalsSetup = false;
-let _processListenersSetup = false;
-
-// 加载的命令集合
-const loadedCommands = new Set<string>();
-const commandLoadErrors = new Map<string, string>();
-
-/**
- * 获取版本号（通过基础设施服务读取）
- */
-function getVersion(): string {
-  if (!_version) {
-    try {
-      const pkgPath = join(__dirname, '../package.json');
-      const pkgContent = ctx.environment.readFile(pkgPath);
-      const pkg = JSON.parse(pkgContent);
-      _version = pkg.version;
-    } catch (error) {
-      ctx.logger.getLogger('cli-main').error({ error }, 'Failed to read package version');
-      _version = '0.0.0';
-    }
-  }
-  return _version!;
-}
-
-function getCurrentCliOutput() {
-  return createCliOutput({ json: ctx.environment.getArgv().includes('--json') });
-}
-
-/**
- * 设置全局信号处理（通过基础设施）
- */
-function setupGlobalSignals() {
-  if (_signalsSetup) return;
-  _signalsSetup = true;
-
-  ctx.environment.onSignal(Signal.SIGINT, async () => {
-    getCurrentCliOutput().text('\n\n🛑 Shutting down...');
-    await AsyncLogWriter.flushAll();
-    ctx.environment.exit(0);
-  });
-
-  ctx.environment.onSignal(Signal.SIGTERM, async () => {
-    getCurrentCliOutput().text('\n\n🛑 Shutting down...');
-    await AsyncLogWriter.flushAll();
-    ctx.environment.exit(0);
-  });
-}
-
-/**
- * 设置进程监听器（通过基础设施）
- */
-function setupProcessListeners() {
-  if (_processListenersSetup) return;
-  _processListenersSetup = true;
-
-  // 通过基础设施统一管理进程警告
-  ctx.environment.onWarning((warning) => {
-    if (warning.name === 'MaxListenersExceededWarning') {
-      return;
-    }
-    if ((warning as Error & { code?: string }).code === 'DEP0205') {
-      return;
-    }
-    ctx.logger.getLogger('cli-main').warn({ warning }, 'Process warning');
-  });
-}
-
-// 引入必要的工具（保持现有功能）
-import { setGlobalOptions, isVerbose } from './utils/global-options.js';
 import { formatErrorMessage, toJSONError } from './infrastructure/errors/index.js';
+
+// --- Internal: utils ---
+import { getVersion } from './utils/version.js';
+import { setGlobalOptions, isVerbose } from './utils/global-options.js';
+import { getBashCompletion, getZshCompletion, getFishCompletion } from './utils/completion-scripts.js';
+
+// --- Internal: setup ---
 import { loadConfig as loadSetupConfig, saveConfig as saveSetupConfig, setNonInteractiveMode } from './setup/first-run-wizard.js';
 import { getAvailableExternalCLI } from './setup/cli-scanner.js';
 import { createDefaultInstaller } from './setup/priority-installer.js';
-import { getBashCompletion, getZshCompletion, getFishCompletion } from './utils/completion-scripts.js';
+
+// --- Internal: CLI modules (extracted) ---
+import { lazyLoadCommand, lazyLoadCliTools, lazyLoadAgentRuntime, resolveLazyCommandForHelp, registerLazyProxyCommands } from './cli-command-registry.js';
+import { setupGlobalSignals, setupProcessListeners } from './cli-signal-handler.js';
+import { displayPolicyWarning } from './cli-security.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ctx = getDefaultContext();
+
+let auditLoggerInitialized = false;
+let policyWarningShown = false;
 
 const firstRunWizardDeps = {
   environment: ctx.environment,
   logger: ctx.logger.getLogger('setup'),
 };
 
-function getCliMainTestFailureMode(): 'cli-tools' | 'agent-runtime' | null {
-  const mode = ctx.environment.getEnv('VECTAHUB_TEST_FORCE_CLI_MAIN_FAILURE');
-  if (mode === 'cli-tools' || mode === 'agent-runtime') {
-    return mode;
-  }
-  return null;
+/** Return a CliOutput instance that switches to JSON mode when --json is present. */
+function getCurrentCliOutput() {
+  return createCliOutput({ json: ctx.environment.getArgv().includes('--json') });
 }
 
+/** Ensure the audit logger is initialized and return the current session ID. */
 function ensureAuditLoggerInitialized(): string {
-  if (!_auditLoggerInitialized) {
-    _auditLoggerInitialized = true;
+  if (!auditLoggerInitialized) {
+    auditLoggerInitialized = true;
   }
 
   try {
@@ -123,25 +59,22 @@ function ensureAuditLoggerInitialized(): string {
   }
 }
 
-/**
- * 错误处理函数
- */
+/** Unified error handler for uncaught exceptions and unhandled rejections. */
 async function handleError(error: unknown): Promise<never> {
   const isJson = ctx.environment.getArgv().includes('--json');
   const output = createCliOutput({ json: isJson });
-  
-  // 确保审计日志刷盘
+
   try {
     await AsyncLogWriter.flushAll();
-  } catch (error) {
-    ctx.logger.getLogger('cli-main').warn({ error }, 'Failed to flush audit logs');
+  } catch (flushError) {
+    ctx.logger.getLogger('cli-main').warn({ error: flushError }, 'Failed to flush audit logs');
   }
 
   if (isCliOutputHandledError(error)) {
     ctx.environment.exit(1);
     throw new Error('Should not reach here');
   }
-  
+
   if (isJson) {
     output.json(toJSONError(error, isVerbose()), { space: 2 });
   } else {
@@ -150,13 +83,10 @@ async function handleError(error: unknown): Promise<never> {
       output.error(error instanceof Error && error.stack ? error.stack : String(error));
     }
   }
-  // 使用基础设施的 exit 替代原生 process.exit
   ctx.environment.exit(1);
-  // 用于类型安全的兜底（理论上不会到达）
   throw new Error('Should not reach here');
 }
 
-// 通过基础设施设置未处理错误监听器
 ctx.environment.onUncaughtException((error) => {
   handleError(error);
 });
@@ -165,390 +95,11 @@ ctx.environment.onUnhandledRejection((reason) => {
   handleError(reason);
 });
 
-// 移除懒加载代理命令
-function removeLazyProxyCommand(commandName: string): void {
-  const existingCmd = program.commands.find(c => c.name() === commandName);
-  if (existingCmd) {
-    // 使用类型安全的方式处理 Commander 的命令
-    const programInternal = program as unknown as { commands: Command[] };
-    programInternal.commands = programInternal.commands.filter(c => c.name() !== commandName);
-  }
-}
-
-/**
- * 懒加载命令（保持原有逻辑）
- */
-async function lazyLoadCommand(commandName: string): Promise<void> {
-  if (loadedCommands.has(commandName)) return;
-  
-  try {
-    switch (commandName) {
-      case 'run': {
-        const { createRunCmd } = await import('./commands/run.js');
-        removeLazyProxyCommand('run');
-        program.addCommand(createRunCmd(ctx));
-        loadedCommands.add('run');
-        break;
-      }
-      case 'doctor': {
-        const { createDoctorCmd } = await import('./commands/doctor.js');
-        removeLazyProxyCommand('doctor');
-        program.addCommand(createDoctorCmd(ctx));
-        loadedCommands.add('doctor');
-        break;
-      }
-      case 'serve':
-      case 'client': {
-        const { createServeCommands } = await import('./commands/serve.js');
-        const { serveCmd, clientCmd } = createServeCommands(ctx);
-        removeLazyProxyCommand('serve');
-        removeLazyProxyCommand('client');
-        program.addCommand(serveCmd);
-        program.addCommand(clientCmd);
-        loadedCommands.add('serve');
-        loadedCommands.add('client');
-        break;
-      }
-      case 'security': {
-        const { createSecurityCmd } = await import('./commands/security.js');
-        removeLazyProxyCommand('security');
-        program.addCommand(createSecurityCmd(ctx));
-        loadedCommands.add('security');
-        break;
-      }
-      case 'audit': {
-        const { createAuditCmd } = await import('./commands/audit-cmd.js');
-        removeLazyProxyCommand('audit');
-        program.addCommand(createAuditCmd(ctx));
-        loadedCommands.add('audit');
-        break;
-      }
-      case 'tools': {
-        await lazyLoadAgentRuntime();
-        const { createToolsCmd } = await import('./commands/tools.js');
-        removeLazyProxyCommand('tools');
-        program.addCommand(createToolsCmd(ctx));
-        loadedCommands.add('tools');
-        break;
-      }
-      case 'list': {
-        const { createListCmd } = await import('./commands/list.js');
-        removeLazyProxyCommand('list');
-        program.addCommand(createListCmd(ctx));
-        loadedCommands.add('list');
-        break;
-      }
-      case 'mode': {
-        const { createModeCmd } = await import('./commands/mode.js');
-        removeLazyProxyCommand('mode');
-        program.addCommand(createModeCmd(ctx));
-        loadedCommands.add('mode');
-        break;
-      }
-      case 'history': {
-        const { createHistoryCmd } = await import('./commands/history.js');
-        removeLazyProxyCommand('history');
-        program.addCommand(createHistoryCmd(ctx));
-        loadedCommands.add('history');
-        break;
-      }
-      case 'detail': {
-        const { createDetailCmd } = await import('./commands/detail.js');
-        removeLazyProxyCommand('detail');
-        program.addCommand(createDetailCmd(ctx));
-        loadedCommands.add('detail');
-        break;
-      }
-      case 'rerun': {
-        const { createRerunCmd } = await import('./commands/rerun.js');
-        removeLazyProxyCommand('rerun');
-        program.addCommand(createRerunCmd(ctx));
-        loadedCommands.add('rerun');
-        break;
-      }
-      case 'resume': {
-        const { createResumeCmd } = await import('./commands/resume.js');
-        removeLazyProxyCommand('resume');
-        program.addCommand(createResumeCmd(ctx));
-        loadedCommands.add('resume');
-        break;
-      }
-      case 'archive': {
-        const { createArchiveCmd } = await import('./commands/archive.js');
-        removeLazyProxyCommand('archive');
-        program.addCommand(createArchiveCmd(ctx));
-        loadedCommands.add('archive');
-        break;
-      }
-      case 'run-command': {
-        const { createRunCommandCmd } = await import('./commands/run-command.js');
-        removeLazyProxyCommand('run-command');
-        program.addCommand(createRunCommandCmd(ctx));
-        loadedCommands.add('run-command');
-        break;
-      }
-      case 'generate': {
-        const { createGenerateCmd } = await import('./commands/generate.js');
-        removeLazyProxyCommand('generate');
-        program.addCommand(createGenerateCmd(ctx));
-        loadedCommands.add('generate');
-        break;
-      }
-      case 'schedule': {
-        const { createScheduleCmd } = await import('./commands/schedule.js');
-        removeLazyProxyCommand('schedule');
-        program.addCommand(createScheduleCmd(ctx));
-        loadedCommands.add('schedule');
-        break;
-      }
-      case 'daemon': {
-        const { daemonCmd } = await import('./commands/daemon.js');
-        removeLazyProxyCommand('daemon');
-        program.addCommand(daemonCmd);
-        loadedCommands.add('daemon');
-        break;
-      }
-      case 'templates': {
-        const { createTemplatesCmd } = await import('./commands/templates.js');
-        removeLazyProxyCommand('templates');
-        program.addCommand(createTemplatesCmd(ctx));
-        loadedCommands.add('templates');
-        break;
-      }
-      case 'rollback': {
-        const { createRollbackCmd } = await import('./commands/list.js');
-        removeLazyProxyCommand('rollback');
-        program.addCommand(createRollbackCmd(ctx));
-        loadedCommands.add('rollback');
-        break;
-      }
-      case 'verify': {
-        const { createVerifyCmd } = await import('./commands/verify.js');
-        removeLazyProxyCommand('verify');
-        program.addCommand(createVerifyCmd(ctx));
-        loadedCommands.add('verify');
-        break;
-      }
-      case 'chat': {
-        await lazyLoadAgentRuntime();
-        const { chatCmd } = await import('./commands/chat.js');
-        removeLazyProxyCommand('chat');
-        program.addCommand(chatCmd);
-        loadedCommands.add('chat');
-        break;
-      }
-      case 'monitor': {
-        const { createMonitorCmd } = await import('./commands/monitor.js');
-        removeLazyProxyCommand('monitor');
-        program.addCommand(createMonitorCmd(ctx));
-        loadedCommands.add('monitor');
-        break;
-      }
-      case 'debug': {
-        const { createDebugCmd } = await import('./commands/debug.js');
-        removeLazyProxyCommand('debug');
-        program.addCommand(createDebugCmd(ctx));
-        loadedCommands.add('debug');
-        break;
-      }
-      case 'export':
-      case 'import': {
-        const { createExportCmd, createImportCmd } = await import('./commands/export.js');
-        removeLazyProxyCommand('export');
-        removeLazyProxyCommand('import');
-        program.addCommand(createExportCmd(ctx));
-        program.addCommand(createImportCmd(ctx));
-        loadedCommands.add('export');
-        loadedCommands.add('import');
-        break;
-      }
-      case 'vscode': {
-        await lazyLoadAgentRuntime();
-        const { createVscodeDiagnosticCmd } = await import('./commands/vscode-diagnostic.js');
-        removeLazyProxyCommand('vscode');
-        program.addCommand(createVscodeDiagnosticCmd(ctx));
-        loadedCommands.add('vscode');
-        break;
-      }
-      case 'parse-doc': {
-        const { createParseDocCmd } = await import('./commands/parse-doc.js');
-        removeLazyProxyCommand('parse-doc');
-        program.addCommand(createParseDocCmd(ctx));
-        loadedCommands.add('parse-doc');
-        break;
-      }
-      case 'run-task':
-      case 'run-task-clean-logs': {
-        await lazyLoadAgentRuntime();
-        const { createRunTaskCmd, createRunTaskCleanLogsCmd } = await import('./commands/run-task.js');
-        removeLazyProxyCommand('run-task');
-        removeLazyProxyCommand('run-task-clean-logs');
-        program.addCommand(createRunTaskCmd(ctx));
-        program.addCommand(createRunTaskCleanLogsCmd(ctx));
-        loadedCommands.add('run-task');
-        loadedCommands.add('run-task-clean-logs');
-        break;
-      }
-      case 'trace': {
-        const { createTraceCmd } = await import('./commands/trace.js');
-        removeLazyProxyCommand('trace');
-        program.addCommand(createTraceCmd(ctx));
-        loadedCommands.add('trace');
-        break;
-      }
-      case 'doc-task-runs': {
-        const { createDocTaskRunsCmd } = await import('./commands/doc-task-runs.js');
-        removeLazyProxyCommand('doc-task-runs');
-        program.addCommand(createDocTaskRunsCmd(ctx));
-        loadedCommands.add('doc-task-runs');
-        break;
-      }
-      case 'recover-task': {
-        const { createRecoverTaskCmd } = await import('./commands/recover-task.js');
-        removeLazyProxyCommand('recover-task');
-        program.addCommand(createRecoverTaskCmd(ctx));
-        loadedCommands.add('recover-task');
-        break;
-      }
-      case 'dev': {
-        removeLazyProxyCommand('dev');
-        const { createStatusCmd } = await import('./commands/status.js');
-        const { moduleCmd } = await import('./commands/module.js');
-        const { createValidateCmd } = await import('./commands/validate.js');
-        const { createTestCmd } = await import('./commands/test.js');
-        const { createBuildCmd } = await import('./commands/build.js');
-        const devCmd = new Command('dev').description('Development commands for multi-agent collaboration');
-        devCmd.addCommand(createStatusCmd(ctx)).addCommand(moduleCmd).addCommand(createValidateCmd(ctx)).addCommand(createTestCmd(ctx)).addCommand(createBuildCmd(ctx));
-        program.addCommand(devCmd, { hidden: true });
-        loadedCommands.add('dev');
-        break;
-      }
-      case 'provider': {
-        await lazyLoadAgentRuntime();
-        const { createProviderCmd } = await import('./commands/provider.js');
-        removeLazyProxyCommand('provider');
-        program.addCommand(createProviderCmd(ctx));
-        loadedCommands.add('provider');
-        break;
-      }
-      case 'queue': {
-        const { createQueueCmd } = await import('./commands/queue.js');
-        removeLazyProxyCommand('queue');
-        program.addCommand(createQueueCmd(ctx));
-        loadedCommands.add('queue');
-        break;
-      }
-    }
-  } catch (error) {
-    const msg = (error as Error).message || String(error);
-    commandLoadErrors.set(commandName, msg);
-    ctx.logger.getLogger('cli-main').error({ commandName, error }, 'Failed to lazy-load command');
-  }
-}
-
-/**
- * 懒加载 CLI 工具（保持原有逻辑）
- */
-async function lazyLoadCliTools(): Promise<void> {
-  if (loadedCommands.has('cli-tools')) return;
-  
-  try {
-    if (getCliMainTestFailureMode() === 'cli-tools') {
-      throw new Error('forced cli-tools failure');
-    }
-    const { getCliToolRegistry } = await import('./cli-tools/index.js');
-    const { gitTool } = await import('./cli-tools/tools/git.js');
-    const { npmTool } = await import('./cli-tools/tools/npm.js');
-    const { dockerTool } = await import('./cli-tools/tools/docker.js');
-    const { curlTool } = await import('./cli-tools/tools/curl.js');
-    
-    const registry = getCliToolRegistry();
-    registry.register(gitTool);
-    registry.register(npmTool);
-    registry.register(dockerTool);
-    registry.register(curlTool);
-    loadedCommands.add('cli-tools');
-  } catch (error) {
-    throw new Error(`CLI tool registration failed: ${formatErrorMessage(error, '工具注册')}`, { cause: error });
-  }
-}
-
-/**
- * 懒加载 Agent 运行时（从配置加载 providers）
- */
-async function lazyLoadAgentRuntime(): Promise<void> {
-  if (loadedCommands.has('agent-runtime')) return;
-  
-  try {
-    if (getCliMainTestFailureMode() === 'agent-runtime') {
-      throw new Error('forced agent-runtime failure');
-    }
-    const { loadProvidersFromConfig } = await import('./agent-runtime/config-loader.js');
-    await loadProvidersFromConfig();
-    loadedCommands.add('agent-runtime');
-  } catch (error) {
-    throw new Error(`Agent runtime initialization failed: ${formatErrorMessage(error, 'Agent 运行时')}`, { cause: error });
-  }
-}
-
-// 检查是否为干运行
-const isDryRunInvocation = ctx.environment.getArgv().includes('--dry-run');
-if (isDryRunInvocation) {
+if (ctx.environment.getArgv().includes('--dry-run')) {
   ctx.environment.setEnv('VECTAHUB_AUDIT_DISABLED', '1');
 }
 
-/**
- * 安全策略警告模板（保持原有功能）
- */
-function getSecurityWarningTemplate(policy: string): string {
-  const blockTag = policy === 'block' ? ' (当前)' : '';
-  const allowTag = policy === 'allow' ? ' (当前)' : '';
-  const passthroughTag = policy === 'passthrough' ? ' (当前)' : '';
-
-  return `
-╔══════════════════════════════════════════════════════════════╗
-║  ⚠️  安全策略警告                                            ║
-╠══════════════════════════════════════════════════════════════╣
-║  当前命令规则默认策略: ${policy}                            
-║                                                              ║
-║  为了提高安全性，建议将默认策略设置为 "block"。            ║
-║  这样未明确白名单的命令将被拒绝执行。                      ║
-║                                                              ║
-║  配置示例 (vectahub.config.yaml):                            ║
-║    sandbox:                                                  ║
-║      defaultPolicy: block                                    ║
-║                                                              ║
-║  可选策略:                                                   ║
-║  - block: 默认拒绝 (推荐，最安全)${blockTag}               
-║  - allow: 默认允许${allowTag}                                 
-║  - passthrough: 交给危险命令检测${passthroughTag}             
-╚══════════════════════════════════════════════════════════════╝
-`.trim();
-}
-
-/**
- * 显示安全策略警告（通过基础设施获取配置）
- */
-function displayPolicyWarning(): void {
-  if (ctx.environment.getArgv().includes('--json')) {
-    return;
-  }
-
-  try {
-    const config = ctx.config.getConfig();
-    const policy = config.sandbox.defaultPolicy;
-    
-    if (policy !== 'block') {
-      const output = getCurrentCliOutput();
-      output.text(getSecurityWarningTemplate(policy));
-      output.blank();
-    }
-  } catch (error) {
-    throw new Error(`Security policy warning failed: ${formatErrorMessage(error, '安全策略')}`, { cause: error });
-  }
-}
-
-// 创建 Commander 程序
+/** The main Commander program instance. */
 const program = new Command();
 
 program
@@ -559,8 +110,8 @@ program
   .option('-d, --debug', '调试模式（包含详细输出）')
   .option('--non-interactive', '非交互模式（适用于 CI/CD）')
   .hook('preAction', async (thisCommand) => {
-    setupProcessListeners();
-    setupGlobalSignals();
+    setupProcessListeners(ctx);
+    setupGlobalSignals(ctx);
     ensureAuditLoggerInitialized();
     const opts = thisCommand.opts();
     if (opts.verbose || opts.debug) {
@@ -576,7 +127,7 @@ program
     }
   });
 
-// 版本命令
+/** Register the built-in `version` subcommand. */
 program
   .command('version')
   .description('显示版本信息')
@@ -591,21 +142,19 @@ program
     }
   });
 
-// 预执行钩子：显示策略警告
 program.hook('preAction', async (thisCommand) => {
   if (!policyWarningShown) {
     policyWarningShown = true;
     const cmdName = thisCommand.name();
     if (cmdName !== 'version' && cmdName !== 'help') {
-      displayPolicyWarning();
+      displayPolicyWarning(ctx);
     }
   }
 });
 
-// 子命令钩子：使用基础设施的审计服务记录命令
-program.hook('preSubcommand', async (thisCommand, subcommand) => {
+program.hook('preSubcommand', async (_thisCommand, subcommand) => {
   const commandName = subcommand.name();
-  
+
   try {
     const sessionId = ensureAuditLoggerInitialized();
     const args = ctx.environment.getArgv().slice(3);
@@ -613,7 +162,7 @@ program.hook('preSubcommand', async (thisCommand, subcommand) => {
       sessionId,
       failureMode: 'fail-closed',
     });
-    
+
     strictAudit.getLogger().write({
       event: AuditEventType.CLI_COMMAND,
       timestamp: new Date().toISOString(),
@@ -632,19 +181,17 @@ program.hook('preSubcommand', async (thisCommand, subcommand) => {
   }
 });
 
-// 设置命令
 const setupCmd = new Command('setup')
   .description('运行优先级安装流程')
   .action(async () => {
     const output = getCurrentCliOutput();
-    await lazyLoadAgentRuntime();
+    await lazyLoadAgentRuntime(ctx);
     output.text('🔧 运行优先级安装流程...\n');
     const installer = createDefaultInstaller(ctx);
     if (!installer) {
       output.error('❌ 安装器初始化失败');
       ctx.environment.exit(1);
     }
-    // 告诉 TypeScript 我们已经检查过 null 了
     const nonNullInstaller = installer!;
     const summary = await nonNullInstaller.run();
     if (!summary.overallSuccess) {
@@ -660,7 +207,7 @@ const setupCmd = new Command('setup')
     }
   });
 
-// 配置命令
+/** Register the built-in `config` subcommand group. */
 const configCmd = new Command('config')
   .description('管理 VectaHub 配置');
 
@@ -707,8 +254,8 @@ configCmd
   .description('列出已配置的 CLI 工具')
   .action(async () => {
     const output = getCurrentCliOutput();
-    await lazyLoadAgentRuntime();
-    await lazyLoadCliTools();
+    await lazyLoadAgentRuntime(ctx);
+    await lazyLoadCliTools(ctx);
     const available = getAvailableExternalCLI({
       environment: ctx.environment,
     });
@@ -721,7 +268,7 @@ configCmd
     output.blank();
   });
 
-// 补全命令
+/** Register the built-in `completion` subcommand. */
 const completionCmd = new Command('completion')
   .description('生成命令补全脚本')
   .argument('<shell>', '目标shell类型: bash, zsh, fish')
@@ -744,109 +291,16 @@ const completionCmd = new Command('completion')
     }
   });
 
-// 注册所有顶级命令
 program.addCommand(completionCmd);
 program.addCommand(setupCmd);
 program.addCommand(configCmd);
 
-// 懒加载命令列表（保持原有功能）
-const lazyLoadableCommands = [
-  { name: 'run', description: '执行工作流' },
-  { name: 'doctor', description: '运行系统诊断' },
-  { name: 'chat', description: '启动交互式聊天会话' },
-  { name: 'serve', description: '启动 VectaHub 服务器' },
-  { name: 'client', description: '连接到 VectaHub 服务器' },
-  { name: 'security', description: '安全管理命令' },
-  { name: 'audit', description: '审计日志命令' },
-  { name: 'tools', description: 'CLI 工具管理' },
-  { name: 'list', description: '列出工作流' },
-  { name: 'mode', description: '切换执行模式', argument: '[mode]' },
-  { name: 'history', description: '查看执行历史' },
-  { name: 'detail', description: '查看执行详情', argument: '<executionId>' },
-  { name: 'rerun', description: '重跑历史执行', argument: '<executionId>' },
-  { name: 'resume', description: '恢复失败或暂停执行', argument: '<executionId>' },
-  { name: 'archive', description: '执行记录归档、恢复和删除' },
-  { name: 'run-command', description: '直接运行 CLI 命令并进行安全扫描' },
-  { name: 'generate', description: '生成工作流' },
-  { name: 'schedule', description: '调度工作流' },
-  { name: 'daemon', description: '守护进程管理' },
-  { name: 'templates', description: '管理模板' },
-  { name: 'rollback', description: '回滚操作' },
-  { name: 'verify', description: '验证工作流' },
-  { name: 'monitor', description: '监控工作流' },
-  { name: 'debug', description: '调试工作流' },
-  { name: 'export', description: '导出工作流' },
-  { name: 'import', description: '导入工作流' },
-  { name: 'vscode', description: 'VSCode IDE integration commands' },
-  { name: 'parse-doc', description: '解析开发文档，提取结构化任务列表' },
-  { name: 'run-task', description: '执行文档任务：调用 Agent CLI 执行开发任务' },
-  { name: 'run-task-clean-logs', description: '清理当前工作目录下的 run-task 失败日志' },
-  { name: 'doc-task-runs', description: '查询文档任务运行记录' },
-  { name: 'recover-task', description: '恢复失败的文档任务' },
-  { name: 'trace', description: '查看链路追踪数据' },
-  { name: 'queue', description: '管理诊断队列' },
-  { name: 'provider', description: 'AI Provider 管理' },
-  { name: 'dev', description: '开发命令' },
-];
+registerLazyProxyCommands(program, ctx);
 
-// 解析帮助命令的懒加载
-function resolveLazyCommandForHelp(argv: string[]): string | null {
-  const hasHelpFlag = argv.includes('--help') || argv.includes('-h');
-  if (!hasHelpFlag) {
-    return null;
-  }
-
-  const commandName = argv.find((arg) => !arg.startsWith('-'));
-  if (!commandName) {
-    return null;
-  }
-
-  return lazyLoadableCommands.some((cmd) => cmd.name === commandName) ? commandName : null;
-}
-
-// 注册所有懒加载命令的代理入口
-for (const cmdInfo of lazyLoadableCommands) {
-  const lazyProxyCmd = new Command(cmdInfo.name)
-    .description(cmdInfo.description);
-  
-  if ('argument' in cmdInfo) {
-    lazyProxyCmd.argument(cmdInfo.argument as string);
-  }
-  
-  lazyProxyCmd
-    .allowUnknownOption()
-    .arguments('[args...]')
-    .action(async () => {
-      const output = getCurrentCliOutput();
-      const cmdName = cmdInfo.name;
-      if (!loadedCommands.has(cmdName)) {
-        await lazyLoadCommand(cmdName);
-        await lazyLoadCliTools();
-      }
-      
-      const loadedCmd = program.commands.find(c => c.name() === cmdName);
-      if (loadedCmd && loadedCmd !== lazyProxyCmd) {
-        const cmdIndex = ctx.environment.getArgv().findIndex(arg => arg === cmdName);
-        const remainingArgs = ctx.environment.getArgv().slice(cmdIndex + 1);
-        await loadedCmd.parseAsync(remainingArgs, { from: 'user' });
-      } else {
-        const loadError = commandLoadErrors.get(cmdName);
-        output.error(`❌ Command '${cmdName}' failed to load properly`);
-        if (loadError) {
-          output.error(`   原因: ${loadError}`);
-        }
-        ctx.environment.exit(1);
-      }
-    });
-  program.addCommand(lazyProxyCmd);
-}
-
-// 提前加载帮助命令
 const lazyCommandForHelp = resolveLazyCommandForHelp(ctx.environment.getArgv().slice(2));
 if (lazyCommandForHelp) {
-  await lazyLoadCommand(lazyCommandForHelp);
-  await lazyLoadCliTools();
+  await lazyLoadCommand(lazyCommandForHelp, program, ctx);
+  await lazyLoadCliTools(ctx);
 }
 
-// 开始执行程序
 program.parseAsync(ctx.environment.getArgv()).catch(handleError);
