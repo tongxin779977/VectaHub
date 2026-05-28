@@ -94,6 +94,8 @@ VectaHub 当前应被理解为一个**单用户、本地优先的 CLI 自动化�
 
 ### 设计与迁移参考
 
+#### 架构设计
+
 - [design/](./design/)
 - [Agent CLI 注册与 Runtime 架构设计](./design/agent-cli-runtime-architecture.md)
 - [编排、委托与任务拆解架构设计](./design/orchestration-and-delegation-architecture.md)
@@ -101,6 +103,25 @@ VectaHub 当前应被理解为一个**单用户、本地优先的 CLI 自动化�
 - [本地服务与集成层架构设计](./design/local-service-integration-architecture.md)
 - [工作流引擎架构设计](./design/workflow-engine-architecture.md)
 - [文档处理架构设计](./design/document-processing-architecture.md)
+
+#### 模块增强功能设计
+
+- [Agent Runtime 增强功能设计](./design/agent-runtime-enhancements.md) — 超时重试、缓存、配置验证、事件通知、并发控制、工具函数
+- [NL Engine 增强功能设计](./design/nl-engine-enhancements.md) — 请求队列、配置热重载、工作流检测缓存、匹配优化、翻译记忆、能力发现
+- [Sandbox 增强功能设计](./design/sandbox-enhancements.md) — 资源追踪、配置验证、生命周期钩子、验证引擎、池管理、告警监控
+- [Skills 增强功能设计](./design/skills-enhancements.md) — 版本管理、自动发现、执行沙箱、生命周期管理、集中化管理
+- [CLI Entry 增强功能设计](./design/cli-entry-enhancements.md) — 命令缓存、异步加载、错误处理、帮助生成、版本检查、配置验证
+- [Chat REPL 增强功能设计](./design/chat-repl-enhancements.md) — 命令缓存、解析缓存、Shell 超时、NL 意图缓存、会话持久化
+- [Monitoring 增强功能设计](./design/monitoring-enhancements.md) — 告警管理、健康检查、指标采集、监控重构
+- [Security Protocol 增强功能设计](./design/security-protocol-enhancements.md) — 管理器重构、配置存储、规则存储、命令检测、模式匹配、共享评估器
+- [Execution 增强功能设计](./design/execution-enhancements.md) — 双类型断言修复、生命周期状态机、记录管理、队列管理、输出存储、归档器
+- [Command Rules 增强功能设计](./design/command-rules-enhancements.md) — Schema 验证、Happy Path 测试、JSDoc 文档
+- [CLI Tools 增强功能设计](./design/cli-tools-enhancements.md) — 接口去重、Node 前缀修复、测试覆盖、配置验证
+- [Commands 增强功能设计](./design/commands-enhancements.md) — 类型断言修复、运行时验证、copyOptionalFields、测试辅助工具
+- [Infrastructure 增强功能设计](./design/infrastructure-enhancements.md) — 审计系统、配置管理、错误处理、日志系统、依赖注入、事件总线、配置安全
+
+#### 规格与参考
+
 - [specs/](./specs/)
 - [default-context-migration-summary.md](./default-context-migration-summary.md)
 - [engineering-quality-audit.md](./engineering-quality-audit.md)
