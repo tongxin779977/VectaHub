@@ -4,12 +4,26 @@ import type { LLMDialogControlSkill } from './llm-dialog-control/index.js';
 import { getAllIntentNames } from '../nl/templates/index.js';
 import type pino from 'pino';
 
+/**
+ * Output from intent recognition skill
+ * @property intent - The recognized intent name
+ * @property confidence - Confidence score between 0 and 1
+ * @property params - Extracted parameters from the input
+ */
 export interface IntentSkillOutput {
   intent: string;
   confidence: number;
   params: Record<string, unknown>;
 }
 
+/**
+ * Creates an Intent Recognition skill
+ * Uses LLM to analyze user input and extract intent and parameters
+ * @param promptRegistry - Registry for building prompts
+ * @param llmDialogSkill - LLM dialog control skill for generating responses
+ * @param logger - Optional logger for debug output
+ * @returns Skill instance for intent recognition
+ */
 export function createIntentSkill(
   promptRegistry: PromptRegistry,
   llmDialogSkill: LLMDialogControlSkill,
@@ -22,10 +36,21 @@ export function createIntentSkill(
     description: '识别用户输入的意图',
     tags: ['intent', 'nlp', 'core'],
 
+    /**
+     * Checks if this skill can handle the given context
+     * @param context - The skill context
+     * @returns True if user input is not empty
+     */
     async canHandle(context: SkillContext): Promise<boolean> {
       return context.userInput.length > 0;
     },
 
+    /**
+     * Executes intent recognition on the user input
+     * @param userInput - The user input string to analyze
+     * @param context - The skill context
+     * @returns Promise resolving to SkillResult with IntentSkillOutput
+     */
     async execute(userInput: string, context: SkillContext): Promise<SkillResult<IntentSkillOutput>> {
       const intentList = getAllIntentNames().join(', ');
       const projectContext = context.projectContext ? JSON.stringify(context.projectContext) : '';

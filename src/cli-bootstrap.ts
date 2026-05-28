@@ -1,12 +1,18 @@
 import { format } from 'node:util';
 import { getVersion } from './utils/version.js';
 
+/** Output interface for bootstrap phase (before full CLI initialization). */
 interface BootstrapOutput {
   log(message?: unknown, ...optionalParams: unknown[]): void;
   error(message?: unknown, ...optionalParams: unknown[]): void;
   json(payload: unknown): void;
 }
 
+/**
+ * Create a bootstrap output handler for early CLI phase.
+ * Uses direct stream writes for fast path (--version) handling.
+ * @returns A BootstrapOutput instance.
+ */
 function createBootstrapOutput(): BootstrapOutput {
   const writeLine = (stream: NodeJS.WriteStream, message?: unknown, optionalParams: unknown[] = []): void => {
     stream.write(`${format(message, ...optionalParams)}\n`);
@@ -25,6 +31,10 @@ function createBootstrapOutput(): BootstrapOutput {
   };
 }
 
+/**
+ * Main bootstrap function that handles fast paths (--version) before loading full CLI.
+ * Falls back to cli-main.ts for all other commands.
+ */
 async function main(): Promise<void> {
   const output = createBootstrapOutput();
   const args = process.argv.slice(2);

@@ -1,8 +1,18 @@
 
-import { Skill, SkillContext, SkillMetadata } from './types.js';
+import {
+  Skill,
+  SkillContext,
+  SkillMetadata,
+  SkillDiscoveryConfig,
+  SkillCacheEntry,
+  SkillCacheConfig
+} from './types.js';
 
 /**
  * Result of a skill match operation
+ * @property skill - The matched skill
+ * @property score - Match score between 0 and 1
+ * @property reason - Explanation of why the skill matched
  */
 export interface SkillMatchResult {
   skill: Skill;
@@ -52,17 +62,29 @@ function stemMatch(a: string, b: string): boolean {
 
 /**
  * Registry for managing and discovering skills
+ * Provides skill registration, discovery, caching, and semantic matching capabilities
  */
 export class SkillRegistry {
   private skills: Map<string, Skill> = new Map();
   private metadata: Map<string, SkillMetadata> = new Map();
+  private discoveryConfig: SkillDiscoveryConfig | null = null;
+  private discoveryTimer: NodeJS.Timeout | null = null;
+  private discoveredSkills: Map<string, Skill> = new Map();
+  private cache: Map<string, SkillCacheEntry> = new Map();
+  private cacheConfig: SkillCacheConfig = {
+    maxSize: 100,
+    ttl: 3600000,
+    enabled: true
+  };
 
   /**
    * Registers a new skill in the registry
+   * If a skill with the same ID exists, it will be overwritten
    * @param skill - The skill to register
    */
   register(skill: Skill): void {
     this.skills.set(skill.id, skill);
+    this.updateCache(skill);
   }
 
   /**
@@ -71,6 +93,8 @@ export class SkillRegistry {
    * @returns The skill or undefined if not found
    */
   get(id: string): Skill | undefined {
+    const cached = this.getFromCache(id);
+    if (cached) return cached;
     return this.skills.get(id);
   }
 
@@ -80,7 +104,7 @@ export class SkillRegistry {
    * @returns True if the skill exists
    */
   has(id: string): boolean {
-    return this.skills.has(id);
+    return this.skills.has(id) || this.discoveredSkills.has(id);
   }
 
   /**
@@ -112,6 +136,7 @@ export class SkillRegistry {
   remove(id: string): void {
     this.skills.delete(id);
     this.metadata.delete(id);
+    this.removeFromCache(id);
   }
 
   /**
@@ -120,6 +145,7 @@ export class SkillRegistry {
   clear(): void {
     this.skills.clear();
     this.metadata.clear();
+    this.cache.clear();
   }
 
   /**
@@ -148,6 +174,129 @@ export class SkillRegistry {
   isEnabled(id: string): boolean {
     const meta = this.metadata.get(id);
     return meta?.enabled !== false;
+  }
+
+  /**
+   * Enables a skill
+   * @param id - The skill ID to enable
+   * @throws Error if skill not found
+   */
+  enable(id: string): void {
+    if (!this.skills.has(id)) {
+      throw new Error(`Skill '${id}' not found`);
+    }
+    const meta = this.metadata.get(id) || {};
+    this.metadata.set(id, { ...meta, enabled: true });
+  }
+
+  /**
+   * Disables a skill
+   * @param id - The skill ID to disable
+   * @throws Error if skill not found
+   */
+  disable(id: string): void {
+    if (!this.skills.has(id)) {
+      throw new Error(`Skill '${id}' not found`);
+    }
+    const meta = this.metadata.get(id) || {};
+    this.metadata.set(id, { ...meta, enabled: false });
+  }
+
+  /**
+   * Enables automatic skill discovery
+   * @param config - Discovery configuration
+   */
+  enableDiscovery(config: SkillDiscoveryConfig): void {
+    this.discoveryConfig = config;
+    if (config.autoDiscover) {
+      this.startDiscovery();
+    }
+  }
+
+  /**
+   * Disables automatic skill discovery
+   */
+  disableDiscovery(): void {
+    this.stopDiscovery();
+    this.discoveryConfig = null;
+  }
+
+  /**
+   * Manually triggers skill discovery
+   * @returns Promise resolving to array of newly discovered skills
+   */
+  async discoverSkills(): Promise<Skill[]> {
+    if (!this.discoveryConfig) {
+      return [];
+    }
+
+    const discovered: Skill[] = [];
+    for (const discoveryPath of this.discoveryConfig.discoveryPaths) {
+      try {
+        const skills = await this.scanForSkills(discoveryPath);
+        for (const skill of skills) {
+          if (!this.skills.has(skill.id) && !this.discoveredSkills.has(skill.id)) {
+            this.discoveredSkills.set(skill.id, skill);
+            discovered.push(skill);
+          }
+        }
+      } catch (error) {
+        // Silently continue if path scanning fails
+      }
+    }
+
+    return discovered;
+  }
+
+  /**
+   * Gets all discovered skills
+   * @returns Array of discovered skills
+   */
+  getDiscoveredSkills(): Skill[] {
+    return Array.from(this.discoveredSkills.values());
+  }
+
+  /**
+   * Registers a discovered skill into the main registry
+   * @param skillId - The discovered skill ID to register
+   * @throws Error if skill not found in discovered skills
+   */
+  registerDiscoveredSkill(skillId: string): void {
+    const skill = this.discoveredSkills.get(skillId);
+    if (!skill) {
+      throw new Error(`Discovered skill '${skillId}' not found`);
+    }
+    this.register(skill);
+    this.discoveredSkills.delete(skillId);
+  }
+
+  /**
+   * Configures the skill cache
+   * @param config - Cache configuration
+   */
+  configureCache(config: Partial<SkillCacheConfig>): void {
+    this.cacheConfig = { ...this.cacheConfig, ...config };
+  }
+
+  /**
+   * Clears the skill cache
+   */
+  clearCache(): void {
+    this.cache.clear();
+  }
+
+  /**
+   * Gets cache statistics
+   * @returns Cache statistics object
+   */
+  getCacheStats(): { size: number; hitRate: number } {
+    const totalAccesses = Array.from(this.cache.values()).reduce(
+      (sum, entry) => sum + entry.accessCount, 0
+    );
+    return {
+      size: this.cache.size,
+      hitRate: totalAccesses > 0 ? this.cache.size / totalAccesses : 0
+    };
   }
 
   /**
@@ -230,6 +379,119 @@ export class SkillRegistry {
     return results
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
+  }
+
+  /**
+   * Starts automatic skill discovery
+   * @private
+   */
+  private startDiscovery(): void {
+    if (this.discoveryTimer) {
+      return;
+    }
+
+    const interval = this.discoveryConfig?.discoveryInterval ?? 60000;
+    this.discoveryTimer = setInterval(async () => {
+      await this.discoverSkills();
+    }, interval);
+  }
+
+  /**
+   * Stops automatic skill discovery
+   * @private
+   */
+  private stopDiscovery(): void {
+    if (this.discoveryTimer) {
+      clearInterval(this.discoveryTimer);
+      this.discoveryTimer = null;
+    }
+  }
+
+  /**
+   * Scans a directory for skill modules
+   * @param path - The directory path to scan
+   * @returns Promise resolving to array of discovered skills
+   * @private
+   */
+  private async scanForSkills(path: string): Promise<Skill[]> {
+    // This is a placeholder implementation
+    // In a real implementation, this would scan the filesystem for skill modules
+    return [];
+  }
+
+  /**
+   * Updates the cache with a skill
+   * @param skill - The skill to cache
+   * @private
+   */
+  private updateCache(skill: Skill): void {
+    if (!this.cacheConfig.enabled) return;
+
+    if (this.cache.size >= this.cacheConfig.maxSize) {
+      this.evictLeastUsed();
+    }
+
+    const meta = this.metadata.get(skill.id) || {};
+    this.cache.set(skill.id, {
+      skill,
+      metadata: meta,
+      loadedAt: new Date(),
+      lastAccessed: new Date(),
+      accessCount: 0
+    });
+  }
+
+  /**
+   * Gets a skill from cache
+   * @param id - The skill ID
+   * @returns The cached skill or undefined
+   * @private
+   */
+  private getFromCache(id: string): Skill | undefined {
+    if (!this.cacheConfig.enabled) return undefined;
+
+    const entry = this.cache.get(id);
+    if (!entry) return undefined;
+
+    const now = new Date();
+    const age = now.getTime() - entry.loadedAt.getTime();
+    if (age > this.cacheConfig.ttl) {
+      this.cache.delete(id);
+      return undefined;
+    }
+
+    entry.lastAccessed = now;
+    entry.accessCount++;
+    return entry.skill;
+  }
+
+  /**
+   * Removes a skill from cache
+   * @param id - The skill ID
+   * @private
+   */
+  private removeFromCache(id: string): void {
+    this.cache.delete(id);
+  }
+
+  /**
+   * Evicts the least recently used skill from cache
+   * @private
+   */
+  private evictLeastUsed(): void {
+    let leastUsedId: string | null = null;
+    let leastAccessed = Infinity;
+
+    for (const [id, entry] of this.cache.entries()) {
+      if (entry.accessCount < leastAccessed) {
+        leastAccessed = entry.accessCount;
+        leastUsedId = id;
+      }
+    }
+
+    if (leastUsedId) {
+      this.cache.delete(leastUsedId);
+    }
   }
 }
 

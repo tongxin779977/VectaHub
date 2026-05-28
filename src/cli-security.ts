@@ -2,7 +2,11 @@ import type { InfrastructureContext } from './infrastructure/context.js';
 import { createCliOutput } from './infrastructure/cli-output.js';
 import { formatErrorMessage } from './infrastructure/errors/index.js';
 
-/** Render the security policy warning box for non-block default policies. */
+/**
+ * Render the security policy warning box for non-block default policies.
+ * @param policy - The current default security policy.
+ * @returns Formatted warning message string.
+ */
 export function getSecurityWarningTemplate(policy: string): string {
   const blockTag = policy === 'block' ? ' (当前)' : '';
   const allowTag = policy === 'allow' ? ' (当前)' : '';
@@ -29,7 +33,12 @@ export function getSecurityWarningTemplate(policy: string): string {
 `.trim();
 }
 
-/** Display a security policy warning if the current default policy is not "block". */
+/**
+ * Display a security policy warning if the current default policy is not "block".
+ * Skipped in JSON output mode to avoid polluting structured output.
+ * @param ctx - The infrastructure context for config and output access.
+ * @throws {Error} When config reading fails.
+ */
 export function displayPolicyWarning(ctx: InfrastructureContext): void {
   if (ctx.environment.getArgv().includes('--json')) {
     return;

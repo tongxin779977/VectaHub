@@ -45,6 +45,11 @@ export interface AuditEvent {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * Ensure a directory exists, creating it recursively if necessary.
+ * @param dir - The directory path to ensure exists.
+ * @throws {VectaHubError} When directory creation fails.
+ */
 function ensureDir(dir: string): void {
   try {
     if (!existsSync(dir)) {
@@ -59,11 +64,21 @@ function ensureDir(dir: string): void {
   }
 }
 
+/**
+ * Get the audit log file path for a specific date.
+ * @param baseDir - The base directory for audit logs.
+ * @param date - The date to generate the file path for (defaults to current date).
+ * @returns The full path to the audit log file.
+ */
 function getAuditFilePath(baseDir: string, date: Date = new Date()): string {
   const dateStr = date.toISOString().split('T')[0];
   return join(baseDir, `${dateStr}.jsonl`);
 }
 
+/**
+ * Check if audit logging is disabled via environment variable.
+ * @returns True if audit logging is disabled.
+ */
 function isAuditDisabled(): boolean {
   return process.env.VECTAHUB_AUDIT_DISABLED === '1';
 }

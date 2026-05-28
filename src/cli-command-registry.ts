@@ -2,31 +2,37 @@ import { Command } from 'commander';
 import type { InfrastructureContext } from './infrastructure/context.js';
 import { formatErrorMessage } from './infrastructure/errors/index.js';
 
+/** Binding for a simple factory-created command. */
 interface SimpleCommandBinding {
   name: string;
   exportName: string;
   isFactory: true;
 }
 
+/** Binding for a directly exported command instance. */
 interface DirectCommandBinding {
   name: string;
   exportName: string;
   isFactory: false;
 }
 
+/** Binding for a command produced by a multi-factory function. */
 interface MultiFactoryBinding {
   name: string;
   resultKey: string;
 }
 
+/** Union of all command binding types. */
 type CommandBinding = SimpleCommandBinding | DirectCommandBinding;
 
+/** Registry entry for a module that exports individual command factories. */
 interface CommandRegistryEntry {
   modulePath: string;
   bindings: CommandBinding[];
   needsAgentRuntime?: boolean;
 }
 
+/** Registry entry for a module that exports a multi-command factory. */
 interface MultiFactoryRegistryEntry {
   modulePath: string;
   multiFactory: string;
@@ -34,12 +40,15 @@ interface MultiFactoryRegistryEntry {
   needsAgentRuntime?: boolean;
 }
 
+/** Union of all registry entry types. */
 type RegistryEntry = CommandRegistryEntry | MultiFactoryRegistryEntry;
 
+/** Type guard to check if an entry uses a multi-factory pattern. */
 function isMultiFactoryEntry(entry: RegistryEntry): entry is MultiFactoryRegistryEntry {
   return 'multiFactory' in entry;
 }
 
+/** Static registry of all command modules and their bindings. */
 const COMMAND_REGISTRY: RegistryEntry[] = [
   { modulePath: './commands/run.js', bindings: [{ name: 'run', exportName: 'createRunCmd', isFactory: true }] },
   { modulePath: './commands/doctor.js', bindings: [{ name: 'doctor', exportName: 'createDoctorCmd', isFactory: true }] },
@@ -75,6 +84,7 @@ const COMMAND_REGISTRY: RegistryEntry[] = [
   { modulePath: './commands/queue.js', bindings: [{ name: 'queue', exportName: 'createQueueCmd', isFactory: true }] },
 ];
 
+/** Metadata for a lazy-loaded command proxy. */
 interface LazyCommandMeta {
   name: string;
   description: string;
@@ -124,11 +134,104 @@ export const LAZY_COMMAND_METAS: LazyCommandMeta[] = [
 const loadedCommands = new Set<string>();
 const commandLoadErrors = new Map<string, string>();
 
+/** Cache for command name to registry entry lookups, avoiding repeated Array.find(). */
+const commandLookupCache = new Map<string, RegistryEntry | null>();
+
+/** Pending module imports to avoid duplicate async operations. */
+const pendingImports = new Map<string, Promise<unknown>>();
+
+/** Cache for registered command instances to avoid duplicate registration. */
+const registeredCommandCache = new Map<string, Command>();
+
+/** Cache for command module instances to avoid duplicate imports. */
+const commandModuleCache = new Map<string, Record<string, unknown>>();
+
+/** Track command registration attempts for deduplication. */
+const commandRegistrationAttempts = new Map<string, Promise<void>>();
+
+/**
+ * Look up a registry entry by command name with O(1) cache lookup.
+ * @param commandName - The command name to look up.
+ * @returns The matching registry entry, or null if not found.
+ */
+function getRegistryEntry(commandName: string): RegistryEntry | null {
+  const cached = commandLookupCache.get(commandName);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const entry = COMMAND_REGISTRY.find(e =>
+    e.bindings.some(b => b.name === commandName),
+  ) ?? null;
+
+  commandLookupCache.set(commandName, entry);
+  return entry;
+}
+
+/**
+ * Import a module with deduplication to avoid loading the same module twice.
+ * Uses module cache to avoid re-importing already loaded modules.
+ * @param modulePath - The module path to import.
+ * @returns The imported module.
+ */
+async function importWithDedup(modulePath: string): Promise<Record<string, unknown>> {
+  const cachedModule = commandModuleCache.get(modulePath);
+  if (cachedModule) {
+    return cachedModule;
+  }
+
+  const pending = pendingImports.get(modulePath);
+  if (pending) {
+    return pending as Promise<Record<string, unknown>>;
+  }
+
+  const importPromise = import(modulePath).then(module => {
+    const moduleObj = module as Record<string, unknown>;
+    commandModuleCache.set(modulePath, moduleObj);
+    return moduleObj;
+  }).finally(() => {
+    pendingImports.delete(modulePath);
+  });
+
+  pendingImports.set(modulePath, importPromise);
+  return importPromise;
+}
+
+/**
+ * Preload multiple commands in parallel for faster startup.
+ * Commands that share the same module will be deduplicated.
+ * @param commandNames - Array of command names to preload.
+ * @param program - The Commander program instance.
+ * @param ctx - The infrastructure context.
+ * @returns Promise that resolves when all commands are loaded.
+ */
+export async function preloadCommands(
+  commandNames: string[],
+  program: Command,
+  ctx: InfrastructureContext,
+): Promise<void> {
+  const unloaded = commandNames.filter(name => !loadedCommands.has(name));
+  if (unloaded.length === 0) return;
+
+  const loadPromises = unloaded.map(name => lazyLoadCommand(name, program, ctx));
+  await Promise.allSettled(loadPromises);
+}
+
+/**
+ * Remove a command from the Commander program by name.
+ * @param program - The Commander program instance.
+ * @param name - The command name to remove.
+ */
 function removeCommandFromProgram(program: Command, name: string): void {
   const mutable = program as unknown as { commands: Command[] };
   mutable.commands = mutable.commands.filter(c => c.name() !== name);
 }
 
+/**
+ * Load the Agent runtime (providers from config) if not already loaded.
+ * @param ctx - The infrastructure context.
+ * @throws {Error} When agent runtime initialization fails.
+ */
 async function loadAgentRuntime(ctx: InfrastructureContext): Promise<void> {
   if (loadedCommands.has('agent-runtime')) return;
 
@@ -144,6 +247,11 @@ async function loadAgentRuntime(ctx: InfrastructureContext): Promise<void> {
   }
 }
 
+/**
+ * Load CLI tool integrations (git, npm, docker, curl) if not already loaded.
+ * @param ctx - The infrastructure context.
+ * @throws {Error} When CLI tool registration fails.
+ */
 async function loadCliTools(ctx: InfrastructureContext): Promise<void> {
   if (loadedCommands.has('cli-tools')) return;
 
@@ -168,6 +276,11 @@ async function loadCliTools(ctx: InfrastructureContext): Promise<void> {
   }
 }
 
+/**
+ * Get the test failure mode from environment variable for testing error paths.
+ * @param ctx - The infrastructure context.
+ * @returns The failure mode or null if not set.
+ */
 function getCliMainTestFailureMode(ctx: InfrastructureContext): 'cli-tools' | 'agent-runtime' | null {
   const mode = ctx.environment.getEnv('VECTAHUB_TEST_FORCE_CLI_MAIN_FAILURE');
   if (mode === 'cli-tools' || mode === 'agent-runtime') {
@@ -176,6 +289,11 @@ function getCliMainTestFailureMode(ctx: InfrastructureContext): 'cli-tools' | 'a
   return null;
 }
 
+/**
+ * Load the dev command group with status, module, validate, test, and build subcommands.
+ * @param program - The Commander program instance.
+ * @param ctx - The infrastructure context.
+ */
 async function loadDevCommand(program: Command, ctx: InfrastructureContext): Promise<void> {
   removeCommandFromProgram(program, 'dev');
   const { createStatusCmd } = await import('./commands/status.js');
@@ -189,7 +307,15 @@ async function loadDevCommand(program: Command, ctx: InfrastructureContext): Pro
   loadedCommands.add('dev');
 }
 
-/** Lazily load a single command by name, replacing its proxy in the program. */
+/**
+ * Lazily load a single command by name, replacing its proxy in the program.
+ * Uses cached registry lookup for O(1) command resolution.
+ * Implements command registration deduplication to avoid duplicate registration.
+ * @param commandName - The name of the command to load.
+ * @param program - The Commander program instance.
+ * @param ctx - The infrastructure context for dependency injection.
+ * @throws {Error} When command loading fails (error is caught and logged internally).
+ */
 export async function lazyLoadCommand(
   commandName: string,
   program: Command,
@@ -197,38 +323,65 @@ export async function lazyLoadCommand(
 ): Promise<void> {
   if (loadedCommands.has(commandName)) return;
 
+  const pendingRegistration = commandRegistrationAttempts.get(commandName);
+  if (pendingRegistration) {
+    return pendingRegistration;
+  }
+
+  const registrationPromise = doLazyLoadCommand(commandName, program, ctx);
+  commandRegistrationAttempts.set(commandName, registrationPromise);
+
+  try {
+    await registrationPromise;
+  } finally {
+    commandRegistrationAttempts.delete(commandName);
+  }
+}
+
+/**
+ * Internal implementation of lazy command loading.
+ * @param commandName - The name of the command to load.
+ * @param program - The Commander program instance.
+ * @param ctx - The infrastructure context for dependency injection.
+ */
+async function doLazyLoadCommand(
+  commandName: string,
+  program: Command,
+  ctx: InfrastructureContext,
+): Promise<void> {
   try {
     if (commandName === 'dev') {
       await loadDevCommand(program, ctx);
       return;
     }
 
-    const entry = COMMAND_REGISTRY.find(e =>
-      e.bindings.some(b => b.name === commandName),
-    );
+    const entry = getRegistryEntry(commandName);
     if (!entry) return;
 
     if (entry.needsAgentRuntime) {
       await loadAgentRuntime(ctx);
     }
 
-    const module = await import(entry.modulePath);
+    const module = await importWithDedup(entry.modulePath);
 
     if (isMultiFactoryEntry(entry)) {
-      const factoryResult = module[entry.multiFactory](ctx);
+      const factoryFn = module[entry.multiFactory] as (ctx: InfrastructureContext) => Record<string, Command>;
+      const factoryResult = factoryFn(ctx);
       for (const binding of entry.bindings) {
         removeCommandFromProgram(program, binding.name);
         program.addCommand(factoryResult[binding.resultKey]);
         loadedCommands.add(binding.name);
+        registeredCommandCache.set(binding.name, factoryResult[binding.resultKey]);
       }
     } else {
       for (const binding of entry.bindings) {
         removeCommandFromProgram(program, binding.name);
         const cmd = binding.isFactory
-          ? module[binding.exportName](ctx)
-          : module[binding.exportName];
+          ? (module[binding.exportName] as (ctx: InfrastructureContext) => Command)(ctx)
+          : module[binding.exportName] as Command;
         program.addCommand(cmd);
         loadedCommands.add(binding.name);
+        registeredCommandCache.set(binding.name, cmd);
       }
     }
   } catch (error) {
@@ -238,17 +391,29 @@ export async function lazyLoadCommand(
   }
 }
 
-/** Lazily load the Agent runtime (providers from config). */
+/**
+ * Lazily load the Agent runtime (providers from config).
+ * @param ctx - The infrastructure context.
+ * @throws {Error} When agent runtime initialization fails.
+ */
 export async function lazyLoadAgentRuntime(ctx: InfrastructureContext): Promise<void> {
   await loadAgentRuntime(ctx);
 }
 
-/** Lazily load CLI tool integrations (git, npm, docker, curl). */
+/**
+ * Lazily load CLI tool integrations (git, npm, docker, curl).
+ * @param ctx - The infrastructure context.
+ * @throws {Error} When CLI tool registration fails.
+ */
 export async function lazyLoadCliTools(ctx: InfrastructureContext): Promise<void> {
   await loadCliTools(ctx);
 }
 
-/** Resolve a command name from argv if it has a --help flag. */
+/**
+ * Resolve a command name from argv if it has a --help flag.
+ * @param argv - The command line arguments.
+ * @returns The command name if found with --help flag, null otherwise.
+ */
 export function resolveLazyCommandForHelp(argv: string[]): string | null {
   const hasHelpFlag = argv.includes('--help') || argv.includes('-h');
   if (!hasHelpFlag) return null;
@@ -259,7 +424,12 @@ export function resolveLazyCommandForHelp(argv: string[]): string | null {
   return LAZY_COMMAND_METAS.some((cmd) => cmd.name === commandName) ? commandName : null;
 }
 
-/** Register proxy commands for all lazy-loadable commands. */
+/**
+ * Register proxy commands for all lazy-loadable commands.
+ * Each proxy lazily loads the real command on first invocation.
+ * @param program - The Commander program instance.
+ * @param ctx - The infrastructure context.
+ */
 export function registerLazyProxyCommands(program: Command, ctx: InfrastructureContext): void {
   for (const cmdInfo of LAZY_COMMAND_METAS) {
     const lazyProxyCmd = new Command(cmdInfo.name)

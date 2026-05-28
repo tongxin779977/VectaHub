@@ -1,11 +1,15 @@
 /**
  * Chat REPL 主模块。
- * 负责 REPL 生命周期管理、输入路由和斜杠命令注册。
+ * 负责 REPL 生命周期管理、输入路由、斜杠命令注册和会话持久化。
  * @module chat/repl
  */
 import { createInterface } from 'node:readline';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
 import type { ChatOutput, PendingWorkflow, ReplDeps, SlashCommand, SlashCommandContext } from './types.js';
 import type { UIRenderer } from './ui-renderer.js';
+import type { ChatConfig } from './config.js';
 import { createUIRenderer } from './ui-renderer.js';
 import { createCommandManager } from './command-manager.js';
 import { formatChatConfig } from './config.js';
@@ -16,6 +20,81 @@ import { formatError } from './utils.js';
 
 export { mapWorkflowStep, parseWorkflowSteps } from './workflow-parser.js';
 export type { ParsedWorkflowStep } from './workflow-parser.js';
+
+/**
+ * 会话持久化数据结构。
+ * 用于保存和恢复 REPL 会话状态。
+ */
+export interface SessionPersistData {
+  /** 会话标识符 */
+  sessionId: string;
+  /** 持久化格式版本号 */
+  version: number;
+  /** 最后活动时间（ISO 8601） */
+  lastActivity: string;
+  /** 待执行工作流的 YAML 列表 */
+  pendingWorkflowYAMLs: string[];
+  /** 聊天配置快照 */
+  config: ChatConfig;
+}
+
+/** 持久化格式版本号 */
+const SESSION_DATA_VERSION = 1;
+
+/**
+ * 获取会话持久化文件的存储目录。
+ *
+ * @returns 会话存储目录路径
+ */
+function getSessionStoreDir(): string {
+  return join(homedir(), '.vectahub', 'chat-sessions');
+}
+
+/**
+ * 获取指定会话的持久化文件路径。
+ *
+ * @param sessionId - 会话标识符
+ * @returns 会话文件的完整路径
+ */
+function getSessionFilePath(sessionId: string): string {
+  return join(getSessionStoreDir(), `${sessionId}.json`);
+}
+
+/**
+ * 保存会话数据到文件系统。
+ *
+ * @param data - 要持久化的会话数据
+ */
+async function saveSessionData(data: SessionPersistData): Promise<void> {
+  try {
+    const dir = getSessionStoreDir();
+    await mkdir(dir, { recursive: true });
+    const filePath = getSessionFilePath(data.sessionId);
+    await writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  } catch {
+    // 持久化失败不应阻断 REPL 主流程
+  }
+}
+
+/**
+ * 从文件系统加载会话数据。
+ *
+ * @param sessionId - 会话标识符
+ * @returns 会话数据，文件不存在或格式无效时返回 `null`
+ */
+async function loadSessionData(sessionId: string): Promise<SessionPersistData | null> {
+  try {
+    const filePath = getSessionFilePath(sessionId);
+    const content = await readFile(filePath, 'utf-8');
+    const parsed = JSON.parse(content) as SessionPersistData;
+    if (parsed && parsed.version === SESSION_DATA_VERSION && parsed.sessionId === sessionId) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * 默认斜杠命令集合。
@@ -127,6 +206,7 @@ export function createREPL(deps: ReplDeps) {
         : '✅ 工作流执行完成';
 
       pendingWorkflows.delete(sessId);
+      void persistSession();
 
       return {
         type: 'command-result',
@@ -197,10 +277,71 @@ export function createREPL(deps: ReplDeps) {
       }
     }
 
-    return nlHandler.handleNLInput(chatInput.parsed);
+    const nlOutput = await nlHandler.handleNLInput(chatInput.parsed);
+    if (nlOutput.type === 'text' && nlOutput.content.includes('工作流已生成')) {
+      void persistSession();
+    }
+    return nlOutput;
+  }
+
+  /**
+   * 将当前会话状态持久化到文件系统。
+   * 包含待执行工作流和配置快照。
+   */
+  async function persistSession(): Promise<void> {
+    const pendingYAMLs: string[] = [];
+    for (const [, wf] of pendingWorkflows) {
+      pendingYAMLs.push(wf.yaml);
+    }
+
+    await saveSessionData({
+      sessionId,
+      version: SESSION_DATA_VERSION,
+      lastActivity: new Date().toISOString(),
+      pendingWorkflowYAMLs: pendingYAMLs,
+      config: deps.config,
+    });
+  }
+
+  /**
+   * 从文件系统恢复上一次会话的待执行工作流。
+   * 恢复失败时不阻断 REPL 启动。
+   */
+  async function restoreSession(): Promise<void> {
+    const data = await loadSessionData(sessionId);
+    if (!data || data.pendingWorkflowYAMLs.length === 0) {
+      return;
+    }
+
+    for (const yaml of data.pendingWorkflowYAMLs) {
+      try {
+        const { parseWorkflowSteps } = await import('./workflow-parser.js');
+        const steps = parseWorkflowSteps(yaml);
+        const restoredWorkflow = {
+          id: `restored_${Date.now()}`,
+          name: `restored_${Date.now()}`,
+          mode: 'relaxed' as const,
+          steps,
+          createdAt: new Date(),
+        };
+        pendingWorkflows.set(sessionId, {
+          workflow: restoredWorkflow,
+          yaml,
+          createdAt: new Date(),
+        });
+      } catch {
+        // 单个工作流恢复失败不影响其他工作流
+      }
+    }
+
+    if (pendingWorkflows.size > 0) {
+      ui.renderInfo(`🔄 已恢复 ${pendingWorkflows.size} 个工作流`);
+    }
   }
 
   async function start(): Promise<void> {
+    await restoreSession();
+
     const rl = createInterface({
       input: process.stdin,
       output: process.stdout,
@@ -232,7 +373,7 @@ export function createREPL(deps: ReplDeps) {
     return new Map(slashCommands);
   }
 
-  return { start, processInput, getSlashCommands };
+  return { start, processInput, getSlashCommands, persistSession };
 }
 
 /**

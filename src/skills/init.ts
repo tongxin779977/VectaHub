@@ -18,7 +18,10 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * SkillSystem represents a complete setup of skills registry and executor
+ * Complete skill system with registry and executor
+ * @property registry - The skill registry for managing skills
+ * @property executor - The skill executor for running skills
+ * @property moduleRegistry - Optional AI module registry for AI-powered skills
  */
 export interface SkillSystem {
   registry: SkillRegistry;
@@ -28,6 +31,8 @@ export interface SkillSystem {
 
 /**
  * Options for creating a SkillSystem
+ * @property llmConfig - Optional LLM configuration for AI-powered skills
+ * @property logger - Logger instance for system messages
  */
 export interface SkillSystemOptions extends Omit<SkillExecutorOptions, 'logger'> {
   llmConfig?: LLMConfig | null;
@@ -36,6 +41,7 @@ export interface SkillSystemOptions extends Omit<SkillExecutorOptions, 'logger'>
 
 /**
  * Creates a complete SkillSystem with registry and executor
+ * Registers core skills and optionally LLM-powered skills
  * @param options - Skill system configuration options
  * @returns Promise resolving to SkillSystem instance
  */
@@ -75,6 +81,8 @@ export async function createSkillSystem(options: SkillSystemOptions): Promise<Sk
 
 /**
  * Represents a discovered AI module with its ID and factory function
+ * @property id - The module identifier
+ * @property factory - Factory function to create the module
  */
 interface AIModuleRegistration {
   id: string;
@@ -83,6 +91,9 @@ interface AIModuleRegistration {
 
 /**
  * Configuration for a known AI module
+ * @property relativePath - Relative path to the module file
+ * @property id - The module identifier
+ * @property factoryName - Name of the factory function to call
  */
 interface KnownModuleConfig {
   relativePath: string;
@@ -137,6 +148,8 @@ async function discoverAIModules(logger?: Pick<pino.Logger, 'warn'>): Promise<AI
 
 /**
  * Options for registering AI modules
+ * @property aiModules - Optional map of module configurations
+ * @property logger - Optional logger for warnings
  */
 export interface RegisterAIModulesOptions {
   aiModules?: Record<string, AIModuleConfig>;

@@ -1,6 +1,7 @@
 /**
  * NL（自然语言）输入处理模块。
  * 负责 LLM preflight 调用、NL 解析、意图路由和工作流生成。
+ * 内置意图解析缓存，避免对相同输入重复调用 NL 处理器。
  * @module chat/nl-handler
  */
 import type { ChatOutput, PendingWorkflow, ReplDeps } from './types.js';
@@ -11,7 +12,13 @@ import type { Workflow } from '../types/index.js';
 import { LLMClient } from '../nl/llm.js';
 import { buildAllTools } from '../nl/tool-calling.js';
 import { parseWorkflowSteps } from './workflow-parser.js';
-import { formatError } from './utils.js';
+import { formatError, SimpleCache } from './utils.js';
+
+/** 意图解析缓存 TTL（毫秒），120 秒 */
+const INTENT_CACHE_TTL_MS = 120_000;
+
+/** 意图解析缓存最大容量 */
+const INTENT_CACHE_MAX_SIZE = 200;
 
 /**
  * NL 处理器所需的依赖子集。
@@ -58,6 +65,12 @@ export function createNLHandler(
   promptForConfirmation: (question: string) => Promise<boolean>,
   executePendingWorkflow: (sessId: string, workflowId: string, initialVariables?: Record<string, unknown>) => Promise<ChatOutput>,
 ) {
+  const intentCache = new SimpleCache<NLResult>(INTENT_CACHE_TTL_MS, INTENT_CACHE_MAX_SIZE);
+
+  function buildIntentCacheKey(input: string): string {
+    return `${sessionId}::${input}`;
+  }
+
   async function handleNLInput(input: string): Promise<ChatOutput> {
     if (deps.config.executeMode === 'auto' && deps.useLLM && deps.llmConfig) {
       try {
@@ -73,11 +86,20 @@ export function createNLHandler(
       }
     }
 
-    const nlResult = await deps.nlProcessor.parse({
-      input,
-      sessionId,
-      options: { useLLM: deps.useLLM },
-    });
+    const cacheKey = buildIntentCacheKey(input);
+    let nlResult: NLResult;
+
+    const cached = intentCache.get(cacheKey);
+    if (cached !== undefined) {
+      nlResult = cached;
+    } else {
+      nlResult = await deps.nlProcessor.parse({
+        input,
+        sessionId,
+        options: { useLLM: deps.useLLM },
+      });
+      intentCache.set(cacheKey, nlResult);
+    }
 
     const matchedIntent = nlResult.intent || nlResult.taskList?.intent;
 
@@ -159,5 +181,13 @@ export function createNLHandler(
     }
   }
 
-  return { handleNLInput };
+  /**
+   * 清空意图解析缓存。
+   * 在会话切换或需要强制重新解析时调用。
+   */
+  function clearIntentCache(): void {
+    intentCache.clear();
+  }
+
+  return { handleNLInput, clearIntentCache };
 }

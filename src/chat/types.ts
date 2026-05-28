@@ -1,5 +1,6 @@
 /**
  * Chat REPL 模块共享类型定义。
+ * 包含输入/输出类型、依赖注入接口、命令定义和会话管理类型。
  * @module chat/types
  */
 import type { ChatConfig } from './config.js';
@@ -16,6 +17,9 @@ import type { AuditHelper } from '../infrastructure/audit/index.js';
 import type pino from 'pino';
 
 export type { UIRenderer } from './ui-renderer.js';
+export type { CommandBridgeOptions } from './command-bridge.js';
+export type { ShellExecutorOptions } from './shell-executor.js';
+export type { SessionPersistData } from './repl.js';
 
 /** 聊天输入类型分类 */
 export type ChatInputType = 'nl' | 'shell' | 'slash-command';
@@ -159,4 +163,63 @@ export interface Repl {
   processInput: (input: string) => Promise<ChatOutput>;
   /** 获取所有已注册的斜杠命令 */
   getSlashCommands: () => Map<string, SlashCommand>;
+  /** 将当前会话状态持久化到文件系统 */
+  persistSession: () => Promise<void>;
+}
+
+/**
+ * REPL 内部运行状态。
+ * 描述 REPL 实例当前的生命周期阶段。
+ */
+export type REPLState = 'idle' | 'running' | 'processing' | 'exiting';
+
+/**
+ * 缓存配置选项。
+ * 用于统一配置各模块的缓存行为。
+ */
+export interface CacheConfig {
+  /** 缓存条目 TTL（毫秒） */
+  ttlMs: number;
+  /** 缓存最大条目数 */
+  maxSize: number;
+}
+
+/**
+ * 会话元数据。
+ * 描述一个 REPL 会话的基本信息。
+ */
+export interface SessionMetadata {
+  /** 会话标识符 */
+  sessionId: string;
+  /** 会话创建时间 */
+  createdAt: Date;
+  /** 最后活动时间 */
+  lastActivity: Date;
+  /** 待执行工作流数量 */
+  pendingWorkflowCount: number;
+  /** 是否已启用 LLM */
+  llmEnabled: boolean;
+  /** 执行模式 */
+  executeMode: ChatConfig['executeMode'];
+}
+
+/**
+ * 命令执行结果分类。
+ * 用于对 CommandBridge 和 Shell 执行器的输出进行统一分类。
+ */
+export type CommandResultStatus = 'success' | 'error' | 'timeout' | 'unknown-command' | 'help-displayed';
+
+/**
+ * 结构化的命令执行结果。
+ * 比 `ChatOutput` 更细粒度，用于内部中间层。
+ */
+export interface CommandResult {
+  /** 执行结果状态 */
+  status: CommandResultStatus;
+  /** 输出文本 */
+  output: string;
+  /** 退出码（Shell 命令） */
+  exitCode?: number;
+  /** 错误消息（仅 error/timeout 状态） */
+  errorMessage?: string;
 }

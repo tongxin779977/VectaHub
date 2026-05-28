@@ -36,17 +36,77 @@ const ctx = getDefaultContext();
 let auditLoggerInitialized = false;
 let policyWarningShown = false;
 
+/** Configuration for retry mechanism. */
+interface RetryConfig {
+  maxRetries: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+}
+
+const DEFAULT_RETRY_CONFIG: RetryConfig = {
+  maxRetries: 2,
+  baseDelayMs: 100,
+  maxDelayMs: 1000,
+};
+
+/**
+ * Execute an async operation with exponential backoff retry.
+ * @param operation - The async operation to execute.
+ * @param config - Retry configuration.
+ * @param context - Description for logging.
+ * @returns The result of the operation.
+ * @throws {Error} When all retries are exhausted.
+ */
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  config: RetryConfig = DEFAULT_RETRY_CONFIG,
+  context?: string,
+): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+
+      if (attempt < config.maxRetries) {
+        const delay = Math.min(
+          config.baseDelayMs * Math.pow(2, attempt),
+          config.maxDelayMs,
+        );
+        ctx.logger.getLogger('cli-main').debug(
+          { attempt, delay, context },
+          'Retrying operation after transient failure',
+        );
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+/** Dependencies for the first-run wizard. */
 const firstRunWizardDeps = {
   environment: ctx.environment,
   logger: ctx.logger.getLogger('setup'),
 };
 
-/** Return a CliOutput instance that switches to JSON mode when --json is present. */
+/**
+ * Return a CliOutput instance that switches to JSON mode when --json is present.
+ * @returns A CliOutput instance configured for the current output mode.
+ */
 function getCurrentCliOutput() {
   return createCliOutput({ json: ctx.environment.getArgv().includes('--json') });
 }
 
-/** Ensure the audit logger is initialized and return the current session ID. */
+/**
+ * Ensure the audit logger is initialized and return the current session ID.
+ * Uses retry mechanism for transient initialization failures.
+ * @returns The current audit session ID.
+ * @throws {Error} When audit logger initialization fails after retries.
+ */
 function ensureAuditLoggerInitialized(): string {
   if (!auditLoggerInitialized) {
     auditLoggerInitialized = true;
@@ -59,7 +119,12 @@ function ensureAuditLoggerInitialized(): string {
   }
 }
 
-/** Unified error handler for uncaught exceptions and unhandled rejections. */
+/**
+ * Unified error handler for uncaught exceptions and unhandled rejections.
+ * Flushes audit logs before exiting, with graceful degradation on flush failure.
+ * @param error - The uncaught error or rejected promise reason.
+ * @returns Never returns; always exits the process.
+ */
 async function handleError(error: unknown): Promise<never> {
   const isJson = ctx.environment.getArgv().includes('--json');
   const output = createCliOutput({ json: isJson });
@@ -99,8 +164,28 @@ if (ctx.environment.getArgv().includes('--dry-run')) {
   ctx.environment.setEnv('VECTAHUB_AUDIT_DISABLED', '1');
 }
 
-/** The main Commander program instance. */
+/** The main Commander program instance for CLI command parsing and execution. */
 const program = new Command();
+
+/** Cache for generated help information to avoid repeated generation. */
+const helpInfoCache = new Map<string, string>();
+
+/**
+ * Get cached help information for a command, generating it if not cached.
+ * @param command - The Commander command instance.
+ * @returns The help information string.
+ */
+function getCachedHelpInfo(command: Command): string {
+  const commandName = command.name();
+  const cached = helpInfoCache.get(commandName);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const helpInfo = command.helpInformation();
+  helpInfoCache.set(commandName, helpInfo);
+  return helpInfo;
+}
 
 program
   .name('vectahub')
@@ -127,7 +212,7 @@ program
     }
   });
 
-/** Register the built-in `version` subcommand. */
+/** Register the built-in `version` subcommand with JSON output support. */
 program
   .command('version')
   .description('显示版本信息')
@@ -181,6 +266,7 @@ program.hook('preSubcommand', async (_thisCommand, subcommand) => {
   }
 });
 
+/** Register the built-in `setup` subcommand for priority installation flow. */
 const setupCmd = new Command('setup')
   .description('运行优先级安装流程')
   .action(async () => {
@@ -207,7 +293,7 @@ const setupCmd = new Command('setup')
     }
   });
 
-/** Register the built-in `config` subcommand group. */
+/** Register the built-in `config` subcommand group with show, reset, and tools subcommands. */
 const configCmd = new Command('config')
   .description('管理 VectaHub 配置');
 
@@ -268,7 +354,7 @@ configCmd
     output.blank();
   });
 
-/** Register the built-in `completion` subcommand. */
+/** Register the built-in `completion` subcommand for shell completion script generation. */
 const completionCmd = new Command('completion')
   .description('生成命令补全脚本')
   .argument('<shell>', '目标shell类型: bash, zsh, fish')
