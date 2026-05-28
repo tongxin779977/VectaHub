@@ -262,4 +262,4 @@ VS Code / local script / client / API
 - 看 [capabilities-reference.md](./capabilities-reference.md) 了解当前功能细节。
 - 看 [usage.md](./usage.md) 了解命令入口和示例。
 - 看 [architecture.md](./architecture.md) 了解当前仓库结构。
-- 看 [archive.md](./archive.md) 了解哪些旧文档是主文档，哪些只是参考。
+- 看 [contracts.md](./contracts.md) 了解核心合同和规格索引。

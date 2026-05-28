@@ -48,7 +48,6 @@ VectaHub 当前应被理解为一个**单用户、本地优先的 CLI 自动化�
 | [usage.md](./usage.md) | 面向操作者的命令使用手册。 |
 | [architecture.md](./architecture.md) | 当前系统结构和仓库重点。 |
 | [contracts.md](./contracts.md) | specs 的合同入口索引。 |
-| [archive.md](./archive.md) | 当前主文档、重叠文档、历史文档和清理候选说明。 |
 
 ## 当前能力重心
 
@@ -69,12 +68,7 @@ VectaHub 当前应被理解为一个**单用户、本地优先的 CLI 自动化�
 - 一个功能可能只存在于代码里、只存在于 specs 里，或者两边都有，文档里必须写清楚。
 - `Current Implementation`、`Partial Implementation`、`Target Design` 不能混写。
 
-## 这轮重组改了什么
 
-- 顶层入口不再把 VectaHub 描述成泛化控制面，而是强调它是重执行能力的 CLI 内核。
-- 能力文档现在是主要导航层。
-- 旧设计文档和迁移文档仍然保留，但不再是主入口。
-- 清理策略比较保守：先降级重叠文档的角色，再讨论删除。
 
 ## 次级参考区域
 
@@ -123,21 +117,3 @@ VectaHub 当前应被理解为一个**单用户、本地优先的 CLI 自动化�
 #### 规格与参考
 
 - [specs/](./specs/)
-- [default-context-migration-summary.md](./default-context-migration-summary.md)
-- [engineering-quality-audit.md](./engineering-quality-audit.md)
-
-## 当前清理状态
-
-这个仓库里仍然有不少重叠材料，主要集中在：
-
-- orchestration 和 control-plane 的措辞冲突，
-- agent execution 和 run-task specs 的内容重叠，
-- command surface 和 usage guidance 的内容重叠，
-- architecture 和 design 文档的边界重叠。
-
-当前清理策略是：
-
-1. 先定义主文档入口，
-2. 再把重叠文档降级成参考角色，
-3. 再收敛重复解释，
-4. 最后才讨论删除或归档移动。

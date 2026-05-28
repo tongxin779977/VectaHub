@@ -58,7 +58,6 @@
 ## 文档导航
 
 - [VS Code 插件 UI 逻辑设计](../design/vscode-ui-logic.md)
-- [VS Code 插件 UI 修复实施计划](../design/vscode-ui-remediation-plan.md)
 - [文档任务操作流程](./task-run-workflow.md)
 - [项目任务 UI 工作流](./project-task-workflows.md)
 - [恢复操作流程](./recovery-workflow.md)

@@ -282,7 +282,7 @@ npm run dev -- run -f sys:process-diagnostic-queue --mode relaxed --json
 |---------|------------|--------------|------|
 | 插件初始化 | 初始诊断 | `npm run dev -- doctor --json` | `docs/ui/vscode-extension.md`；`docs/design/plugin-cli-boundary.md` |
 | 文档任务 | 解析文档任务 | `npm run dev -- parse-doc <docPath> --json` | `docs/ui/task-run-workflow.md`；`src/commands/parse-doc.ts` |
-| 文档任务 | Agent 候选刷新 | `npm run dev -- tools agents --json` | `docs/design/vscode-ui-remediation-plan.md`；`src/commands/tools.ts` |
+| 文档任务 | Agent 候选刷新 | `npm run dev -- tools agents --json` | `docs/ui/task-run-workflow.md`；`src/commands/tools.ts` |
 | 文档任务 | 执行单任务 / 启动全部任务 | `npm run dev -- run-task --tool <tool> --task-id <taskId> --task-label "<taskLabel>" --doc <docPath> --json` | `docs/ui/task-run-workflow.md`；`src/commands/run-task.ts` |
 | 恢复入口 | 恢复失败任务 | `npm run dev -- recover-task --run-id <runId> --task-id <taskId> --task-label "<taskLabel>" --tool <tool> --doc <docPath> --trace-id <traceId> --json` | `docs/ui/recovery-workflow.md`；`src/commands/recover-task.ts` |
 | Trace 查看 | 查看 trace 摘要 / 明细 | `npm run dev -- trace list --json`<br>`npm run dev -- trace show <traceId> --json` | `docs/ui/trace-view.md`；`src/commands/trace.ts` |

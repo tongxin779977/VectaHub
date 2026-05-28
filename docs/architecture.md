@@ -413,4 +413,3 @@ Preview 路径很重要。
 - [capabilities-reference.md](./capabilities-reference.md)
 - [usage.md](./usage.md)
 - [agent-execution.md](./agent-execution.md)
-- [archive.md](./archive.md)
