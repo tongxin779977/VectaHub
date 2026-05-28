@@ -23,6 +23,12 @@ export interface CommandRuleSet {
   rules: CommandRule[];
 }
 
+export interface RuleMatchResult {
+  matched: boolean;
+  rule?: CommandRule;
+  scope?: 'global' | 'project';
+}
+
 export interface RuleEngineConfig {
   globalBlocklist: CommandRule[];
   globalAllowlist: CommandRule[];
