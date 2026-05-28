@@ -1,6 +1,5 @@
 export interface RegistrationConfig {
   version: string;
-  lastUpdated: string;
   registeredTools: string[];
   templates: {
     enabled: string[];

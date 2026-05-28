@@ -1,22 +1,9 @@
-import { writeFileSync, existsSync, mkdirSync } from 'fs';
-import * as path from 'path';
+import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import * as path from 'node:path';
 import { stringify } from 'yaml';
 import type { IConfigService } from '../../infrastructure/interfaces/index.js';
 import { getVectaHubPath } from '../../infrastructure/paths/index.js';
-
-export interface RegistrationConfig {
-  version: string;
-  registeredTools: string[];
-  templates: {
-    enabled: string[];
-  };
-}
-
-export interface ValidationResult {
-  valid: boolean;
-  errors: string[];
-  warnings: string[];
-}
+import type { RegistrationConfig, ValidationResult } from './types.js';
 
 interface ToolRegistrationCandidate {
   name?: string;
