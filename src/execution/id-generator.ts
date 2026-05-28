@@ -28,6 +28,14 @@ function isLowerHex(code: number): boolean {
   return (code >= 48 && code <= 57) || (code >= 97 && code <= 102);
 }
 
+/**
+ * Generates a unique execution ID.
+ *
+ * Format: `exec_YYYYMMDD_HHMMSS_<8hex>` (29 chars total).
+ * Uses `crypto.randomBytes` for the random suffix to avoid collisions.
+ *
+ * @returns A unique execution ID string
+ */
 export function generateId(): string {
   const now = new Date();
   const yyyy = now.getFullYear().toString();
@@ -40,6 +48,15 @@ export function generateId(): string {
   return `exec_${yyyy}${mm}${dd}_${hh}${mi}${ss}_${hex}`;
 }
 
+/**
+ * Extracts the timestamp embedded in an execution ID.
+ *
+ * Parses the `YYYYMMDD_HHMMSS` portion of the ID and returns a `Date`.
+ * Results are cached for repeated calls with the same timestamp token.
+ *
+ * @param id - Execution ID to parse
+ * @returns The embedded `Date`, or `null` if the ID is malformed
+ */
 export function parseTimestamp(id: string): Date | null {
   if (id.length !== ID_LENGTH || !id.startsWith(ID_PREFIX) || id.charCodeAt(13) !== 95 || id.charCodeAt(20) !== 95) {
     return null;

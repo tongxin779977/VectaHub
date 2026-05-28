@@ -2,18 +2,18 @@ import { promises as fs, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { DiagnosticTask, DiagnosticTaskStatus } from '../types/diagnostic.js';
 import { validateDiagnosticQueue } from '../types/diagnostic.js';
-import type pino from 'pino';
+import type { Logger } from '../infrastructure/logger/index.js';
 const MAX_QUEUE_SIZE = 100;
 
 export interface QueueManagerDeps {
-  logger: Pick<pino.Logger, 'error' | 'warn'>;
+  logger: Pick<Logger, 'error' | 'warn'>;
 }
 
 export class QueueManager {
   private static instance: QueueManager | null = null;
   private lock: Promise<void> = Promise.resolve();
   private readonly queueFile: string;
-  private readonly logger: Pick<pino.Logger, 'error' | 'warn'>;
+  private readonly logger: Pick<Logger, 'error' | 'warn'>;
 
   private constructor(queueFilePath: string, deps: QueueManagerDeps) {
     this.queueFile = queueFilePath;
@@ -155,10 +155,29 @@ export class QueueManager {
   }
 }
 
+/**
+ * Returns the singleton queue manager for the given path.
+ *
+ * Reuses an existing instance if the path matches, otherwise creates a new one.
+ *
+ * @param queueFilePath - Path to the queue JSON file
+ * @param deps - Logger dependencies
+ * @returns A {@link QueueManager} instance
+ */
 export function getQueueManager(queueFilePath: string, deps: QueueManagerDeps): QueueManager {
   return QueueManager.getInstance(queueFilePath, deps);
 }
 
+/**
+ * Creates a new queue manager instance for a specific project path.
+ *
+ * Unlike {@link getQueueManager}, this always creates a fresh instance
+ * and does not use the singleton pattern.
+ *
+ * @param projectQueueFilePath - Path to the project queue JSON file
+ * @param deps - Logger dependencies
+ * @returns A new {@link QueueManager} instance
+ */
 export function getQueueManagerForProject(projectQueueFilePath: string, deps: QueueManagerDeps): QueueManager {
   return QueueManager.createForPath(projectQueueFilePath, deps);
 }

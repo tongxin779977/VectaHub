@@ -19,6 +19,14 @@ interface ArchiveEntry {
   startedAt: string;
 }
 
+/**
+ * Creates an archiver that compresses old execution records into gzip archives.
+ *
+ * Archives are stored as `<archiveId>.json.gz` under the configured base directory.
+ *
+ * @param options - Optional configuration for base directory and archive age
+ * @returns An {@link Archiver} instance
+ */
 export function createArchiver(options?: {
   baseDir?: string;
   executionsDir?: string;
@@ -73,10 +81,7 @@ export function createArchiver(options?: {
         };
       }
 
-      const startedAt = old[0].startedAt;
-      const startedAtStr = typeof startedAt === 'object' && startedAt !== null && 'toISOString' in startedAt
-        ? (startedAt as Date).toISOString()
-        : String(startedAt || '');
+      const startedAtStr = old[0].startedAt || '';
       const archiveId = `archive_${startedAtStr.slice(0, 7).replace('-', '')}`;
       const archivePath = join(baseDir, `${archiveId}.json.gz`);
 
@@ -112,11 +117,11 @@ export function createArchiver(options?: {
         const stats = await stat(join(baseDir, file));
         archives.push({
           archiveId,
-          archivedCount: 0,
+          archivedCount: 0, // TODO: decompress and count entries for accurate value
           createdAt: stats.mtime.toISOString(),
-          originalSize: 0,
+          originalSize: 0, // TODO: decompress and measure for accurate value
           compressedSize: stats.size,
-          compressionRatio: 0,
+          compressionRatio: 0, // TODO: compute from originalSize and compressedSize
         });
       }
 

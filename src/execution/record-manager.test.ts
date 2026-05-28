@@ -32,7 +32,7 @@ describe('RecordManager', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it.skip('should find record after save', async () => {
+  it('should find record after save', async () => {
     const record = createTestRecord();
     await manager.save(record);
     const found = await manager.get(record.executionId);
