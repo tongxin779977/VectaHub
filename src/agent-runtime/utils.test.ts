@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createSingleton, createSilentLogger, formatErrorMessage } from './utils';
+import { createSingleton, createSilentLogger, formatErrorMessage, debounce, throttle } from './utils';
 
 describe('utils', () => {
   describe('createSingleton', () => {
@@ -83,6 +83,74 @@ describe('utils', () => {
       expect(formatErrorMessage('String error')).toBe('String error');
       expect(formatErrorMessage(42)).toBe('42');
       expect(formatErrorMessage(null)).toBe('null');
+    });
+  });
+
+  describe('debounce', () => {
+    it('should delay function execution', async () => {
+      const fn = vi.fn();
+      const debounced = debounce(fn, 100);
+
+      debounced();
+      expect(fn).not.toHaveBeenCalled();
+
+      await new Promise(resolve => setTimeout(resolve, 150));
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+
+    it('should reset delay on subsequent calls', async () => {
+      const fn = vi.fn();
+      const debounced = debounce(fn, 100);
+
+      debounced();
+      await new Promise(resolve => setTimeout(resolve, 50));
+      debounced();
+      await new Promise(resolve => setTimeout(resolve, 50));
+      expect(fn).not.toHaveBeenCalled();
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+
+    it('should cancel pending execution', async () => {
+      const fn = vi.fn();
+      const debounced = debounce(fn, 100);
+
+      debounced();
+      debounced.cancel();
+
+      await new Promise(resolve => setTimeout(resolve, 150));
+      expect(fn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('throttle', () => {
+    it('should execute immediately on first call', () => {
+      const fn = vi.fn();
+      const throttled = throttle(fn, 100);
+
+      throttled();
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+
+    it('should throttle subsequent calls within interval', () => {
+      const fn = vi.fn();
+      const throttled = throttle(fn, 100);
+
+      throttled();
+      throttled();
+      throttled();
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+
+    it('should allow execution after interval', async () => {
+      const fn = vi.fn();
+      const throttled = throttle(fn, 50);
+
+      throttled();
+      await new Promise(resolve => setTimeout(resolve, 60));
+      throttled();
+      expect(fn).toHaveBeenCalledTimes(2);
     });
   });
 });

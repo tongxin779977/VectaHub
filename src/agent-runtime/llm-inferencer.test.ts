@@ -96,4 +96,57 @@ describe('LlmInferencer', () => {
     
     expect(logger.info).toHaveBeenCalled();
   });
+
+  it('should retry on failure and succeed', async () => {
+    const mockLlmClient = {
+      completeRaw: vi.fn()
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockResolvedValueOnce(JSON.stringify(mockInferenceResult)),
+    };
+    const logger = { warn: vi.fn(), error: vi.fn(), info: vi.fn() };
+
+    const inferencer = new LlmInferencer({
+      llmClient: mockLlmClient,
+      logger,
+      options: { maxRetries: 2, retryBaseDelayMs: 10 },
+    });
+
+    const result = await inferencer.infer('test-cli', mockDetectionResult);
+    expect(result.descriptor.id).toBe('test-cli');
+    expect(mockLlmClient.completeRaw).toHaveBeenCalledTimes(2);
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it('should fail after all retries exhausted', async () => {
+    const mockLlmClient = {
+      completeRaw: vi.fn().mockRejectedValue(new Error('Persistent error')),
+    };
+    const logger = { warn: vi.fn(), error: vi.fn(), info: vi.fn() };
+
+    const inferencer = new LlmInferencer({
+      llmClient: mockLlmClient,
+      logger,
+      options: { maxRetries: 1, retryBaseDelayMs: 10 },
+    });
+
+    await expect(inferencer.infer('test-cli', mockDetectionResult)).rejects.toThrow('LLM inference failed after 2 attempts');
+    expect(mockLlmClient.completeRaw).toHaveBeenCalledTimes(2);
+  });
+
+  it('should timeout on slow LLM calls', async () => {
+    const mockLlmClient = {
+      completeRaw: vi.fn().mockImplementation(
+        () => new Promise(resolve => setTimeout(() => resolve(JSON.stringify(mockInferenceResult)), 5000)),
+      ),
+    };
+    const logger = { warn: vi.fn(), error: vi.fn(), info: vi.fn() };
+
+    const inferencer = new LlmInferencer({
+      llmClient: mockLlmClient,
+      logger,
+      options: { timeoutMs: 100, maxRetries: 0, retryBaseDelayMs: 10 },
+    });
+
+    await expect(inferencer.infer('test-cli', mockDetectionResult)).rejects.toThrow('timed out');
+  });
 });

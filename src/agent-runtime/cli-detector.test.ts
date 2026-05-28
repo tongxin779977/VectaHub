@@ -36,7 +36,7 @@ describe('CliDetector', () => {
       .mockReturnValueOnce('version 2.3.4')
       .mockReturnValueOnce('help');
     
-    const detector = new CliDetector({ execCommand });
+    const detector = new CliDetector({ execCommand, cacheTtlMs: 0 });
     const result = await detector.detect('test-cli');
     
     expect(result.version).toBe('2.3.4');
@@ -72,5 +72,33 @@ describe('CliDetector', () => {
     await detector.detect('test');
     
     expect(execCommand).toHaveBeenCalled();
+  });
+
+  it('should return cached result on subsequent calls', async () => {
+    const execCommand = vi.fn()
+      .mockReturnValueOnce('/usr/bin/test-cli')
+      .mockReturnValueOnce('test-cli 1.0.0')
+      .mockReturnValueOnce('Usage: test-cli [options]');
+
+    const detector = new CliDetector({ execCommand, cacheTtlMs: 60000 });
+    const result1 = await detector.detect('test-cli');
+    const result2 = await detector.detect('test-cli');
+
+    expect(result1).toEqual(result2);
+    expect(execCommand).toHaveBeenCalledTimes(3);
+  });
+
+  it('should clear cache when clearCache is called', async () => {
+    const execCommand = vi.fn()
+      .mockReturnValue('/usr/bin/test-cli')
+      .mockReturnValue('test-cli 1.0.0')
+      .mockReturnValue('Usage: test-cli [options]');
+
+    const detector = new CliDetector({ execCommand, cacheTtlMs: 60000 });
+    await detector.detect('test-cli');
+    detector.clearCache();
+    await detector.detect('test-cli');
+
+    expect(execCommand).toHaveBeenCalledTimes(6);
   });
 });

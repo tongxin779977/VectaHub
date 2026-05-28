@@ -123,4 +123,36 @@ describe('GenericAdapter', () => {
     expect(result.args).toContain('--output-last-message');
     expect(result.args).toContain('/tmp/output.txt');
   });
+
+  it('should include execution timeout in envPatch', () => {
+    const adapter = new GenericAdapter(testDescriptor);
+    const input: AgentAdapterInput = {
+      descriptor: testDescriptor,
+      workspaceRoot: '/test',
+      taskPrompt: 'Hello world',
+      mode: 'run',
+      outputMode: 'text',
+    };
+
+    const result = adapter.render(input);
+
+    expect(result.envPatch).toBeDefined();
+    expect(result.envPatch!['VECTAHUB_EXEC_TIMEOUT_MS']).toBe('120000');
+  });
+
+  it('should use custom execution timeout', () => {
+    const adapter = new GenericAdapter(testDescriptor, { executionTimeoutMs: 60000 });
+    const input: AgentAdapterInput = {
+      descriptor: testDescriptor,
+      workspaceRoot: '/test',
+      taskPrompt: 'Hello world',
+      mode: 'run',
+      outputMode: 'text',
+    };
+
+    const result = adapter.render(input);
+
+    expect(result.envPatch!['VECTAHUB_EXEC_TIMEOUT_MS']).toBe('60000');
+    expect(adapter.getExecutionTimeoutMs()).toBe(60000);
+  });
 });

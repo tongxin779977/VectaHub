@@ -159,4 +159,27 @@ describe('ProviderRegistrar', () => {
     const registrar2 = getProviderRegistrar();
     expect(registrar1).toBe(registrar2);
   });
+
+  it('should respect concurrency limit', async () => {
+    const deps = createMockDeps();
+    deps.configLoader.mockReturnValue({
+      version: 1,
+      first_run_completed: true,
+      ai_providers: { vectahub_llm: { provider: 'openai', enabled: true } },
+      external_cli: {},
+      priority: [],
+    });
+
+    const registrar = new ProviderRegistrar({ ...deps, maxConcurrentRegistrations: 1 });
+    expect(registrar.getActiveRegistrationCount()).toBe(0);
+
+    const promise1 = registrar.register({ cliCommand: 'cli-1' });
+    expect(registrar.getActiveRegistrationCount()).toBe(1);
+
+    const promise2 = registrar.register({ cliCommand: 'cli-2' });
+    expect(registrar.getPendingQueueLength()).toBe(1);
+
+    await promise1;
+    await promise2;
+  });
 });

@@ -29,11 +29,13 @@ export interface ProviderRegistrarDeps {
   configLoader?: () => VectaHubConfig;
   /** 自定义配置保存函数 */
   configSaver?: (config: VectaHubConfig) => void;
+  /** 最大并发注册数量，默认 3 */
+  maxConcurrentRegistrations?: number;
 }
 
 /**
  * Provider Registrar 实现类
- * 负责注册、取消注册、测试和刷新 AI Providers
+ * 负责注册、取消注册、测试和刷新 AI Providers，支持并发控制
  */
 export class ProviderRegistrar implements IProviderRegistrar {
   private readonly cliDetector: ICliDetector;
@@ -41,6 +43,12 @@ export class ProviderRegistrar implements IProviderRegistrar {
   private readonly logger: Pick<Console, 'warn' | 'error' | 'info'>;
   private readonly configLoader: () => VectaHubConfig;
   private readonly configSaver: (config: VectaHubConfig) => void;
+  private readonly maxConcurrentRegistrations: number;
+  private activeRegistrations = 0;
+  private readonly pendingQueue: Array<{
+    request: ProviderRegistrationRequest;
+    resolve: (result: ProviderRegistrationResult) => void;
+  }> = [];
 
   constructor(deps: ProviderRegistrarDeps = {}) {
     this.cliDetector = deps.cliDetector || getCliDetector();
@@ -48,15 +56,50 @@ export class ProviderRegistrar implements IProviderRegistrar {
     this.logger = deps.logger || createSilentLogger();
     this.configLoader = deps.configLoader || loadConfig;
     this.configSaver = deps.configSaver || saveConfig;
+    this.maxConcurrentRegistrations = deps.maxConcurrentRegistrations ?? 3;
   }
 
   /**
-   * 注册新的 Provider
+   * 注册新的 Provider，受并发控制限制
    * @param request 注册请求
    * @returns 注册结果
    */
   async register(request: ProviderRegistrationRequest): Promise<ProviderRegistrationResult> {
+    if (this.activeRegistrations >= this.maxConcurrentRegistrations) {
+      this.logger.warn(`Concurrency limit reached (${this.maxConcurrentRegistrations}), queuing registration for '${request.cliCommand}'`);
+
+      return new Promise<ProviderRegistrationResult>((resolve) => {
+        this.pendingQueue.push({ request, resolve });
+      });
+    }
+
+    return this.executeRegistration(request);
+  }
+
+  /**
+   * 获取当前活跃注册数
+   * @returns 活跃注册数
+   */
+  getActiveRegistrationCount(): number {
+    return this.activeRegistrations;
+  }
+
+  /**
+   * 获取等待队列长度
+   * @returns 等待队列长度
+   */
+  getPendingQueueLength(): number {
+    return this.pendingQueue.length;
+  }
+
+  /**
+   * 执行实际的注册逻辑
+   * @param request 注册请求
+   * @returns 注册结果
+   */
+  private async executeRegistration(request: ProviderRegistrationRequest): Promise<ProviderRegistrationResult> {
     const { cliCommand } = request;
+    this.activeRegistrations++;
 
     try {
       this.logger.info(`Detecting CLI: ${cliCommand}`);
@@ -105,6 +148,22 @@ export class ProviderRegistrar implements IProviderRegistrar {
         success: false,
         error: errorMessage,
       };
+    } finally {
+      this.activeRegistrations--;
+      this.processQueue();
+    }
+  }
+
+  /**
+   * 处理等待队列中的下一个注册请求
+   */
+  private processQueue(): void {
+    if (this.pendingQueue.length === 0) return;
+    if (this.activeRegistrations >= this.maxConcurrentRegistrations) return;
+
+    const next = this.pendingQueue.shift();
+    if (next) {
+      this.executeRegistration(next.request).then(next.resolve);
     }
   }
 

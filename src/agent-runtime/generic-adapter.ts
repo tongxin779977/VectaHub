@@ -1,11 +1,26 @@
 import type { AgentDescriptor, AgentAdapter, AgentAdapterInput, AgentAdapterOutput } from '../types/agent.js';
 
 /**
+ * 通用适配器配置选项
+ */
+export interface GenericAdapterOptions {
+  /** 命令执行超时时间（毫秒），默认 120000（2 分钟） */
+  executionTimeoutMs?: number;
+}
+
+/**
  * 通用 Agent 适配器
- * 用于将 Agent 描述符转换为命令行参数
+ * 用于将 Agent 描述符转换为命令行参数，支持命令执行超时控制
  */
 export class GenericAdapter implements AgentAdapter {
-  constructor(private readonly descriptor: AgentDescriptor) {}
+  private readonly executionTimeoutMs: number;
+
+  constructor(
+    private readonly descriptor: AgentDescriptor,
+    options?: GenericAdapterOptions,
+  ) {
+    this.executionTimeoutMs = options?.executionTimeoutMs ?? 120000;
+  }
 
   /**
    * 检查是否支持给定的描述符
@@ -54,11 +69,24 @@ export class GenericAdapter implements AgentAdapter {
     const command = descriptor.entryCommand;
     const stdinInput = descriptor.promptTransport === 'stdin' ? taskPrompt : undefined;
 
+    const envPatch: Record<string, string> = {
+      VECTAHUB_EXEC_TIMEOUT_MS: String(this.executionTimeoutMs),
+    };
+
     return {
       command,
       args,
       stdinInput,
+      envPatch,
       preview: [command, ...args].join(' '),
     };
+  }
+
+  /**
+   * 获取配置的命令执行超时时间
+   * @returns 超时时间（毫秒）
+   */
+  getExecutionTimeoutMs(): number {
+    return this.executionTimeoutMs;
   }
 }

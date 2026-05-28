@@ -90,4 +90,64 @@ describe('AgentRegistry', () => {
     
     expect(warnSpy).toHaveBeenCalled();
   });
+
+  it('should emit register event', () => {
+    const registry = getAgentRegistry();
+    const listener = vi.fn();
+    registry.on('register', listener);
+
+    registry.register(testDescriptor, testAdapter);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'register',
+      agentId: 'test-agent',
+      descriptor: testDescriptor,
+      timestamp: expect.any(Number),
+    }));
+  });
+
+  it('should emit unregister event', () => {
+    const registry = getAgentRegistry();
+    registry.register(testDescriptor, testAdapter);
+
+    const listener = vi.fn();
+    registry.on('unregister', listener);
+    registry.unregister('test-agent');
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'unregister',
+      agentId: 'test-agent',
+      timestamp: expect.any(Number),
+    }));
+  });
+
+  it('should emit clear event', () => {
+    const registry = getAgentRegistry();
+    const listener = vi.fn();
+    registry.on('clear', listener);
+
+    registry.clear();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'clear',
+      timestamp: expect.any(Number),
+    }));
+  });
+
+  it('should support unsubscribe via returned function', () => {
+    const registry = getAgentRegistry();
+    const listener = vi.fn();
+    const unsubscribe = registry.on('register', listener);
+
+    registry.register(testDescriptor, testAdapter);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+    const descriptor2 = { ...testDescriptor, id: 'test-agent-2' };
+    registry.register(descriptor2, testAdapter);
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
 });

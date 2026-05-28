@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { loadProvidersFromConfig } from './config-loader';
+import { loadProvidersFromConfig, validateConfig } from './config-loader';
 import { getAgentRegistry, resetAgentRegistry } from './registry';
 import type { VectaHubConfig, AgentProviderConfig } from '../setup/first-run-wizard';
 
@@ -77,5 +77,65 @@ describe('config-loader', () => {
     await loadProvidersFromConfig({ configLoader, logger });
     
     expect(logger.error).toHaveBeenCalled();
+  });
+
+  describe('validateConfig', () => {
+    it('should return empty errors for valid config', () => {
+      const errors = validateConfig(testConfig);
+      expect(errors).toEqual([]);
+    });
+
+    it('should return error for non-object config', () => {
+      const errors = validateConfig(null);
+      expect(errors).toHaveLength(1);
+      expect(errors[0].field).toBe('config');
+    });
+
+    it('should return error for missing version', () => {
+      const errors = validateConfig({ first_run_completed: true, ai_providers: {} });
+      expect(errors.some(e => e.field === 'version')).toBe(true);
+    });
+
+    it('should return error for missing first_run_completed', () => {
+      const errors = validateConfig({ version: 1, ai_providers: {} });
+      expect(errors.some(e => e.field === 'first_run_completed')).toBe(true);
+    });
+
+    it('should return error for invalid provider config', () => {
+      const config = {
+        version: 1,
+        first_run_completed: true,
+        ai_providers: {
+          'bad-provider': { enabled: true },
+        },
+      };
+      const errors = validateConfig(config);
+      expect(errors.some(e => e.field.includes('entryCommand'))).toBe(true);
+    });
+
+    it('should return error for invalid promptTransport', () => {
+      const config = {
+        version: 1,
+        first_run_completed: true,
+        ai_providers: {
+          'test-cli': {
+            entryCommand: 'test-cli',
+            enabled: true,
+            nonInteractiveFlags: [],
+            promptTransport: 'invalid-transport',
+          },
+        },
+      };
+      const errors = validateConfig(config);
+      expect(errors.some(e => e.field.includes('promptTransport'))).toBe(true);
+    });
+  });
+
+  it('should throw on validation failure', async () => {
+    const invalidConfig = { version: 'not-a-number' } as any;
+    const configLoader = vi.fn().mockReturnValue(invalidConfig);
+    const logger = { error: vi.fn(), info: vi.fn() };
+
+    await expect(loadProvidersFromConfig({ configLoader, logger })).rejects.toThrow('Configuration validation failed');
   });
 });
