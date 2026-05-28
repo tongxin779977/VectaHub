@@ -15,6 +15,12 @@ function createBuildCommandOutput(): BuildCommandOutput {
   };
 }
 
+/**
+ * 创建构建命令
+ * @param context - 基础设施上下文
+ * @returns Commander 命令实例
+ * @throws VectaHubError 如果入口文件不存在或构建失败
+ */
 export function createBuildCmd(context: InfrastructureContext): Command {
   const output = createBuildCommandOutput();
 
@@ -50,8 +56,9 @@ export function createBuildCmd(context: InfrastructureContext): Command {
 
         output.log('\n✅ Build complete!');
         output.log(`   Output: ${outDir}/`);
-      } catch {
-        throw new VectaHubError('Build failed', ErrorType.RUNTIME);
+      } catch (error) {
+        const originalMessage = error instanceof Error ? error.message : String(error);
+        throw new VectaHubError(`Build failed: ${originalMessage}`, ErrorType.RUNTIME);
       }
     });
 }

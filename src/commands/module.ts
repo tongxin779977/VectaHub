@@ -54,6 +54,10 @@ function listAvailableModules(): string {
   return Object.keys(MODULE_CONTRACT_REFERENCES).join(', ');
 }
 
+/**
+ * 模块命令（旧版）
+ * 用于检查模块合同（当前已禁用）
+ */
 export const moduleCmd = new Command('module')
   .description('Legacy module scaffold command (currently disabled)')
   .argument('<module-name>', 'Name of the module contract to inspect')

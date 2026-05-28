@@ -211,6 +211,12 @@ function scanSemanticCommands(command: string): SemanticDetectionResult {
 
 /**
  * 创建语义检测器实例
+ *
+ * 提供基于正则模式的 prompt injection 检测（中英文双语 12 种模式）
+ * 和语义危险命令检测（16 种模式，涵盖远程脚本执行、编码绕过、
+ * 反弹 shell、SUID 提权等）。
+ *
+ * @returns 语义检测器实例，包含 detectInjection、detectDangerousCommand、scan、toCommandDetection 方法
  */
 export function createSemanticDetector(): SemanticDetector {
   return {

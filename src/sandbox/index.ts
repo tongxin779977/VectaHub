@@ -36,3 +36,61 @@ export {
   computeFileHash,
 } from './command-security.js';
 export { checkSudoStatus, setupSudoers } from './sudo-checker.js';
+
+export { createResourceTracker } from './resource-tracker.js';
+export type {
+  ResourceType,
+  ResourceRecord,
+  LeakReport,
+  ResourceTracker,
+  ResourceTrackerStats,
+} from './types.js';
+
+export { createConfigValidator } from './config.js';
+export type {
+  ValidationSeverity,
+  ValidationIssue,
+  ConfigValidationResult,
+  ConfigValidationRule,
+  ConfigValidator,
+} from './types.js';
+
+export { createLifecycleManager } from './lifecycle.js';
+export type {
+  LifecyclePhase,
+  LifecycleContext,
+  LifecycleHook,
+  LifecycleHookRegistration,
+  LifecycleManager,
+} from './types.js';
+
+export { createValidationRuleEngine } from './validator.js';
+export type {
+  RuleSeverity,
+  RuleAction,
+  ValidationRule,
+  RuleEvaluationResult,
+  RuleEngineResult,
+  ValidationRuleEngine,
+} from './types.js';
+
+export { createSandboxPool } from './pool-manager.js';
+export type {
+  SandboxPoolConfig,
+  PooledSandboxStatus,
+  PooledSandboxEntry,
+  SandboxPoolStats,
+  SandboxPool,
+} from './types.js';
+
+export { createMonitorAlertManager } from './alert-monitor.js';
+export type {
+  AlertSeverity,
+  AlertCondition,
+  AlertRule,
+  AlertEvent,
+  MetricSnapshot,
+  MonitorAlertManager,
+} from './types.js';
+
+export { MemoryMonitor } from './memory-monitor.js';

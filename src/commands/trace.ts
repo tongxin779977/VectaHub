@@ -158,6 +158,11 @@ function formatTree(spans: TraceSpanRecord[]): string {
     .join('\n');
 }
 
+/**
+ * 创建跟踪命令
+ * @param context - 基础设施上下文
+ * @returns Commander 命令实例
+ */
 export function createTraceCmd(context: InfrastructureContext): Command {
   const env = context.environment;
   const output = createTraceCommandOutput();

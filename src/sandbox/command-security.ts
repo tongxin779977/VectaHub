@@ -6,6 +6,12 @@ import type { CommandSignature, SignatureValidation, ExecutableVerification } fr
 
 /**
  * 对命令进行签名
+ *
+ * 使用 SHA-256 对命令字符串和当前时间戳进行哈希，
+ * 生成带有时效性的签名，用于后续验证命令完整性。
+ *
+ * @param command - 待签名的命令字符串
+ * @returns 包含签名哈希、算法和时间戳的签名对象
  */
 export function signCommand(command: string): CommandSignature {
   const timestamp = Date.now();
@@ -21,6 +27,17 @@ export function signCommand(command: string): CommandSignature {
 
 /**
  * 验证命令签名
+ *
+ * 支持两种验证模式：
+ * 1. 传入完整签名对象时，直接比较哈希
+ * 2. 传入签名字符串时，在时间窗口内逐秒回溯匹配
+ *
+ * 使用 timingSafeEqual 进行时序安全比较，防止时序攻击。
+ *
+ * @param command - 原始命令字符串
+ * @param signatureOrObj - 签名字符串或签名对象
+ * @param maxAgeMs - 最大有效时间窗口（毫秒），默认 300000（5 分钟）
+ * @returns 验证结果（是否有效及说明信息）
  */
 export function validateCommandSignature(
   command: string,
@@ -67,6 +84,13 @@ function timingSafeCompare(a: string, b: string): boolean {
 
 /**
  * 验证命令可执行文件
+ *
+ * 解析命令路径并计算其 SHA-256 哈希值，
+ * 用于确认命令二进制文件未被篡改。
+ *
+ * @param cmd - 命令名称
+ * @param resolvePathFn - 可选的路径解析函数（默认使用 resolveCommandPath）
+ * @returns 验证结果（是否通过、哈希值、说明信息）
  */
 export async function verifyCommandExecutable(
   cmd: string,

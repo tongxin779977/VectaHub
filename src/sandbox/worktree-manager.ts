@@ -32,6 +32,12 @@ function toBranchName(traceId: string): string {
 
 /**
  * 创建工作树沙箱
+ *
+ * 优先使用 git worktree 创建隔离的工作目录，
+ * 在非 git 环境下自动降级到 fs.cp 复制目录。
+ *
+ * @param options - 沙箱选项（traceId 和 sourceCwd）
+ * @returns 沙箱上下文（包含工作树路径、分支名、是否降级标志）
  */
 export async function createSandbox(options: SandboxOptions): Promise<SandboxContext> {
   const branchName = toBranchName(options.traceId);
@@ -83,6 +89,11 @@ export async function createSandbox(options: SandboxOptions): Promise<SandboxCon
 
 /**
  * 清理工作树沙箱
+ *
+ * 移除 git worktree 并删除相关分支（git 模式），
+ * 或直接删除复制的目录（降级模式）。
+ *
+ * @param context - 由 createSandbox 返回的沙箱上下文
  */
 export async function teardownSandbox(context: SandboxContext): Promise<void> {
   const repoCwd = context.isFallback ? context.worktreePath : join(context.worktreePath, '..', '..', '..');

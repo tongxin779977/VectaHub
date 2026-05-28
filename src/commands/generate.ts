@@ -87,6 +87,12 @@ steps:
 现在请根据用户需求生成对应的 YAML 工作流！
 `.trim();
 
+/**
+ * 创建生成命令
+ * @param context - 基础设施上下文
+ * @returns Commander 命令实例
+ * @throws VectaHubError 如果 LLM 提供商未配置或生成失败
+ */
 export function createGenerateCmd(context: InfrastructureContext): Command {
   const logger = context.logger.getLogger('generate');
   const output = createGenerateCommandOutput();

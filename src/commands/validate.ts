@@ -206,6 +206,11 @@ function formatValidationResults(results: ValidationResult[]): string {
   return lines.join('\n');
 }
 
+/**
+ * 创建验证命令
+ * @param context - 基础设施上下文
+ * @returns Commander 命令实例
+ */
 export function createValidateCmd(context: InfrastructureContext): Command {
   const output = createValidateCommandOutput();
 

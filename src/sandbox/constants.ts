@@ -15,6 +15,13 @@ export const DEFAULT_PROTECTED_DIRS = [
   '/Library/',
 ];
 
+/**
+ * 获取当前平台的隔离工具路径
+ *
+ * macOS 返回 sandbox-exec 路径，Linux 返回 bwrap/unshare 路径。
+ *
+ * @returns 包含 sandboxExec、bwrap、unshare 三个路径的对象
+ */
 export function getToolPaths(): { sandboxExec: string; bwrap: string; unshare: string } {
   const os = platform();
   if (os === 'darwin') {

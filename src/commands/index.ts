@@ -1,3 +1,9 @@
+/**
+ * Commands 模块入口
+ * 导出所有 CLI 命令的创建函数
+ * @module commands
+ */
+
 export { createStatusCmd } from './status.js';
 export { moduleCmd } from './module.js';
 export { createValidateCmd } from './validate.js';

@@ -24,6 +24,10 @@ function createDaemonCommandOutput(): DaemonCommandOutput {
   };
 }
 
+/**
+ * 守护进程命令
+ * 用于管理 VectaHub AI 守护进程
+ */
 export const daemonCmd = new Command('daemon')
   .description('Manage VectaHub AI daemon')
   .option('-s, --socket <path>', 'Socket path', DEFAULT_DAEMON_CONFIG.socketPath);

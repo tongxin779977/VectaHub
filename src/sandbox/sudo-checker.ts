@@ -6,6 +6,11 @@ import type { SudoStatus, SudoConfigResult } from './types.js';
 
 /**
  * 检查 sudo 状态
+ *
+ * 检测当前平台的 sudo 可用性及 bwrap/unshare 的无密码执行权限。
+ * macOS 直接返回 sandbox-exec 可用，Linux 逐项检测。
+ *
+ * @returns sudo 状态（hasSudo、bwrapAllowed、unshareAllowed、message）
  */
 export async function checkSudoStatus(): Promise<SudoStatus> {
   const os = platform();
@@ -122,6 +127,11 @@ async function testUnshareSudo(): Promise<boolean> {
 
 /**
  * 配置 sudoers 文件以允许无密码执行 bwrap 和 unshare
+ *
+ * 仅支持 Linux 平台，macOS 会直接返回成功。
+ * 需要当前用户有 sudo 权限才能写入 /etc/sudoers.d/ 目录。
+ *
+ * @returns 配置结果（成功/失败及说明信息）
  */
 export async function setupSudoers(): Promise<SudoConfigResult> {
   const os = platform();

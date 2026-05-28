@@ -14,6 +14,10 @@ const chatCommandOutput: ChatCommandOutput = {
   error: (message: string) => process.stderr.write(`${message}\n`),
 };
 
+/**
+ * 聊天命令
+ * 用于交互式自然语言模式，支持意图拆分和路由
+ */
 export const chatCmd = new Command('chat')
   .description('Interactive NL mode with intent splitting and routing')
   .action(async () => {

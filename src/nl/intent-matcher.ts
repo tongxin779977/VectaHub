@@ -13,13 +13,46 @@ export interface LegacyIntentPattern {
   cli?: string[];
 }
 
+/**
+ * 旧版意图匹配器接口
+ * @deprecated 使用新的 MatchingPipeline 替代，将在 v2.0 移除
+ */
 export interface LegacyIntentMatcher {
+  /**
+   * 匹配单个意图
+   * @param input - 用户输入文本
+   * @param sessionId - 可选的会话 ID
+   * @returns 匹配结果
+   */
   match(input: string, sessionId?: string): IntentMatch;
+  /**
+   * 匹配多个意图
+   * @param input - 用户输入文本
+   * @param sessionId - 可选的会话 ID
+   * @returns 多意图匹配结果
+   */
   matchMultiIntent(input: string, sessionId?: string): MultiIntentResult;
+  /**
+   * 注册新的意图模式
+   * @param pattern - 意图模式定义
+   */
   registerPattern(pattern: LegacyIntentPattern): void;
+  /**
+   * 获取所有已注册的意图模式
+   * @returns 意图模式列表的副本
+   */
   getPatterns(): LegacyIntentPattern[];
 }
 
+/**
+ * 创建旧版意图匹配器实例
+ *
+ * @deprecated 使用 MatchingPipeline 替代
+ * @param patterns - 初始意图模式列表
+ * @param auditHelper - 审计日志助手
+ * @param coordinator - 可选的多意图协调器
+ * @returns 意图匹配器实例
+ */
 export function createIntentMatcher(patterns: LegacyIntentPattern[], auditHelper: AuditHelper, coordinator?: {
   match(input: string): MultiIntentResult;
 }): LegacyIntentMatcher {

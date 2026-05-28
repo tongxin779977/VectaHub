@@ -44,6 +44,11 @@ interface ExtendedExecutionRecord {
   error?: string;
 }
 
+/**
+ * 创建历史命令
+ * @param context - 基础设施上下文
+ * @returns Commander 命令实例
+ */
 export function createHistoryCmd(context: InfrastructureContext): Command {
   const logger = context.logger.getLogger('history');
   return new Command('history')

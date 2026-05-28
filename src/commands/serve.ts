@@ -34,6 +34,11 @@ function createServeCommandOutput(): ServeCommandOutput {
   };
 }
 
+/**
+ * 创建服务命令
+ * @param context - 基础设施上下文
+ * @returns 服务命令和客户端命令
+ */
 export function createServeCommands(context: InfrastructureContext): { serveCmd: Command; clientCmd: Command } {
   const socketPath = context.environment.getPath(context.environment.getTmpDir(), 'vectahub.sock');
   const queueDir = context.environment.getPath(context.environment.getTmpDir(), 'vectahub');

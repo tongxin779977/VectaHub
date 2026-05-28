@@ -13,8 +13,27 @@ import type pino from 'pino';
 
 type NLLogger = Pick<pino.Logger, 'error'>;
 
+/**
+ * 初始化路由（保留接口兼容性，当前为空实现）
+ * @param _intentEntries - 意图条目列表
+ */
 export function initializeRouter(_intentEntries: Array<{ intent: string; category: string; patterns: RegExp[]; examples: string[]; priority: number }>): void {}
 
+/**
+ * 处理用户自然语言输入，返回 NL 解析结果
+ *
+ * 处理流程：
+ * 1. 意图拆分：检测是否为多意图输入
+ * 2. Capability 路由：优先匹配已注册的 Capability
+ * 3. LLM 降级：Capability 未匹配时使用 LLM 解析
+ *
+ * @param input - 用户原始输入
+ * @param llmConfig - 可选的 LLM 配置（LLM 降级时必需）
+ * @param auditHelper - 可选的审计助手（LLM 降级时必需）
+ * @param logger - 可选的日志记录器
+ * @returns NL 解析结果
+ * @throws 多意图包含不可执行子句时抛出错误
+ */
 export async function processInput(
   input: string,
   llmConfig?: LLMConfig,
@@ -149,6 +168,9 @@ async function handleMultiIntent(
   };
 }
 
+/**
+ * 编排步骤定义
+ */
 export interface OrchestrateStep {
   id: string;
   description: string;
@@ -159,6 +181,9 @@ export interface OrchestrateStep {
   outputVar?: string;
 }
 
+/**
+ * 编排结果
+ */
 export interface OrchestrateResult {
   steps: OrchestrateStep[];
   plan?: ExecutionPlan;
@@ -406,6 +431,19 @@ async function orchestrateSingleIntent(
   };
 }
 
+/**
+ * 编排用户意图，返回可执行的步骤列表
+ *
+ * 支持多意图输入：自动拆分后分别编排，合并结果。
+ * 优先使用 Capability 路由，未匹配时降级到 LLM 解析。
+ *
+ * @param input - 用户原始输入
+ * @param options.cwd - 可选的工作目录
+ * @param options.auditHelper - 可选的审计助手
+ * @param options.logger - 可选的日志记录器
+ * @returns 编排结果
+ * @throws 多意图包含不可执行子句或无步骤产出时抛出错误
+ */
 export async function orchestrateIntent(
   input: string,
   options?: { cwd?: string; auditHelper?: AuditHelper; logger?: NLLogger },

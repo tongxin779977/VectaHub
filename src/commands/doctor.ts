@@ -185,6 +185,11 @@ export async function runChecks(environment: IEnvironmentService, verbose = fals
   return checks;
 }
 
+/**
+ * 创建诊断命令
+ * @param context - 基础设施上下文
+ * @returns Commander 命令实例
+ */
 export function createDoctorCmd(context: InfrastructureContext): Command {
   return new Command('doctor')
     .description('Run diagnostics to check system requirements')

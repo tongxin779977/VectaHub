@@ -22,6 +22,11 @@ function createAuditCommandOutput(): AuditCommandOutput {
   };
 }
 
+/**
+ * 创建审计命令
+ * @param context - 基础设施上下文
+ * @returns Commander 命令实例
+ */
 export function createAuditCmd(context: InfrastructureContext): Command {
   const auditLogger = context.audit.getLogger();
   const output = createAuditCommandOutput();

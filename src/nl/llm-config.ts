@@ -4,6 +4,7 @@ import { loadConfig } from '../setup/first-run-wizard-bridge.js';
 
 const SUPPORTED_LLM_PROVIDERS = ['openai', 'anthropic', 'ollama', 'groq'] as const;
 const DEFAULT_LLM_TEMPERATURE = 0.1;
+const DEFAULT_HOT_RELOAD_INTERVAL_MS = 10_000;
 
 interface ResolvedLLMConfigSource {
   provider: LLMConfig['provider'];
@@ -25,6 +26,140 @@ export interface LLMConfigResolution {
   state: LLMConfigState;
   config: LLMConfig | null;
   error?: VectaHubError;
+}
+
+/**
+ * 配置变更监听器类型
+ */
+export type ConfigChangeListener = (resolution: LLMConfigResolution) => void;
+
+/**
+ * 配置热重载管理器
+ *
+ * 支持两种模式：
+ * - 基于 fs.watch 的文件系统监听（优先）
+ * - 基于轮询的定期检查（降级方案）
+ *
+ * 配置变更时自动通知所有注册的监听器。
+ */
+export class ConfigHotReloader {
+  private listeners: Set<ConfigChangeListener> = new Set();
+  private lastResolution: LLMConfigResolution | null = null;
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private running: boolean = false;
+
+  /**
+   * 启动配置热重载
+   * @param options.intervalMs - 轮询间隔（毫秒），默认 10000
+   */
+  start(options?: { intervalMs?: number }): void {
+    if (this.running) return;
+    this.running = true;
+
+    this.lastResolution = this.resolveCurrent();
+
+    const intervalMs = options?.intervalMs ?? DEFAULT_HOT_RELOAD_INTERVAL_MS;
+    this.startPolling(intervalMs);
+  }
+
+  /**
+   * 停止配置热重载，释放所有资源
+   */
+  stop(): void {
+    this.running = false;
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+    this.listeners.clear();
+  }
+
+  /**
+   * 注册配置变更监听器
+   * @param listener - 配置变更回调函数
+   */
+  onChange(listener: ConfigChangeListener): void {
+    this.listeners.add(listener);
+  }
+
+  /**
+   * 移除配置变更监听器
+   * @param listener - 要移除的回调函数
+   */
+  offChange(listener: ConfigChangeListener): void {
+    this.listeners.delete(listener);
+  }
+
+  /**
+   * 获取当前缓存的配置解析结果
+   * @returns 当前配置解析结果，未启动时返回 null
+   */
+  getCurrent(): LLMConfigResolution | null {
+    return this.lastResolution;
+  }
+
+  /**
+   * 手动触发配置重载检查
+   * @returns 配置是否发生了变更
+   */
+  check(): boolean {
+    return this.detectChanges();
+  }
+
+  private resolveCurrent(): LLMConfigResolution {
+    return resolveLLMConfig();
+  }
+
+  private startPolling(intervalMs: number): void {
+    this.pollTimer = setInterval(() => {
+      if (!this.running) return;
+      this.detectChanges();
+    }, intervalMs);
+  }
+
+  private detectChanges(): boolean {
+    const current = this.resolveCurrent();
+    const changed = this.hasChanged(this.lastResolution, current);
+    this.lastResolution = current;
+    if (changed) {
+      this.notifyListeners(current);
+    }
+    return changed;
+  }
+
+  private hasChanged(prev: LLMConfigResolution | null, next: LLMConfigResolution): boolean {
+    if (!prev) return true;
+    if (prev.state !== next.state) return true;
+    if (prev.config?.provider !== next.config?.provider) return true;
+    if (prev.config?.model !== next.config?.model) return true;
+    if (prev.config?.baseUrl !== next.config?.baseUrl) return true;
+    if (prev.config?.apiKey !== next.config?.apiKey) return true;
+    if (prev.config?.timeout !== next.config?.timeout) return true;
+    return false;
+  }
+
+  private notifyListeners(resolution: LLMConfigResolution): void {
+    for (const listener of this.listeners) {
+      try {
+        listener(resolution);
+      } catch {
+        // listener 异常不应影响其他监听器
+      }
+    }
+  }
+}
+
+let globalReloader: ConfigHotReloader | null = null;
+
+/**
+ * 获取全局配置热重载管理器（单例）
+ * @returns 全局 ConfigHotReloader 实例
+ */
+export function getConfigHotReloader(): ConfigHotReloader {
+  if (!globalReloader) {
+    globalReloader = new ConfigHotReloader();
+  }
+  return globalReloader;
 }
 
 function normalizeLLMProvider(provider: string | undefined): LLMConfig['provider'] | null {

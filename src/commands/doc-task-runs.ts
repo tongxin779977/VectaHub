@@ -143,6 +143,12 @@ function readRunsFromFile(context: InfrastructureContext, filePath: string, filt
   return runs;
 }
 
+/**
+ * 列出最近的运行记录
+ * @param context - 基础设施上下文
+ * @param options - 列表选项
+ * @returns 运行记录列表和是否有更多记录
+ */
 export function listRecentRuns(context: InfrastructureContext, options: ListOptions): { runs: DocTaskRunRecord[]; hasMore: boolean } {
   const limit = clampLimit(options.limit);
   const storeDir = getStoreDir(context, options.project);
@@ -173,6 +179,12 @@ export function listRecentRuns(context: InfrastructureContext, options: ListOpti
   return { runs, hasMore };
 }
 
+/**
+ * 读取最新的运行记录
+ * @param context - 基础设施上下文
+ * @param project - 项目名称（可选）
+ * @returns 运行记录数组
+ */
 export function readLatestRuns(context: InfrastructureContext, project?: string): DocTaskRunRecord[] {
   const storeDir = getStoreDir(context, project);
   const latestFile = context.environment.resolvePath(storeDir, 'latest.json');
@@ -191,6 +203,13 @@ export function readLatestRuns(context: InfrastructureContext, project?: string)
   return [];
 }
 
+/**
+ * 根据 ID 查找运行记录
+ * @param context - 基础设施上下文
+ * @param runId - 运行 ID
+ * @param project - 项目名称（可选）
+ * @returns 运行记录或 undefined
+ */
 export function findRunById(context: InfrastructureContext, runId: string, project?: string): DocTaskRunRecord | undefined {
   const storeDir = getStoreDir(context, project);
   if (!context.environment.exists(storeDir)) return undefined;
@@ -255,6 +274,11 @@ function printLatestResult(tasks: DocTaskRunRecord[], asJson: boolean): void {
   }
 }
 
+/**
+ * 创建文档任务运行记录命令
+ * @param context - 基础设施上下文
+ * @returns Commander 命令实例
+ */
 export function createDocTaskRunsCmd(context: InfrastructureContext): Command {
   const docTaskRunsCmd = new Command('doc-task-runs')
     .description('查询文档任务运行记录');

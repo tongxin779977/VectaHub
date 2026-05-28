@@ -29,6 +29,11 @@ function getVectaHubDir(): string {
   return getVectaHubPath();
 }
 
+/**
+ * 创建列表命令
+ * @param context - 基础设施上下文
+ * @returns Commander 命令实例
+ */
 export function createListCmd(context: InfrastructureContext): Command {
   const logger = context.logger.getLogger('list');
   const output = createListCommandOutput();
@@ -90,6 +95,11 @@ export function createListCmd(context: InfrastructureContext): Command {
   return listCmd;
 }
 
+/**
+ * 创建回滚命令
+ * @param context - 基础设施上下文
+ * @returns Commander 命令实例
+ */
 export function createRollbackCmd(context: InfrastructureContext): Command {
   const logger = context.logger.getLogger('list');
   const output = createListCommandOutput();

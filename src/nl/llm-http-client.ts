@@ -3,18 +3,127 @@ import { getAllIntentNames } from './templates/index.js';
 
 const INTENT_LIST = getAllIntentNames();
 
+const DEFAULT_MAX_CONCURRENT = 4;
+const DEFAULT_MAX_QUEUE_SIZE = 16;
+const DEFAULT_QUEUE_TIMEOUT_MS = 30_000;
+
+interface QueuedRequest<T> {
+  execute: () => Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason: unknown) => void;
+  enqueuedAt: number;
+}
+
+/**
+ * 请求队列管理器，限制并发 LLM HTTP 请求数量
+ *
+ * 使用信号量模式控制同时进行的请求数，超出上限的请求进入等待队列。
+ * 队列满或等待超时时快速失败，避免无限阻塞。
+ */
+export class RequestQueue {
+  private running: number = 0;
+  private readonly queue: Array<QueuedRequest<unknown>> = [];
+  private readonly maxConcurrent: number;
+  private readonly maxQueueSize: number;
+  private readonly queueTimeoutMs: number;
+
+  /**
+   * 创建请求队列实例
+   * @param options.maxConcurrent - 最大并发请求数，默认 4
+   * @param options.maxQueueSize - 等待队列最大长度，默认 16
+   * @param options.queueTimeoutMs - 队列等待超时时间（毫秒），默认 30000
+   */
+  constructor(options?: {
+    maxConcurrent?: number;
+    maxQueueSize?: number;
+    queueTimeoutMs?: number;
+  }) {
+    this.maxConcurrent = options?.maxConcurrent ?? DEFAULT_MAX_CONCURRENT;
+    this.maxQueueSize = options?.maxQueueSize ?? DEFAULT_MAX_QUEUE_SIZE;
+    this.queueTimeoutMs = options?.queueTimeoutMs ?? DEFAULT_QUEUE_TIMEOUT_MS;
+  }
+
+  /**
+   * 将异步任务排入队列，受并发限制控制
+   * @param execute - 要执行的异步函数
+   * @returns 任务执行结果
+   * @throws 队列满或等待超时时抛出错误
+   */
+  async enqueue<T>(execute: () => Promise<T>): Promise<T> {
+    if (this.running < this.maxConcurrent) {
+      return this.runTask(execute);
+    }
+
+    if (this.queue.length >= this.maxQueueSize) {
+      throw new Error(
+        `Request queue full (${this.maxQueueSize}). ${this.running} requests in flight, max concurrent: ${this.maxConcurrent}.`,
+      );
+    }
+
+    return new Promise<T>((resolve, reject) => {
+      const item: QueuedRequest<T> = {
+        execute,
+        resolve,
+        reject,
+        enqueuedAt: Date.now(),
+      };
+      this.queue.push(item as QueuedRequest<unknown>);
+    });
+  }
+
+  /** 当前正在执行的请求数 */
+  get activeCount(): number {
+    return this.running;
+  }
+
+  /** 当前排队等待的请求数 */
+  get pendingCount(): number {
+    return this.queue.length;
+  }
+
+  private async runTask<T>(execute: () => Promise<T>): Promise<T> {
+    this.running++;
+    try {
+      return await execute();
+    } finally {
+      this.running--;
+      this.flushNext();
+    }
+  }
+
+  private flushNext(): void {
+    while (this.running < this.maxConcurrent && this.queue.length > 0) {
+      const next = this.queue.shift()!;
+      const waitMs = Date.now() - next.enqueuedAt;
+      if (waitMs > this.queueTimeoutMs) {
+        next.reject(
+          new Error(`Request queue timeout: waited ${waitMs}ms, limit ${this.queueTimeoutMs}ms`),
+        );
+        continue;
+      }
+      this.runTask(next.execute).then(next.resolve, next.reject);
+    }
+  }
+}
+
 /**
  * LLM HTTP 客户端封装，负责处理与 LLM 提供商的 HTTP 通信
+ *
+ * 内置请求队列机制，默认最大并发 4 个请求，超出时排队等待。
+ * 每个 HTTP 调用方法（callOpenAICompatible、callAnthropic 等）均通过队列调度。
  */
 export class LLMHttpClient {
   private config: LLMConfig;
+  private requestQueue: RequestQueue;
 
   /**
    * 创建 LLM HTTP 客户端实例
    * @param config - LLM 配置对象
+   * @param requestQueue - 可选的自定义请求队列实例
    */
-  constructor(config: LLMConfig) {
+  constructor(config: LLMConfig, requestQueue?: RequestQueue) {
     this.config = config;
+    this.requestQueue = requestQueue ?? new RequestQueue();
   }
 
   /**
@@ -26,6 +135,17 @@ export class LLMHttpClient {
    * @returns API 响应
    */
   async callOpenAICompatible(
+    userInput: string,
+    systemPrompt: string,
+    tools?: LLMTool[],
+    toolChoice?: string,
+  ): Promise<Response> {
+    return this.requestQueue.enqueue(() =>
+      this.callOpenAICompatibleInner(userInput, systemPrompt, tools, toolChoice),
+    );
+  }
+
+  private async callOpenAICompatibleInner(
     userInput: string,
     systemPrompt: string,
     tools?: LLMTool[],
@@ -99,6 +219,16 @@ export class LLMHttpClient {
     systemPrompt: string,
     tools?: LLMTool[],
   ): Promise<Response> {
+    return this.requestQueue.enqueue(() =>
+      this.callAnthropicInner(userInput, systemPrompt, tools),
+    );
+  }
+
+  private async callAnthropicInner(
+    userInput: string,
+    systemPrompt: string,
+    tools?: LLMTool[],
+  ): Promise<Response> {
     const apiKey = this.config.apiKey;
 
     if (!apiKey) {
@@ -150,6 +280,15 @@ export class LLMHttpClient {
   }
 
   async callOpenAICompatibleRaw(
+    userInput: string,
+    systemPrompt: string,
+  ): Promise<Response> {
+    return this.requestQueue.enqueue(() =>
+      this.callOpenAICompatibleRawInner(userInput, systemPrompt),
+    );
+  }
+
+  private async callOpenAICompatibleRawInner(
     userInput: string,
     systemPrompt: string,
   ): Promise<Response> {
@@ -232,6 +371,15 @@ export class LLMHttpClient {
     userInput: string,
     systemPrompt: string,
   ): Promise<Response> {
+    return this.requestQueue.enqueue(() =>
+      this.callAnthropicRawInner(userInput, systemPrompt),
+    );
+  }
+
+  private async callAnthropicRawInner(
+    userInput: string,
+    systemPrompt: string,
+  ): Promise<Response> {
     const apiKey = this.config.apiKey;
 
     if (!apiKey) {
@@ -275,6 +423,14 @@ export class LLMHttpClient {
   async callOpenAICompatibleChat(
     messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>,
   ): Promise<Response> {
+    return this.requestQueue.enqueue(() =>
+      this.callOpenAICompatibleChatInner(messages),
+    );
+  }
+
+  private async callOpenAICompatibleChatInner(
+    messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>,
+  ): Promise<Response> {
     const apiKey = this.config.apiKey;
     const baseUrl = this.config.baseUrl;
 
@@ -316,6 +472,14 @@ export class LLMHttpClient {
   }
 
   async callAnthropicChat(
+    messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>,
+  ): Promise<Response> {
+    return this.requestQueue.enqueue(() =>
+      this.callAnthropicChatInner(messages),
+    );
+  }
+
+  private async callAnthropicChatInner(
     messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>,
   ): Promise<Response> {
     const apiKey = this.config.apiKey;
@@ -423,6 +587,10 @@ export class LLMHttpClient {
   }
 
   async embed(text: string): Promise<number[]> {
+    return this.requestQueue.enqueue(() => this.embedInner(text));
+  }
+
+  private async embedInner(text: string): Promise<number[]> {
     if (this.config.provider === 'anthropic') {
       throw new Error('Embedding is not supported by provider: anthropic');
     }

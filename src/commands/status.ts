@@ -39,6 +39,30 @@ interface Config {
   overallProgress: number;
 }
 
+function isValidModuleStatus(obj: unknown): obj is ModuleStatus {
+  if (typeof obj !== 'object' || obj === null) return false;
+  const record = obj as Record<string, unknown>;
+  return (
+    typeof record.name === 'string' &&
+    typeof record.agent === 'string' &&
+    typeof record.status === 'string' &&
+    ['pending', 'in_progress', 'completed', 'blocked', 'review'].includes(record.status) &&
+    typeof record.progress === 'number' &&
+    Array.isArray(record.dependencies) &&
+    record.dependencies.every((dep: unknown) => typeof dep === 'string')
+  );
+}
+
+function isValidConfig(obj: unknown): obj is Config {
+  if (typeof obj !== 'object' || obj === null) return false;
+  const record = obj as Record<string, unknown>;
+  return (
+    Array.isArray(record.modules) &&
+    record.modules.every(isValidModuleStatus) &&
+    typeof record.overallProgress === 'number'
+  );
+}
+
 function findConfigFile(context: InfrastructureContext): string | null {
   const searchPaths = [
     context.environment.resolvePath(context.environment.getCwd(), 'config/vectahub-dev.config.yaml'),
@@ -55,6 +79,11 @@ function findConfigFile(context: InfrastructureContext): string | null {
   return null;
 }
 
+/**
+ * 创建状态命令
+ * @param context - 基础设施上下文
+ * @returns Commander 命令实例
+ */
 export function createStatusCmd(context: InfrastructureContext): Command {
   const output = createStatusCommandOutput();
 
@@ -74,7 +103,13 @@ export function createStatusCmd(context: InfrastructureContext): Command {
       }
 
       const content = context.environment.readFile(configPath);
-      const config = parse(content) as Config;
+      const parsed = parse(content);
+      if (!isValidConfig(parsed)) {
+        output.log('Error: Invalid configuration file format.');
+        output.log('Expected a YAML file with "modules" array and "overallProgress" number.');
+        return;
+      }
+      const config = parsed;
 
       if (options.json) {
         output.json(config, { space: 2 });

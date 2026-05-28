@@ -289,6 +289,11 @@ function formatCategoryTools(category: string, tools: CliTool[]): string {
   return lines.join('\n');
 }
 
+/**
+ * 创建工具命令
+ * @param context - 基础设施上下文
+ * @returns Commander 命令实例
+ */
 export function createToolsCmd(context: InfrastructureContext): Command {
   const cliOutput = createToolsCommandOutput();
   const toolsCmd = new Command('tools')

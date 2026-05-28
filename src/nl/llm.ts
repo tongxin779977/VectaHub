@@ -30,10 +30,33 @@ export interface LLMClientDeps {
   auditHelper: AuditHelper;
 }
 
+export interface LLMRetryOptions {
+  maxRetries?: number;
+  baseDelayMs?: number;
+  maxDelayMs?: number;
+  retryableStatuses?: number[];
+}
+
+const DEFAULT_RETRY_OPTIONS: Required<LLMRetryOptions> = {
+  maxRetries: 2,
+  baseDelayMs: 1000,
+  maxDelayMs: 10000,
+  retryableStatuses: [429, 500, 502, 503, 504],
+};
+
 const INTENT_LIST = getAllIntentNames();
 
 /**
  * LLM 客户端 - 负责与 LLM 交互的主要类
+ *
+ * 功能职责：
+ * - 管理 LLM 配置和会话生命周期
+ * - 通过 LLMHttpClient 执行实际 HTTP 调用
+ * - 提供统一的重试机制（指数退避）
+ * - 管理 Embedding 缓存
+ * - 记录审计日志
+ *
+ * 重试策略：对可重试错误（429/5xx/网络超时）自动重试，指数退避。
  */
 export class LLMClient {
   private config: LLMConfig;
@@ -42,17 +65,21 @@ export class LLMClient {
   private embeddingCache: Map<string, number[]> = new Map();
   private auditHelper: AuditHelper;
   private httpClient: LLMHttpClient;
+  private retryOptions: Required<LLMRetryOptions>;
 
   /**
    * 创建 LLM 客户端实例
    * @param config - LLM 配置对象
    * @param deps - 依赖注入对象
+   * @param retryOptions - 可选的重试配置
+   * @throws 配置无效时抛出错误
    */
-  constructor(config: LLMConfig, deps: LLMClientDeps) {
+  constructor(config: LLMConfig, deps: LLMClientDeps, retryOptions?: LLMRetryOptions) {
     this.config = config;
     this.promptManager = createPromptManager();
     this.auditHelper = deps.auditHelper;
     this.httpClient = new LLMHttpClient(config);
+    this.retryOptions = { ...DEFAULT_RETRY_OPTIONS, ...retryOptions };
   }
 
   /**
@@ -72,12 +99,61 @@ export class LLMClient {
   }
 
   /**
-   * 完成 LLM 调用
+   * 带指数退避重试的异步执行器
+   *
+   * @param fn - 要执行的异步函数
+   * @param operationName - 操作名称（用于日志）
+   * @returns 执行结果
+   * @throws 重试耗尽后抛出最后一次错误
+   */
+  private async withRetry<T>(fn: () => Promise<T>, operationName: string): Promise<T> {
+    const { maxRetries, baseDelayMs, maxDelayMs } = this.retryOptions;
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        lastError = error;
+        if (!this.isRetryableError(error) || attempt === maxRetries) {
+          throw error;
+        }
+        const delay = Math.min(baseDelayMs * Math.pow(2, attempt), maxDelayMs);
+        const jitter = delay * (0.5 + Math.random() * 0.5);
+        await new Promise(resolve => setTimeout(resolve, jitter));
+      }
+    }
+
+    throw lastError;
+  }
+
+  private isRetryableError(error: unknown): boolean {
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') return false;
+      const msg = error.message;
+      if (msg.includes('API error:')) {
+        const statusMatch = msg.match(/API error: (\d+)/);
+        if (statusMatch) {
+          const status = parseInt(statusMatch[1], 10);
+          return this.retryOptions.retryableStatuses.includes(status);
+        }
+      }
+      if (msg.includes('fetch failed') || msg.includes('ECONNRESET') || msg.includes('ETIMEDOUT')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 完成 LLM 调用（带自动重试）
+   *
    * @param promptId - 提示词模板 ID
    * @param userInput - 用户输入
    * @param context - 上下文变量
    * @param options - 可选工具和策略
    * @returns LLM 响应对象
+   * @throws LLM 调用失败且不可重试时抛出错误
    */
   async complete(
     promptId: string,
@@ -86,38 +162,40 @@ export class LLMClient {
     options?: { tools?: LLMTool[]; toolChoice?: string },
   ): Promise<LLMResponse> {
     try {
-      const systemPrompt = this.promptManager.buildSystemPrompt(promptId, context, this.sessionId);
-      if (this.sessionId) {
-        this.promptManager.sessionManager.addUserMessage(this.sessionId, userInput);
-      }
-      let response: Response;
-
-      if (this.config.provider === 'openai' || this.config.provider === 'ollama' || this.config.provider === 'groq') {
-        response = await this.httpClient.callOpenAICompatible(
-          userInput,
-          systemPrompt,
-          options?.tools,
-          options?.toolChoice,
-        );
-      } else if (this.config.provider === 'anthropic') {
-        response = await this.httpClient.callAnthropic(userInput, systemPrompt, options?.tools);
-      } else {
-        throw new Error(`Unsupported provider: ${this.config.provider}`);
-      }
-
-      const data = await response.json();
-      this.auditHelper.securityAction(
-        'LLM_CALL',
-        `${this.config.provider}/${this.config.model}`,
-        'COMPLETED',
-        this.sessionId || 'unknown',
-      );
-
-      return this.httpClient.parseResponse(data, this.sessionId, (content) => {
+      return await this.withRetry(async () => {
+        const systemPrompt = this.promptManager.buildSystemPrompt(promptId, context, this.sessionId);
         if (this.sessionId) {
-          this.promptManager.sessionManager.addAssistantMessage(this.sessionId, content);
+          this.promptManager.sessionManager.addUserMessage(this.sessionId, userInput);
         }
-      });
+        let response: Response;
+
+        if (this.config.provider === 'openai' || this.config.provider === 'ollama' || this.config.provider === 'groq') {
+          response = await this.httpClient.callOpenAICompatible(
+            userInput,
+            systemPrompt,
+            options?.tools,
+            options?.toolChoice,
+          );
+        } else if (this.config.provider === 'anthropic') {
+          response = await this.httpClient.callAnthropic(userInput, systemPrompt, options?.tools);
+        } else {
+          throw new Error(`Unsupported provider: ${this.config.provider}`);
+        }
+
+        const data = await response.json();
+        this.auditHelper.securityAction(
+          'LLM_CALL',
+          `${this.config.provider}/${this.config.model}`,
+          'COMPLETED',
+          this.sessionId || 'unknown',
+        );
+
+        return this.httpClient.parseResponse(data, this.sessionId, (content) => {
+          if (this.sessionId) {
+            this.promptManager.sessionManager.addAssistantMessage(this.sessionId, content);
+          }
+        });
+      }, 'LLM_CALL');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
 
@@ -197,7 +275,7 @@ export class LLMClient {
   }
 
   /**
-   * 完成多轮对话调用
+   * 完成多轮对话调用（带自动重试）
    * @param messages - 消息数组
    * @returns LLM 响应对象
    */
@@ -205,25 +283,27 @@ export class LLMClient {
     messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>,
   ): Promise<LLMResponse> {
     try {
-      let response: Response;
+      return await this.withRetry(async () => {
+        let response: Response;
 
-      if (this.config.provider === 'openai' || this.config.provider === 'ollama' || this.config.provider === 'groq') {
-        response = await this.httpClient.callOpenAICompatibleChat(messages);
-      } else if (this.config.provider === 'anthropic') {
-        response = await this.httpClient.callAnthropicChat(messages);
-      } else {
-        throw new Error(`Unsupported provider: ${this.config.provider}`);
-      }
+        if (this.config.provider === 'openai' || this.config.provider === 'ollama' || this.config.provider === 'groq') {
+          response = await this.httpClient.callOpenAICompatibleChat(messages);
+        } else if (this.config.provider === 'anthropic') {
+          response = await this.httpClient.callAnthropicChat(messages);
+        } else {
+          throw new Error(`Unsupported provider: ${this.config.provider}`);
+        }
 
-      const data = await response.json();
-      this.auditHelper.securityAction(
-        'LLM_CHAT',
-        `${this.config.provider}/${this.config.model}`,
-        'COMPLETED',
-        this.sessionId || 'unknown',
-      );
+        const data = await response.json();
+        this.auditHelper.securityAction(
+          'LLM_CHAT',
+          `${this.config.provider}/${this.config.model}`,
+          'COMPLETED',
+          this.sessionId || 'unknown',
+        );
 
-      return this.httpClient.parseResponse(data);
+        return this.httpClient.parseResponse(data);
+      }, 'LLM_CHAT');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
 

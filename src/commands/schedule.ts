@@ -3,6 +3,11 @@ import { createScheduleManager } from '../workflow/scheduler.js';
 import type { InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
+/**
+ * 创建调度命令
+ * @param context - 基础设施上下文
+ * @returns Commander 命令实例
+ */
 export function createScheduleCmd(context: InfrastructureContext): Command {
   const logger = context.logger.getLogger('schedule');
 

@@ -388,6 +388,13 @@ export class SandboxManager {
 
 /**
  * 创建沙箱管理器实例
+ *
+ * SandboxManager 是沙箱模块的核心类，负责命令安全检测、
+ * 隔离策略选择、命令签名验证和沙箱化执行。
+ *
+ * @param config - 部分配置（与默认配置合并）
+ * @param deps - 依赖注入（audit 为必选）
+ * @returns SandboxManager 实例
  */
 export function createSandboxManager(
   config: Partial<SandboxConfig> | undefined,
@@ -404,7 +411,13 @@ export interface Sandbox {
 }
 
 /**
- * 创建沙箱实例
+ * 创建简易沙箱实例
+ *
+ * 提供轻量级的沙箱接口，内部使用 SandboxManager 进行命令危险性检测。
+ * 适用于不需要完整命令执行能力、仅需命令安全判断的场景。
+ *
+ * @param mode - 沙箱模式，默认 'RELAXED'
+ * @returns 沙箱实例，包含 shouldBlock、isDangerous、setMode 方法
  */
 export function createSandbox(mode: SandboxMode = 'RELAXED'): Sandbox {
   const manager = createSandboxManager({ mode }, { audit: createNoopAuditHelper() });

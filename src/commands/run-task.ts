@@ -69,6 +69,10 @@ function getContext() {
   return boundContext;
 }
 
+/**
+ * 绑定运行任务的基础设施上下文
+ * @param context - 基础设施上下文实例
+ */
 export function bindRunTaskContext(context: InfrastructureContext): void {
   boundContext = context;
 }
@@ -475,6 +479,14 @@ function buildAgentChildEnv(
   };
 }
 
+/**
+ * 构建默认的任务提示词
+ * @param taskId - 任务 ID
+ * @param taskLabel - 任务标签
+ * @param docPath - 文档路径
+ * @param contract - 任务合同
+ * @returns 构建好的提示词字符串
+ */
 export function buildDefaultPrompt(taskId: string, taskLabel: string, docPath: string, contract: AgentTaskContract): string {
   const shouldEnforceMinimalChange = !contract.docExcerpt || contract.boundaryConfidence === 'none' || contract.boundaryConfidence === 'low';
   const docExcerptText = contract.docExcerpt || '(未提供文档片段)';
@@ -555,6 +567,11 @@ async function readGitDiffSnapshot(): Promise<GitDiffSnapshot | null> {
   }
 }
 
+/**
+ * 收集 Git 变更信息
+ * @param before - 任务执行前的 Git 快照
+ * @returns Git 变更信息，如果无法获取则返回 null
+ */
 export async function collectGitChanges(before?: GitDiffSnapshot | null): Promise<GitChangeInfo | null> {
   const after = await readGitDiffSnapshot();
   if (!after) return null;
@@ -895,6 +912,12 @@ function truncateVerificationSummary(value: string | undefined): string | undefi
   return `${value.slice(0, VERIFICATION_SUMMARY_MAX_LENGTH - suffix.length)}${suffix}`;
 }
 
+/**
+ * 分割命令行参数字符串
+ * @param cmd - 命令行参数字符串
+ * @returns 分割后的参数数组
+ * @throws VectaHubError 如果引号未闭合
+ */
 export function splitCommandArgs(cmd: string): string[] {
   if (/[^\s]/.test(cmd) && (cmd.match(/(?<!\\)"/g)?.length ?? 0) % 2 !== 0) {
     throw new VectaHubError('Unclosed double quote in command', ErrorType.RUNTIME);
@@ -985,6 +1008,12 @@ function getRunTaskFailureLogRetentionCutoff(now: number = Date.now()): number {
   return now - (RUN_TASK_FAILURE_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000);
 }
 
+/**
+ * 清理运行任务日志文件
+ * @param options - 清理选项
+ * @param options.olderThanMs - 清理指定毫秒数之前的日志
+ * @returns 清理结果
+ */
 export async function cleanRunTaskLogs(options?: { olderThanMs?: number }): Promise<RunTaskLogCleanupResult> {
   let removedFiles = 0;
 
@@ -1518,6 +1547,13 @@ function validateGeneratedInvocation(tool: string, generated: GeneratedCommand):
   return { valid: true };
 }
 
+/**
+ * 运行验证命令
+ * @param validationCommands - 验证命令列表
+ * @param cwd - 工作目录
+ * @param context - 基础设施上下文（可选）
+ * @returns 验证结果
+ */
 export async function runVerificationCommands(
   validationCommands: string[],
   cwd: string,
@@ -1605,6 +1641,24 @@ export async function runVerificationCommands(
   return { ok: overallOk, commands: results, isSystemError: hasSystemError };
 }
 
+function copyOptionalFields(
+  source: RunTaskResult,
+  target: RunTaskJsonResult,
+  fields: (keyof RunTaskResult & keyof RunTaskJsonResult)[]
+): void {
+  for (const field of fields) {
+    const value = source[field];
+    if (value !== undefined && value !== null) {
+      (target as unknown as Record<string, unknown>)[field as string] = value;
+    }
+  }
+}
+
+/**
+ * 格式化运行任务结果为 JSON 格式
+ * @param result - 运行任务结果
+ * @returns 格式化后的 JSON 结果
+ */
 export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
   const displayOutput = buildUserVisibleSummary(result.output);
   const jsonResult: RunTaskJsonResult = {
@@ -1620,15 +1674,6 @@ export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
       message: result.error.message,
     };
   }
-  if (result.commandGenerationPath) {
-    jsonResult.commandGenerationPath = result.commandGenerationPath;
-  }
-  if (result.fallbackUsed !== undefined) {
-    jsonResult.fallbackUsed = result.fallbackUsed;
-  }
-  if (result.agentExecutionOutcome) {
-    jsonResult.agentExecutionOutcome = result.agentExecutionOutcome;
-  }
   if (result.gitChanges) {
     jsonResult.gitChanges = {
       shortStat: result.gitChanges.shortStat,
@@ -1636,39 +1681,22 @@ export function formatRunTaskJson(result: RunTaskResult): RunTaskJsonResult {
       diffStat: result.gitChanges.diffStat,
     };
   }
-  if (result.agentTaskContract) {
-    jsonResult.agentTaskContract = result.agentTaskContract;
-  }
-  if (result.verification) {
-    jsonResult.verification = result.verification;
-  }
-  if (result.riskAssessment) {
-    jsonResult.riskAssessment = result.riskAssessment;
-  }
-  if (result.usage) {
-    jsonResult.usage = result.usage;
-  }
-  if (result.failureKind) {
-    jsonResult.failureKind = result.failureKind;
-  }
-  if (result.unclosedExecution !== undefined) {
-    jsonResult.unclosedExecution = result.unclosedExecution;
-  }
-  if (result.completionSignal) {
-    jsonResult.completionSignal = result.completionSignal;
-  }
-  if (result.recoveryDecision) {
-    jsonResult.recoveryDecision = result.recoveryDecision;
-  }
-  if (result.reviewReport) {
-    jsonResult.reviewReport = result.reviewReport;
-  }
-  if (result.warning) {
-    jsonResult.warning = result.warning;
-  }
-  if (result.llmReview) {
-    jsonResult.llmReview = result.llmReview;
-  }
+  copyOptionalFields(result, jsonResult, [
+    'commandGenerationPath',
+    'fallbackUsed',
+    'agentExecutionOutcome',
+    'agentTaskContract',
+    'verification',
+    'riskAssessment',
+    'usage',
+    'failureKind',
+    'unclosedExecution',
+    'completionSignal',
+    'recoveryDecision',
+    'reviewReport',
+    'warning',
+    'llmReview',
+  ]);
 
   return jsonResult;
 }
@@ -1843,6 +1871,12 @@ function formatRunTaskSuccessHumanOutput(result: RunTaskResult): string {
   return lines.join('\n');
 }
 
+/**
+ * 格式化运行任务结果为人类可读的输出
+ * @param result - 运行任务结果
+ * @param options - 格式化选项
+ * @returns 格式化后的字符串
+ */
 export function formatRunTaskHumanOutput(result: RunTaskResult, options: RunTaskHumanOutputOptions = {}): string {
   if (options.mode === 'dry-run') {
     return result.output || 'dry-run 预览已生成，但没有可展示内容。';
@@ -1885,6 +1919,12 @@ export function formatRunTaskHumanOutput(result: RunTaskResult, options: RunTask
   return formatRunTaskSuccessHumanOutput(result);
 }
 
+/**
+ * 构建任务运行时特性输入
+ * @param contract - 任务合同
+ * @param contractSummary - 任务合同摘要
+ * @returns 任务运行时特性输入
+ */
 export function buildTaskRuntimeFeatures(
   contract: AgentTaskContract,
   contractSummary: AgentTaskContractSummary,
@@ -1939,6 +1979,12 @@ const HARDCODED_DEFAULTS = {
   AGENT_MAX_WALL_CLOCK_MS: 900000,
 } as const;
 
+/**
+ * 构建运行时解析的配置
+ * @param estimate - 任务运行时估算
+ * @param getEnvNumber - 获取环境变量数值的函数
+ * @returns 运行时解析的配置
+ */
 export function buildRuntimeResolvedConfig(
   estimate: TaskRuntimeEstimate | undefined,
   getEnvNumber: (name: string, defaultValue?: number) => number | undefined,
@@ -1962,6 +2008,11 @@ export function buildRuntimeResolvedConfig(
   };
 }
 
+/**
+ * 格式化预检估算摘要
+ * @param estimate - 任务运行时估算
+ * @returns 格式化后的摘要行数组
+ */
 export function formatPreflightEstimateSummary(estimate: TaskRuntimeEstimate): string[] {
   const minutes = Math.floor(estimate.expectedDurationMs / 60_000);
   const seconds = Math.round((estimate.expectedDurationMs % 60_000) / 1000);
@@ -2041,6 +2092,18 @@ function mapFeedbackToCode(answer: string, verdict: string): ExecutionReviewReco
   return verdict === 'fail' ? 'disagree' : 'agree';
 }
 
+/**
+ * 运行任务
+ * @param options - 任务选项
+ * @param options.tool - 工具名称（可选）
+ * @param options.taskId - 任务 ID
+ * @param options.taskLabel - 任务标签（可选）
+ * @param options.doc - 文档路径（可选）
+ * @param options.dryRun - 是否为干运行模式（可选）
+ * @param options.contractPreview - 是否为合同预览模式（可选）
+ * @param options.deferTraceCloseout - 是否延迟跟踪关闭（可选）
+ * @returns 运行任务结果
+ */
 export async function runTask(options: {
   tool?: string;
   taskId: string;

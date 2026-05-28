@@ -7,6 +7,12 @@ import {
   type CommandTemplateConfig,
 } from './command-config.js';
 
+/**
+ * 将命令参数中的 ${key} 占位符替换为实际值
+ * @param args - 包含占位符的参数数组
+ * @param params - 参数键值对
+ * @returns 替换后的参数数组，空字符串参数会被过滤
+ */
 function substituteArgs(args: string[], params: Record<string, string>): string[] {
   return args.map(arg => {
     return arg.replace(/\$\{(\w+)\}/g, (_, key) => {
@@ -15,6 +21,13 @@ function substituteArgs(args: string[], params: Record<string, string>): string[
   }).filter(arg => arg !== '');
 }
 
+/**
+ * 使用参数解析命令模板
+ * @param template - 命令模板配置
+ * @param params - 参数键值对
+ * @param detectedCLI - 可选的检测到的 CLI 工具
+ * @returns 解析后的命令对象
+ */
 function resolveTemplate(
   template: CommandTemplateConfig,
   params: Record<string, string>,
@@ -103,11 +116,31 @@ function resolveIntentFromConfig(
   return null;
 }
 
+/**
+ * 命令合成器接口，负责将任务类型和参数转换为可执行的 CLI 命令
+ */
 export interface CommandSynthesizer {
+  /**
+   * 合成 CLI 命令
+   * @param taskType - 任务类型
+   * @param params - 参数键值对
+   * @param detectedCLI - 可选的检测到的 CLI 工具
+   * @returns 包含 cli 和 args 的命令对象
+   */
   synthesize(taskType: TaskType, params: Record<string, string | string[] | undefined>, detectedCLI?: string): { cli: string; args: string[] };
+  /**
+   * 注册运行时命令模板
+   * @param taskType - 任务类型
+   * @param template - 命令模板对象
+   */
   registerTemplate(taskType: TaskType, template: { synthesize: (params: Record<string, string | string[] | undefined>, detectedCLI?: string) => { cli: string; args: string[] } }): void;
 }
 
+/**
+ * 创建命令合成器实例
+ * @param commandConfig - 可选的命令配置，未提供时从默认路径加载
+ * @returns 命令合成器实例
+ */
 export function createCommandSynthesizer(commandConfig?: CommandConfig): CommandSynthesizer {
   const config = commandConfig || loadCommandConfig(
     `${process.cwd()}/config/commands/templates.yaml`
@@ -287,6 +320,21 @@ function resolveGitWorkflow(
   ];
 }
 
+/**
+ * 从意图和实体创建可执行的任务对象
+ *
+ * 按以下优先级解析命令：
+ * 1. GIT_WORKFLOW 意图使用专门的 Git 工作流解析
+ * 2. 从 intent-config 配置中解析
+ * 3. 使用 QUERY_EXEC 作为降级方案
+ *
+ * @param intent - 意图名称
+ * @param entities - 提取的实体
+ * @param originalInput - 用户原始输入
+ * @param intentConfig - 可选的意图配置
+ * @param commandConfig - 可选的命令配置
+ * @returns 任务对象
+ */
 export function createTaskFromIntent(
   intent: string,
   entities: Record<EntityType, string[]>,

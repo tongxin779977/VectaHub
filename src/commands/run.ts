@@ -65,6 +65,36 @@ function restoreEnvValue(context: InfrastructureContext, name: string, previousV
   }
 }
 
+function convertDateToString(value: unknown): string {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  return String(value);
+}
+
+interface WorkflowExecutionRecord {
+  executionId: string;
+  workflowId: string;
+  workflowName: string;
+  status: string;
+  mode: string;
+  startedAt: Date | string;
+  endedAt?: Date | string;
+  duration?: number;
+  steps: unknown[];
+  warnings: string[];
+  logs: string[];
+}
+
+function normalizeExecutionRecord(record: WorkflowExecutionRecord, metadata: ExecutionMetadata): ExecRecord {
+  return {
+    ...record,
+    startedAt: convertDateToString(record.startedAt),
+    finishedAt: record.endedAt ? convertDateToString(record.endedAt) : undefined,
+    metadata,
+  } as unknown as ExecRecord;
+}
+
 function isValidVariableValue(valueParts: string[]): boolean {
   return valueParts.length > 0 && valueParts.join('=').trim() !== '';
 }
@@ -93,6 +123,11 @@ interface RunCommandOptions {
   variable?: string[];
 }
 
+/**
+ * 创建运行命令
+ * @param context - 基础设施上下文
+ * @returns Commander 命令实例
+ */
 export function createRunCmd(context: InfrastructureContext): Command {
   const logger = context.logger.getLogger('run');
   const output = createRunCommandOutput();
@@ -365,13 +400,8 @@ export function createRunCmd(context: InfrastructureContext): Command {
           sourceFile: options.file ? context.environment.resolvePath(options.file) : undefined,
           cwd: context.environment.getCwd(),
         };
-        const recordToSave: Record<string, unknown> = { ...result };
-        recordToSave.startedAt = (recordToSave.startedAt as Date).toISOString();
-        if (recordToSave.endedAt) {
-          recordToSave.endedAt = (recordToSave.endedAt as Date).toISOString();
-        }
-        recordToSave.metadata = metadata as unknown as Record<string, unknown>;
-        await recordManager.save(recordToSave as unknown as ExecRecord);
+        const recordToSave = normalizeExecutionRecord(result, metadata);
+        await recordManager.save(recordToSave);
 
         if (options.json) {
           output.json({
@@ -448,6 +478,12 @@ export function createRunCmd(context: InfrastructureContext): Command {
 
 const boundRunCmd: Command | null = null;
 
+/**
+ * 获取已绑定的运行命令（已弃用）
+ * @returns 已绑定的运行命令
+ * @throws Error 如果命令上下文未绑定
+ * @deprecated 请使用 createRunCmd(context) 代替
+ */
 export function getRunCmd(): Command {
   if (!boundRunCmd) {
     throw new Error('Run command context is not bound. Use createRunCmd(context) instead.');

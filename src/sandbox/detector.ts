@@ -60,6 +60,12 @@ export interface Detector {
 
 /**
  * 创建命令检测器实例
+ *
+ * 结合 SecurityManager（RBAC 规则）和内置危险正则模式，
+ * 对命令字符串进行多层安全检测。
+ * 支持复合命令拆分（管道、&&、||、;）以防止绕过。
+ *
+ * @returns 命令检测器实例，包含 detect、isDangerous、getDangerLevel 方法
  */
 export function createDetector(): Detector {
   let securityManager: ReturnType<typeof getSecurityManager> | null = null;

@@ -41,6 +41,11 @@ function getSecurityManagerOrThrow(action: string) {
   }
 }
 
+/**
+ * 创建安全命令
+ * @param context - 基础设施上下文
+ * @returns Commander 命令实例
+ */
 export function createSecurityCmd(context: InfrastructureContext): Command {
   const auditHelper = context.audit.getHelper();
   const sessionId = context.audit.getLogger().getSessionId();
