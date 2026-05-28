@@ -6,6 +6,7 @@ import type {
   SecurityDecisionType,
   SecurityRiskLevel
 } from '../../types/security.js';
+import { mapSeverityToDecision } from './shared.js';
 import { createSemanticDetector } from '../../sandbox/semantic-detector.js';
 
 /**
@@ -26,28 +27,10 @@ export class SandboxSemanticEvaluator implements SecurityEvaluator {
     let riskLevel: SecurityRiskLevel = 'none';
 
     if (result.detected) {
-      // 映射语义检测的严重程度到决策和风险等级
-      switch (result.severity) {
-        case 'critical':
-          decision = 'BLOCKED';
-          riskLevel = 'critical';
-          break;
-        case 'high':
-          decision = 'REQUIRES_CONFIRMATION';
-          riskLevel = 'high';
-          break;
-        case 'medium':
-          decision = 'PASSED';
-          riskLevel = 'medium';
-          break;
-        case 'low':
-          decision = 'PASSED';
-          riskLevel = 'low';
-          break;
-        default:
-          decision = 'PASSED';
-          riskLevel = 'none';
-      }
+      // 使用共享函数映射语义检测的严重程度到决策和风险等级
+      const mapped = mapSeverityToDecision(result.severity);
+      decision = mapped.decision;
+      riskLevel = mapped.riskLevel;
     }
 
     return {

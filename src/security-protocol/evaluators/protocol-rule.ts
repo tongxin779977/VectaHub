@@ -3,10 +3,10 @@ import type {
   CommandIntention, 
   SecurityContext, 
   SecurityDecision,
-  SecurityDecisionType,
   SecurityRiskLevel
 } from '../../types/security.js';
 import { getSecurityManager } from '../manager.js';
+import { mapSeverityToDecision } from './shared.js';
 
 /**
  * 安全协议规则评估器
@@ -27,32 +27,13 @@ export class ProtocolRuleEvaluator implements SecurityEvaluator {
       throw new Error('Security protocol rule evaluation failed', { cause: error });
     }
 
-    let decision: SecurityDecisionType = 'PASSED';
+    let decision = 'PASSED' as SecurityDecision['decision'];
     let riskLevel: SecurityRiskLevel = 'none';
 
     if (result.isDangerous) {
-      // 映射严重程度到决策和风险等级
-      switch (result.severity) {
-        case 'critical':
-          decision = 'BLOCKED';
-          riskLevel = 'critical';
-          break;
-        case 'high':
-          decision = 'REQUIRES_CONFIRMATION';
-          riskLevel = 'high';
-          break;
-        case 'medium':
-          decision = 'PASSED';
-          riskLevel = 'medium';
-          break;
-        case 'low':
-          decision = 'PASSED';
-          riskLevel = 'low';
-          break;
-        default:
-          decision = 'PASSED';
-          riskLevel = 'none';
-      }
+      const mapped = mapSeverityToDecision(result.severity);
+      decision = mapped.decision;
+      riskLevel = mapped.riskLevel;
     }
 
     return {

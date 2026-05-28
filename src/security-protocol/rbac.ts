@@ -1,6 +1,7 @@
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'fs';
+import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { getVectaHubPath, getVectaHubHome } from '../infrastructure/paths/index.js';
 import { ShellTokenizer } from '../utils/shell-tokenizer.js';
+import { matchBlockedCommand } from './pattern-matcher.js';
 
 export type RoleName = 'developer' | 'ci-runner' | 'admin';
 
@@ -57,14 +58,10 @@ function getRbacFile(): string {
   return getVectaHubPath('rbac.json');
 }
 
-/**
- * Detect variable injection attempts that could bypass RBAC.
- * E.g., CMD="rm -rf /"; $CMD or alias rm='malicious'
- */
 const VARIABLE_INJECTION_PATTERNS = [
-  /\$\{?\w+\}?/,           // $VAR or ${VAR}
-  /`[^`]+`/,               // backtick command substitution
-  /\$\([^)]+\)/,           // $(command) substitution
+  /\$\{?\w+\}?/,
+  /`[^`]+`/,
+  /\$\([^)]+\)/,
 ];
 
 const ALIAS_PATTERNS = [
@@ -73,11 +70,9 @@ const ALIAS_PATTERNS = [
 ];
 
 function detectBypassAttempt(command: string): boolean {
-  // Check for variable injection
   for (const pattern of VARIABLE_INJECTION_PATTERNS) {
     if (pattern.test(command)) return true;
   }
-  // Check for alias manipulation
   for (const pattern of ALIAS_PATTERNS) {
     if (pattern.test(command.trim())) return true;
   }
@@ -89,7 +84,6 @@ function detectBypassAttempt(command: string): boolean {
  * and return individual sub-commands for checking.
  */
 function splitCompoundCommand(command: string): string[] {
-  // Split by ; && || | while respecting quotes
   const parts: string[] = [];
   let current = '';
   let inSingle = false;
@@ -112,7 +106,6 @@ function splitCompoundCommand(command: string): string[] {
     if (ch === "'") { inSingle = true; current += ch; continue; }
     if (ch === '"') { inDouble = true; current += ch; continue; }
 
-    // Check for shell separators
     if (ch === ';') {
       if (current.trim()) parts.push(current.trim());
       current = '';
@@ -121,13 +114,13 @@ function splitCompoundCommand(command: string): string[] {
     if (ch === '&' && command[i + 1] === '&') {
       if (current.trim()) parts.push(current.trim());
       current = '';
-      i++; // skip second &
+      i++;
       continue;
     }
     if (ch === '|' && command[i + 1] === '|') {
       if (current.trim()) parts.push(current.trim());
       current = '';
-      i++; // skip second |
+      i++;
       continue;
     }
     if (ch === '|') {
@@ -142,155 +135,18 @@ function splitCompoundCommand(command: string): string[] {
   return parts.filter(Boolean);
 }
 
-function matchBlockedCommand(command: string, blockedPattern: string): boolean {
-  const normalizedCommand = command.trim().toLowerCase();
-  const normalizedPattern = blockedPattern.trim().toLowerCase();
-
-  if (normalizedCommand === normalizedPattern) {
-    return true;
-  }
-
-  if (!normalizedPattern.includes('*') && !normalizedPattern.includes('?')) {
-    const commandParts = normalizedCommand.split(/\s+/);
-    const patternParts = normalizedPattern.split(/\s+/);
-
-    if (patternParts.length > commandParts.length) {
-      return false;
-    }
-
-    for (let i = 0; i < patternParts.length; i++) {
-      const patternPart = patternParts[i];
-      const commandPart = commandParts[i];
-
-      if (patternPart === '*') {
-        continue;
-      }
-
-      if (patternPart !== commandPart) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  const commandParts = normalizedCommand.split(/\s+/);
-  const patternParts = normalizedPattern.split(/\s+/);
-
-  if (patternParts.length > commandParts.length + 1) {
-    return false;
-  }
-
-  if (patternParts.length === 1) {
-    const onlyPattern = patternParts[0];
-
-    if (onlyPattern === '*') {
-      return true;
-    }
-
-    const isSuffixWildcard = onlyPattern.endsWith('*') && (onlyPattern.match(/\*/g)?.length ?? 0) === 1;
-    const isPrefixWildcard = onlyPattern.startsWith('*') && (onlyPattern.match(/\*/g)?.length ?? 0) === 1;
-
-    if (isSuffixWildcard && !isPrefixWildcard) {
-      return commandParts.some(part => part.startsWith(onlyPattern.slice(0, -1)));
-    }
-
-    if (isPrefixWildcard && !onlyPattern.endsWith('*')) {
-      return commandParts.some(part => part.endsWith(onlyPattern.slice(1)));
-    }
-
-    const escaped = onlyPattern
-      .replace(/[-/\\^$+().|[\]{}]/g, '\\$&')
-      .replace(/\*/g, '.*')
-      .replace(/\?/g, '.');
-
-    const regex = new RegExp(`^${escaped}$`);
-    return commandParts.some(part => regex.test(part));
-  }
-
-  let patternIndex = 0;
-  let commandIndex = 0;
-
-  while (patternIndex < patternParts.length && commandIndex < commandParts.length) {
-    const patternPart = patternParts[patternIndex];
-
-    if (patternPart === '*') {
-      patternIndex++;
-
-      if (patternIndex === patternParts.length) {
-        return true;
-      }
-
-      const remainingPatternParts = patternParts.slice(patternIndex);
-      const remainingCommandParts = commandParts.slice(commandIndex);
-
-      for (let start = 0; start <= remainingCommandParts.length - remainingPatternParts.length; start++) {
-        let matches = true;
-
-        for (let i = 0; i < remainingPatternParts.length; i++) {
-          const nextPattern = remainingPatternParts[i];
-          const nextCommand = remainingCommandParts[start + i];
-
-          if (nextPattern === '*') {
-            continue;
-          }
-
-          if (nextPattern.includes('*') || nextPattern.includes('?')) {
-            const escaped = nextPattern
-              .replace(/[-/\\^$+().|[\]{}]/g, '\\$&')
-              .replace(/\*/g, '.*')
-              .replace(/\?/g, '.');
-
-            if (!new RegExp(`^${escaped}$`).test(nextCommand)) {
-              matches = false;
-              break;
-            }
-          } else if (nextPattern !== nextCommand) {
-            matches = false;
-            break;
-          }
-        }
-
-        if (matches) {
-          return true;
-        }
-      }
-
-      return false;
-    }
-
-    const commandPart = commandParts[commandIndex];
-
-    if (patternPart === '?' || patternPart === commandPart) {
-      patternIndex++;
-      commandIndex++;
-      continue;
-    }
-
-    if (patternPart.includes('*') || patternPart.includes('?')) {
-      const escaped = patternPart
-        .replace(/[-/\\^$+().|[\]{}]/g, '\\$&')
-        .replace(/\*/g, '.*')
-        .replace(/\?/g, '.');
-
-      if (new RegExp(`^${escaped}$`).test(commandPart)) {
-        patternIndex++;
-        commandIndex++;
-        continue;
-      }
-    }
-
-    return false;
-  }
-
-  if (patternIndex < patternParts.length && patternParts.slice(patternIndex).every(part => part === '*')) {
-    return true;
-  }
-
-  return patternIndex === patternParts.length && commandIndex === commandParts.length;
-}
-
+/**
+ * Creates a Role-Based Access Control manager.
+ * Manages role definitions, permission checks, and configuration persistence.
+ * Supports compound command splitting, bypass detection, and wildcard pattern matching.
+ *
+ * @returns An RBACManager instance with role CRUD and execution permission checks
+ */
 export function createRBACManager(): RBACManager {
+  /**
+   * Loads role configuration from the RBAC config file.
+   * Falls back to default roles if the file is missing or malformed.
+   */
   function loadConfig(): RoleConfig[] {
     const rbacFile = getRbacFile();
     ensureRbacDir();
@@ -300,53 +156,71 @@ export function createRBACManager(): RBACManager {
     try {
       const raw = readFileSync(rbacFile, 'utf-8');
       return JSON.parse(raw) as RoleConfig[];
-    } catch {
+    } catch (error) {
+      console.warn('[RBAC] Failed to load config, falling back to defaults:', error instanceof Error ? error.message : String(error));
       return DEFAULT_ROLES;
     }
   }
 
+  /**
+   * Persists the given role configuration to disk.
+   *
+   * @param roles - The role configuration array to save
+   */
   function saveConfig(roles: RoleConfig[]): void {
     const rbacFile = getRbacFile();
     ensureRbacDir();
     writeFileSync(rbacFile, JSON.stringify(roles, null, 2), 'utf-8');
   }
 
+  /**
+   * Returns the configuration for a specific role.
+   *
+   * @param name - The role name to look up
+   * @returns The role configuration, falling back to defaults if not found
+   */
   function getRole(name: RoleName): RoleConfig {
     const roles = loadConfig();
     const role = roles.find((r) => r.name === name);
     return role || DEFAULT_ROLES.find((r) => r.name === name)!;
   }
 
+  /** Returns all configured roles */
   function getAllRoles(): RoleConfig[] {
     return loadConfig();
   }
 
+  /**
+   * Checks whether a role is permitted to execute a given command.
+   * Performs bypass detection, compound command splitting, blocked command matching,
+   * and allowed tool verification.
+   *
+   * @param role - The role to check permissions for
+   * @param command - The command string to evaluate
+   * @param _tool - Optional tool name (unused, kept for interface compatibility)
+   * @returns true if the command is allowed, false if blocked
+   */
   function canExecute(role: RoleName, command: string, _tool?: string): boolean {
     const roleConfig = getRole(role);
 
-    // 0. Block variable injection and alias bypass attempts
     if (detectBypassAttempt(command)) {
       return false;
     }
 
-    // 1. Split compound commands by shell separators and check each part
     const compoundParts = splitCompoundCommand(command);
 
     for (const part of compoundParts) {
-      // Also tokenize via ShellTokenizer for deeper analysis
       const subCommands = ShellTokenizer.tokenize(part);
 
       for (const subCmd of subCommands) {
         const normalizedSubCmd = subCmd.raw.toLowerCase();
 
-        // Check blocked commands
         for (const blocked of roleConfig.blocked_commands) {
           if (matchBlockedCommand(normalizedSubCmd, blocked)) {
             return false;
           }
         }
 
-        // Check allowed tools
         if (roleConfig.allowed_tools[0] !== '*') {
           const cmdCli = subCmd.cli.toLowerCase();
           const isAllowed = roleConfig.allowed_tools.some(t => t.toLowerCase() === cmdCli);
@@ -361,10 +235,20 @@ export function createRBACManager(): RBACManager {
     return true;
   }
 
+  /**
+   * Returns the maximum timeout (in ms) for a given role.
+   *
+   * @param role - The role name
+   */
   function getMaxTimeout(role: RoleName): number {
     return getRole(role).max_timeout;
   }
 
+  /**
+   * Returns the sandbox mode for a given role.
+   *
+   * @param role - The role name
+   */
   function getSandboxMode(role: RoleName): 'STRICT' | 'RELAXED' | 'CONSENSUS' {
     return getRole(role).sandbox_mode;
   }
