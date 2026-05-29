@@ -1,6 +1,6 @@
 # Sandbox 增强功能设计
 
-> Document Status: Current Implementation / Architecture Design
+> Document Status: Current Implementation / Target Design / Migration Contract
 > Authority: Sandbox 模块的增强功能设计文档，包括资源追踪、配置验证、生命周期钩子、验证规则引擎、沙箱池管理和监控告警。
 
 ## 概述

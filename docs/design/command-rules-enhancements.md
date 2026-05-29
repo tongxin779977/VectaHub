@@ -1,6 +1,6 @@
 # Command Rules 增强功能设计
 
-> Document Status: Current Implementation / Architecture Design
+> Document Status: Current Implementation / Target Design / Migration Contract
 > Authority: Command Rules 模块的增强功能设计文档，包括 Schema 验证、Happy Path 测试覆盖和 JSDoc 文档完善。
 
 ## 概述

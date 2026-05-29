@@ -114,10 +114,10 @@ node dist/cli.js --version
 
 修改 CLI 命令时必须同步：
 
-- [CLI 命令面规格](./specs/cli-command-surface.md)
+- [CLI 命令面规格](./contracts/cli-command-surface.md)
 - 相关用户文档，例如 [CLI 使用手册](./usage.md)
-- 如果修改数据落点，同步 [配置与数据存储规格](./specs/config-data-storage.md)
-- 如果修改 workflow 执行语义，同步 [工作流生命周期规格](./specs/workflow-lifecycle.md)
+- 如果修改数据落点，同步 [配置与数据存储规格](./contracts/config-data-storage.md)
+- 如果修改 workflow 执行语义，同步 [工作流生命周期规格](./contracts/workflow-lifecycle.md)
 
 机器调用路径必须明确是否支持 `--json`，并保证 stdout 不被人类日志污染。
 
@@ -125,12 +125,12 @@ node dist/cli.js --version
 
 涉及 `run-task`、文档任务状态、trace、安全、验证或恢复时，先阅读：
 
-- [Run-Task 执行合同](./specs/run-task-execution-contract.md)
-- [文档任务状态机规格](./specs/doc-task-state-machine.md)
-- [Trace 执行规格](./specs/trace-execution.md)
-- [安全与权限闭环规格](./specs/security-permission-loop.md)
-- [任务验证闭环规格](./specs/verification-loop.md)
-- [恢复闭环规格](./specs/recovery-loop.md)
+- [Run-Task 执行合同](./contracts/run-task-execution-contract.md)
+- [文档任务状态机规格](./contracts/doc-task-state-machine.md)
+- [Trace 执行规格](./contracts/trace-execution.md)
+- [安全与权限闭环规格](./contracts/security-permission-loop.md)
+- [任务验证闭环规格](./contracts/verification-loop.md)
+- [恢复闭环规格](./contracts/recovery-loop.md)
 
 ## 开发完成前检查
 

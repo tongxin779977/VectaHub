@@ -276,7 +276,7 @@ VectaHub CLI Core
 关键实现：
 
 - [src/commands/export.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/commands/export.ts:1)
-- [docs/specs/service-import-export.md](../specs/service-import-export.md)
+- [docs/contracts/service-import-export.md](../contracts/service-import-export.md)
 
 ### mode switching
 

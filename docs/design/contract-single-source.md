@@ -79,5 +79,5 @@ npm run typecheck
 
 ## 相关文档
 
-- [Agent Worker 合同规格](../specs/agent-worker-contract.md)
+- [Agent Worker 合同规格](../contracts/agent-worker-contract.md)
 - [插件/CLI 边界设计](./plugin-cli-boundary.md)

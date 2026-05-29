@@ -2,7 +2,7 @@
 
 > Document Status: Target Architecture / Migration Contract
 > Authority: 文档处理能力的架构设计入口。当前实现事实仍以 `parse-doc`、`run-task`、Agent Worker 合同和源码为准。
-> Related: [Capability Reference](../capabilities-reference.md), [Agent 执行系统](../agent-execution.md), [Agent Worker 合同规格](../specs/agent-worker-contract.md)
+> Related: [Capability Reference](../capabilities-reference.md), [Agent 执行系统](../agent-execution.md), [Agent Worker 合同规格](../contracts/agent-worker-contract.md)
 
 ## Problem
 

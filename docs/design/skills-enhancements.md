@@ -1,6 +1,6 @@
 # Skills 增强功能设计
 
-> Document Status: Current Implementation / Architecture Design
+> Document Status: Current Implementation / Target Design / Migration Contract
 > Authority: Skills 模块的增强功能设计文档，包括版本管理、发现机制、执行沙箱、生命周期管理和集中化管理。
 
 ## 概述

@@ -29,5 +29,5 @@ vectahub trace show <traceId> --json
 
 ## 相关文档
 
-- [Trace 执行规格](../specs/trace-execution.md)
+- [Trace 执行规格](../contracts/trace-execution.md)
 - [恢复操作流程](./recovery-workflow.md)

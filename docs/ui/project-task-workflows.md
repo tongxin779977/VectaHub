@@ -82,4 +82,4 @@ vectahub run -f sys:process-diagnostic-queue --mode relaxed --json
 ## 相关文档
 
 - [VS Code 插件 UI](./vscode-extension.md)
-- [配置与数据存储规格](../specs/config-data-storage.md)
+- [配置与数据存储规格](../contracts/config-data-storage.md)

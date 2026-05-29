@@ -2,11 +2,11 @@
 
 > Document Status: Target Design / Migration Contract
 > Authority: Design direction for Agent CLI runtime, generic rendering, prompt context, and migration sequencing.
-> Traceability: See `../specs/implementation-traceability.md` before treating registry, renderer, or LLM context behavior as implemented.
+> Traceability: See `../contracts/implementation-traceability.md` before treating registry, renderer, or LLM context behavior as implemented.
 
 ## 背景
 
-`run-task` 的完整执行合同、`dry-run` 权威语义、完成边界、Agent execution mode 和 LLM 调用协议边界，以 [Run-Task 执行合同规格](../specs/run-task-execution-contract.md) 为准。本文只描述 Agent CLI runtime、调用渲染和提示词上下文的设计方向与迁移方案。
+`run-task` 的完整执行合同、`dry-run` 权威语义、完成边界、Agent execution mode 和 LLM 调用协议边界，以 [Run-Task 执行合同规格](../contracts/run-task-execution-contract.md) 为准。本文只描述 Agent CLI runtime、调用渲染和提示词上下文的设计方向与迁移方案。
 
 当前 `run-task` 已具备合同构建、trace、安全检查、Agent 执行、验证和恢复链路，但外部 Agent CLI 接入仍存在三个结构性问题：
 
@@ -552,5 +552,5 @@ preflight 必须在 runtime bootstrap 之后执行，否则“可调用”结论
 - [Agent 执行系统设计](./agent-execution-system.md)
 - [合同单一事实源设计](./contract-single-source.md)
 - [插件与 CLI 边界设计](./plugin-cli-boundary.md)
-- [Agent Worker 合同规格](../specs/agent-worker-contract.md)
-- [CLI 命令面规格](../specs/cli-command-surface.md)
+- [Agent Worker 合同规格](../contracts/agent-worker-contract.md)
+- [CLI 命令面规格](../contracts/cli-command-surface.md)

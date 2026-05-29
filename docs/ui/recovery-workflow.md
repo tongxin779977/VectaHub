@@ -39,4 +39,4 @@
 ## 相关文档
 
 - [恢复模型设计](../design/recovery-model.md)
-- [恢复闭环规格](../specs/recovery-loop.md)
+- [恢复闭环规格](../contracts/recovery-loop.md)

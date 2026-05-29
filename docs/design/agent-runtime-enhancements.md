@@ -1,6 +1,6 @@
 # Agent Runtime 增强功能设计
 
-> Document Status: Current Implementation / Architecture Design
+> Document Status: Current Implementation / Target Design / Migration Contract
 > Authority: Agent Runtime 模块的增强功能设计文档，包括超时重试机制、缓存机制、配置验证和事件通知。
 
 ## 概述
@@ -451,5 +451,5 @@ const registrar = new ProviderRegistrar({ maxConcurrent: 100 });
 
 - [Agent CLI 注册与 Runtime 架构设计](./agent-cli-runtime-architecture.md)
 - [Agent 执行系统](../agent-execution.md)
-- [Agent Worker 合同](../specs/agent-worker-contract.md)
+- [Agent Worker 合同](../contracts/agent-worker-contract.md)
 - [Agent 操作规范](../agent-operating-guide.md)

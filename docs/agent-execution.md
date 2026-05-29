@@ -1,7 +1,7 @@
 # Agent 执行系统
 
 > Document Status: Current Reference / Partial Implementation Summary
-> Authority: Execution-system overview for document-task and Agent-run flows. Exact execution behavior belongs to [Run-Task 执行合同规格](./specs/run-task-execution-contract.md) and current code.
+> Authority: Execution-system overview for document-task and Agent-run flows. Exact execution behavior belongs to [Run-Task 执行合同规格](./contracts/run-task-execution-contract.md) and current code.
 > Recommended Read Order: [Capability Map](./capabilities.md) -> [Capability Reference](./capabilities-reference.md) -> 本文 -> 相关 specs
 
 ## 核心模型
@@ -15,7 +15,7 @@ VectaHub = Orchestrator
 
 Agent 负责执行边界清楚的小任务。VectaHub 负责把任务拆解成合同，控制执行生命周期，记录状态和 trace，执行安全评估，运行验证命令，并在失败后提供恢复路径。
 
-`run-task` 的完整执行语义以 [Run-Task 执行合同规格](./specs/run-task-execution-contract.md) 为准；本文只保留执行系统层面的总览。
+`run-task` 的完整执行语义以 [Run-Task 执行合同规格](./contracts/run-task-execution-contract.md) 为准；本文只保留执行系统层面的总览。
 
 如果 Agent 已经启动，但在其内部本地命令层被环境阻断，VectaHub 必须先把这类问题收敛为系统类失败，而不是误把它推进到验证阶段。
 
@@ -205,13 +205,13 @@ hash 或 digest 不可用时必须保守处理，不能用 guessed digest 误判
 
 ## 关键规格
 
-- [文档任务状态机规格](./specs/doc-task-state-machine.md)
-- [Run-Task 执行合同规格](./specs/run-task-execution-contract.md)
-- [Agent Worker 合同规格](./specs/agent-worker-contract.md)
+- [文档任务状态机规格](./contracts/doc-task-state-machine.md)
+- [Run-Task 执行合同规格](./contracts/run-task-execution-contract.md)
+- [Agent Worker 合同规格](./contracts/agent-worker-contract.md)
 - [Agent CLI 注册与 Runtime 架构设计](./design/agent-cli-runtime-architecture.md)
 - [安全、Trace、执行记录与恢复架构设计](./design/safety-trace-recovery-architecture.md)
-- [Trace 执行规格](./specs/trace-execution.md)
-- [任务验证闭环规格](./specs/verification-loop.md)
-- [安全与权限闭环规格](./specs/security-permission-loop.md)
-- [性能与资源预算规格](./specs/performance-budget.md)
-- [恢复闭环规格](./specs/recovery-loop.md)
+- [Trace 执行规格](./contracts/trace-execution.md)
+- [任务验证闭环规格](./contracts/verification-loop.md)
+- [安全与权限闭环规格](./contracts/security-permission-loop.md)
+- [性能与资源预算规格](./contracts/performance-budget.md)
+- [恢复闭环规格](./contracts/recovery-loop.md)

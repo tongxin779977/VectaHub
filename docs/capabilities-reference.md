@@ -227,8 +227,8 @@ vectahub run-task --tool codex --task-id T1 --task-label "Add tests" --doc ./doc
 关键文件：
 
 - [src/commands/run-task.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/commands/run-task.ts:2414)
-- [specs/run-task-execution-contract.md](./specs/run-task-execution-contract.md)
-- [specs/agent-worker-contract.md](./specs/agent-worker-contract.md)
+- [contracts/run-task-execution-contract.md](./contracts/run-task-execution-contract.md)
+- [contracts/agent-worker-contract.md](./contracts/agent-worker-contract.md)
 
 ### 文档任务运行记录与恢复
 
@@ -913,7 +913,7 @@ Plan / Workflow / Agent Step
 关键参考：
 
 - [design/local-service-integration-architecture.md](./design/local-service-integration-architecture.md)
-- [specs/service-import-export.md](./specs/service-import-export.md)
+- [contracts/service-import-export.md](./contracts/service-import-export.md)
 
 ## 旧文档的阅读建议
 

@@ -1,6 +1,6 @@
 # Commands 增强功能设计
 
-> Document Status: Current Implementation / Architecture Design
+> Document Status: Current Implementation / Target Design / Migration Contract
 > Authority: Commands 模块的增强功能设计文档，包括类型断言修复、运行时验证、可选字段复制工具、测试辅助工具和 JSDoc 文档规范。
 
 ## 概述
@@ -831,6 +831,6 @@ export async function runTask(options: any): Promise<any> {
 ## 相关文档
 
 - [Agent Runtime 增强功能设计](./agent-runtime-enhancements.md)
-- [Commands 模块架构设计](./commands-architecture.md)
+- [CLI Entry 增强功能设计](./cli-entry-enhancements.md)
 - [测试规范](../testing.md)
-- [TypeScript 类型安全指南](../typescript-safety.md)
+- [开发者指南](../development.md)

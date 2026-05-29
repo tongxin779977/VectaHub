@@ -9,12 +9,12 @@
 如果你是实现该阶段的 Agent，先按以下顺序阅读：
 
 1. 本文档：确定 P6 目标、边界、恢复决策模型、模块职责。
-2. `docs/specs/doc-task-state-machine.md`：看任务状态、失败分类、运行记录结构。
-3. `docs/specs/verification-loop.md`：看验证结果如何产生、`failed_test` 如何进入状态机。
-4. `docs/specs/security-permission-loop.md`：看什么修复动作必须拦截、确认、脱敏。
-5. `docs/specs/agent-worker-contract.md`：看任务边界、允许修改范围、验证命令来源。
-6. `docs/specs/trace-execution.md`：看新恢复 trace 如何关联原始 trace。
-7. `docs/specs/performance-budget.md`：看 P6 不能破坏的性能边界。
+2. `docs/contracts/doc-task-state-machine.md`：看任务状态、失败分类、运行记录结构。
+3. `docs/contracts/verification-loop.md`：看验证结果如何产生、`failed_test` 如何进入状态机。
+4. `docs/contracts/security-permission-loop.md`：看什么修复动作必须拦截、确认、脱敏。
+5. `docs/contracts/agent-worker-contract.md`：看任务边界、允许修改范围、验证命令来源。
+6. `docs/contracts/trace-execution.md`：看新恢复 trace 如何关联原始 trace。
+7. `docs/contracts/performance-budget.md`：看 P6 不能破坏的性能边界。
 
 开发时遇到问题，按下面索引处理：
 
@@ -606,7 +606,7 @@ mode = manual_only
 推荐新增：
 
 ```text
-docs/specs/recovery-loop.md
+docs/contracts/recovery-loop.md
 src/commands/recover-task.ts
 packages/vectahub-vscode-extension/src/project/docTaskRecovery.ts
 packages/vectahub-vscode-extension/src/commands/recoverDocTask.ts

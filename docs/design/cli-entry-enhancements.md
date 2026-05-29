@@ -1,6 +1,6 @@
 # CLI Entry 增强功能设计
 
-> Document Status: Current Implementation / Architecture Design
+> Document Status: Current Implementation / Target Design / Migration Contract
 > Authority: CLI Entry 模块的增强功能设计文档，包括命令缓存、异步加载优化、错误处理器、帮助生成器、版本检查器和配置验证器。
 
 ## 概述

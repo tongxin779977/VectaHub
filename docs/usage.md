@@ -1,6 +1,6 @@
 # CLI 使用手册
 
-本文面向 VectaHub CLI 用户，说明常见命令和推荐使用路径。命令面的完整实现规格见 [CLI 命令面规格](./specs/cli-command-surface.md)。
+本文面向 VectaHub CLI 用户，说明常见命令和推荐使用路径。命令面的完整实现规格见 [CLI 命令面规格](./contracts/cli-command-surface.md)。
 
 > Document Status: Current Reference
 > Authority: User-facing command guide. For exact field-level or migration-level behavior, read the linked specs and current command source.
@@ -137,7 +137,7 @@ vectahub doc-task-runs show <runId> --json
 vectahub recover-task --doc ./docs/task.md --trace-id <traceId> --json
 ```
 
-`run-task` 的完成边界、失败分类和确认语义以 [Run-Task 执行合同](./specs/run-task-execution-contract.md) 为准。
+`run-task` 的完成边界、失败分类和确认语义以 [Run-Task 执行合同](./contracts/run-task-execution-contract.md) 为准。
 
 ## 工具和安全
 

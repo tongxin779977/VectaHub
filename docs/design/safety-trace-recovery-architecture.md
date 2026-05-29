@@ -1,7 +1,7 @@
 # 安全、Trace、执行记录与恢复架构设计
 
 > Document Status: Design / Hardening Roadmap
-> Authority: 本文解释 VectaHub 如何统一安全确认、trace、执行记录、输出摘要、失败分类和恢复决策。`run-task` 的完整执行语义以 [Run-Task 执行合同规格](../specs/run-task-execution-contract.md) 为准。
+> Authority: 本文解释 VectaHub 如何统一安全确认、trace、执行记录、输出摘要、失败分类和恢复决策。`run-task` 的完整执行语义以 [Run-Task 执行合同规格](../contracts/run-task-execution-contract.md) 为准。
 
 ## 定位
 
@@ -285,7 +285,7 @@ user action trace
 
 ### Run-Task
 
-- 继续以 [Run-Task 执行合同规格](../specs/run-task-execution-contract.md) 为权威。
+- 继续以 [Run-Task 执行合同规格](../contracts/run-task-execution-contract.md) 为权威。
 - 不要在其他文档重复定义完整生命周期。
 - recovery 使用 `decideRecovery()` 这类确定性模型优先。
 

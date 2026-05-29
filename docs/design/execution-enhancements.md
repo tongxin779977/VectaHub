@@ -1,6 +1,6 @@
 # Execution 增强功能设计
 
-> Document Status: Current Implementation / Architecture Design
+> Document Status: Current Implementation / Target Design / Migration Contract
 > Authority: Execution 模块的增强功能设计文档，包括双类型断言修复、生命周期状态机、记录管理器改进、队列管理器增强、输出存储和工具函数。
 
 ## 概述
@@ -850,6 +850,6 @@ const dateStr = record.startedAt.toISOString(); // 可能是 string，没有 toI
 ## 相关文档
 
 - [Agent Runtime 增强功能设计](./agent-runtime-enhancements.md)
-- [Workflow Engine 架构](../workflow-architecture.md)
+- [Workflow Engine 架构设计](./workflow-engine-architecture.md)
 - [Agent 操作规范](../agent-operating-guide.md)
 - [Execution Module API](../../src/execution/index.ts)

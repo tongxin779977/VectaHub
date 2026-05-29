@@ -38,7 +38,7 @@ VectaHub 的近期目标不是继续堆叠新 Agent 能力，而是把已有执�
 
 - 设计文档必须解释方案和取舍，不记录执行流水账。
 - 规格文档必须定义字段、状态、边界和验收，不写产品口号。
-- 跨模块能力必须先进入 `docs/specs/implementation-traceability.md`，明确 `Current Implementation`、`Target Design` 或 `Migration Contract`。
+- 跨模块能力必须先进入 `docs/contracts/implementation-traceability.md`，明确 `Current Implementation`、`Target Design` 或 `Migration Contract`。
 - UI 文档必须基于 VS Code 插件当前视图、命令和配置；未实现能力必须标注为设计目标。
 - 旧 V1/V2 阶段材料不再作为事实来源。
 

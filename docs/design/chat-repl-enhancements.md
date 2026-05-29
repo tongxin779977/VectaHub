@@ -1,6 +1,6 @@
 # Chat REPL 增强功能设计
 
-> Document Status: Current Implementation / Architecture Design
+> Document Status: Current Implementation / Target Design / Migration Contract
 > Authority: Chat REPL 模块的增强功能设计文档，包括命令缓存、解析缓存、Shell 超时控制、意图缓存和会话持久化。
 
 ## 概述

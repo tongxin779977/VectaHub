@@ -60,5 +60,5 @@ latest run record
 
 ## 相关文档
 
-- [恢复闭环规格](../specs/recovery-loop.md)
+- [恢复闭环规格](../contracts/recovery-loop.md)
 - [恢复操作文档](../ui/recovery-workflow.md)

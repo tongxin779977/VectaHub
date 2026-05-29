@@ -55,5 +55,5 @@
 ## 相关文档
 
 - [VS Code 插件 UI 逻辑设计](../design/vscode-ui-logic.md)
-- [Agent Worker 合同规格](../specs/agent-worker-contract.md)
-- [文档任务状态机规格](../specs/doc-task-state-machine.md)
+- [Agent Worker 合同规格](../contracts/agent-worker-contract.md)
+- [文档任务状态机规格](../contracts/doc-task-state-machine.md)

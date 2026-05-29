@@ -1,6 +1,6 @@
 # Security Protocol 增强功能设计
 
-> Document Status: Current Implementation / Architecture Design
+> Document Status: Current Implementation / Target Design / Migration Contract
 > Authority: Security Protocol 模块的增强功能设计文档，包括 Manager 重构、配置存储、规则管理、命令检测、模式匹配和共享评估器。
 
 ## 概述

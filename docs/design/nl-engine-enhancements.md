@@ -1,6 +1,6 @@
 # NL Engine 增强功能设计
 
-> Document Status: Current Implementation / Architecture Design
+> Document Status: Current Implementation / Target Design / Migration Contract
 > Authority: NL Engine 模块的增强功能设计文档，包括请求队列、配置热重载、工作流检测缓存、工作流匹配优化、翻译记忆和能力发现。
 
 ## 概述

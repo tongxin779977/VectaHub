@@ -1,7 +1,7 @@
 # Agent CLI 注册与 Runtime 架构设计
 
 > Document Status: Design / Migration Contract
-> Authority: 本文解释 Agent CLI registry、runtime catalog、adapter、bootstrap、preflight 与 workflow `delegate` 的目标分层。`run-task` 的完整执行语义仍以 [Run-Task 执行合同规格](../specs/run-task-execution-contract.md) 为准。
+> Authority: 本文解释 Agent CLI registry、runtime catalog、adapter、bootstrap、preflight 与 workflow `delegate` 的目标分层。`run-task` 的完整执行语义仍以 [Run-Task 执行合同规格](../contracts/run-task-execution-contract.md) 为准。
 
 ## 定位
 

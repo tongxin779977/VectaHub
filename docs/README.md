@@ -2,7 +2,7 @@
 
 VectaHub 当前应被理解为一个**单用户、本地优先的 CLI 自动化内核**，重点在文档处理、结构化执行、可扩展 Agent CLI 注册和编排能力。
 
-这套文档正在围绕“当前真实能力面”重组。
+这套文档围绕“当前真实能力面”组织：入口文档负责导航，合同文档负责字段级约束，标准文档负责可复用治理规则，设计文档负责目标方案和迁移背景。
 
 ## 从这里开始
 
@@ -30,14 +30,15 @@ VectaHub 当前应被理解为一个**单用户、本地优先的 CLI 自动化�
 - [开发者指南](./development.md)
 - [测试指南](./testing.md)
 - [核心合同](./contracts.md)
+- [标准体系](./standards/)
 
 ### 面向文档任务和 Agent 执行链路
 
 - [Agent 执行系统](./agent-execution.md)
-- [Run-Task 执行合同](./specs/run-task-execution-contract.md)
-- [Agent Worker 合同](./specs/agent-worker-contract.md)
-- [恢复闭环](./specs/recovery-loop.md)
-- [验证闭环](./specs/verification-loop.md)
+- [Run-Task 执行合同](./contracts/run-task-execution-contract.md)
+- [Agent Worker 合同](./contracts/agent-worker-contract.md)
+- [恢复闭环](./contracts/recovery-loop.md)
+- [验证闭环](./contracts/verification-loop.md)
 
 ## 核心文档
 
@@ -47,7 +48,8 @@ VectaHub 当前应被理解为一个**单用户、本地优先的 CLI 自动化�
 | [capabilities-reference.md](./capabilities-reference.md) | 当前功能细节、边界和状态说明。 |
 | [usage.md](./usage.md) | 面向操作者的命令使用手册。 |
 | [architecture.md](./architecture.md) | 当前系统结构和仓库重点。 |
-| [contracts.md](./contracts.md) | specs 的合同入口索引。 |
+| [contracts.md](./contracts.md) | 合同入口索引，指向 `docs/contracts/` 下的权威规格。 |
+| [standards/](./standards/) | 可复用标准体系，包含评分、智能化、文档治理和验证门禁。 |
 
 ## 当前能力重心
 
@@ -64,9 +66,19 @@ VectaHub 当前应被理解为一个**单用户、本地优先的 CLI 自动化�
 ## 当前文档规则
 
 - 面向用户的说明，应该先从能力讲起，而不是从迁移理论讲起。
-- specs 仍然重要，但不应该成为新读者看到的第一批文档。
-- 一个功能可能只存在于代码里、只存在于 specs 里，或者两边都有，文档里必须写清楚。
+- contracts 仍然重要，但不应该成为新读者看到的第一批文档。
+- 一个功能可能只存在于代码里、只存在于 contracts 里，或者两边都有，文档里必须写清楚。
 - `Current Implementation`、`Partial Implementation`、`Target Design` 不能混写。
+
+## 文档区域职责
+
+| 区域 | 职责 |
+|------|------|
+| [standards/](./standards/) | 可复用标准体系：质量评分、智能化原则、文档治理、验证门禁。 |
+| [contracts/](./contracts/) | 权威合同规格：CLI、run-task、trace、recovery、security、workflow、storage、performance 等字段级规则。 |
+| [design/](./design/) | 目标设计、迁移设计和架构方案，不承载最终字段级合同。 |
+| [ui/](./ui/) | VS Code 和 UI 交互流程说明。 |
+| 根级文档 | 入口、用户手册、架构总览、能力地图、开发、测试、发布和排障。 |
 
 
 
@@ -116,4 +128,5 @@ VectaHub 当前应被理解为一个**单用户、本地优先的 CLI 自动化�
 
 #### 规格与参考
 
-- [specs/](./specs/)
+- [contracts/](./contracts/)
+- [standards/](./standards/)

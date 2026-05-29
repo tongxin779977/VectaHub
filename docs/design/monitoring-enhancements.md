@@ -1,6 +1,6 @@
 # Monitoring 增强功能设计
 
-> Document Status: Current Implementation / Architecture Design
+> Document Status: Current Implementation / Target Design / Migration Contract
 > Authority: Monitoring 模块的增强功能设计文档，包括告警管理、健康检查、指标收集和 Monitor 重构。
 
 ## 概述

@@ -1,6 +1,6 @@
 # 配置手册
 
-本文说明 VectaHub 用户需要知道的配置入口、数据目录和环境变量。底层存储合同见 [配置与数据存储规格](./specs/config-data-storage.md)。
+本文说明 VectaHub 用户需要知道的配置入口、数据目录和环境变量。底层存储合同见 [配置与数据存储规格](./contracts/config-data-storage.md)。
 
 ## 数据根目录
 
@@ -73,7 +73,7 @@ VectaHub 不应因为创建隔离运行目录而隐式切换 Agent provider、�
 
 ## Trace 环境变量
 
-插件或上层调用方可以通过 trace 环境变量把上下文传给 CLI。相关协议见 [Trace 执行规格](./specs/trace-execution.md)。
+插件或上层调用方可以通过 trace 环境变量把上下文传给 CLI。相关协议见 [Trace 执行规格](./contracts/trace-execution.md)。
 
 用户通常不需要手动设置 trace 环境变量。如果 `trace list` 或 `trace show` 没有结果，优先确认执行路径是否真的写入了 trace。
 

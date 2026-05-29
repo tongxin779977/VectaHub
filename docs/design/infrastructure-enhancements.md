@@ -1,6 +1,6 @@
 # Infrastructure 增强功能设计
 
-> Document Status: Current Implementation / Architecture Design
+> Document Status: Current Implementation / Target Design / Migration Contract
 > Authority: Infrastructure 模块的增强功能设计文档，包括审计系统、配置管理、错误处理、结构化日志、依赖注入容器和事件总线。
 
 ## 概述

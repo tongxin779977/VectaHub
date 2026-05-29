@@ -2,7 +2,7 @@
 
 > Document Status: Target Design
 > Authority: Owns the target Agent runtime architecture. Command semantics and runtime state are owned by the linked specs.
-> Traceability: See `../specs/implementation-traceability.md` for implementation status and known gaps.
+> Traceability: See `../contracts/implementation-traceability.md` for implementation status and known gaps.
 
 ## Problem
 
@@ -278,6 +278,6 @@ If the plugin, CLI, or LLM context disagree about whether an Agent is ready or e
 
 ## Related Docs
 
-- [Agent Worker Contract Spec](../specs/agent-worker-contract.md)
-- [Tools & Security Management Spec](../specs/tools-security-management.md)
+- [Agent Worker Contract Spec](../contracts/agent-worker-contract.md)
+- [Tools & Security Management Spec](../contracts/tools-security-management.md)
 - [Architecture](../architecture.md)

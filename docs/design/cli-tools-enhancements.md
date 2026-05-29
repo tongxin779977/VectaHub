@@ -1,6 +1,6 @@
 # CLI Tools 增强功能设计
 
-> Document Status: Current Implementation / Architecture Design
+> Document Status: Current Implementation / Target Design / Migration Contract
 > Authority: CLI Tools 模块的增强功能设计文档，包括接口去重、Node 前缀修复、测试覆盖、JSDoc 文档和配置验证。
 
 ## 概述

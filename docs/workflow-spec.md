@@ -1,6 +1,6 @@
 # Workflow 规格
 
-本文面向编写 VectaHub workflow YAML/JSON 的用户。执行生命周期见 [工作流生命周期规格](./specs/workflow-lifecycle.md)。
+本文面向编写 VectaHub workflow YAML/JSON 的用户。执行生命周期见 [工作流生命周期规格](./contracts/workflow-lifecycle.md)。
 
 ## 基本结构
 

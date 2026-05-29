@@ -703,7 +703,7 @@ packages/vectahub-vscode-extension/src/views/tasksView.ts
 修改：
 
 ```text
-docs/specs/agent-worker-contract.md
+docs/contracts/agent-worker-contract.md
 docs/agent-execution.md
 docs/roadmap.md
 ```

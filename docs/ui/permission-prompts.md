@@ -46,5 +46,5 @@ type RiskLevel = 'safe' | 'low' | 'medium' | 'high' | 'critical';
 ## 相关文档
 
 - [VS Code 插件 UI 逻辑设计](../design/vscode-ui-logic.md)
-- [安全与权限闭环规格](../specs/security-permission-loop.md)
+- [安全与权限闭环规格](../contracts/security-permission-loop.md)
 - [插件/CLI 边界设计](../design/plugin-cli-boundary.md)

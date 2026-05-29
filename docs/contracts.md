@@ -1,10 +1,10 @@
 # 核心合同
 
-本文档是合同入口，不复制所有字段细节。实现前应读取对应规格文档和当前源码，以代码和测试结果确认最终状态。
+本文档是合同入口，不复制所有字段细节。实现前应读取对应合同文档和当前源码，以代码和测试结果确认最终状态。
 
 > Document Status: Current Implementation / Migration Contract
-> Authority: Contract index only. Field-level behavior is owned by the linked spec files.
-> Traceability: See `docs/specs/implementation-traceability.md` before treating a cross-module target as implemented.
+> Authority: Contract index only. Field-level behavior is owned by the linked contract files.
+> Traceability: See `docs/contracts/implementation-traceability.md` before treating a cross-module target as implemented.
 > Recommended Usage: Read this after [Capability Reference](./capabilities-reference.md) when you need protocol, storage, recovery, or JSON contract detail.
 
 ## 合同边界
@@ -14,17 +14,17 @@ VectaHub 的关键合同如下：
 | 合同 | 目标 | 详细规格 |
 |------|------|----------|
 | CLI JSON | 让插件、脚本和未来 SDK 不解析人类日志。 | [插件/CLI 边界设计](./design/plugin-cli-boundary.md) |
-| Doc Task Run | 记录文档任务运行状态、失败分类和恢复信息。 | [文档任务状态机规格](./specs/doc-task-state-machine.md) |
-| Agent Task Contract | 限制 Agent 输入、修改范围和验证命令。 | [Agent Worker 合同规格](./specs/agent-worker-contract.md) |
-| Trace | 贯通插件、CLI、Agent、验证和恢复链路。 | [Trace 执行规格](./specs/trace-execution.md) |
-| Security | 统一风险评估、确认拦截和脱敏。 | [安全与权限闭环规格](./specs/security-permission-loop.md) |
-| Recovery | 对失败分类、需求变更和恢复路径建立合同。 | [恢复闭环规格](./specs/recovery-loop.md) |
-| Workflow Lifecycle | 管理工作流执行、历史、详情、重跑、恢复和归档。 | [工作流生命周期规格](./specs/workflow-lifecycle.md) |
-| Storage | 约束配置、执行记录、输出、trace、队列等落点。 | [配置与数据存储规格](./specs/config-data-storage.md) |
-| Tools / Security Rules | 管理 CLI 工具、命令规则和安全规则。 | [工具与安全规则规格](./specs/tools-security-management.md) |
-| Templates / Scheduling | 管理 workflow 生成、模板和调度。 | [生成、模板与调度规格](./specs/templates-generation-scheduling.md) |
-| Local Service / Import Export | 管理本地服务、daemon 和数据迁移。 | [服务与导入导出规格](./specs/service-import-export.md) |
-| Implementation Traceability | 关联目标能力、权威文档、代码入口、测试入口和已知缺口。 | [实现追踪矩阵](./specs/implementation-traceability.md) |
+| Doc Task Run | 记录文档任务运行状态、失败分类和恢复信息。 | [文档任务状态机规格](./contracts/doc-task-state-machine.md) |
+| Agent Task Contract | 限制 Agent 输入、修改范围和验证命令。 | [Agent Worker 合同规格](./contracts/agent-worker-contract.md) |
+| Trace | 贯通插件、CLI、Agent、验证和恢复链路。 | [Trace 执行规格](./contracts/trace-execution.md) |
+| Security | 统一风险评估、确认拦截和脱敏。 | [安全与权限闭环规格](./contracts/security-permission-loop.md) |
+| Recovery | 对失败分类、需求变更和恢复路径建立合同。 | [恢复闭环规格](./contracts/recovery-loop.md) |
+| Workflow Lifecycle | 管理工作流执行、历史、详情、重跑、恢复和归档。 | [工作流生命周期规格](./contracts/workflow-lifecycle.md) |
+| Storage | 约束配置、执行记录、输出、trace、队列等落点。 | [配置与数据存储规格](./contracts/config-data-storage.md) |
+| Tools / Security Rules | 管理 CLI 工具、命令规则和安全规则。 | [工具与安全规则规格](./contracts/tools-security-management.md) |
+| Templates / Scheduling | 管理 workflow 生成、模板和调度。 | [生成、模板与调度规格](./contracts/templates-generation-scheduling.md) |
+| Local Service / Import Export | 管理本地服务、daemon 和数据迁移。 | [服务与导入导出规格](./contracts/service-import-export.md) |
+| Implementation Traceability | 关联目标能力、权威文档、代码入口、测试入口和已知缺口。 | [实现追踪矩阵](./contracts/implementation-traceability.md) |
 
 ## CLI JSON 合同
 
@@ -165,17 +165,17 @@ interface CommandRiskAssessment {
 
 Agent 成功不等于任务成功。任务完成后必须执行合同中的验证命令，验证结果进入 task run record。
 
-详细规格见 [任务验证闭环规格](./specs/verification-loop.md)。
+详细规格见 [任务验证闭环规格](./contracts/verification-loop.md)。
 
 ## Performance 合同
 
 文档任务执行路径必须避免无意义全量读取、重复解析和大对象常驻。
 
-详细规格见 [性能与资源预算规格](./specs/performance-budget.md)。
+详细规格见 [性能与资源预算规格](./contracts/performance-budget.md)。
 
 ## CLI 命令合同
 
-CLI 命令面以 [CLI 命令面规格](./specs/cli-command-surface.md) 为索引。命令实现新增或删除时，必须同步更新该索引，特别是：
+CLI 命令面以 [CLI 命令面规格](./contracts/cli-command-surface.md) 为索引。命令实现新增或删除时，必须同步更新该索引，特别是：
 
 - 是否支持 `--json`。
 - 是否会写入 `VECTAHUB_HOME`。

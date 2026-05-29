@@ -1,6 +1,6 @@
 # 排障手册
 
-本文面向 CLI 用户和维护者，按症状给出最短排查路径。底层失败分类见 [Run-Task 执行合同](./specs/run-task-execution-contract.md)、[恢复闭环规格](./specs/recovery-loop.md) 和 [Trace 执行规格](./specs/trace-execution.md)。
+本文面向 CLI 用户和维护者，按症状给出最短排查路径。底层失败分类见 [Run-Task 执行合同](./contracts/run-task-execution-contract.md)、[恢复闭环规格](./contracts/recovery-loop.md) 和 [Trace 执行规格](./contracts/trace-execution.md)。
 
 ## 先运行诊断
 
@@ -33,7 +33,7 @@ vectahub trace show <traceId> --json
 1. 确认调用的命令是否声明支持 `--json`。
 2. 确认脚本没有把 stderr 合并进 stdout。
 3. 使用 `--debug` 时确认人类日志没有污染 stdout。
-4. 查看 [CLI 命令面规格](./specs/cli-command-surface.md) 中该命令的 JSON 支持状态。
+4. 查看 [CLI 命令面规格](./contracts/cli-command-surface.md) 中该命令的 JSON 支持状态。
 
 如果命令支持 `--json` 但 stdout 混入人类日志，应视为协议问题。
 
@@ -115,7 +115,7 @@ Agent 执行成功不等于任务成功。`run-task` 正常执行后仍需要运
 - 插件或 CLI 工作目录不正确。
 - 验证命令依赖外部二进制，但当前环境没有安装。
 
-维护者应查看 [任务验证闭环规格](./specs/verification-loop.md) 判断失败是否属于 `failed_test`、`failed_system_internal` 或其他分类。
+维护者应查看 [任务验证闭环规格](./contracts/verification-loop.md) 判断失败是否属于 `failed_test`、`failed_system_internal` 或其他分类。
 
 ## 权限或安全拦截
 
@@ -134,7 +134,7 @@ vectahub security status
 vectahub security list
 ```
 
-工具和安全规则说明见 [工具与安全规则规格](./specs/tools-security-management.md)。
+工具和安全规则说明见 [工具与安全规则规格](./contracts/tools-security-management.md)。
 
 ## 找不到历史、trace 或队列
 
