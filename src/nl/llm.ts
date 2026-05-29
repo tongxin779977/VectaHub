@@ -38,7 +38,7 @@ export interface LLMRetryOptions {
 }
 
 const DEFAULT_RETRY_OPTIONS: Required<LLMRetryOptions> = {
-  maxRetries: 2,
+  maxRetries: 3,
   baseDelayMs: 1000,
   maxDelayMs: 10000,
   retryableStatuses: [429, 500, 502, 503, 504],
@@ -129,7 +129,11 @@ export class LLMClient {
 
   private isRetryableError(error: unknown): boolean {
     if (error instanceof Error) {
-      if (error.name === 'AbortError') return false;
+      if (error.name === 'AbortError') {
+        const msg = (error as Error).message?.toLowerCase() ?? '';
+        if (msg.includes('user') || msg.includes('cancel')) return false;
+        return true;
+      }
       const msg = error.message;
       if (msg.includes('API error:')) {
         const statusMatch = msg.match(/API error: (\d+)/);

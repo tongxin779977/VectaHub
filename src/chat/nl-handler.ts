@@ -117,7 +117,7 @@ export function createNLHandler(
     if (nlResult.reply) {
       return {
         type: 'text',
-        content: nlResult.reply,
+        content: sanitizeReply(nlResult.reply),
       };
     }
 
@@ -190,4 +190,135 @@ export function createNLHandler(
   }
 
   return { handleNLInput, clearIntentCache };
+}
+
+/**
+ * 清洗 LLM reply 字段，将误输出的 JSON 结构转换为可读文本。
+ * LLM 在处理评估类问题时，倾向于在 reply 字段中输出 JSON 对象，
+ * 此函数检测并提取其中的文本内容。
+ */
+function sanitizeReply(reply: string): string {
+  const trimmed = reply.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+    return reply;
+  }
+  if (trimmed === '{}' || trimmed === '[]' || trimmed === '{' || trimmed === '[') {
+    return '收到，但未生成有效回复。请重试或换个方式提问。';
+  }
+  const jsonStr = extractLeadingJSON(trimmed);
+  if (!jsonStr) return reply;
+  const tail = trimmed.slice(jsonStr.length).trim();
+  try {
+    const parsed: Record<string, unknown> = JSON.parse(jsonStr);
+    const sanitized = sanitizeParsedJSON(parsed);
+    if (sanitized) {
+      return tail ? `${sanitized}\n\n${tail}` : sanitized;
+    }
+    return reply;
+  } catch {
+    if (/^\{[a-zA-Z_]+\}$/.test(trimmed) || /^\{[a-zA-Z_]+:\s*.+\}$/.test(trimmed)) {
+      return '收到，但未生成有效回复。请重试或换个方式提问。';
+    }
+    return reply;
+  }
+}
+
+function sanitizeParsedJSON(obj: Record<string, unknown>): string | null {
+  if (typeof obj.reply === 'string') return sanitizeSingleValue(obj.reply);
+  if (typeof obj.response === 'string') return sanitizeSingleValue(obj.response);
+  if (typeof obj.answer === 'string') return sanitizeSingleValue(obj.answer);
+  if (typeof obj.message === 'string') return sanitizeSingleValue(obj.message);
+  if (typeof obj.content === 'string' && obj.content.length > 0) return obj.content;
+  const result = extractTextParts(obj);
+  if (result.length > 0) return result.join('\n\n');
+  const allStrings = collectAllStrings(obj);
+  if (allStrings.length > 0) return allStrings.join('\n');
+  const values = Object.values(obj);
+  if (values.length === 1) {
+    const v = values[0];
+    if (typeof v === 'string') return v;
+    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+    if (Array.isArray(v) && v.length === 0) return '[]';
+  }
+  if (values.length === 0) return '{}';
+  return null;
+}
+
+function sanitizeSingleValue(val: string): string {
+  const trimmed = val.trim();
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    const innerJson = extractLeadingJSON(trimmed);
+    if (innerJson) {
+      try {
+        const innerParsed: Record<string, unknown> = JSON.parse(innerJson);
+        return sanitizeParsedJSON(innerParsed) || trimmed;
+      } catch { /* not valid JSON, return as-is */ }
+    }
+  }
+  return val;
+}
+
+function extractLeadingJSON(text: string): string | null {
+  if (!text.startsWith('{') && !text.startsWith('[')) return null;
+  const openBracket = text[0];
+  const closeBracket = openBracket === '{' ? '}' : ']';
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) { escape = false; continue; }
+    if (ch === '\\') { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === openBracket) depth++;
+    if (ch === closeBracket) { depth--; if (depth === 0) return text.slice(0, i + 1); }
+  }
+  return null;
+}
+
+function extractTextParts(obj: Record<string, unknown>, prefix?: string): string[] {
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(obj)) {
+    const label = prefix ? `${prefix}.${key}` : key;
+    if (typeof value === 'string' && value.length > 0) {
+      parts.push(`**${label}**: ${value}`);
+    } else if (typeof value === 'number' || typeof value === 'boolean') {
+      parts.push(`**${label}**: ${String(value)}`);
+    } else if (Array.isArray(value)) {
+      if (value.length === 0) continue;
+      const strItems = value.filter((v): v is string => typeof v === 'string');
+      if (strItems.length > 0) {
+        parts.push(`**${label}**:\n${strItems.map((item, i) => `${i + 1}. ${item}`).join('\n')}`);
+      } else {
+        const objItems = value.filter((v): v is Record<string, unknown> => typeof v === 'object' && v !== null);
+        for (const item of objItems) {
+          parts.push(...extractTextParts(item, label));
+        }
+      }
+    } else if (typeof value === 'object' && value !== null) {
+      parts.push(...extractTextParts(value as Record<string, unknown>, label));
+    }
+  }
+  return parts;
+}
+
+function collectAllStrings(obj: Record<string, unknown>): string[] {
+  const strings: string[] = [];
+  for (const value of Object.values(obj)) {
+    if (typeof value === 'string' && value.trim()) {
+      strings.push(value);
+    } else if (Array.isArray(value)) {
+      for (const item of value) {
+        if (typeof item === 'string' && item.trim()) {
+          strings.push(item);
+        } else if (typeof item === 'object' && item !== null) {
+          strings.push(...collectAllStrings(item as Record<string, unknown>));
+        }
+      }
+    } else if (typeof value === 'object' && value !== null) {
+      strings.push(...collectAllStrings(value as Record<string, unknown>));
+    }
+  }
+  return strings;
 }

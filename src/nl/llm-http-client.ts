@@ -158,53 +158,78 @@ export class LLMHttpClient {
       throw new Error('Base URL is not configured');
     }
 
-    const controller = new AbortController();
-    const timeout = this.config.timeout || 30000;
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    const MAX_RETRIES = 2;
+    const RETRY_DELAY_MS = 1000;
 
-    try {
-      const useToolCalling = tools && tools.length > 0;
-      const requestBody: Record<string, unknown> = {
-        model: this.config.model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userInput },
-        ],
-        temperature: 0.1,
-      };
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const controller = new AbortController();
+      const timeout = this.config.timeout || 30000;
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-      if (useToolCalling) {
-        requestBody.tools = tools;
-      } else {
-        const systemContent = systemPrompt.includes('json')
-          ? systemPrompt
-          : systemPrompt + '\n\nPlease respond in JSON format.';
-        (requestBody.messages as Array<Record<string, string>>)[0].content = systemContent;
-        requestBody.response_format = { type: 'json_object' };
-      }
-      if (toolChoice) {
-        requestBody.tool_choice = toolChoice;
-      }
+      try {
+        const useToolCalling = tools && tools.length > 0;
+        const requestBody: Record<string, unknown> = {
+          model: this.config.model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userInput },
+          ],
+          temperature: 0.1,
+        };
 
-      const response = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-        },
-        signal: controller.signal,
-        body: JSON.stringify(requestBody),
-      });
+        if (useToolCalling) {
+          requestBody.tools = tools;
+        } else {
+          const systemContent = systemPrompt.includes('json')
+            ? systemPrompt
+            : systemPrompt + '\n\nPlease respond in JSON format.';
+          (requestBody.messages as Array<Record<string, string>>)[0].content = systemContent;
+          requestBody.response_format = { type: 'json_object' };
+        }
+        if (toolChoice) {
+          requestBody.tool_choice = toolChoice;
+        }
 
-      if (!response.ok) {
+        const response = await fetch(`${baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+          },
+          signal: controller.signal,
+          body: JSON.stringify(requestBody),
+        });
+
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          return response;
+        }
+
         const errorText = await response.text();
-        throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
+        const status = response.status;
+        const isRetryable = (status === 429 || status >= 500) && attempt < MAX_RETRIES;
+
+        if (!isRetryable) {
+          throw new Error(`OpenAI API error: ${status} - ${errorText}`);
+        }
+      } catch (error) {
+        clearTimeout(timeoutId);
+
+        if (error instanceof Error && error.message.startsWith('OpenAI API error:')) {
+          throw error;
+        }
+
+        if (attempt === MAX_RETRIES) {
+          throw error instanceof Error ? error : new Error(String(error));
+        }
       }
 
-      return response;
-    } finally {
-      clearTimeout(timeoutId);
+      const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
+
+    throw new Error('Max retries exceeded');
   }
 
   /**
@@ -235,48 +260,73 @@ export class LLMHttpClient {
       throw new Error('API key is not configured');
     }
 
-    const controller = new AbortController();
-    const timeout = this.config.timeout || 30000;
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    const MAX_RETRIES = 2;
+    const RETRY_DELAY_MS = 1000;
 
-    try {
-      const requestBody: Record<string, unknown> = {
-        model: this.config.model,
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages: [
-          { role: 'user', content: userInput },
-        ],
-      };
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const controller = new AbortController();
+      const timeout = this.config.timeout || 30000;
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-      if (tools) {
-        requestBody.tools = tools.map((tool) => ({
-          name: tool.function.name,
-          description: tool.function.description,
-          input_schema: tool.function.parameters,
-        }));
-      }
+      try {
+        const requestBody: Record<string, unknown> = {
+          model: this.config.model,
+          max_tokens: 1024,
+          system: systemPrompt,
+          messages: [
+            { role: 'user', content: userInput },
+          ],
+        };
 
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        signal: controller.signal,
-        body: JSON.stringify(requestBody),
-      });
+        if (tools) {
+          requestBody.tools = tools.map((tool) => ({
+            name: tool.function.name,
+            description: tool.function.description,
+            input_schema: tool.function.parameters,
+          }));
+        }
 
-      if (!response.ok) {
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          signal: controller.signal,
+          body: JSON.stringify(requestBody),
+        });
+
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          return response;
+        }
+
         const errorText = await response.text();
-        throw new Error(`Anthropic API error: ${response.status} - ${errorText}`);
+        const status = response.status;
+        const isRetryable = (status === 429 || status >= 500) && attempt < MAX_RETRIES;
+
+        if (!isRetryable) {
+          throw new Error(`Anthropic API error: ${status} - ${errorText}`);
+        }
+      } catch (error) {
+        clearTimeout(timeoutId);
+
+        if (error instanceof Error && error.message.startsWith('Anthropic API error:')) {
+          throw error;
+        }
+
+        if (attempt === MAX_RETRIES) {
+          throw error instanceof Error ? error : new Error(String(error));
+        }
       }
 
-      return response;
-    } finally {
-      clearTimeout(timeoutId);
+      const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
+
+    throw new Error('Max retries exceeded');
   }
 
   async callOpenAICompatibleRaw(
@@ -563,6 +613,13 @@ export class LLMHttpClient {
           if (typeof tempObj[key] === 'string' && tempObj[key]) {
             parsed.reply = tempObj[key] as string;
             break;
+          }
+        }
+        if (!parsed.reply) {
+          const values = Object.values(tempObj);
+          const stringValues = values.filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+          if (stringValues.length === 1 && values.length <= 2) {
+            parsed.reply = stringValues[0];
           }
         }
         if (!parsed.reply && (!parsed.workflow || !parsed.workflow.steps || parsed.workflow.steps.length === 0)) {

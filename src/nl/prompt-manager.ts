@@ -37,6 +37,13 @@ const BUILTIN_PROMPTS: Prompt[] = [
 - 在 JSON 的 "reply" 字段中提供超级专业、高质量、富有见地的 Markdown 回复。
 - 无需生成 workflow 步骤。
 
+## 通用对话响应要求：
+如果用户的输入不属于上述任何工作流意图（如闲聊、问候、询问系统信息、请求评估等）：
+- 请将意图标记为 "UNKNOWN"。
+- 在 JSON 的 "reply" 字段中用自然、友好的 Markdown 文本回复。
+- **reply 字段严禁包含 JSON 结构、代码块或任何嵌套的 JSON 对象。reply 必须是纯 Markdown 文本。**
+- 无需生成 workflow 步骤。
+
 支持的意图类型：
 {{intentList}}
 
