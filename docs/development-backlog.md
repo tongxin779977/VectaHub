@@ -1123,7 +1123,7 @@ completion:
 ```yaml
 id: P1-011
 priority: P1
-status: todo
+status: done
 depends_on:
   - P1-006
   - P1-010
@@ -1160,6 +1160,18 @@ done_criteria:
   - 每类核心意图有多条表达样本
   - 报告区分 pass、fail、needs_review 和 expected_fail
   - 安全关键错误不允许只降级为人工主观判断
+completion:
+  verified_at: 2026-05-31
+  commit: HEAD
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass
+    - git diff --check: pass
+  changed_files:
+    - src/semantic-testing/types.ts
+    - src/semantic-testing/scenarios.ts
+    - src/semantic-testing/runner.ts
+    - src/semantic-testing/index.ts
 ```
 
 ### P1-012: 将文档任务接入 OrchestrationPlan / WorkflowDraft
