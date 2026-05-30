@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { readFileSync, existsSync } from 'node:fs';
 import crypto from 'node:crypto';
 import type pino from 'pino';
 import { VectaHubError, ErrorType } from '../errors/index.js';
@@ -88,13 +89,18 @@ export class ConfigSecurity {
   /**
    * 加载已存储的哈希值
    */
-  private async loadHashes(): Promise<void> {
+  private loadHashes(): void {
     const hashFile = this.getHashFilePath();
     
     try {
-      const content = await fs.readFile(hashFile, 'utf-8');
+      if (!existsSync(hashFile)) {
+        return;
+      }
+      const content = readFileSync(hashFile, 'utf-8');
       const hashes = JSON.parse(content);
-      this.hashStore = new Map(Object.entries(hashes));
+      if (typeof hashes === 'object' && hashes !== null) {
+        this.hashStore = new Map(Object.entries(hashes));
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.debug({ error: message, file: hashFile }, 'Hash store load failed, starting empty');
@@ -172,7 +178,8 @@ export class ConfigSecurity {
       await this.saveHashes();
       this.logger.debug(`Updated hash for ${targetPath}`);
     } catch (error) {
-      this.logger.error(`Failed to update config hash: ${(error as Error).message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to update config hash: ${message}`);
     }
   }
 
@@ -241,7 +248,8 @@ export class ConfigSecurity {
       this.logger.info(`Set secure permissions (600) for ${targetPath}`);
       return true;
     } catch (error) {
-      this.logger.error(`Failed to set permissions: ${(error as Error).message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to set permissions: ${message}`);
       return false;
     }
   }
@@ -322,7 +330,8 @@ export class ConfigSecurity {
       this.logger.info(`Config backed up to ${dest}`);
       return dest;
     } catch (error) {
-      this.logger.error(`Failed to backup config: ${(error as Error).message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to backup config: ${message}`);
       throw error;
     }
   }
@@ -338,7 +347,8 @@ export class ConfigSecurity {
       await this.updateConfigHash();
       this.logger.info(`Config restored from ${backupPath}`);
     } catch (error) {
-      this.logger.error(`Failed to restore config: ${(error as Error).message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to restore config: ${message}`);
       throw error;
     }
   }
@@ -358,7 +368,8 @@ export class ConfigSecurity {
   clearHashes(): void {
     this.hashStore.clear();
     void fs.unlink(this.getHashFilePath()).catch(error => {
-      this.logger.warn(`Failed to remove config hash file: ${(error as Error).message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Failed to remove config hash file: ${message}`);
     });
   }
 }

@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import type pino from 'pino';
 import { redactSensitiveData } from '../security/sensitive-data.js';
@@ -86,11 +87,14 @@ export class OperationLog {
   /**
    * 从文件加载历史条目
    */
-  private async loadEntries(): Promise<void> {
+  private loadEntries(): void {
     if (!this.config.enabled) return;
 
     try {
-      const content = await fs.readFile(this.logFile, 'utf-8');
+      if (!existsSync(this.logFile)) {
+        return;
+      }
+      const content = readFileSync(this.logFile, 'utf-8');
       const lines = content.split('\n').filter(Boolean);
       
       for (const line of lines.slice(-this.config.maxEntries)) {
@@ -103,6 +107,7 @@ export class OperationLog {
           continue;
         }
       }
+      this.logger.debug({ entries: this.entries.length }, 'Loaded operation log entries');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.debug({ error: message, file: this.logFile }, 'Operation log file load failed, starting empty');
@@ -212,7 +217,8 @@ export class OperationLog {
       const lines = this.entries.map(entry => JSON.stringify(entry));
       await fs.writeFile(this.logFile, lines.join('\n') + '\n', 'utf-8');
     } catch (error) {
-      this.logger.error(`Failed to flush operation log: ${(error as Error).message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to flush operation log: ${message}`);
     } finally {
       this.isFlushing = false;
     }

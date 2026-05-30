@@ -27,6 +27,7 @@ export interface EnvAuditResult {
 }
 
 export async function performEnvAudit(): Promise<EnvAuditResult> {
+  const logger = getLogger('env-audit');
   const result: EnvAuditResult = {
     timestamp: new Date().toISOString(),
     platform: platform(),
@@ -55,7 +56,7 @@ export async function performEnvAudit(): Promise<EnvAuditResult> {
       result.linuxKernel.userNamespaces = true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      getLogger('env-audit').debug({ error: message }, 'User namespaces test failed');
+      logger.debug({ error: message }, 'User namespaces test failed');
       result.linuxKernel.userNamespaces = false;
       result.reasons.push('User Namespaces test failed (unshare not permitted or disabled in kernel)');
       result.sandboxReadiness = 'DEGRADED';
@@ -66,7 +67,7 @@ export async function performEnvAudit(): Promise<EnvAuditResult> {
       result.linuxKernel.cgroupsV2 = stdout.includes('cgroup2');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      getLogger('env-audit').debug({ error: message }, 'cgroups v2 check failed');
+      logger.debug({ error: message }, 'cgroups v2 check failed');
       result.linuxKernel.cgroupsV2 = false;
     }
   } else if (result.platform === 'darwin') {
@@ -74,7 +75,7 @@ export async function performEnvAudit(): Promise<EnvAuditResult> {
       await execAsync('sandbox-exec -p "(version 1)(allow default)" echo 1');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      getLogger('env-audit').debug({ error: message }, 'macOS sandbox-exec test failed');
+      logger.debug({ error: message }, 'macOS sandbox-exec test failed');
       result.reasons.push('macOS sandbox-exec is restricted or unavailable');
       result.sandboxReadiness = 'DEGRADED';
     }
@@ -90,7 +91,7 @@ export async function performEnvAudit(): Promise<EnvAuditResult> {
     result.shell.hasSudo = true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    getLogger('env-audit').debug({ error: message }, 'sudo check failed');
+    logger.debug({ error: message }, 'sudo check failed');
     result.shell.hasSudo = false;
   }
 
@@ -104,7 +105,7 @@ export async function performEnvAudit(): Promise<EnvAuditResult> {
       return { installed: true, version: stdout.trim().split('\n')[0] };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      getLogger('env-audit').debug({ error: message, tool: cmd }, 'Tool check failed');
+      logger.debug({ error: message, tool: cmd }, 'Tool check failed');
       return { installed: false };
     }
   };

@@ -10,6 +10,7 @@ import type {
   EvaluationResult,
   PromptRegistry,
 } from './types.js';
+import { renderPromptTemplate, validatePromptVariables } from '../../types/prompt.js';
 
 export const BUILTIN_PROMPTS: Prompt[] = [
   {
@@ -636,26 +637,7 @@ Git diff 摘要：
   },
 ];
 
-function renderTemplate(template: string, variables: Record<string, unknown>): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-    const value = variables[key];
-    if (value === undefined) {
-      return '';
-    }
-    if (typeof value === 'object') {
-      return JSON.stringify(value, null, 2);
-    }
-    return String(value);
-  });
-}
 
-function validateVariables(prompt: Prompt, variables: Record<string, unknown>): void {
-  for (const variable of prompt.variables) {
-    if (variable.required && !(variable.name in variables)) {
-      throw new Error(`Required variable ${variable.name} not provided`);
-    }
-  }
-}
 
 function walkDirectory(dir: string): string[] {
   const files: string[] = [];
@@ -681,7 +663,11 @@ export class PromptRegistryImpl implements PromptRegistry {
 
   constructor() {
     for (const prompt of BUILTIN_PROMPTS) {
-      this.prompts.set(prompt.id, prompt);
+      this.prompts.set(prompt.id, {
+        ...prompt,
+        metadata: { ...prompt.metadata },
+        variables: prompt.variables.map(v => ({ ...v })),
+      });
     }
   }
 
@@ -707,7 +693,7 @@ export class PromptRegistryImpl implements PromptRegistry {
       throw new Error(`Prompt ${promptId} not found`);
     }
 
-    validateVariables(prompt, variables);
+    validatePromptVariables(prompt, variables);
 
     const mergedVariables = { ...variables };
     for (const variable of prompt.variables) {
@@ -716,8 +702,8 @@ export class PromptRegistryImpl implements PromptRegistry {
       }
     }
 
-    const system = renderTemplate(prompt.systemTemplate, mergedVariables);
-    const user = renderTemplate(prompt.userTemplate, mergedVariables);
+    const system = renderPromptTemplate(prompt.systemTemplate, mergedVariables);
+    const user = renderPromptTemplate(prompt.userTemplate, mergedVariables);
 
     prompt.metadata.uses++;
 

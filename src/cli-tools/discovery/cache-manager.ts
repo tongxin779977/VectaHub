@@ -87,8 +87,9 @@ export class ToolCacheManager {
     try {
       const raw = await readFile(cachePath, 'utf-8');
       return JSON.parse(raw) as ToolCacheEntry;
-    } catch {
-      this.getLogger().warn(`缓存文件损坏: ${toolName}，将重新发现`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.getLogger().warn(`缓存文件损坏: ${toolName}，将重新发现. 错误: ${message}`);
       return null;
     }
   }

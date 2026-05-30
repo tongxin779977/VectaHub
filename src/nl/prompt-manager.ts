@@ -13,7 +13,11 @@ export class PromptManager implements PromptRepository {
     this.prompts = new Map();
     this.sessionManager = new SessionManager();
     for (const prompt of BUILTIN_PROMPTS) {
-      this.prompts.set(prompt.id, prompt);
+      this.prompts.set(prompt.id, {
+        ...prompt,
+        metadata: { ...prompt.metadata },
+        variables: prompt.variables.map(v => ({ ...v })),
+      });
     }
   }
 
@@ -96,6 +100,10 @@ export class PromptManager implements PromptRepository {
         bestScore = score;
         best = prompt;
       }
+    }
+
+    if (bestScore <= 0) {
+      return undefined;
     }
 
     return best;

@@ -87,7 +87,8 @@ export class LogRotationManager {
 
       this.logger.info(`日志轮转完成: 轮转=${rotated}, 归档=${archived}, 删除=${deleted}`);
     } catch (error) {
-      this.logger.error(`日志轮转失败: ${(error as Error).message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`日志轮转失败: ${message}`);
     } finally {
       // 恢复所有 AsyncLogWriter 写入
       AsyncLogWriter.resumeAll();
@@ -110,7 +111,8 @@ export class LogRotationManager {
           count++;
         }
       } catch (error) {
-        this.logger.warn(`检查文件大小失败: ${file}, ${(error as Error).message}`);
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`检查文件大小失败: ${file}, ${message}`);
       }
     }
 
@@ -151,7 +153,8 @@ export class LogRotationManager {
           count++;
         }
       } catch (error) {
-        this.logger.warn(`归档文件失败: ${file}, ${(error as Error).message}`);
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`归档文件失败: ${file}, ${message}`);
       }
     }
 
@@ -200,7 +203,8 @@ export class LogRotationManager {
           this.logger.info(`文件清理: ${file}`);
         }
       } catch (error) {
-        this.logger.warn(`清理文件失败: ${file}, ${(error as Error).message}`);
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`清理文件失败: ${file}, ${message}`);
       }
     }
 

@@ -84,7 +84,8 @@ export class QueryEngine {
         }
       }
     } catch (error) {
-      this.logger.warn(`加载日志文件失败: ${filePath}, ${(error as Error).message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`加载日志文件失败: ${filePath}, ${message}`);
     }
   }
 
