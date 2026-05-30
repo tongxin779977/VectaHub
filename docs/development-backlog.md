@@ -665,7 +665,7 @@ done_criteria:
 ```yaml
 id: P1-003
 priority: P1
-status: todo
+status: done
 depends_on:
   - P0-002
   - P0-004
@@ -708,6 +708,21 @@ done_criteria:
   - LLM 不可用时保守失败
   - hallucinated VectaHub command 被 blocked
   - semantic E2E 覆盖中文/英文/危险/模糊输入
+completion:
+  verified_at: 2026-05-31
+  commit: HEAD
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass
+    - npm run check:default-context-usage: pass
+    - npm run test:run: pass (220 files, 3028 tests passed, 11 skipped)
+    - scripts/test-semantic-output.sh: pass
+    - git diff --check: pass
+  changed_files:
+    - src/orchestration-plan/planner.ts
+    - src/orchestration-plan/command-surface-validator.ts
+    - src/orchestration-plan/index.ts
+    - docs/development-backlog.md
 ```
 
 ### P1-004: 接入 PlanSafetyReview

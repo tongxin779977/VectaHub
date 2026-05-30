@@ -201,3 +201,31 @@ export function validateCommandInvocations(
     errors: allErrors,
   };
 }
+
+import type { OrchestrationPlan } from '../types/index.js';
+
+/**
+ * Validate the command surface for an entire OrchestrationPlan.
+ */
+export function validateCommandSurface(
+  plan: OrchestrationPlan,
+  path: string[] = ['plan'],
+): CommandSurfaceValidationError[] {
+  const allErrors: CommandSurfaceValidationError[] = [];
+
+  for (let i = 0; i < plan.tasks.length; i++) {
+    const task = plan.tasks[i];
+    if (task.command) {
+      const result = validateCommandInvocation(task.command, [...path, 'tasks', String(i), 'command']);
+      allErrors.push(...result.errors);
+    }
+  }
+
+  for (let i = 0; i < plan.verification.commands.length; i++) {
+    const cmd = plan.verification.commands[i];
+    const result = validateCommandInvocation(cmd, [...path, 'verification', 'commands', String(i)]);
+    allErrors.push(...result.errors);
+  }
+
+  return allErrors;
+}

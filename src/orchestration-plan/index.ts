@@ -3,8 +3,20 @@ export type { PlanValidationError, PlanValidationResult } from './validator.js';
 export {
   validateCommandInvocation,
   validateCommandInvocations,
+  validateCommandSurface,
 } from './command-surface-validator.js';
 export type {
   CommandSurfaceValidationError,
   CommandSurfaceValidationResult,
 } from './command-surface-validator.js';
+export {
+  createEmptyPlan,
+  planFromCapability,
+  planToReply,
+  planToClarify,
+  planToBlocked,
+} from './planner.js';
+export type {
+  PlannerResult,
+  PlannerOptions,
+} from './planner.js';
