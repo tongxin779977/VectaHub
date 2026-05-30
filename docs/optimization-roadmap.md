@@ -1,8 +1,8 @@
 # VectaHub NL 引擎与质量优化路线图
 
-**文档版本**: 3.1
-**日期**: 2026-05-29
-**最近核验**: 2026-05-29
+**文档版本**: 3.2
+**日期**: 2026-05-30
+**最近核验**: 2026-05-30
 **依据**: 标准体系、当前源码、当前本地验证命令输出
 **相关文档**:
 - docs/standards/quality-scoring.md
@@ -15,12 +15,13 @@
 
 ## 核验结论
 
-这份路线图的方向基本符合当前项目问题面，但原文把部分待办项写成了已完成状态，也包含若干过期数字和示例路径。以下结论已经按 2026-05-29 的本地源码与验证输出核对：
+这份路线图的方向基本符合当前项目问题面，但原文把部分待办项写成了已完成状态，也包含若干过期数字和示例路径。以下结论已经按 2026-05-30 的本地源码与验证输出核对：
 
-- NL 关键缺陷真实存在：`src/nl/prompt-manager.ts` 的 `BUILTIN_PROMPTS` 未包含 `nl-processor-tool-calling`；`src/nl/tool-calling.ts` 的 `buildAllTools([])` 会返回空数组；`src/nl/core/pipeline.ts` 确实调用该 prompt id 并受工具列表影响。
+- **P0 全部清零**：`npm run typecheck`、`npm run lint`、`npm run test:run`（2878 passed / 0 failures）、`npm run check:default-context-usage`、`scripts/test-semantic-output.sh`（35/35）、`scripts/collect_quality_signals.sh` 均已通过。P0-NL1、P0-CODE1、P0-CODE2、P0-TEST1、P0-ARCH1 已修复。
+- **P1 部分修复**：P1-NL2（`buildAllTools` 空工具）、P1-VERIFY1（semantic E2E 验证 stale dist）、P1-WF1（delegate handler）、P1-ERR1（关键路径 bare catch）已修复。P1-SKILL1（skill discovery 占位）仍 open。
 - 当前仓库没有 `src/nl/intent-classifier.ts` / `src/types/intent.ts`，相关修复示例应理解为伪代码，实际修复点在 `src/nl/core/pipeline.ts`、`src/nl/core/goal-parser.ts`、`src/nl/tool-calling.ts`、`src/nl/prompt-manager.ts` 和共享类型定义。
-- 当前测试状态不是“全部通过”：`npm run test:run` 为 213 个测试文件，2841 个测试，5 个失败，20 个跳过；`npm run typecheck` 失败；`npm run lint` 失败。
-- Shell 语义端到端报告存在，结果为 35 项总计，29 项通过，6 项 expected fail；原文的 “29/29 通过”只是在排除 expected fail 后成立。
+- Shell 语义端到端：35 项全部通过（0 expected fail）。
+- 剩余 open 项：P1-SKILL1（skill discovery 占位）、P2-NL4（prompt registry 双轨）、P1-ERR1 剩余非关键路径 bare catch（~17 处）。
 - `SecurityRuleStore` 与 `security` CLI 已支持安全规则 CRUD、导入、导出、启用、禁用和测试；不能再写成“有 API 但无 CLI 入口”。
 - MCP 支持、工作流 `skill` / `mcp` / `rule` / `llm` 步骤、统一 `CapabilityRegistry` 仍未在当前源码中实现，适合作为后续路线图，不应描述为当前能力。
 - 额外质量检查发现：默认 context 边界、静默失败、Skill discovery 占位、语义端到端脚本使用 `dist`、`delegate` step 类型与默认 handler 不一致、prompt registry 双轨等问题也需要纳入路线图。
@@ -48,34 +49,36 @@
 
 | 测试类型 | 结果 | 说明 |
 |----------|------|------|
-| Vitest 单元测试 | 2816/2841 通过，20 跳过，5 失败 ❌ | `npm run test:run` 当前失败；失败集中在 CLI 审计 fail-fast 与 NL pipeline 超时测试 |
-| TypeScript 类型检查 | 失败 ❌ | `cleanup.ts` pino logger 参数类型错误；`src/skills/executor.ts` 存在不可调用表达式 |
-| ESLint | 5 errors / 59 warnings ❌ | 包含 `preserve-caught-error`、`no-require-imports`、空块、async Promise executor、`prefer-const` 等 |
-| Shell 端到端 | 35 总计：29 通过，6 expected fail ⚠️ | `.test-reports/semantic-test-report.md`；排除 expected fail 后通过率为 100% |
+| Vitest 单元测试 | 2878 通过，11 跳过，0 失败 ✅ | `npm run test:run` 213 files |
+| TypeScript 类型检查 | 通过 ✅ | `npm run typecheck` exit 0 |
+| ESLint | 0 errors / 0 warnings ✅ | `npm run lint` exit 0 |
+| 默认 context 检查 | 通过 ✅ | `npm run check:default-context-usage` exit 0 |
+| Shell 端到端 | 35 通过，0 expected fail ✅ | `scripts/test-semantic-output.sh` |
+| 质量信号采集 | 通过 ✅ | `scripts/collect_quality_signals.sh` Production Any: 0 |
 
 ### 1.3 已知缺陷追踪
 
 | ID | 级别 | 描述 | 当前状态 |
 |----|------|------|----------|
-| P0-NL1 | 🔴 阻断 | `nl-processor-tool-calling` prompt 不在 `BUILTIN_PROMPTS` | 已确认 |
-| P1-NL2 | 🟠 严重 | `pwd` / `ls` / `echo` 等输入可能走到 `domains=[]`，导致空工具列表 | 已确认 |
+| P0-NL1 | 🔴 阻断 | `nl-processor-tool-calling` prompt 不在 `BUILTIN_PROMPTS` | ✅ 已修复 |
+| P1-NL2 | 🟠 严重 | `pwd` / `ls` / `echo` 等输入可能走到 `domains=[]`，导致空工具列表 | ✅ 已修复 |
 | P2-NL3 | 🟡 一般 | 无通用 shell 命令工具 / intent fallback | 已确认 |
-| P0-CODE1 | 🔴 阻断 | `src/infrastructure/data/cleanup.ts` pino logger 调用类型不匹配 | 已确认 |
-| P0-CODE2 | 🔴 阻断 | `src/skills/executor.ts:220` 表达式不可调用 | 已确认 |
-| P0-TEST1 | 🔴 阻断 | `npm run test:run` 当前有 5 个失败测试 | 已确认 |
-| P0-ARCH1 | 🔴 阻断 | `src/utils/version.ts` 直接调用 `getDefaultContext()`，违反默认 context 边界 | 已确认 |
+| P0-CODE1 | 🔴 阻断 | `src/infrastructure/data/cleanup.ts` pino logger 调用类型不匹配 | ✅ 已修复 |
+| P0-CODE2 | 🔴 阻断 | `src/skills/executor.ts:220` 表达式不可调用 | ✅ 已修复 |
+| P0-TEST1 | 🔴 阻断 | `npm run test:run` 当前有 5 个失败测试 | ✅ 已修复 |
+| P0-ARCH1 | 🔴 阻断 | `src/utils/version.ts` 直接调用 `getDefaultContext()`，违反默认 context 边界 | ✅ 已修复 |
 
 ### 1.4 补充发现追踪
 
 | ID | 级别 | 问题 | 证据 | 建议 |
 |----|------|------|------|------|
-| P0-ARCH1 | 🔴 阻断 | 默认 context 边界违规 | `npm run check:default-context-usage` 失败；`src/utils/version.ts:18` | 改为显式依赖注入，或移动到允许的 bridge/composition root |
-| P1-ERR1 | 🟠 严重 | 静默失败隐藏真实问题 | `src/skills/registry.ts:243`、`src/skills/registry.ts:316`、`src/nl/tool-calling.ts:283` | 关键路径 fail-fast；非关键路径至少记录结构化错误 |
+| P0-ARCH1 | 🔴 阻断 | 默认 context 边界违规 | `npm run check:default-context-usage` 失败；`src/utils/version.ts:18` | ✅ 已修复 |
+| P1-ERR1 | 🟠 严重 | 静默失败隐藏真实问题 | `src/skills/registry.ts:243`、`src/skills/registry.ts:316`、`src/nl/tool-calling.ts:283` | ✅ 关键路径已修复；剩余 ~17 处非关键路径 bare catch 待后续批次 |
 | P1-SKILL1 | 🟠 严重 | Skill discovery 是占位实现 | `src/skills/registry.ts:416` 固定返回空数组 | 明确标注 unsupported，或实现真实文件扫描合同 |
-| P1-VERIFY1 | 🟠 严重 | 语义端到端脚本可能验证过期构建产物 | `scripts/test-semantic-output.sh:8` 使用 `node dist/cli.js` | 脚本先要求 build 成功，或增加 source-mode 验证入口 |
-| P1-WF1 | 🟠 严重 | `delegate` StepType 与默认执行器 handler 不一致 | `src/types/workflow.ts:1` 声明 `delegate`；默认 handler 不包含 `delegate` | 明确 extension-only，或提供默认 delegate handler |
+| P1-VERIFY1 | 🟠 严重 | 语义端到端脚本可能验证过期构建产物 | `scripts/test-semantic-output.sh:8` 使用 `node dist/cli.js` | ✅ 已修复（默认 source mode） |
+| P1-WF1 | 🟠 严重 | `delegate` StepType 与默认执行器 handler 不一致 | `src/types/workflow.ts:1` 声明 `delegate`；默认 handler 不包含 `delegate` | ✅ 已修复（添加默认 delegate handler） |
 | P2-NL4 | 🟡 一般 | Prompt registry 双轨 | `src/nl/prompt-manager.ts:7` 与 `src/nl/prompt/v3.ts:14` 都定义 `BUILTIN_PROMPTS` | 收敛到单一 registry，或明确 v3 边界与同步规则 |
-| P2-QUALITY1 | 🟡 一般 | 生产代码仍有显式 `any` 和阻断级 `console.*` | 质量脚本：14 个 production `any`，3 个 blocking console | 分批替换为具体类型，CLI 输出与 logger 边界分离 |
+| P2-QUALITY1 | 🟡 一般 | 生产代码仍有显式 `any` 和阻断级 `console.*` | 质量脚本：14 个 production `any`，3 个 blocking console | ✅ 已修复（Production Any: 0, Blocking Console: 0） |
 
 ### 1.5 优化优先级矩阵
 
@@ -85,12 +88,10 @@
 ├─────────────────┬─────────────────┬─────────────────────────┤
 │     紧急程度     │     影响范围      │       行动项            │
 ├─────────────────┼─────────────────┼─────────────────────────┤
-│ 🔴 P0           │ 高              │ 修复 NL 缺陷             │
-│ 🔴 P0           │ 高              │ 修复代码崩溃问题          │
-│ 🔴 P0           │ 高              │ 修复安全配置问题          │
-│ 🟠 P1           │ 高              │ 提升类型安全              │
-│ 🟠 P1           │ 中              │ 扩大测试覆盖率            │
-│ 🟡 P2           │ 中              │ 清理技术债务              │
+│ ✅ P0           │ 高              │ 全部清零（已修复）        │
+│ 🟠 P1           │ 高              │ P1-SKILL1 skill discovery │
+│ 🟠 P1           │ 中              │ P1-ERR1 剩余 bare catch   │
+│ 🟡 P2           │ 中              │ P2-NL4 prompt 双轨        │
 └─────────────────┴─────────────────┴─────────────────────────┘
 ```
 
