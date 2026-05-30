@@ -1,6 +1,6 @@
 # VectaHub NL 引擎与质量优化路线图
 
-**文档版本**: 3.2
+**文档版本**: 3.3
 **日期**: 2026-05-30
 **最近核验**: 2026-05-30
 **依据**: 标准体系、当前源码、当前本地验证命令输出
@@ -21,7 +21,8 @@
 - **P1 部分修复**：P1-NL2（`buildAllTools` 空工具）、P1-VERIFY1（semantic E2E 验证 stale dist）、P1-WF1（delegate handler）、P1-ERR1（关键路径 bare catch）已修复。P1-SKILL1（skill discovery 占位）已添加 warn 日志和 JSDoc 标注，完整文件扫描待实现。
 - 当前仓库没有 `src/nl/intent-classifier.ts` / `src/types/intent.ts`，相关修复示例应理解为伪代码，实际修复点在 `src/nl/core/pipeline.ts`、`src/nl/core/goal-parser.ts`、`src/nl/tool-calling.ts`、`src/nl/prompt-manager.ts` 和共享类型定义。
 - Shell 语义端到端：35 项全部通过（0 expected fail）。
-- 剩余 open 项：P1-SKILL1（warn 已添加，完整文件扫描待实现）、P2-NL4（prompt registry 双轨）、P1-ERR1 剩余非核心路径 bare catch（~10 处）。
+- 剩余 open 项：P1-SKILL1（warn 已添加，完整文件扫描待实现）、P1-ERR1 剩余非核心路径 bare catch（~10 处）。
+- P2-NL4（prompt registry 双轨）已修复：所有 prompts 统一到 `src/nl/prompt/v3.ts`，`prompt-manager.ts` 改为导入而非重复定义。
 - `SecurityRuleStore` 与 `security` CLI 已支持安全规则 CRUD、导入、导出、启用、禁用和测试；不能再写成“有 API 但无 CLI 入口”。
 - MCP 支持、工作流 `skill` / `mcp` / `rule` / `llm` 步骤、统一 `CapabilityRegistry` 仍未在当前源码中实现，适合作为后续路线图，不应描述为当前能力。
 - 额外质量检查发现：默认 context 边界、静默失败、Skill discovery 占位、语义端到端脚本使用 `dist`、`delegate` step 类型与默认 handler 不一致、prompt registry 双轨等问题也需要纳入路线图。
@@ -77,7 +78,7 @@
 | P1-SKILL1 | 🟠 严重 | Skill discovery 是占位实现 | `src/skills/registry.ts:416` 固定返回空数组 | ⚠️ 已添加 warn 日志和 JSDoc 标注；完整文件扫描待实现 |
 | P1-VERIFY1 | 🟠 严重 | 语义端到端脚本可能验证过期构建产物 | `scripts/test-semantic-output.sh:8` 使用 `node dist/cli.js` | ✅ 已修复（默认 source mode） |
 | P1-WF1 | 🟠 严重 | `delegate` StepType 与默认执行器 handler 不一致 | `src/types/workflow.ts:1` 声明 `delegate`；默认 handler 不包含 `delegate` | ✅ 已修复（添加默认 delegate handler） |
-| P2-NL4 | 🟡 一般 | Prompt registry 双轨 | `src/nl/prompt-manager.ts:7` 与 `src/nl/prompt/v3.ts:14` 都定义 `BUILTIN_PROMPTS` | 收敛到单一 registry，或明确 v3 边界与同步规则 |
+| P2-NL4 | 🟡 一般 | Prompt registry 双轨 | `src/nl/prompt-manager.ts:7` 与 `src/nl/prompt/v3.ts:14` 都定义 `BUILTIN_PROMPTS` | ✅ 已修复（统一到 v3.ts 单一源） |
 | P2-QUALITY1 | 🟡 一般 | 生产代码仍有显式 `any` 和阻断级 `console.*` | 质量脚本：14 个 production `any`，3 个 blocking console | ✅ 已修复（Production Any: 0, Blocking Console: 0） |
 
 ### 1.5 优化优先级矩阵
@@ -91,7 +92,7 @@
 │ ✅ P0           │ 高              │ 全部清零（已修复）        │
 │ 🟠 P1           │ 高              │ P1-SKILL1 skill discovery（warn 已添加，扫描待实现） │
 │ 🟠 P1           │ 中              │ P1-ERR1 剩余 bare catch   │
-│ 🟡 P2           │ 中              │ P2-NL4 prompt 双轨        │
+│ 🟡 P2           │ 中              │ P2-NL4 prompt 双轨（✅ 已修复） │
 └─────────────────┴─────────────────┴─────────────────────────┘
 ```
 
