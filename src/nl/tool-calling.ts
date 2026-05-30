@@ -5,6 +5,9 @@ import type { Step } from '../types/index.js';
 import type { ToolInfo } from './types/command.js';
 import type { CommandDiscovery } from './discovery/command-discovery.js';
 import { createIntentStepMapper, type IntentStepMapping } from './intent-step-mapping.js';
+import { getLogger } from '../infrastructure/logger/index.js';
+
+const logger = getLogger('nl-tool-calling');
 
 const LLM_SAFE_TOOLS = new Set(['git', 'npm', 'node', 'yarn', 'npx', 'echo', 'ls', 'pwd']);
 const LLM_RESTRICTED_TOOLS = new Set(['curl', 'docker', 'rm', 'sudo', 'wget']);
@@ -280,7 +283,9 @@ export function buildAgentToolsFromRegistry(): LLMTool[] {
   let registry;
   try {
     registry = getAgentRegistry();
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.warn({ error: message }, 'Failed to get agent registry for tool building');
     return [];
   }
   if (!registry) return [];

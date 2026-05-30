@@ -482,7 +482,7 @@ describe('Executor', () => {
       expect(result.error).toBe('No handler registered for step type: <missing>');
     });
 
-    it('should fail delegate step without registered handler', async () => {
+    it('should fail delegate step without agent module', async () => {
       const step: Step = {
         id: 'delegate-step',
         type: 'delegate',
@@ -492,7 +492,111 @@ describe('Executor', () => {
       const result = await executor.execute(step, { mode: 'RELAXED' });
 
       expect(result.status).toBe('FAILED');
-      expect(result.error).toBe('No handler registered for step type: delegate');
+      expect(result.error).toContain('No agent delegate module registered');
+    });
+  });
+
+  describe('delegate step handler', () => {
+    it('should validate delegate step with delegateTo and delegatePrompt', () => {
+      const step: Step = {
+        id: 'd1',
+        type: 'delegate',
+        delegateTo: 'claude',
+        delegatePrompt: 'Fix the bug',
+      };
+      const result = executor.validateStep(step);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toEqual([]);
+    });
+
+    it('should reject delegate step without delegateTo', () => {
+      const step = { id: 'd1', type: 'delegate' as const, delegatePrompt: 'Fix the bug' };
+      const result = executor.validateStep(step as Step);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('delegate step must have delegateTo and delegatePrompt');
+    });
+
+    it('should reject delegate step without delegatePrompt', () => {
+      const step = { id: 'd1', type: 'delegate' as const, delegateTo: 'claude' };
+      const result = executor.validateStep(step as Step);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('delegate step must have delegateTo and delegatePrompt');
+    });
+
+    it('should fail delegate step when no agent module is configured', async () => {
+      const step: Step = {
+        id: 'd1',
+        type: 'delegate',
+        delegateTo: 'gemini',
+        delegatePrompt: 'Analyze the code',
+      };
+      const result = await executor.execute(step, { mode: 'RELAXED' });
+      expect(result.status).toBe('FAILED');
+      expect(result.error).toContain('No agent delegate module registered');
+      expect(result.error).toContain('gemini');
+    });
+
+    it('should execute delegate step with mock agent module', async () => {
+      const mockModule = {
+        id: 'mock-agent',
+        name: 'Mock Agent',
+        version: '1.0.0',
+        type: 'ai-enhancement' as const,
+        canHandle: vi.fn().mockResolvedValue(true),
+        execute: vi.fn().mockResolvedValue({
+          success: true,
+          data: { status: 'completed', output: 'Task done', toolCalls: [], duration: 100 },
+        }),
+      };
+
+      const delegateExecutor = createExecutor({
+        audit: createNoopAuditHelper(),
+        environment,
+        delegateHandlerDeps: { agentModule: mockModule },
+      });
+
+      const step: Step = {
+        id: 'd1',
+        type: 'delegate',
+        delegateTo: 'aider',
+        delegatePrompt: 'Write tests',
+      };
+      const result = await delegateExecutor.execute(step, { mode: 'RELAXED' });
+
+      expect(result.status).toBe('COMPLETED');
+      expect(result.output).toEqual(['Task done']);
+      expect(mockModule.canHandle).toHaveBeenCalledWith(
+        expect.objectContaining({ delegateTo: 'aider' })
+      );
+      expect(mockModule.execute).toHaveBeenCalledWith('Write tests', expect.any(Object));
+    });
+
+    it('should fail when agent module cannot handle delegation', async () => {
+      const mockModule = {
+        id: 'mock-agent',
+        name: 'Mock Agent',
+        version: '1.0.0',
+        type: 'ai-enhancement' as const,
+        canHandle: vi.fn().mockResolvedValue(false),
+        execute: vi.fn(),
+      };
+
+      const delegateExecutor = createExecutor({
+        audit: createNoopAuditHelper(),
+        environment,
+        delegateHandlerDeps: { agentModule: mockModule },
+      });
+
+      const step: Step = {
+        id: 'd1',
+        type: 'delegate',
+        delegateTo: 'unknown-agent',
+        delegatePrompt: 'Do something',
+      };
+      const result = await delegateExecutor.execute(step, { mode: 'RELAXED' });
+
+      expect(result.status).toBe('FAILED');
+      expect(result.error).toContain('cannot handle delegation');
     });
   });
 

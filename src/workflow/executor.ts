@@ -16,6 +16,7 @@ import { handleParallel } from './handlers/parallel-handler.js';
 import { handleForEach } from './handlers/foreach-handler.js';
 import { createOpenCliHandler } from './handlers/opencli-handler.js';
 import { createExecHandler } from './handlers/exec-handler.js';
+import { createDelegateHandler, type DelegateHandlerDeps } from './handlers/delegate-handler.js';
 import type { StepHandler, ExecuteStepFn, ExecutionContext, ExecutorOptions, ExecutionResult, HandlerDependencies, CLIResult } from './handlers/types.js';
 export type { StepHandler, ExecuteStepFn, ExecutionContext, ExecutorOptions, ExecutionResult, HandlerDependencies, CLIResult };
 
@@ -34,6 +35,7 @@ export interface ExecutorDeps {
   audit: AuditHelper;
   securityGuard?: SecurityGuard;
   stepHandlers?: Record<string, StepHandler>;
+  delegateHandlerDeps?: DelegateHandlerDeps;
 }
 
 export interface Executor {
@@ -179,6 +181,7 @@ export function createExecutor(deps: ExecutorDeps): Executor {
     for_each: handleForEach,
     opencli: createOpenCliHandler(handlerDeps),
     exec: createExecHandler(handlerDeps),
+    delegate: createDelegateHandler(deps.delegateHandlerDeps ?? {}),
   };
 
   // 合并自定义 stepHandlers 到默认 stepHandlers，自定义覆盖默认

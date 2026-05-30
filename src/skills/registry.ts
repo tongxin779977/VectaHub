@@ -7,6 +7,9 @@ import {
   SkillCacheEntry,
   SkillCacheConfig
 } from './types.js';
+import { getLogger } from '../infrastructure/logger/index.js';
+
+const logger = getLogger('skill-registry');
 
 /**
  * Result of a skill match operation
@@ -240,8 +243,9 @@ export class SkillRegistry {
             discovered.push(skill);
           }
         }
-      } catch {
-        // Silently continue if path scanning fails
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn({ path: discoveryPath, error: message }, 'Skill discovery path scan failed');
       }
     }
 
@@ -313,8 +317,9 @@ export class SkillRegistry {
         if (await skill.canHandle(context)) {
           applicable.push(skill);
         }
-      } catch {
-        // Individual skill failed to check applicability, skip it
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn({ skillId: skill.id, error: message }, 'Skill applicability check failed');
       }
     }
     return applicable.sort((a, b) => b.tags.length - a.tags.length);
