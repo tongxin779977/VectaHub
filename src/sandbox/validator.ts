@@ -6,6 +6,9 @@ import type {
   ValidationRuleEngine,
   RuleAction,
 } from './types.js';
+import { getLogger } from '../infrastructure/logger/index.js';
+
+const logger = getLogger(import.meta.url);
 
 const ACTION_PRIORITY: Record<RuleAction, number> = {
   block: 0,
@@ -103,7 +106,9 @@ export function createValidationRuleEngine(initialRules?: ValidationRule[]): Val
         let matched: boolean;
         try {
           matched = rule.condition(input, context);
-        } catch {
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          logger.warn({ error: message }, 'Rule condition evaluation failed');
           matched = false;
         }
 

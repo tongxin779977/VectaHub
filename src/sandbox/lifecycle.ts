@@ -6,6 +6,9 @@ import type {
   LifecycleHookRegistration,
   LifecycleManager,
 } from './types.js';
+import { getLogger } from '../infrastructure/logger/index.js';
+
+const logger = getLogger(import.meta.url);
 
 /**
  * 创建生命周期管理器实例
@@ -116,8 +119,9 @@ export function createLifecycleManager(): LifecycleManager {
       for (const registration of sortedHooks) {
         try {
           await registration.hook(fullContext);
-        } catch {
-          // 单个钩子失败不阻断后续执行
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          logger.warn({ error: message }, 'Lifecycle hook execution failed');
         }
         if (registration.once) {
           toRemove.push(registration.id);

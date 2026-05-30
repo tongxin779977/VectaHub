@@ -5,6 +5,9 @@ import type {
   MetricSnapshot,
   MonitorAlertManager,
 } from './types.js';
+import { getLogger } from '../infrastructure/logger/index.js';
+
+const logger = getLogger(import.meta.url);
 
 const OPERATORS: Record<string, (a: number, b: number) => boolean> = {
   '>': (a, b) => a > b,
@@ -167,7 +170,9 @@ export function createMonitorAlertManager(): MonitorAlertManager {
             if (result instanceof Promise) {
               result.catch(() => {});
             }
-          } catch {
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            logger.warn({ error: message }, 'Alert action failed');
             // 告警动作失败不阻断评估
           }
         }

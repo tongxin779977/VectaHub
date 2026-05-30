@@ -3,6 +3,9 @@ import { existsSync, accessSync, constants, createReadStream } from 'node:fs';
 import { join } from 'node:path';
 import { FALLBACK_PATH } from './constants.js';
 import type { CommandSignature, SignatureValidation, ExecutableVerification } from './types.js';
+import { getLogger } from '../infrastructure/logger/index.js';
+
+const logger = getLogger(import.meta.url);
 
 /**
  * 对命令进行签名
@@ -143,7 +146,9 @@ function isExecutable(path: string): boolean {
   try {
     accessSync(path, constants.X_OK);
     return true;
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.warn({ error: message }, 'isExecutable check failed');
     return false;
   }
 }

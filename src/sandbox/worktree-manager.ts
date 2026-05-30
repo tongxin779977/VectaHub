@@ -2,6 +2,9 @@ import { execFile } from 'node:child_process';
 import { rmSync } from 'node:fs';
 import { cp, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { getLogger } from '../infrastructure/logger/index.js';
+
+const logger = getLogger(import.meta.url);
 
 export interface SandboxOptions {
   traceId: string;
@@ -74,8 +77,9 @@ export async function createSandbox(options: SandboxOptions): Promise<SandboxCon
 
   try {
     await execGit(['branch', '-D', branchName], gitRoot);
-  } catch {
-    // ignore missing or detached residual branch
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.debug({ error: message }, 'Branch deletion skipped (missing or detached)');
   }
 
   await execGit(['worktree', 'add', '-B', branchName, worktreePath, 'HEAD'], gitRoot);
@@ -106,13 +110,17 @@ export async function teardownSandbox(context: SandboxContext): Promise<void> {
 
   try {
     await execGit(['worktree', 'remove', '--force', context.worktreePath], repoCwd);
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.warn({ error: message }, 'Git worktree removal failed');
     // ignore
   }
 
   try {
     await execGit(['branch', '-D', context.branchName], repoCwd);
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.warn({ error: message }, 'Git branch deletion failed');
     // ignore
   }
 
