@@ -1064,7 +1064,7 @@ completion:
 ```yaml
 id: P1-010
 priority: P1
-status: todo
+status: done
 depends_on:
   - P0-006
   - P1-003
@@ -1104,6 +1104,18 @@ done_criteria:
   - blocked 不承诺已执行
   - clarify 明确缺少什么信息
   - plan/draft 回复说明下一步是 review、confirm、execute 或 verify
+completion:
+  verified_at: "2026-05-31"
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass (0 errors, 0 warnings)
+    - npm run test:run: pass (21 tests)
+    - git diff --check: pass
+  changed_files:
+    - docs/development-backlog.md
+    - src/machine-response/index.ts
+    - src/machine-response/human-readable-formatter.ts
+    - src/machine-response/human-readable-formatter.test.ts
 ```
 
 ### P1-011: 建立多样本 semantic user-test harness

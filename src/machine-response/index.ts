@@ -13,6 +13,7 @@ import type {
 } from '../types/machine-response.js';
 import type { OrchestrationPlan } from '../types/orchestration-plan.js';
 import type { WorkflowDraft } from '../types/workflow-draft.js';
+import { formatHumanReadable } from './human-readable-formatter.js';
 
 /**
  * Safe error serializer - prevents secrets, stack traces, and sensitive data from appearing in machine responses
@@ -210,3 +211,5 @@ export function buildWorkflowDraftResponse(
   };
   return buildMachineResponse(result, options);
 }
+
+export { formatHumanReadable };
