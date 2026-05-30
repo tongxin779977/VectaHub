@@ -58,6 +58,18 @@ export type {
   SudoConfigResult,
 } from './types.js';
 
+/**
+ * SandboxManager 内部运行时默认配置。
+ *
+ * 注意：此配置与 ConfigService 中的用户持久化配置 (STRICT/block) 是不同层面：
+ * - ConfigService (infrastructure/config/service.ts)：用户面向的持久化默认值，用于 config.yaml
+ * - 本配置：SandboxManager 实例化时的内部运行时默认值
+ *
+ * 当前 SandboxManager 不从 ConfigService 读取配置，调用方需显式传入所需配置。
+ * defaultPolicy: 'passthrough' 是有意设计——当命令未命中黑白名单时，
+ * 交给后续的危险命令检测系统 (detector) 处理，而非直接拒绝。
+ * CommandRuleEvaluator (security-protocol) 也独立使用 'passthrough' 以保证安全评估管线完整性。
+ */
 const DEFAULT_CONFIG: SandboxConfig = {
   root: getVectaHubPath('sandbox'),
   workspace: getVectaHubPath('sandbox', 'workspace'),
@@ -68,7 +80,7 @@ const DEFAULT_CONFIG: SandboxConfig = {
   timeoutMs: 60000,
   allowedEnvVars: ['PATH', 'HOME', 'USER', 'LANG', 'LC_ALL'],
   namespaceIsolation: true,
-  defaultPolicy: 'passthrough', // 保持向后兼容性，使用原有行为
+  defaultPolicy: 'passthrough',
 };
 
 /**

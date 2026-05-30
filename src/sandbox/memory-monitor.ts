@@ -7,7 +7,7 @@
  * @example
  * ```ts
  * const monitor = new MemoryMonitor(512, 2000);
- * monitor.registerOverflowHandler((usage, pct) => console.warn(`Memory at ${pct}%`));
+ * monitor.registerOverflowHandler((usage, pct) => { handleOverflow(pct); });
  * monitor.start();
  * ```
  */

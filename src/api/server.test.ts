@@ -4,7 +4,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import { createAPIServer } from './server.js';
-import { createNoopAuditHelper } from '../infrastructure/audit/index.js';
+import { createNoopAuditHelper, createAuditHelper } from '../infrastructure/audit/index.js';
 import { createEnvironmentService } from '../infrastructure/environment/index.js';
 import type { Server } from 'http';
 import type { TestContext } from 'vitest';
@@ -187,15 +187,14 @@ describe('API Server', () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
 
     server = await createAPIServer(3000, {
-      audit: {
-        ...createNoopAuditHelper(),
-        log(event) {
+      audit: createAuditHelper({
+        write(event) {
           auditEvents.push({
             action: event.action,
             sessionId: event.sessionId,
           });
         },
-      },
+      }),
       auditLogger: {
         getSessionId: () => 'api-session-123',
         query: () => [],

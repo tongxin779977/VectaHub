@@ -1,5 +1,5 @@
 import type { NLProcessor, NLContext, NLResult } from './types.js';
-import type { IntentName } from '../../types/index.js';
+import type { IntentName, Step } from '../../types/index.js';
 import type { ILLMClient } from '../interfaces.js';
 import type { AuditHelper } from '../../infrastructure/audit/index.js';
 import type pino from 'pino';
@@ -10,6 +10,43 @@ import { buildAllTools, convertToolCallToSteps } from '../tool-calling.js';
 import { createSemanticDetector } from '../../sandbox/semantic-detector.js';
 import { parseGoal } from './goal-parser.js';
 import { getAgentRegistry } from '../../agent-runtime/registry.js';
+
+const SAFE_SHELL_COMMANDS = new Set(['pwd', 'ls', 'echo']);
+
+function tryDeterministicShellCommand(
+  input: string,
+  semanticDetector: ReturnType<typeof createSemanticDetector>
+): NLResult | null {
+  const parts = splitPosixArgs(input);
+  if (parts.length === 0) return null;
+  const cmd = parts[0];
+  if (!SAFE_SHELL_COMMANDS.has(cmd)) return null;
+  const args = parts.slice(1);
+
+  const fullCommand = [cmd, ...args].join(' ');
+  const dangerResult = semanticDetector.scan(input, fullCommand);
+  if (dangerResult.severity === 'critical' || dangerResult.severity === 'high') {
+    throw new Error(`Semantic Guardrails: ${dangerResult.reason ?? 'dangerous command detected'}`);
+  }
+
+  const step: Step = {
+    id: 'step_shell',
+    type: 'exec',
+    cli: cmd,
+    args,
+  };
+
+  const workflowYAML = YAML.stringify({ steps: [step] });
+  return {
+    success: true,
+    intent: 'RUN_SCRIPT' as IntentName,
+    confidence: 1.0,
+    workflowYAML,
+    params: {},
+    metadata: { path: 'direct-query' },
+    taskList: createTaskListFromWorkflow(workflowYAML, input),
+  };
+}
 
 export interface NLProcessorOptions {
   useLLM?: boolean;
@@ -53,6 +90,11 @@ export function createNLProcessor(deps: NLProcessorDeps): NLProcessor {
     const injectionResult = semanticDetector.detectInjection(input);
     if (injectionResult.detected) {
       throw new Error(`Semantic Guardrails: ${injectionResult.reason}`);
+    }
+
+    const shellResult = tryDeterministicShellCommand(input, semanticDetector);
+    if (shellResult) {
+      return shellResult;
     }
 
     const goal = parseGoal(input);

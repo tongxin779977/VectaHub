@@ -4,6 +4,12 @@ import type { ExecutionRecord, ExecutionFilter, ExecutionSearchResult, Execution
 import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { parseStartedAt, toDatePartitionKey } from './utils.js';
 
+interface LoggerLike {
+  warn(message: string): void;
+}
+
+const noopLogger: LoggerLike = { warn() {} };
+
 export interface RecordManager {
   save(record: ExecutionRecord): Promise<void>;
   get(id: string): Promise<ExecutionRecord | undefined>;
@@ -28,10 +34,12 @@ const DEFAULT_LIST_LIMIT = 50;
  * Supports listing, filtering, searching, and metadata retrieval.
  *
  * @param baseDir - Base directory for record storage. Defaults to `<VectaHub>/executions`.
+ * @param deps - Optional dependencies. Pass `{ logger }` to receive warnings for malformed lines.
  * @returns A {@link RecordManager} instance
  */
-export function createRecordManager(baseDir?: string): RecordManager {
+export function createRecordManager(baseDir?: string, deps?: { logger?: LoggerLike }): RecordManager {
   const dir = baseDir || getVectaHubPath('executions');
+  const logger = deps?.logger ?? noopLogger;
 
   async function ensureDir(): Promise<void> {
     await mkdir(dir, { recursive: true });
@@ -64,7 +72,7 @@ export function createRecordManager(baseDir?: string): RecordManager {
             if (records.length >= targetLimit) break;
           }
         } catch {
-          console.warn(`Skipping malformed JSONL line in ${file}`);
+          logger.warn(`Skipping malformed JSONL line in ${file}`);
         }
       }
     }

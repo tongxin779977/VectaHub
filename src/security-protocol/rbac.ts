@@ -3,6 +3,12 @@ import { getVectaHubPath, getVectaHubHome } from '../infrastructure/paths/index.
 import { ShellTokenizer } from '../utils/shell-tokenizer.js';
 import { matchBlockedCommand } from './pattern-matcher.js';
 
+interface LoggerLike {
+  warn(message: string, ...args: unknown[]): void;
+}
+
+const noopLogger: LoggerLike = { warn() {} };
+
 export type RoleName = 'developer' | 'ci-runner' | 'admin';
 
 export interface RoleConfig {
@@ -140,9 +146,12 @@ function splitCompoundCommand(command: string): string[] {
  * Manages role definitions, permission checks, and configuration persistence.
  * Supports compound command splitting, bypass detection, and wildcard pattern matching.
  *
+ * @param deps - Optional dependencies. Pass `{ logger }` to receive warnings on config load failure.
  * @returns An RBACManager instance with role CRUD and execution permission checks
  */
-export function createRBACManager(): RBACManager {
+export function createRBACManager(deps?: { logger?: LoggerLike }): RBACManager {
+  const logger = deps?.logger ?? noopLogger;
+
   /**
    * Loads role configuration from the RBAC config file.
    * Falls back to default roles if the file is missing or malformed.
@@ -157,7 +166,7 @@ export function createRBACManager(): RBACManager {
       const raw = readFileSync(rbacFile, 'utf-8');
       return JSON.parse(raw) as RoleConfig[];
     } catch (error) {
-      console.warn('[RBAC] Failed to load config, falling back to defaults:', error instanceof Error ? error.message : String(error));
+      logger.warn('[RBAC] Failed to load config, falling back to defaults', error);
       return DEFAULT_ROLES;
     }
   }

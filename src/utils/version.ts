@@ -1,6 +1,6 @@
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getDefaultContext } from '../infrastructure/context.js';
+import { readFileSync } from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -8,16 +8,15 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 let cachedVersion: string | undefined;
 
 /**
- * Read the package version from package.json via the infrastructure environment service.
+ * Read the package version from package.json.
  * Uses module-level caching to avoid repeated file system access.
  * @returns The package version string, or '0.0.0' if reading fails.
  */
 export function getVersion(): string {
   if (!cachedVersion) {
     try {
-      const ctx = getDefaultContext();
       const pkgPath = join(__dirname, '../../package.json');
-      const pkgContent = ctx.environment.readFile(pkgPath);
+      const pkgContent = readFileSync(pkgPath, 'utf-8');
       const pkg = JSON.parse(pkgContent) as { version?: string };
       cachedVersion = pkg.version ?? '0.0.0';
     } catch {

@@ -5,6 +5,7 @@ import {
   DEFAULT_WORKFLOW_YAML_ID,
   DOC_TASK_PARSER_ID,
   AGENT_CMD_GENERATOR_ID,
+  NL_PROCESSOR_TOOL_CALLING_ID,
 } from './prompt-manager.js';
 
 test('should create prompt manager with built-in prompts', () => {
@@ -207,4 +208,28 @@ test('should list doc-task prompts by category', () => {
   const generationPrompts = manager.list('generation');
   const agentCmdGenerator = generationPrompts.find(p => p.id === AGENT_CMD_GENERATOR_ID);
   expect(agentCmdGenerator).toBeDefined();
+});
+
+test('should register nl-processor-tool-calling prompt', () => {
+  const manager = createPromptManager();
+  const prompt = manager.get(NL_PROCESSOR_TOOL_CALLING_ID);
+
+  expect(prompt).toBeDefined();
+  expect(prompt?.id).toBe(NL_PROCESSOR_TOOL_CALLING_ID);
+  expect(prompt?.category).toBe('parsing');
+  expect(prompt?.tags).toContain('tool-calling');
+  expect(prompt?.systemTemplate).toContain('tool');
+  expect(prompt?.systemTemplate).toContain('安全约束');
+  expect(prompt?.variables.some(v => v.name === 'userInput')).toBe(true);
+  expect(prompt?.constraints.length).toBeGreaterThan(0);
+});
+
+test('should build nl-processor-tool-calling system prompt', () => {
+  const manager = createPromptManager();
+
+  const systemPrompt = manager.buildSystemPrompt(NL_PROCESSOR_TOOL_CALLING_ID, {});
+
+  expect(systemPrompt).toContain('VectaHub');
+  expect(systemPrompt).toContain('tool');
+  expect(systemPrompt).toContain('安全约束');
 });

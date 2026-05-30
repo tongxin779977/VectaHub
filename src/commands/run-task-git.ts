@@ -1,6 +1,6 @@
 import { GitChangeInfo, getContext } from './run-task-shared.js';
 
-interface GitDiffSnapshot {
+export interface GitDiffSnapshot {
   diffStat: string;
   shortStat: string;
   changedFiles: string[];

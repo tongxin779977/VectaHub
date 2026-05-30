@@ -203,7 +203,7 @@ export class LlmInferencer implements ILlmInferencer {
       return parsed;
     } catch (error) {
       const errorMessage = formatErrorMessage(error);
-      throw new Error(`Failed to parse LLM response: ${errorMessage}`);
+      throw new Error(`Failed to parse LLM response: ${errorMessage}`, { cause: error });
     }
   }
 

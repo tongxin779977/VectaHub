@@ -327,9 +327,9 @@ describe('buildAllTools domain pruning', () => {
     expect(tools.length).toBeGreaterThan(0);
   });
 
-  it('empty domains [] -> returns empty array (chat pruning)', () => {
+  it('empty domains [] -> returns all tools (no pruning when domains is empty)', () => {
     const tools = buildAllTools([]);
-    expect(tools).toHaveLength(0);
+    expect(tools.length).toBeGreaterThan(0);
   });
 
   it('["git"] -> returns only git-related tools', () => {
@@ -351,11 +351,10 @@ describe('buildAllTools domain pruning', () => {
     }
   });
 
-  it('domains=[] is the mechanism that causes pwd to lose tools', () => {
+  it('domains=[] returns same tools as undefined (empty means no filter)', () => {
     const allTools = buildAllTools(undefined);
     const emptyTools = buildAllTools([]);
-    expect(allTools.length).toBeGreaterThan(emptyTools.length);
-    expect(emptyTools).toHaveLength(0);
+    expect(emptyTools.length).toBe(allTools.length);
   });
 });
 
@@ -661,10 +660,9 @@ describe('Hallucination Pattern Detection', () => {
     expect(hasHallucination).toBe(false);
   });
 
-  it('pipeline passes through hallucinated reply without sanitization', async () => {
-    let createNLProcessor: typeof import('./core/pipeline.js').createNLProcessor;
+  it('pipeline returns deterministic result for basic shell commands bypassing LLM', async () => {
     const mod = await vi.importActual<typeof import('./core/pipeline.js')>('./core/pipeline.js');
-    createNLProcessor = mod.createNLProcessor;
+    const createNLProcessor = mod.createNLProcessor;
 
     const hallucinatedReply = 'In this simulated environment, you are in /home/user directory.';
     const mockClient = createMockLLMClient({
@@ -683,32 +681,28 @@ describe('Hallucination Pattern Detection', () => {
     const result = await processor.parse({ input: 'pwd' });
 
     expect(result.success).toBe(true);
-    expect(result.reply).toBe(hallucinatedReply);
-
-    const hasHallucination = HALLUCINATION_PATTERNS.some(p =>
-      result.reply!.toLowerCase().includes(p.toLowerCase()),
-    );
-    expect(hasHallucination).toBe(true);
+    expect(result.reply).toBeUndefined();
   });
 });
 
 describe('NL Pipeline Known Bug Regression', () => {
-  it('[P0] nl-processor-tool-calling prompt not in BUILTIN_PROMPTS -> falls back to promptId string', () => {
+  it('[P0] nl-processor-tool-calling prompt exists in BUILTIN_PROMPTS', () => {
     const pm = createPromptManager();
     const prompt = pm.get('nl-processor-tool-calling');
-    expect(prompt).toBeUndefined();
+    expect(prompt).toBeDefined();
 
     const systemPrompt = pm.buildSystemPrompt('nl-processor-tool-calling');
-    expect(systemPrompt).toBe('nl-processor-tool-calling');
+    expect(typeof systemPrompt).toBe('string');
+    expect(systemPrompt.length).toBeGreaterThan(0);
   });
 
-  it('[P1] pwd -> domains=[] -> buildAllTools returns empty -> no tools available for LLM', () => {
+  it('[P1] pwd -> domains=[] -> buildAllTools returns all tools (empty domains means no filter)', () => {
     const goal = parseGoal('pwd');
     expect(goal.action).toBe('unknown');
     expect(goal.domains).toHaveLength(0);
 
     const tools = buildAllTools(goal.domains);
-    expect(tools).toHaveLength(0);
+    expect(tools.length).toBeGreaterThan(0);
   });
 
   it('[P2] no generic shell command intent type -> pwd/ls/echo all resolve to unknown', () => {

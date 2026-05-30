@@ -1,4 +1,4 @@
-import type { RunTaskOutputEntry } from './run-task-shared.js';
+import type { RunTaskOutputEntry, VerificationResult } from './run-task-shared.js';
 import {
   getContext,
   getRunTaskOutputDirCandidates,
@@ -121,8 +121,8 @@ export function detectAgentTaskAlreadySatisfied(output: string): boolean {
 
 export function isUnclosedExecutionFailure(input: {
   success: boolean;
-  gitChanges?: any;
-  verification?: any;
+  gitChanges?: { changedFiles: string[] };
+  verification?: VerificationResult;
 }): boolean {
   const changedFileCount = input.gitChanges?.changedFiles.length ?? 0;
   return !input.success && changedFileCount > 0 && input.verification === undefined;
@@ -167,7 +167,7 @@ export function classifyAgentFailureCode(error: unknown, output: string): 'TIMEO
   return 'AGENT_FAILED';
 }
 
-export function detectAgentSoftSystemFailure(output: string, gitChanges?: any): string | null {
+export function detectAgentSoftSystemFailure(output: string, gitChanges?: { changedFiles: string[] }): string | null {
   if (gitChanges?.changedFiles.length) {
     return null;
   }

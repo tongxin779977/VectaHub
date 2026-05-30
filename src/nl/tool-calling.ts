@@ -6,7 +6,7 @@ import type { ToolInfo } from './types/command.js';
 import type { CommandDiscovery } from './discovery/command-discovery.js';
 import { createIntentStepMapper, type IntentStepMapping } from './intent-step-mapping.js';
 
-const LLM_SAFE_TOOLS = new Set(['git', 'npm', 'node', 'yarn', 'npx', 'echo', 'ls']);
+const LLM_SAFE_TOOLS = new Set(['git', 'npm', 'node', 'yarn', 'npx', 'echo', 'ls', 'pwd']);
 const LLM_RESTRICTED_TOOLS = new Set(['curl', 'docker', 'rm', 'sudo', 'wget']);
 const CLI_CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -316,10 +316,6 @@ export function buildAgentToolsFromRegistry(): LLMTool[] {
 }
 
 export function buildAllTools(domains?: string[]): LLMTool[] {
-  if (domains !== undefined && domains.length === 0) {
-    return [];
-  }
-
   const intentTools = buildToolsFromTemplates();
   const cliTools = getDiscoveredCLITools();
   const agentTools = buildAgentToolsFromRegistry();

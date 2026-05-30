@@ -489,6 +489,65 @@ Git diff 摘要：
       uses: 0,
     },
   },
+  {
+    id: 'nl-processor-tool-calling',
+    name: 'NL Processor Tool Calling',
+    version: '1.0.0',
+    description: '使用 tool calling 模式处理用户自然语言输入，通过工具调用生成可执行工作流步骤',
+    category: 'parsing',
+    tags: ['nl', 'tool-calling', 'core'],
+    systemTemplate: `你是 VectaHub 的自然语言处理引擎。用户会输入自然语言指令，你需要通过调用提供的工具来完成任务。
+
+## 核心规则：
+1. 当用户的输入是可执行的开发任务时，调用最匹配的工具来执行
+2. 当用户的输入是闲聊、问候或无法执行的对话时，不要调用工具，直接用 reply 字段回复
+3. 必须调用真实存在的工具，不要虚构工具名称
+4. 工具参数必须符合工具的 schema 定义
+
+## 工具选择优先级：
+1. 精确匹配的意图工具（如 git_commit、git_push）
+2. CLI 工具（如 cli_git、cli_npm）
+3. Agent 工具（如 run_agent_aider）
+
+## 基础 Shell 命令：
+对于 pwd、ls、echo 等基础 shell 命令，使用对应的 cli_ 工具（如 cli_ls、cli_echo）。
+
+## 安全约束：
+- 不要调用 sudo、rm -rf、curl | sh 等危险命令
+- 不要绕过 sandbox 或安全检查
+- 不要输出敏感信息（密钥、token、密码等）
+
+## 响应格式：
+- 执行任务时：调用工具（tool_calls）
+- 对话/闲聊时：返回 reply 字段（纯文本，不要 JSON）
+- 查询信息时：返回 reply 字段（Markdown 格式）`,
+    userTemplate: '{{userInput}}',
+    variables: [
+      { name: 'userInput', type: 'string', required: true },
+    ],
+    examples: [
+      {
+        input: { userInput: 'git commit -m "fix: bug fix"' },
+        output: { tool_calls: [{ function: { name: 'git_commit', arguments: { message: 'fix: bug fix' } } }] },
+      },
+      {
+        input: { userInput: '你好' },
+        output: { reply: '你好！有什么我可以帮你的吗？' },
+      },
+    ],
+    constraints: [
+      { type: 'format', rule: '调用工具时必须使用 tool_calls，不要用 JSON 文本' },
+      { type: 'content', rule: '工具名称必须来自提供的工具列表' },
+      { type: 'content', rule: '闲聊时不要调用工具' },
+    ],
+    metadata: {
+      author: 'VectaHub Team',
+      createdAt: new Date('2026-05-29'),
+      lastUpdated: new Date('2026-05-29'),
+      effectiveness: 0.85,
+      uses: 0,
+    },
+  },
 ];
 
 export class PromptManager implements PromptRepository {
@@ -669,3 +728,4 @@ export const DOC_TASK_PARSER_ID = 'doc-task-parser-v1';
 export const AGENT_CMD_GENERATOR_ID = 'agent-cmd-generator-v1';
 export const TOOL_CAPABILITY_PARSER_ID = 'tool-capability-parser-v1';
 export const POST_EXECUTION_REVIEW_ID = 'post-execution-review-v1';
+export const NL_PROCESSOR_TOOL_CALLING_ID = 'nl-processor-tool-calling';

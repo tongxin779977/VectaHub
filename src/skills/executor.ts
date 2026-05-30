@@ -217,7 +217,7 @@ export class SkillExecutor {
             throw new Error(`Module '${module}' is blocked in sandbox mode`);
           }
           if (originalRequire) {
-            return originalRequire(module);
+            return (originalRequire as (m: string) => unknown)(module);
           }
           throw new Error(`Cannot require module '${module}': require is not available`);
         };

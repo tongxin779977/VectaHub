@@ -128,7 +128,7 @@ export class DataCleanupService {
     try {
       await fs.access(logDir);
     } catch (error) {
-      this.logger.debug(`Log directory ${logDir} not accessible, skipping log cleanup`, error);
+      this.logger.debug(`Log directory ${logDir} not accessible, skipping log cleanup: ${error instanceof Error ? error.message : String(error)}`);
       return;
     }
 
@@ -146,7 +146,7 @@ export class DataCleanupService {
           this.logger.debug(`Deleted old log file: ${file}`);
         }
       } catch (error) {
-        this.logger.warn(`Failed to process log file ${filePath}`, error);
+        this.logger.warn(`Failed to process log file ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
         continue;
       }
     }
@@ -163,7 +163,7 @@ export class DataCleanupService {
     try {
       await fs.access(executionsDir);
     } catch (error) {
-      this.logger.debug(`Executions directory ${executionsDir} not accessible, skipping execution cleanup`, error);
+      this.logger.debug(`Executions directory ${executionsDir} not accessible, skipping execution cleanup: ${error instanceof Error ? error.message : String(error)}`);
       return;
     }
 
@@ -183,7 +183,7 @@ export class DataCleanupService {
           this.logger.debug(`Deleted old execution record: ${file}`);
         }
       } catch (error) {
-        this.logger.warn(`Failed to process execution file ${filePath}`, error);
+        this.logger.warn(`Failed to process execution file ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
         continue;
       }
     }
@@ -200,7 +200,7 @@ export class DataCleanupService {
     try {
       await fs.access(workflowsDir);
     } catch (error) {
-      this.logger.debug(`Workflows directory ${workflowsDir} not accessible, skipping workflow cleanup`, error);
+      this.logger.debug(`Workflows directory ${workflowsDir} not accessible, skipping workflow cleanup: ${error instanceof Error ? error.message : String(error)}`);
       return;
     }
 
@@ -220,7 +220,7 @@ export class DataCleanupService {
           this.logger.debug(`Deleted old workflow: ${file}`);
         }
       } catch (error) {
-        this.logger.warn(`Failed to process workflow file ${filePath}`, error);
+        this.logger.warn(`Failed to process workflow file ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
         continue;
       }
     }
@@ -254,7 +254,7 @@ export class DataCleanupService {
     try {
       await fs.access(dirPath);
     } catch (error) {
-      this.logger.debug(`Directory ${dirPath} not accessible, skipping age-based cleanup`, error);
+      this.logger.debug(`Directory ${dirPath} not accessible, skipping age-based cleanup: ${error instanceof Error ? error.message : String(error)}`);
       return 0;
     }
 
@@ -271,7 +271,7 @@ export class DataCleanupService {
           deletedCount++;
         }
       } catch (error) {
-        this.logger.warn(`Failed to process file ${filePath} during age-based cleanup`, error);
+        this.logger.warn(`Failed to process file ${filePath} during age-based cleanup: ${error instanceof Error ? error.message : String(error)}`);
         continue;
       }
     }
@@ -306,7 +306,7 @@ export class DataCleanupService {
     try {
       await fs.access(dirPath);
     } catch (error) {
-      this.logger.debug(`Directory ${dirPath} not accessible for stats, returning empty stats`, error);
+      this.logger.debug(`Directory ${dirPath} not accessible for stats, returning empty stats: ${error instanceof Error ? error.message : String(error)}`);
       return { count: 0, bytes: 0 };
     }
 
@@ -324,7 +324,7 @@ export class DataCleanupService {
           bytes += stat.size;
         }
       } catch (error) {
-        this.logger.warn(`Failed to get stats for file ${filePath}`, error);
+        this.logger.warn(`Failed to get stats for file ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
         continue;
       }
     }

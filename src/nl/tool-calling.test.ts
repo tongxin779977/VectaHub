@@ -463,9 +463,11 @@ describe('convertToolCallToSteps', () => {
   });
 
   describe('Dynamic Pruning & Custom Agent Tools', () => {
-    it('should return empty tools when domains is an empty array (chitchat pruning)', () => {
+    it('should return all tools when domains is an empty array (no pruning)', () => {
       const tools = buildAllTools([]);
-      expect(tools).toEqual([]);
+      expect(tools.length).toBeGreaterThan(0);
+      const names = tools.map(t => t.function.name);
+      expect(names).toContain('run_agent_aider');
     });
 
     it('should return all tools when domains is undefined', () => {

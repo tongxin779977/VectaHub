@@ -245,7 +245,7 @@ program.hook('preSubcommand', async (_thisCommand, subcommand) => {
     const args = ctx.environment.getArgv().slice(3);
     const strictAudit = new AuditService(ctx.environment, {
       sessionId,
-      failureMode: 'fail-open',
+      failureMode: 'fail-closed',
       onError: () => {},
     });
 

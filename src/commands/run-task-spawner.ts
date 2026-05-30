@@ -11,7 +11,7 @@ import {
   readRunTaskOutputFile
 } from './run-task-shared.js';
 import { createChildEnv } from '../infrastructure/trace/context.js';
-import { collectGitChanges } from './run-task-git.js';
+import { collectGitChanges, type GitDiffSnapshot } from './run-task-git.js';
 
 const redactor = createRedactor();
 
@@ -98,6 +98,7 @@ export function parseTokenUsage(output: string): TokenUsage | undefined {
       return { promptTokens: prompt, completionTokens: completion, totalTokens: prompt + completion };
     }
   } catch {
+    // Token usage parsing failed, return undefined
   }
   return undefined;
 }
@@ -125,7 +126,7 @@ const HARDCODED_DEFAULTS = {
 } as const;
 
 export function buildRuntimeResolvedConfig(
-  estimate: any | undefined,
+  estimate: { progressIntervalMs?: number; noCloseTimeoutMs?: number; heartbeatTimeoutMs?: number; idleTimeoutMs?: number; gracePeriodMs?: number; agentCliTimeoutMs?: number; extensionMs?: number; maxExtensions?: number; maxWallClockMs?: number } | undefined,
   getEnvNumber: (name: string, defaultValue?: number) => number | undefined,
 ): RuntimeResolvedConfig {
   const resolve = (envName: keyof typeof HARDCODED_DEFAULTS, estimateValue?: number): number => {
@@ -161,14 +162,14 @@ export interface SpawnAgentOptions {
   args: string[];
   stdinInput?: string;
   runtimeConfig: RuntimeResolvedConfig;
-  gitDiffBefore: any;
+  gitDiffBefore?: GitDiffSnapshot | null;
   outputLastMessagePath?: string;
 }
 
 export async function spawnAgent(options: SpawnAgentOptions): Promise<SpawnAgentResult> {
   const { command, args, stdinInput, runtimeConfig, gitDiffBefore, outputLastMessagePath } = options;
 
-  return new Promise<SpawnAgentResult>(async (resolve, reject) => {
+  return new Promise<SpawnAgentResult>((resolve, reject) => {
     let settled = false;
     let closeObserved = false;
     let exitCode: number | null = null;

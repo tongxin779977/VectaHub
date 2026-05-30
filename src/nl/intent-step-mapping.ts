@@ -15,7 +15,7 @@ export interface IntentStepMapper {
 }
 
 const ALLOWED_CLIS = new Set([
-  'git', 'npm', 'node', 'yarn', 'npx', 'echo', 'ls',
+  'git', 'npm', 'node', 'yarn', 'npx', 'echo', 'ls', 'pwd',
   'cat', 'grep', 'find', 'head', 'tail', 'wc', 'sort',
   'vectahub',
 ]);

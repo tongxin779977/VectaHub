@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRBACManager, type RoleName } from './rbac.js';
 import { resetDefaultContext } from '../infrastructure/context.js';
@@ -204,6 +204,32 @@ describe('rbac', () => {
       const manager = createRBACManager();
       // docker is allowed, but opencli is not in developer's ci-runner list
       expect(manager.canExecute('ci-runner', 'git status && opencli list', 'git')).toBe(false);
+    });
+  });
+
+  describe('logger dependency', () => {
+    it('should not produce side effects when no logger is provided', () => {
+      const manager = createRBACManager();
+      expect(manager).toBeDefined();
+      expect(manager.getAllRoles().length).toBeGreaterThan(0);
+    });
+
+    it('should call injected logger.warn when config load fails', () => {
+      const tmpHome = join('/tmp', `vectahub-rbac-logger-${Date.now()}`);
+      mkdirSync(tmpHome, { recursive: true });
+      writeFileSync(join(tmpHome, 'rbac.json'), 'not-valid-json', 'utf-8');
+
+      process.env.VECTAHUB_HOME = tmpHome;
+      resetDefaultContext();
+
+      const warn = vi.fn();
+      const manager = createRBACManager({ logger: { warn } });
+
+      expect(manager.getAllRoles().length).toBeGreaterThan(0);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('[RBAC]'),
+        expect.any(Error),
+      );
     });
   });
 });

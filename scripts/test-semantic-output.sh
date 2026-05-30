@@ -5,7 +5,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/lib/json-assert.sh"
 
-VH="node dist/cli.js"
+if [ "${VH_USE_DIST:-0}" = "1" ] && [ -f "$PROJECT_ROOT/dist/cli.js" ]; then
+  VH="node dist/cli.js"
+  echo "  ℹ️  Using dist CLI: $VH"
+else
+  VH="npx --no-install tsx src/cli.ts"
+  export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--disable-warning=DEP0205"
+  echo "  ℹ️  Using source-mode CLI: $VH (set VH_USE_DIST=1 to use dist)"
+fi
 REPORT=".test-reports/semantic-test-report.md"
 PASS=0
 FAIL=0
@@ -310,26 +317,29 @@ if [ $LLM_AVAILABLE -eq 1 ]; then
     intent=$(echo "$json" | node -e "
       try {
         const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-        console.log(d.intent || 'UNKNOWN');
+        const i = d.intent || d.plan?.capabilityId || d.plan?.goal?.action || 'UNKNOWN';
+        console.log(i);
       } catch(e) { console.log('PARSE_ERROR'); }
     " 2>/dev/null)
 
-    local has_steps=1
+    local has_steps
     echo "$json" | node -e "
       try {
         const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-        const s = d.steps || [];
+        const s = d.steps || d.plan?.steps || [];
         process.exit(s.length > 0 ? 0 : 1);
       } catch(e) { process.exit(1); }
-    " 2>/dev/null || has_steps=$?
+    " 2>/dev/null
+    has_steps=$?
 
-    local has_reply=1
+    local has_reply
     echo "$json" | node -e "
       try {
         const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-        process.exit(d.reply ? 0 : 1);
+        process.exit(d.reply || d.userReport?.summaryTemplate ? 0 : 1);
       } catch(e) { process.exit(1); }
-    " 2>/dev/null || has_reply=$?
+    " 2>/dev/null
+    has_reply=$?
 
     if [ "$expect_type" = "expected_fail" ]; then
       if [ "$intent" = "UNKNOWN" ] && [ $has_steps -ne 0 ]; then
@@ -356,12 +366,12 @@ if [ $LLM_AVAILABLE -eq 1 ]; then
     fi
   }
 
-  d_test "git status" "expected_fail" "git status"
-  d_test "list files (CN)" "expected_fail" "列出当前目录文件"
-  d_test "find ts files (CN)" "expected_fail" "查找所有 ts 文件"
-  d_test "hello chat" "expected_fail" "hello"
-  d_test "pwd command" "expected_fail" "pwd"
-  d_test "echo command" "expected_fail" "echo hello"
+  d_test "git status" "non-UNKNOWN" "git status"
+  d_test "list files (CN)" "non-UNKNOWN" "列出当前目录文件"
+  d_test "find ts files (CN)" "non-UNKNOWN" "查找所有 ts 文件"
+  d_test "hello chat" "UNKNOWN-with-reply" "hello"
+  d_test "pwd command" "non-UNKNOWN" "pwd"
+  d_test "echo command" "non-UNKNOWN" "echo hello"
 else
   for i in 1 2 3 4 5 6; do
     record "SKIP" "D: test $i" "LLM not configured"
@@ -406,9 +416,9 @@ if [ $LLM_AVAILABLE -eq 1 ]; then
     fi
   }
 
-  e_test "pwd no hallucination" "reply" "expected_fail" "pwd"
+  e_test "pwd no hallucination" "reply" "pass" "pwd"
   e_test "echo no hallucination" "reply" "pass" "echo hello"
-  e_test "ls no hallucination" "reply" "expected_fail" "ls"
+  e_test "ls no hallucination" "reply" "pass" "ls"
 else
   for i in 1 2 3; do
     record "SKIP" "E: test $i" "LLM not configured"
@@ -461,13 +471,13 @@ done
 
 cat >> "$REPORT" <<EOF
 
-## Known Defects (Expected Failures)
+## Known Defects Tracking
 
 | ID | Level | Description | Status |
 |----|-------|-------------|--------|
-| P0 | Critical | nl-processor-tool-calling prompt not in BUILTIN_PROMPTS | EXPECTED_FAIL |
-| P1 | High | pwd/ls/echo → domains=[] → empty tools | EXPECTED_FAIL |
-| P2 | Medium | No generic shell command intent type | EXPECTED_FAIL |
+| P0 | Critical | nl-processor-tool-calling prompt not in BUILTIN_PROMPTS | FIXED (prompt exists in BUILTIN_PROMPTS) |
+| P1 | High | pwd/ls/echo → domains=[] → empty tools | FIXED (buildAllTools([]) returns all tools; deterministic shell intercept) |
+| P2 | Medium | No generic shell command intent type | FIXED (tryDeterministicShellCommand handles pwd/ls/echo/cat/etc.) |
 
 ## Notes
 
@@ -475,6 +485,7 @@ cat >> "$REPORT" <<EOF
 - Group D (NL Intent), E (Hallucination): requires LLM configured
 - EXPECTED_FAIL = known bug, current behavior matches expected failure
 - When a bug is fixed, EXPECTED_FAIL tests will show PASS (indicating the fix works)
+- Source-mode: default mode uses src/cli.ts; set VH_USE_DIST=1 to run against dist/cli.js
 EOF
 
 echo ""

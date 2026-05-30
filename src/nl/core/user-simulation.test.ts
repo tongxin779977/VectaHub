@@ -89,8 +89,8 @@ describe('E2E User Simulation Tests (深度用户测试模拟)', () => {
     expect(result.success).toBe(true);
     expect(result.intent).toBe('UNKNOWN');
     expect(result.reply).toBe('你好！有什么我可以帮你的吗？');
-    // 工具集由于闲聊剪裁被置空
-    expect(capturedTools).toEqual([]);
+    // 空 domains 不再剪裁工具集，buildAllTools([]) 返回全部工具
+    expect(capturedTools!.length).toBeGreaterThan(0);
   });
 
   // 场景 B：内置 Git 意图转换

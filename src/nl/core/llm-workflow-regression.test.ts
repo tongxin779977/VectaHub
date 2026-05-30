@@ -629,6 +629,18 @@ describe('LLM Workflow Regression', () => {
 
       expect(result.success).toBe(true);
       expect(result.intent).toBe('file_find');
+      expect(result.metadata.path).not.toBe('direct-query');
+    });
+
+    it('should not produce exec: find TypeScript files for natural language input', async () => {
+      const { createNLProcessor } = await import('./pipeline.js');
+      setMock(makeToolCall('file_find', { glob: '*.ts' }));
+      const processor = createNLProcessor({ llmConfig: MOCK_LLM_CONFIG, auditHelper: mockAuditHelper, logger: mockLogger });
+
+      const result = await processor.parse({ input: 'find TypeScript files' });
+
+      expect(result.workflowYAML).not.toContain('cli: find');
+      expect(result.taskList?.tasks[0]?.commands[0]?.cli).not.toBe('find');
     });
   });
 

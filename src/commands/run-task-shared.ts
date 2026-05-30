@@ -1,6 +1,7 @@
 import type { InfrastructureContext } from '../infrastructure/context.js';
 import { getVectaHubPath, djb2Hash } from '../infrastructure/paths/index.js';
 import type { DocTaskFailureKind } from '../types/doc-task.js';
+import type { RunTaskReviewFinding } from './run-task-review.js';
 
 let boundContext: InfrastructureContext | null = null;
 
@@ -77,12 +78,12 @@ export interface RunTaskResult {
 }
 
 export interface AgentTaskContractSummary {
-  boundaryConfidence: any;
+  boundaryConfidence: 'none' | 'low' | 'medium' | 'high';
   allowedFiles: string[];
   forbiddenFiles: string[];
   relatedFiles: string[];
   validationCommands: string[];
-  executionMode: any;
+  executionMode: 'serial' | 'parallel-eligible' | 'isolated-required';
   docExcerptTruncated: boolean;
   excerptStrategy: 'task-heading' | 'task-id-window' | 'label-window' | 'head-fallback' | 'none';
   instructionHash: string;
@@ -114,8 +115,8 @@ interface SpawnCompletionResult {
 }
 
 export interface RunTaskRecoveryDecisionSummary {
-  kind: any;
-  mode: any;
+  kind: string;
+  mode: string;
   summary: string;
 }
 
@@ -125,7 +126,7 @@ export interface RunTaskReviewReport {
   status: string;
   changedFiles: string[];
   validationPassed: boolean;
-  findings: any[];
+  findings: RunTaskReviewFinding[];
   needsHumanReview: boolean;
 }
 

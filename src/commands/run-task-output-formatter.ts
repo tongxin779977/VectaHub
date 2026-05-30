@@ -1,4 +1,4 @@
-import type { AgentTaskContract, DocTaskFailureKind } from '../types/doc-task.js';
+import type { AgentTaskContract, DocTaskFailureKind, DocTaskRunStatus } from '../types/doc-task.js';
 import {
   RunTaskResult,
   AgentTaskContractSummary,
@@ -13,6 +13,7 @@ import {
   VERIFICATION_SUMMARY_MAX_LENGTH,
   FAILURE_HUMAN_SUMMARY_MAX_LENGTH
 } from './run-task-shared.js';
+import { createRunTaskReviewReport } from './run-task-review.js';
 import { NOISY_OUTPUT_PATTERNS } from './run-task-logger.js';
 import type { RunTaskReviewFinding } from './run-task-review.js';
 import { RunTaskReviewStatus } from './run-task-review.js';
@@ -645,7 +646,7 @@ export async function runVerificationCommands(
   return { ok: overallOk, commands: results, isSystemError: hasSystemError };
 }
 
-function summarizeRecoveryDecision(decision: any): RunTaskRecoveryDecisionSummary {
+function summarizeRecoveryDecision(decision: { kind: string; mode: string; summary: string }): RunTaskRecoveryDecisionSummary {
   return {
     kind: decision.kind,
     mode: decision.mode,
@@ -653,8 +654,8 @@ function summarizeRecoveryDecision(decision: any): RunTaskRecoveryDecisionSummar
   };
 }
 
-function failureKindToStatus(kind: DocTaskFailureKind): any {
-  const map: Record<DocTaskFailureKind, any> = {
+function failureKindToStatus(kind: DocTaskFailureKind): DocTaskRunStatus {
+  const map: Record<DocTaskFailureKind, DocTaskRunStatus> = {
     config: 'failed_config',
     agent: 'failed_agent',
     json_protocol: 'failed_json_protocol',
@@ -670,7 +671,7 @@ function failureKindToStatus(kind: DocTaskFailureKind): any {
 
 export function buildRecoveryDecisionSummary(input: {
   failureKind?: DocTaskFailureKind;
-  gitChanges?: any;
+  gitChanges?: { changedFiles: string[]; shortStat?: string };
   verification?: VerificationResult;
   agentTaskContract?: AgentTaskContractSummary;
 }): RunTaskRecoveryDecisionSummary | undefined {
@@ -788,7 +789,7 @@ export function buildRunTaskReviewReport(input: {
   taskId: string;
   taskLabel: string;
   contract?: AgentTaskContractSummary;
-  gitChanges?: any;
+  gitChanges?: { changedFiles: string[]; shortStat?: string };
   verification?: VerificationResult;
   agentExecutionOutcome?: 'implemented' | 'planned_only';
   alreadySatisfied?: boolean;
@@ -802,8 +803,7 @@ export function buildRunTaskReviewReport(input: {
     return undefined;
   }
 
-  const { createRunTaskReviewReport: createReport } = require('./run-task-review');
-  return createReport({
+  return createRunTaskReviewReport({
     taskId: input.taskId,
     taskLabel: input.taskLabel,
     allowedFiles: input.contract.allowedFiles,

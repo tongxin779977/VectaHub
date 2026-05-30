@@ -90,7 +90,7 @@ const AIModuleConfigSchema = z.object({
 const SandboxConfigSchema = z.object({
   enabled: z.boolean(),
   mode: z.enum(['STRICT', 'RELAXED', 'CONSENSUS']),
-  defaultPolicy: z.enum(['allow', 'block', 'prompt', 'passthrough']),
+  defaultPolicy: z.enum(['allow', 'block', 'passthrough']),
 });
 
 // Storage Config
