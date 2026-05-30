@@ -4,26 +4,80 @@
 > Authority: NL Workflow Orchestrator 未开发能力的执行队列。自动化任务和开发 agent 应按本文顺序选择任务；字段级行为仍以 `docs/contracts/` 和当前源码为准。
 > Last Verified: 2026-05-31
 
-## 使用规则
+## 目的
 
 本文是自动化开发队列，不是愿望清单。
+
+它的用途是：
+
+- 把当前文档已经声明、源码已有基础、但尚未完整闭环的能力拆成可执行开发任务。
+- 让 Trae Solo、Codex、subagent 或人工开发都按同一顺序推进。
+- 避免一轮自动化随机挑任务、跳过基础合同、或把目标设计误写成当前实现。
+- 作为可迁移模板，后续可复制到其他项目，只替换合同、源码路径和验证命令。
+
+## 事实依据
+
+本 backlog 只基于以下事实来源补充任务：
+
+| 来源 | 已确认事实 | 对 backlog 的影响 |
+|------|------------|-------------------|
+| `docs/nl-workflow-orchestrator.md` | 当前定位是单用户、本地优先的 NL Workflow Orchestrator；`OrchestrationPlan`、统一 `run --dry-run --json`、workflow draft 生命周期、artifact handoff、plan-level safety、semantic acceptance 和 feedback learning 仍是未完整闭环能力。 | 这些能力必须进入开发队列，且不能标记为已实现。 |
+| `docs/design/nl-workflow-orchestrator-product-design.md` | 主链路是 `input normalization -> goal parsing -> capability routing -> OrchestrationPlan -> WorkflowDraft -> PlanSafetyReview -> confirmation -> execution -> verification -> trace / audit / recovery`。 | backlog 必须覆盖每个链路节点，不能只覆盖 schema 和 planner。 |
+| `docs/design/hybrid-ai-nl-engine.md` | AI 化路线包含 Project Context Pack、Capability Catalog、LLM Planner、schema validation、command surface validation、PlanSafetyReview、WorkflowDraft、FeedbackRecord 和 semantic gate。 | backlog 必须把 LLM 限定为 planner，而不是 executor 或权限来源。 |
+| `docs/contracts/orchestration-plan.md` | `OrchestrationPlan` 是目标合同；当前只有 capability `ExecutionPlan` 和 workflow step 路径，尚未完整实现统一合同。 | 必须先做 runtime schema、validator、命令面校验、机器输出 envelope。 |
+| `docs/contracts/workflow-draft.md` | 当前 workflow engine 已存在，但 draft 生命周期仍需迁移实现。 | 必须补 draft schema、转换、确认、持久化、执行桥接、snapshot/hash 和 recovery guard。 |
+| `docs/standards/semantic-acceptance.md` | 语义验收不只看命令通过，还要看意图、回复意义、JSON shape、风险判断、下一步建议和多表达一致性。 | 必须补语义测试用例、评分、报告和多 subagent 用户测试模式。 |
+| 当前源码结构 | `src/nl/`、`src/workflow/`、`src/agent-runtime/`、`src/security-protocol/`、`src/infrastructure/trace/`、`src/infrastructure/trace-audit/`、`src/commands/run-task.ts` 和 `src/commands/recover-task.ts` 已存在。 | backlog 应优先整合现有模块，不应从零重写或引入无关平台能力。 |
+
+## 证据等级
+
+每个任务的 `evidence` 字段必须使用以下等级：
+
+| Level | 含义 |
+|-------|------|
+| `confirmed_source` | 当前源码或测试中已存在相关模块、入口或行为。 |
+| `contract_target` | `docs/contracts/` 已定义目标合同，但当前未声明完整实现。 |
+| `product_decision` | 产品设计文档已明确主线方向或非目标边界。 |
+| `standard_gate` | 标准文档已定义验收、评分、质量或验证要求。 |
+| `automation_need` | 为顺序开发、审计、提交或跨项目复用所需的工程流程任务。 |
+
+禁止新增没有 `evidence` 的开发任务。
+
+## 使用规则
 
 每轮自动化任务必须：
 
 1. 读取本文。
-2. 选择 `status: todo` 且 priority 最高、排序最靠前的一项。
-3. 只开发这一项。
-4. 完成后审计和验证。
-5. 通过后将该项改为 `done`，记录验证命令和提交信息。
-6. 未通过则改为 `needs-fix` 或 `blocked`，记录失败证据。
+2. 如果存在 `status: in-progress` 的任务，优先继续该任务的开发、审计或修复；不得另开新任务。
+3. 如果不存在 `in-progress`，选择 priority 最高、排序最靠前、依赖已完成的 `needs-fix` 任务。
+4. 如果不存在可执行 `needs-fix`，选择 priority 最高、排序最靠前、依赖已完成的 `todo` 任务。
+5. 只开发这一项。
+6. 完成后审计和验证。
+7. 通过后将该项改为 `done`，记录验证命令和提交信息。
+8. 未通过则改为 `needs-fix` 或 `blocked`，记录失败证据。
 
 禁止：
 
 - 一轮同时开发多个 backlog item。
 - 跳过 P0/P1 去做低优先级功能。
+- 在依赖任务未完成时开发下游任务。
 - 实现 `secondary` 或 `unsupported` 能力，除非 backlog 明确要求。
 - 修改测试来掩盖失败。
 - 绕过安全、JSON、trace、verification 或 semantic acceptance 合同。
+- 把 `Target Design` 或 `Migration Contract` 写成当前已实现能力。
+
+## 多 Subagent 协作规则
+
+可以使用多个 subagent，但所有 subagent 必须围绕同一个 backlog item 工作。
+
+推荐角色：
+
+- Developer agent：实现当前 item 的最小闭环。
+- Audit agent：审查合同、范围、安全、错误处理、JSON、trace 和测试覆盖。
+- Verification agent：运行当前 item 的 verification 命令并整理证据。
+- Commit/report agent：只在所有验证通过后 stage 当前 item 相关文件并提交。
+
+禁止不同 subagent 同时领取不同 backlog item。
 
 ## 工程标准
 
@@ -49,7 +103,7 @@
 | Status | 含义 |
 |--------|------|
 | `todo` | 可被自动化选择。 |
-| `in-progress` | 当前轮正在开发。 |
+| `in-progress` | 当前轮正在开发或审计；下一轮必须继续此任务，不得另选。 |
 | `needs-fix` | 已开发但审计或验证失败，需要下一轮修复。 |
 | `blocked` | 缺少合同、权限、环境或产品决策，不能继续。 |
 | `done` | 开发、审计、验证和提交均完成。 |
@@ -59,10 +113,44 @@
 | Priority | 含义 |
 |----------|------|
 | P0 | 阻断 NL Workflow Orchestrator 主链路，必须先做。 |
-| P1 | 核心智能化和编排能力。 |
-| P2 | 安全、验证、恢复、反馈学习和 hardening。 |
-| P3 | UI/DX、集成体验和辅助能力。 |
-| P4 | secondary 或后续重新评估能力。 |
+| P1 | 核心智能化、编排、确认、执行和语义验收能力。 |
+| P2 | 安全、验证、恢复、反馈学习、trace 和 hardening。 |
+| P3 | UI/DX、自动化体验和辅助能力。 |
+| P4 | secondary、custom ecosystem 或后续重新评估能力。 |
+
+## 任务字段规范
+
+每个任务必须包含：
+
+```yaml
+id: P0-000
+priority: P0
+status: todo
+depends_on: []
+evidence:
+  - level: contract_target
+    source: <contract-or-source-reference>
+    fact: >
+      已确认事实，不写猜测。
+source_docs: []
+goal: >
+  当前任务目标。
+scope: []
+out_of_scope: []
+required_contracts: []
+verification: []
+done_criteria: []
+```
+
+如果任务完成，应追加：
+
+```yaml
+completion:
+  verified_at: YYYY-MM-DD
+  commit: <commit-sha-or-message>
+  verification_results:
+    - npm run typecheck: pass
+```
 
 ## Backlog
 
@@ -71,7 +159,17 @@
 ```yaml
 id: P0-001
 priority: P0
-status: in-progress
+status: done
+depends_on: []
+evidence:
+  - level: product_decision
+    source: docs/nl-workflow-orchestrator.md
+    fact: >
+      当前仍缺少统一的 run --dry-run --json 输出形态，需要为 OrchestrationPlan 迁移提供稳定入口。
+  - level: contract_target
+    source: docs/contracts/orchestration-plan.md
+    fact: >
+      迁移期间允许增加兼容字段，但 run --dry-run --json stdout 必须保持单个纯 JSON 对象。
 source_docs:
   - docs/nl-workflow-orchestrator.md
   - docs/contracts/orchestration-plan.md
@@ -102,6 +200,21 @@ done_criteria:
   - run --dry-run --json 始终输出单个纯 JSON 对象
   - JSON 能表达 reply / clarify / blocked / plan / workflow_draft
   - 现有语义 E2E 通过
+completion:
+  verified_at: 2026-05-31
+  commit: "21aa77b"
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass (0 errors, 0 warnings)
+    - npm run check:default-context-usage: pass
+    - npm run test:run: pass (214 files, 2887 tests passed)
+    - scripts/test-semantic-output.sh: pass (36 PASS / 0 FAIL)
+    - git diff --check: pass
+  changed_files:
+    - src/commands/run-dry-run-envelope.ts
+    - src/commands/run-dry-run-envelope.test.ts
+    - src/commands/run.ts
+    - docs/development-backlog.md
 ```
 
 ### P0-002: 建立 `OrchestrationPlan` runtime schema
@@ -110,6 +223,12 @@ done_criteria:
 id: P0-002
 priority: P0
 status: todo
+depends_on: []
+evidence:
+  - level: contract_target
+    source: docs/contracts/orchestration-plan.md
+    fact: >
+      OrchestrationPlan 是目标合同，当前实现尚未完整实现统一 OrchestrationPlan。
 source_docs:
   - docs/contracts/orchestration-plan.md
 goal: >
@@ -139,6 +258,12 @@ done_criteria:
 id: P0-003
 priority: P0
 status: todo
+depends_on: []
+evidence:
+  - level: contract_target
+    source: docs/contracts/workflow-draft.md
+    fact: >
+      当前 workflow engine 已存在，但 WorkflowDraft 生命周期仍需迁移实现。
 source_docs:
   - docs/contracts/workflow-draft.md
 goal: >
@@ -163,12 +288,156 @@ done_criteria:
   - unsafe draft 不能进入 executable 状态
 ```
 
+### P0-004: 建立 NL request envelope 和入口 normalization 合同
+
+```yaml
+id: P0-004
+priority: P0
+status: todo
+depends_on:
+  - P0-001
+evidence:
+  - level: product_decision
+    source: docs/design/nl-workflow-orchestrator-product-design.md
+    fact: >
+      产品主链路从 input normalization 开始，run、文档任务、Agent delegation 和 UI 后续都应共用该入口边界。
+  - level: confirmed_source
+    source: src/nl/core/input-normalizer.ts
+    fact: >
+      当前已有 input normalizer 模块，应优先整合而不是重新发明入口解析。
+source_docs:
+  - docs/design/nl-workflow-orchestrator-product-design.md
+  - docs/design/hybrid-ai-nl-engine.md
+goal: >
+  定义并实现 NLRequestEnvelope，把用户输入、cwd、source、mode、dryRun、json、language、session/context 引用统一传入 planner 和 router。
+scope:
+  - NLRequestEnvelope 类型
+  - input normalizer 输出统一结构
+  - run dry-run / normal run / file input 的入口字段映射
+  - tests for empty input、file input、中文输入、json mode、cwd
+out_of_scope:
+  - LLM Planner 实现
+  - WorkflowDraft 转换
+  - UI 接线
+required_contracts:
+  - docs/contracts/orchestration-plan.md
+verification:
+  - npm run typecheck
+  - npm run lint
+  - npm run test:run
+  - scripts/test-semantic-output.sh
+  - git diff --check
+done_criteria:
+  - 所有 NL 路径都能拿到同一请求 envelope
+  - cwd 来自运行环境，不从自然语言猜测
+  - 空输入或上下文不足返回 clarify / blocked，而不是猜测执行
+```
+
+### P0-005: 建立 Command Surface Validator
+
+```yaml
+id: P0-005
+priority: P0
+status: todo
+depends_on:
+  - P0-002
+evidence:
+  - level: contract_target
+    source: docs/contracts/orchestration-plan.md
+    fact: >
+      生成命令必须经过命令面校验；未注册的 vectahub 子命令必须阻断。
+  - level: confirmed_source
+    source: src/cli-main.ts
+    fact: >
+      当前 CLI 由 Commander 注册命令，存在可作为命令面事实来源的实现入口。
+source_docs:
+  - docs/contracts/orchestration-plan.md
+  - docs/contracts/cli-command-surface.md
+goal: >
+  建立可复用命令面验证器，阻断 LLM 或 planner 生成不存在的 CLI、错误子命令、未解析 shell 字符串或不允许的参数形态。
+scope:
+  - vectahub command surface validator
+  - CommandInvocation cli/args shape validation
+  - tests for unknown command、unknown subcommand、string shell blob、valid known commands
+out_of_scope:
+  - 新 Commander 命令
+  - 新安全规则语言
+  - LLM Planner prompt
+required_contracts:
+  - docs/contracts/orchestration-plan.md
+  - docs/contracts/cli-command-surface.md
+verification:
+  - npm run typecheck
+  - npm run lint
+  - npm run test:run
+  - git diff --check
+done_criteria:
+  - 不存在的 vectahub 子命令被 blocked
+  - args 必须是字符串数组，不能是一整段未解析 shell
+  - validator 可被 OrchestrationPlan、VerificationPlan 和 WorkflowDraft 共用
+```
+
+### P0-006: 统一机器响应和错误 JSON envelope
+
+```yaml
+id: P0-006
+priority: P0
+status: todo
+depends_on:
+  - P0-001
+evidence:
+  - level: standard_gate
+    source: docs/standards/semantic-acceptance.md
+    fact: >
+      语义验收要求 JSON shape 稳定，且不得把 undefined、stack trace 或未脱敏内容放进用户可消费字段。
+  - level: contract_target
+    source: docs/contracts/orchestration-plan.md
+    fact: >
+      NL 输出需要表达 reply、clarify、blocked、plan 和 workflow draft；失败路径同样不能污染 JSON stdout。
+source_docs:
+  - docs/contracts/orchestration-plan.md
+  - docs/standards/semantic-acceptance.md
+goal: >
+  统一 success、clarify、blocked、validation_error、safety_error、internal_error 的机器响应 envelope，
+  让 CLI、UI、semantic tests 和自动化都能稳定消费失败和非执行结果。
+scope:
+  - machine result envelope type
+  - safe error serializer
+  - blocked / clarify / validation error mapping
+  - tests for JSON stdout purity and redaction
+out_of_scope:
+  - 改写全仓错误系统
+  - 暴露完整 stack trace 到 JSON stdout
+  - UI 渲染
+required_contracts:
+  - docs/contracts/orchestration-plan.md
+  - docs/contracts/cli-command-surface.md
+verification:
+  - npm run typecheck
+  - npm run lint
+  - npm run check:default-context-usage
+  - npm run test:run
+  - scripts/test-semantic-output.sh
+  - git diff --check
+done_criteria:
+  - --json 成功和失败路径都输出单个纯 JSON 对象
+  - human logs、trace、debug 信息不进入 stdout JSON
+  - blocked / clarify / validation_error / safety_error 可被语义测试断言
+```
+
 ### P1-001: 实现 Project Context Pack builder
 
 ```yaml
 id: P1-001
 priority: P1
 status: todo
+depends_on:
+  - P0-004
+evidence:
+  - level: contract_target
+    source: docs/design/hybrid-ai-nl-engine.md
+    fact: >
+      Project Context Pack 是给 LLM Planner 的压缩项目事实视图，不能包含 secrets、完整环境变量或全仓源码。
 source_docs:
   - docs/design/hybrid-ai-nl-engine.md
 goal: >
@@ -199,6 +468,17 @@ done_criteria:
 id: P1-002
 priority: P1
 status: todo
+depends_on:
+  - P0-005
+evidence:
+  - level: contract_target
+    source: docs/design/hybrid-ai-nl-engine.md
+    fact: >
+      Capability Catalog 描述 VectaHub 当前真实能做什么，target/unsupported 能力不能进入可执行计划。
+  - level: confirmed_source
+    source: src/nl/capabilities/
+    fact: >
+      当前已有 capability router 和 capability 实现，应从现有能力派生 catalog。
 source_docs:
   - docs/design/hybrid-ai-nl-engine.md
   - docs/contracts/tools-security-management.md
@@ -230,6 +510,21 @@ done_criteria:
 id: P1-003
 priority: P1
 status: todo
+depends_on:
+  - P0-002
+  - P0-004
+  - P0-005
+  - P1-001
+  - P1-002
+evidence:
+  - level: contract_target
+    source: docs/design/hybrid-ai-nl-engine.md
+    fact: >
+      LLM Planner 的输出必须是 reply、clarify、blocked 或 schema 化 OrchestrationPlan 候选。
+  - level: contract_target
+    source: docs/contracts/orchestration-plan.md
+    fact: >
+      LLM 输出无法通过 schema 校验时必须阻断，不能执行。
 source_docs:
   - docs/design/hybrid-ai-nl-engine.md
   - docs/contracts/orchestration-plan.md
@@ -265,6 +560,18 @@ done_criteria:
 id: P1-004
 priority: P1
 status: todo
+depends_on:
+  - P0-002
+  - P0-005
+evidence:
+  - level: contract_target
+    source: docs/contracts/orchestration-plan.md
+    fact: >
+      PlanSafetyReview 要求 critical 默认阻断、high 默认需要确认，LLM 不能单独决定 sideEffect。
+  - level: confirmed_source
+    source: src/security-protocol/
+    fact: >
+      当前已有 security protocol 模块，应复用现有安全评估基础。
 source_docs:
   - docs/contracts/orchestration-plan.md
   - docs/contracts/security-permission-loop.md
@@ -298,6 +605,15 @@ done_criteria:
 id: P1-005
 priority: P1
 status: todo
+depends_on:
+  - P0-002
+  - P0-003
+  - P1-004
+evidence:
+  - level: contract_target
+    source: docs/contracts/workflow-draft.md
+    fact: >
+      WorkflowDraft 是 OrchestrationPlan 和真实 workflow execution 之间的中间状态。
 source_docs:
   - docs/contracts/workflow-draft.md
   - docs/design/nl-workflow-orchestrator-product-design.md
@@ -330,6 +646,14 @@ done_criteria:
 id: P1-006
 priority: P1
 status: todo
+depends_on:
+  - P0-001
+  - P0-006
+evidence:
+  - level: standard_gate
+    source: docs/standards/semantic-acceptance.md
+    fact: >
+      语义验收必须覆盖意图、回复意义、JSON shape、风险判断、下一步建议和多表达一致性。
 source_docs:
   - docs/standards/semantic-acceptance.md
 goal: >
@@ -350,12 +674,351 @@ done_criteria:
   - 安全关键失败直接 fail
 ```
 
+### P1-007: 实现 confirmation flow 最小闭环
+
+```yaml
+id: P1-007
+priority: P1
+status: todo
+depends_on:
+  - P1-004
+  - P1-005
+  - P0-006
+evidence:
+  - level: contract_target
+    source: docs/contracts/orchestration-plan.md
+    fact: >
+      ConfirmationRequest 必须绑定具体 task 或 plan 级风险，不能只展示泛泛的是否继续。
+  - level: contract_target
+    source: docs/contracts/workflow-draft.md
+    fact: >
+      需要确认但没有确认记录时，draft 不能执行。
+source_docs:
+  - docs/contracts/orchestration-plan.md
+  - docs/contracts/workflow-draft.md
+  - docs/contracts/security-permission-loop.md
+goal: >
+  建立最小确认闭环，让 needs_confirmation plan/draft 能生成可审查确认请求，并在用户确认后进入后续执行边界。
+scope:
+  - confirmation request serializer
+  - confirmation token or id linkage
+  - confirmed task ids / denied task ids handling
+  - non-interactive deny-by-default behavior
+out_of_scope:
+  - 完整 UI prompt
+  - 远程审批系统
+  - 新权限模型
+required_contracts:
+  - docs/contracts/orchestration-plan.md
+  - docs/contracts/workflow-draft.md
+  - docs/contracts/security-permission-loop.md
+verification:
+  - npm run typecheck
+  - npm run lint
+  - npm run test:run
+  - scripts/test-semantic-output.sh
+  - git diff --check
+done_criteria:
+  - high risk 默认需要确认
+  - 非交互模式不能默认允许高风险操作
+  - 确认记录能关联具体 plan task 或 draft step
+```
+
+### P1-008: 实现 VerificationPlan runner 和结果分类
+
+```yaml
+id: P1-008
+priority: P1
+status: todo
+depends_on:
+  - P0-005
+  - P1-005
+evidence:
+  - level: contract_target
+    source: docs/contracts/orchestration-plan.md
+    fact: >
+      Agent 执行成功不等于计划成功；包含 apply 或 agent task 时默认需要 verification。
+  - level: product_decision
+    source: docs/design/nl-workflow-orchestrator-product-design.md
+    fact: >
+      所有执行路径最终都应能回答验证是否通过，验证闭环才是最终完成依据。
+source_docs:
+  - docs/contracts/orchestration-plan.md
+  - docs/contracts/verification-loop.md
+goal: >
+  实现 VerificationPlan 的最小执行闭环，把验证命令、语义检查和成功标准转成可记录、可失败、可恢复的 verification result。
+scope:
+  - verification plan runner
+  - command safety validation before verification
+  - pass/fail/blocked/skipped classification
+  - execution record or task run record linkage
+out_of_scope:
+  - 新测试框架
+  - 大规模 report UI
+required_contracts:
+  - docs/contracts/orchestration-plan.md
+  - docs/contracts/verification-loop.md
+verification:
+  - npm run typecheck
+  - npm run lint
+  - npm run test:run
+  - scripts/test-semantic-output.sh
+  - git diff --check
+done_criteria:
+  - verification 命令同样经过命令面和安全评估
+  - verification 失败时 plan/draft/execution 不能标记为成功
+  - 验证结果能进入 execution record 或 task run record
+```
+
+### P1-009: 实现 WorkflowDraft 持久化、读取和列表
+
+```yaml
+id: P1-009
+priority: P1
+status: todo
+depends_on:
+  - P0-003
+  - P1-005
+evidence:
+  - level: contract_target
+    source: docs/contracts/workflow-draft.md
+    fact: >
+      WorkflowDraft 生命周期包含 persisted，并要求保存执行前快照以支持 rerun、resume 和 recovery。
+  - level: confirmed_source
+    source: src/workflow/storage.ts
+    fact: >
+      当前已有 workflow/execution storage 基础，应复用现有存储模式。
+source_docs:
+  - docs/contracts/workflow-draft.md
+  - docs/contracts/config-data-storage.md
+goal: >
+  让 WorkflowDraft 可以保存、读取、列出和详情查看，为后续确认执行、UI 和 recovery 提供稳定对象。
+scope:
+  - draft storage path and schema
+  - create/get/list/detail operations
+  - storage round-trip validation
+  - redacted metadata and snapshot persistence
+out_of_scope:
+  - 完整 UI
+  - 云端同步
+  - 二进制 artifact 存储
+required_contracts:
+  - docs/contracts/workflow-draft.md
+  - docs/contracts/config-data-storage.md
+verification:
+  - npm run typecheck
+  - npm run lint
+  - npm run test:run
+  - git diff --check
+done_criteria:
+  - persisted draft 能重新读取并通过 schema validation
+  - 保存内容不包含 secrets、完整 prompt、完整 trace 或未脱敏大输出
+  - list/detail 输出能稳定关联 planId 和 draftId
+```
+
+### P1-010: 统一 human-readable 与 machine-readable response contract
+
+```yaml
+id: P1-010
+priority: P1
+status: todo
+depends_on:
+  - P0-006
+  - P1-003
+  - P1-005
+evidence:
+  - level: standard_gate
+    source: docs/standards/semantic-acceptance.md
+    fact: >
+      回复内容必须看语义、意义、下一步建议和风险判断，而不是只看命令是否退出成功。
+  - level: product_decision
+    source: docs/design/nl-workflow-orchestrator-product-design.md
+    fact: >
+      NL entry 应输出 reply、clarify、blocked、plan、workflow_draft 或 execution_result。
+source_docs:
+  - docs/standards/semantic-acceptance.md
+  - docs/contracts/orchestration-plan.md
+goal: >
+  统一普通用户可读回复和 JSON 机器字段，避免 CLI 文案、JSON 字段、语义测试和 UI 消费互相漂移。
+scope:
+  - response text policy for reply / clarify / blocked / plan / workflow_draft / execution_result
+  - JSON field ownership and redaction
+  - tests for no misleading success wording
+out_of_scope:
+  - 营销文案
+  - UI 组件
+  - 多语言翻译系统
+required_contracts:
+  - docs/contracts/orchestration-plan.md
+  - docs/standards/semantic-acceptance.md
+verification:
+  - npm run typecheck
+  - npm run lint
+  - npm run test:run
+  - scripts/test-semantic-output.sh
+  - git diff --check
+done_criteria:
+  - blocked 不承诺已执行
+  - clarify 明确缺少什么信息
+  - plan/draft 回复说明下一步是 review、confirm、execute 或 verify
+```
+
+### P1-011: 建立多样本 semantic user-test harness
+
+```yaml
+id: P1-011
+priority: P1
+status: todo
+depends_on:
+  - P1-006
+  - P1-010
+evidence:
+  - level: standard_gate
+    source: docs/standards/semantic-acceptance.md
+    fact: >
+      多 Subagent 用户测试模式要求从意图、风险、回复质量和执行合同多个角度审查，不能只测试一两次。
+  - level: automation_need
+    source: docs/development-backlog.md
+    fact: >
+      用户测试应可自动化重复运行，避免人工在终端逐条命令判断。
+source_docs:
+  - docs/standards/semantic-acceptance.md
+goal: >
+  建立可重复的语义用户测试 harness，支持同一意图多表达、多轮样本、结果评分、报告输出和 subagent 审查分工。
+scope:
+  - semantic scenario matrix
+  - repeated sample runner
+  - expected meaning assertions
+  - semantic score report
+  - subagent review prompt template or report contract
+out_of_scope:
+  - 修改测试绕过失败
+  - 用 LLM 直接覆盖 deterministic pass/fail
+  - 生产 prompt 自动变更
+required_contracts:
+  - docs/standards/semantic-acceptance.md
+  - docs/standards/quality-scoring.md
+verification:
+  - scripts/test-semantic-output.sh
+  - git diff --check
+done_criteria:
+  - 每类核心意图有多条表达样本
+  - 报告区分 pass、fail、needs_review 和 expected_fail
+  - 安全关键错误不允许只降级为人工主观判断
+```
+
+### P1-012: 将文档任务接入 OrchestrationPlan / WorkflowDraft
+
+```yaml
+id: P1-012
+priority: P1
+status: todo
+depends_on:
+  - P0-002
+  - P1-005
+  - P1-008
+evidence:
+  - level: product_decision
+    source: docs/design/nl-workflow-orchestrator-product-design.md
+    fact: >
+      单个明确文档任务可继续走 parse-doc -> run-task，复杂多阶段任务应升级为 OrchestrationPlan -> WorkflowDraft。
+  - level: confirmed_source
+    source: src/commands/run-task.ts
+    fact: >
+      当前已有文档任务执行链路，应作为成熟路径整合进编排链路。
+source_docs:
+  - docs/design/nl-workflow-orchestrator-product-design.md
+  - docs/contracts/run-task-execution-contract.md
+  - docs/contracts/doc-task-state-machine.md
+goal: >
+  让文档任务在需要多阶段执行、多个 agent、依赖关系或验证闭环时能够生成 OrchestrationPlan 和 WorkflowDraft。
+scope:
+  - doc task candidate to plan mapping
+  - AgentTaskContract to OrchestrationTask references
+  - verification and recovery linkage
+out_of_scope:
+  - 删除现有 parse-doc / run-task 路径
+  - 重写文档解析器
+required_contracts:
+  - docs/contracts/run-task-execution-contract.md
+  - docs/contracts/doc-task-state-machine.md
+  - docs/contracts/orchestration-plan.md
+verification:
+  - npm run typecheck
+  - npm run lint
+  - npm run test:run
+  - scripts/test-semantic-output.sh
+  - git diff --check
+done_criteria:
+  - 单任务路径保持兼容
+  - 多阶段文档任务能产生 plan/draft summary
+  - run-task 验证结果能回填 plan/draft trace 或 metadata
+```
+
+### P1-013: 将 confirmed WorkflowDraft 接入 workflow execution
+
+```yaml
+id: P1-013
+priority: P1
+status: todo
+depends_on:
+  - P1-005
+  - P1-007
+  - P1-008
+  - P1-009
+evidence:
+  - level: contract_target
+    source: docs/contracts/workflow-draft.md
+    fact: >
+      WorkflowDraft 最终应转换为现有 workflow engine 可执行的 Workflow，未确认副作用步骤不能执行。
+  - level: confirmed_source
+    source: src/workflow/engine.ts
+    fact: >
+      当前已有 workflow engine，应通过桥接复用而不是另建执行器。
+source_docs:
+  - docs/contracts/workflow-draft.md
+  - docs/contracts/workflow-lifecycle.md
+goal: >
+  将 confirmed WorkflowDraft 转换为现有 Workflow 并进入 execution，同时保持 safety、confirmation、verification 和 trace 关联。
+scope:
+  - confirmed draft to workflow conversion
+  - execute confirmed draft command/path
+  - execution metadata linkage
+  - verification after execution
+out_of_scope:
+  - 新 workflow engine
+  - distributed scheduler
+  - UI draft execution
+required_contracts:
+  - docs/contracts/workflow-draft.md
+  - docs/contracts/workflow-lifecycle.md
+  - docs/contracts/verification-loop.md
+verification:
+  - npm run typecheck
+  - npm run lint
+  - npm run test:run
+  - scripts/test-semantic-output.sh
+  - git diff --check
+done_criteria:
+  - 未确认副作用 draft 被阻断
+  - confirmed draft 可进入 workflow engine
+  - execution result 不绕过 verification closure
+```
+
 ### P2-001: FeedbackRecord 存储与回放候选
 
 ```yaml
 id: P2-001
 priority: P2
 status: todo
+depends_on:
+  - P1-003
+  - P1-011
+evidence:
+  - level: contract_target
+    source: docs/design/hybrid-ai-nl-engine.md
+    fact: >
+      FeedbackRecord 用于记录用户纠正、semantic E2E、执行结果、安全审查和恢复结果，但不能运行时静默改变生产行为。
 source_docs:
   - docs/design/hybrid-ai-nl-engine.md
   - docs/standards/intelligent-systems.md
@@ -386,6 +1049,18 @@ done_criteria:
 id: P2-002
 priority: P2
 status: todo
+depends_on:
+  - P1-005
+  - P1-008
+evidence:
+  - level: product_decision
+    source: docs/design/nl-workflow-orchestrator-product-design.md
+    fact: >
+      Delegate Step 当前是 Partial Implementation，补 runtime 接线前不能宣传成完整多 Agent 执行。
+  - level: confirmed_source
+    source: src/agent-runtime/
+    fact: >
+      当前已有内建 Agent Runtime registry 和 adapters。
 source_docs:
   - docs/design/agent-cli-runtime-architecture.md
   - docs/contracts/workflow-draft.md
@@ -418,6 +1093,14 @@ done_criteria:
 id: P2-003
 priority: P2
 status: todo
+depends_on:
+  - P1-005
+  - P1-009
+evidence:
+  - level: contract_target
+    source: docs/contracts/orchestration-plan.md
+    fact: >
+      大输出、研究材料、patch summary 和审查结果应走 artifact，artifact 必须绑定 producer task 并带摘要和 hash。
 source_docs:
   - docs/design/orchestration-and-delegation-architecture.md
   - docs/contracts/orchestration-plan.md
@@ -449,6 +1132,18 @@ done_criteria:
 id: P2-004
 priority: P2
 status: todo
+depends_on:
+  - P1-009
+  - P1-013
+evidence:
+  - level: contract_target
+    source: docs/contracts/workflow-draft.md
+    fact: >
+      workflowHash 用于 rerun / resume / recover 时判断定义是否变化。
+  - level: contract_target
+    source: docs/contracts/recovery-loop.md
+    fact: >
+      恢复必须基于可验证上下文，不能在 workflow 定义变化时盲目继续。
 source_docs:
   - docs/contracts/workflow-draft.md
   - docs/contracts/recovery-loop.md
@@ -473,12 +1168,252 @@ done_criteria:
   - hash 不包含 secrets 或未脱敏大输出
 ```
 
+### P2-005: 打通 plan / draft / execution / recovery trace identity
+
+```yaml
+id: P2-005
+priority: P2
+status: todo
+depends_on:
+  - P1-008
+  - P1-009
+  - P1-013
+evidence:
+  - level: contract_target
+    source: docs/contracts/orchestration-plan.md
+    fact: >
+      plan、workflow draft、execution record、recovery record 应能互相定位。
+  - level: confirmed_source
+    source: src/infrastructure/trace-audit/
+    fact: >
+      当前已有 trace-audit 基础设施，应把新 plan/draft 身份接入现有 trace 链路。
+source_docs:
+  - docs/contracts/trace-execution.md
+  - docs/contracts/orchestration-plan.md
+  - docs/contracts/workflow-draft.md
+goal: >
+  建立 planId、draftId、executionId、taskId、traceId、recoveryId 的贯穿链接，让审计、恢复、UI 和报告能定位同一条执行链。
+scope:
+  - trace link metadata model
+  - plan/draft/execution/recovery id propagation
+  - tests for missing trace writer and JSON stdout purity
+out_of_scope:
+  - 新 trace backend
+  - dashboard UI
+required_contracts:
+  - docs/contracts/trace-execution.md
+  - docs/contracts/orchestration-plan.md
+  - docs/contracts/workflow-draft.md
+verification:
+  - npm run typecheck
+  - npm run lint
+  - npm run test:run
+  - git diff --check
+done_criteria:
+  - trace 写入失败不能把安全判断降级为允许
+  - JSON stdout 不被 trace/audit 污染
+  - recovery 能从 execution 反查 plan/draft 上下文
+```
+
+### P2-006: 将 orchestration failure 接入 recovery loop
+
+```yaml
+id: P2-006
+priority: P2
+status: todo
+depends_on:
+  - P1-008
+  - P2-004
+  - P2-005
+evidence:
+  - level: product_decision
+    source: docs/nl-workflow-orchestrator.md
+    fact: >
+      recovery 必须基于失败分类、trace 链接和上下文 hash，而不是靠模型猜测。
+  - level: confirmed_source
+    source: src/commands/recover-task.ts
+    fact: >
+      当前已有 recover-task 入口，应复用恢复基础能力。
+source_docs:
+  - docs/contracts/recovery-loop.md
+  - docs/design/recovery-model.md
+goal: >
+  让 plan validation、draft validation、execution failure 和 verification failure 都能形成可分类 recovery decision。
+scope:
+  - orchestration failure kind mapping
+  - recovery context builder for plan/draft
+  - blocked vs recoverable decision
+  - trace and hash validation before recovery
+out_of_scope:
+  - 自动无限重试
+  - LLM 猜测式恢复
+required_contracts:
+  - docs/contracts/recovery-loop.md
+  - docs/contracts/verification-loop.md
+verification:
+  - npm run typecheck
+  - npm run lint
+  - npm run test:run
+  - scripts/test-semantic-output.sh
+  - git diff --check
+done_criteria:
+  - validation failure、execution failure、verification failure 分类明确
+  - stale hash 时 recovery 保守阻断
+  - recovery result 能回写 trace 或 task run record
+```
+
+### P2-007: Prompt / eval / rule proposal 治理闭环
+
+```yaml
+id: P2-007
+priority: P2
+status: todo
+depends_on:
+  - P2-001
+  - P1-011
+evidence:
+  - level: contract_target
+    source: docs/design/hybrid-ai-nl-engine.md
+    fact: >
+      feedback learning 的输出应进入 eval、prompt proposal、rule proposal 或 backlog，不能运行时静默改变生产行为。
+  - level: standard_gate
+    source: docs/standards/intelligent-systems.md
+    fact: >
+      智能化系统应采用规则快路径、LLM 推理、反馈学习和可审计验证的组合。
+source_docs:
+  - docs/design/hybrid-ai-nl-engine.md
+  - docs/standards/intelligent-systems.md
+goal: >
+  建立反馈到 eval case、prompt proposal、rule proposal 和 backlog item 的审查流程，让系统可学习但不静默自改生产行为。
+scope:
+  - proposal record type
+  - reviewed/applied/rejected status
+  - eval candidate export
+  - prompt/rule proposal report
+out_of_scope:
+  - 自动修改生产 prompt
+  - 自动放宽安全规则
+  - 在线学习服务
+required_contracts:
+  - docs/standards/intelligent-systems.md
+  - docs/standards/semantic-acceptance.md
+verification:
+  - npm run typecheck
+  - npm run lint
+  - npm run test:run
+  - git diff --check
+done_criteria:
+  - feedback appliedTo 有明确去向
+  - 未审查 proposal 不影响生产路径
+  - proposal 不保存 secrets、完整 prompt 或未脱敏 trace
+```
+
+### P2-008: NL / plan / draft / feedback 全链路脱敏审计
+
+```yaml
+id: P2-008
+priority: P2
+status: todo
+depends_on:
+  - P0-006
+  - P2-001
+  - P2-003
+evidence:
+  - level: standard_gate
+    source: docs/standards/semantic-acceptance.md
+    fact: >
+      用户可消费字段不得包含 undefined、stack trace 或未脱敏内容。
+  - level: contract_target
+    source: docs/contracts/orchestration-plan.md
+    fact: >
+      artifact、trace 和 safety finding 不得保存 secrets、完整 prompt、完整 trace 或未脱敏大输出。
+source_docs:
+  - docs/contracts/orchestration-plan.md
+  - docs/contracts/workflow-draft.md
+  - docs/contracts/trace-execution.md
+goal: >
+  对 NL request、OrchestrationPlan、WorkflowDraft、FeedbackRecord、ArtifactRef 和 trace/audit 链路做统一脱敏审计。
+scope:
+  - redaction boundary tests
+  - no secret in JSON stdout
+  - no full prompt/trace/diff in persisted records
+  - unsafe field audit
+out_of_scope:
+  - 新 secret scanner 产品
+  - 加密存储改造
+required_contracts:
+  - docs/contracts/orchestration-plan.md
+  - docs/contracts/workflow-draft.md
+  - docs/contracts/trace-execution.md
+verification:
+  - npm run typecheck
+  - npm run lint
+  - npm run test:run
+  - scripts/test-semantic-output.sh
+  - git diff --check
+done_criteria:
+  - 关键输出路径都有脱敏测试
+  - JSON stdout 和持久化记录不包含 secrets
+  - stack trace 只进入受控 debug/log 路径，不进入机器响应字段
+```
+
+### P2-009: 实现标准化语义评分报告
+
+```yaml
+id: P2-009
+priority: P2
+status: todo
+depends_on:
+  - P1-011
+evidence:
+  - level: standard_gate
+    source: docs/standards/semantic-acceptance.md
+    fact: >
+      语义验收已有评分维度，需要可复用、可审计、非纯人工主观判断的报告输出。
+  - level: standard_gate
+    source: docs/standards/quality-scoring.md
+    fact: >
+      评分需要统一维度，不能每次人工临时判断。
+source_docs:
+  - docs/standards/semantic-acceptance.md
+  - docs/standards/quality-scoring.md
+goal: >
+  将语义验收结果输出为标准化评分报告，覆盖意图、合同、安全、回复质量、验证建议、可恢复性和一致性。
+scope:
+  - semantic score dimensions
+  - deterministic critical-failure rules
+  - report JSON and markdown summary
+  - regression threshold policy
+out_of_scope:
+  - 用 LLM 直接决定安全关键 pass/fail
+  - 人工主观覆盖硬失败
+required_contracts:
+  - docs/standards/semantic-acceptance.md
+  - docs/standards/quality-scoring.md
+verification:
+  - scripts/test-semantic-output.sh
+  - git diff --check
+done_criteria:
+  - 每个测试样本都有维度评分和失败原因
+  - 安全、JSON 合同、幻觉命令为硬失败维度
+  - 报告可被自动化用于 needs-fix 判定
+```
+
 ### P3-001: VS Code/UI 消费统一 JSON contract
 
 ```yaml
 id: P3-001
 priority: P3
 status: todo
+depends_on:
+  - P0-006
+  - P1-005
+  - P1-010
+evidence:
+  - level: product_decision
+    source: docs/design/nl-workflow-orchestrator-product-design.md
+    fact: >
+      UI 后续应消费统一 NL plan / workflow draft JSON，而不是解析人类日志或复制 CLI 业务逻辑。
 source_docs:
   - docs/ui/README.md
   - docs/contracts/orchestration-plan.md
@@ -503,12 +1438,109 @@ done_criteria:
   - CLI JSON 字段可供 UI 稳定消费
 ```
 
+### P3-002: CLI draft review / confirm UX
+
+```yaml
+id: P3-002
+priority: P3
+status: todo
+depends_on:
+  - P1-007
+  - P1-009
+  - P1-013
+evidence:
+  - level: contract_target
+    source: docs/contracts/workflow-draft.md
+    fact: >
+      WorkflowDraft 应支持 review、confirm、persist、execute、rerun、recover。
+  - level: product_decision
+    source: docs/nl-workflow-orchestrator.md
+    fact: >
+      主产品入口应让复杂任务先形成可审查计划和 workflow draft，再确认执行。
+source_docs:
+  - docs/contracts/workflow-draft.md
+  - docs/usage.md
+goal: >
+  为本地 CLI 用户提供最小 draft review、confirm、execute、list、detail 体验，让主链路不依赖 UI 才可用。
+scope:
+  - CLI review output
+  - confirm command/path
+  - draft list/detail affordance
+  - execution handoff wording
+out_of_scope:
+  - VS Code UI
+  - Web dashboard
+  - 多用户审批
+required_contracts:
+  - docs/contracts/workflow-draft.md
+  - docs/contracts/cli-command-surface.md
+verification:
+  - npm run typecheck
+  - npm run lint
+  - npm run test:run
+  - scripts/test-semantic-output.sh
+  - git diff --check
+done_criteria:
+  - 用户能在 CLI 中看清步骤、风险、确认要求和下一步
+  - confirm 后才允许执行有副作用 draft
+  - --json 与 human output 不互相污染
+```
+
+### P3-003: Backlog automation runner / report hardening
+
+```yaml
+id: P3-003
+priority: P3
+status: todo
+depends_on:
+  - P1-011
+  - P2-009
+evidence:
+  - level: automation_need
+    source: docs/development-backlog.md
+    fact: >
+      自动化任务需要按 backlog 顺序选择、开发、审计、验证、修复和提交，且不能并行领取多个 item。
+source_docs:
+  - docs/development-backlog.md
+  - docs/standards/verification-gates.md
+goal: >
+  将本文的自动化执行协议固化为可复用 runner 或报告规范，让其他项目可以直接复用同样的开发-审计-验证-提交流程。
+scope:
+  - backlog selection dry-run
+  - status transition validation
+  - verification evidence report
+  - unrelated dirty file guard
+out_of_scope:
+  - 替代 Trae Solo / Codex
+  - 自动合并远程分支
+  - 绕过人工权限审批
+required_contracts:
+  - docs/standards/verification-gates.md
+verification:
+  - npm run typecheck
+  - npm run lint
+  - npm run test:run
+  - git diff --check
+done_criteria:
+  - runner/report 能明确当前选择的唯一 backlog item
+  - 有 in-progress 时不会领取新任务
+  - 验证失败会生成 needs-fix 证据而不是提交
+```
+
 ### P4-001: Secondary 能力是否恢复主线评估
 
 ```yaml
 id: P4-001
 priority: P4
 status: todo
+depends_on:
+  - P1-013
+  - P2-006
+evidence:
+  - level: product_decision
+    source: docs/design/module-scope-cleanup.md
+    fact: >
+      service、daemon、templates、schedule、monitor、debug 当前不作为 NL Workflow Orchestrator 主产品面。
 source_docs:
   - docs/design/module-scope-cleanup.md
 goal: >
@@ -527,6 +1559,50 @@ done_criteria:
   - 每个 secondary 能力有明确 keep/remove/revisit 结论
 ```
 
+### P4-002: Custom rule / skill / MCP ecosystem 重新评估
+
+```yaml
+id: P4-002
+priority: P4
+status: todo
+depends_on:
+  - P1-002
+  - P2-007
+  - P2-008
+evidence:
+  - level: product_decision
+    source: docs/design/hybrid-ai-nl-engine.md
+    fact: >
+      当前非目标包括一次性实现 MCP marketplace 或社区 skill 生态。
+  - level: product_decision
+    source: docs/nl-workflow-orchestrator.md
+    fact: >
+      当前阶段不建议把 VectaHub 描述成通用 MCP marketplace 或多 agent swarm supervisor。
+source_docs:
+  - docs/design/hybrid-ai-nl-engine.md
+  - docs/nl-workflow-orchestrator.md
+goal: >
+  在核心编排链路稳定后，重新评估 custom rule、skill 和 MCP 是否进入产品路线，以及需要哪些安全、合同、审计和测试前置条件。
+scope:
+  - ecosystem readiness assessment
+  - permission and contract gap list
+  - keep/defer/reject decision
+out_of_scope:
+  - 直接实现 MCP marketplace
+  - 直接开放第三方 skill 执行
+  - 自动安装外部插件
+required_contracts:
+  - docs/contracts/tools-security-management.md
+  - docs/contracts/security-permission-loop.md
+verification:
+  - Markdown link check
+  - Markdown fence check
+  - git diff --check -- docs
+done_criteria:
+  - custom rule、skill、MCP 各自有明确进入条件
+  - 未满足安全和验证前置条件时保持 defer
+```
+
 ## 自动化执行协议
 
 自动化任务每轮应执行：
@@ -534,15 +1610,44 @@ done_criteria:
 ```text
 1. git status --short
 2. 读取 docs/development-backlog.md
-3. 选择第一个 status=todo 或 needs-fix 的最高优先级任务
-4. 将任务状态改为 in-progress
+3. 如果有 in-progress，继续该任务；否则选择第一个依赖已完成的 needs-fix；否则选择第一个依赖已完成的 todo
+4. 将当前任务状态改为 in-progress
 5. 开发最小实现
-6. 自审：合同、范围、安全、测试、JSON、trace、recovery
+6. 自审：事实依据、合同、范围、安全、测试、JSON、trace、recovery、semantic acceptance
 7. 运行该任务 verification 中列出的命令
 8. 失败则修复，最多 3 轮
-9. 通过后将任务状态改为 done，并记录验证结果
-10. 只 stage 本轮相关文件
-11. git commit
+9. 仍失败则改为 needs-fix 或 blocked，并记录失败证据
+10. 通过后将任务改为 done，并记录验证结果
+11. 只 stage 本轮相关文件
+12. git commit
 ```
 
 如果工作树在开始时已有无关改动，自动化必须避免提交无关文件；无法区分时停止并报告。
+
+## 跨项目复用规则
+
+要把本文用于其他项目，应保留以下结构：
+
+- 事实依据表。
+- 证据等级。
+- 使用规则。
+- 多 subagent 协作规则。
+- 工程标准。
+- 状态模型。
+- 优先级规则。
+- 任务字段规范。
+- 自动化执行协议。
+
+迁移时必须替换：
+
+- `source_docs` 和 `required_contracts`。
+- 源码路径证据。
+- verification 命令。
+- 产品主链路名称。
+- P4 secondary 能力列表。
+
+不得直接复用：
+
+- 本项目特有命令名，除非目标项目确实存在。
+- 本项目特有 Agent runtime，除非目标项目已经实现。
+- 本项目的安全结论，除非目标项目有等价安全合同和测试。

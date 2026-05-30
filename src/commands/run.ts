@@ -5,7 +5,7 @@ import { isFirstRun, loadConfig, saveConfig } from '../setup/first-run-wizard.js
 import { createDefaultInstaller } from '../setup/priority-installer.js';
 import { createLLMConfig } from '../nl/llm.js';
 import { orchestrateIntent } from '../nl/orchestrator.js';
-import { formatDryRunText, formatJsonReport, formatExecutionResultText } from '../nl/capabilities/user-report.js';
+import { formatDryRunText, formatExecutionResultText } from '../nl/capabilities/user-report.js';
 import type { Workflow } from '../types/index.js';
 import type { ExecutionPlan } from '../nl/capabilities/types.js';
 import type { ExecutionMetadata, ExecutionRecord as ExecRecord } from '../execution/types.js';
@@ -18,6 +18,12 @@ import { createRecordManager } from '../execution/record-manager.js';
 import { runSelfHealingLoop } from './self-healing.js';
 import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { createRunDispatch, formatRunDispatchText } from './run-dispatch.js';
+import {
+  buildReplyEnvelope,
+  buildPlanEnvelope,
+  buildWorkflowDraftEnvelope,
+  buildStepsEnvelope,
+} from './run-dry-run-envelope.js';
 
 interface RunCommandOutput {
   json(payload: unknown, options?: { space?: number }): void;
@@ -233,17 +239,13 @@ export function createRunCmd(context: InfrastructureContext): Command {
 
         if (options.dryRun) {
           if (options.json) {
-            output.json({
-              ok: true,
-              dryRun: true,
-              workflow: {
-                name: workflow.name,
-                steps: workflow.steps.map(s => ({
-                  cli: s.cli || s.type,
-                  args: s.args ?? []
-                }))
-              }
-            });
+            output.json(buildWorkflowDraftEnvelope({
+              name: workflow.name,
+              steps: workflow.steps.map(s => ({
+                cli: s.cli || s.type,
+                args: s.args ?? []
+              }))
+            }));
           } else {
             logger.info('\n📋 将要执行的命令:');
             for (const step of workflow.steps) {
@@ -271,11 +273,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
 
           if (options.dryRun) {
             if (options.json) {
-              output.json({
-                ok: true,
-                dryRun: true,
-                ...formatJsonReport(plan),
-              });
+              output.json(buildPlanEnvelope(plan));
             } else {
               logger.info(formatDryRunText(plan));
             }
@@ -295,15 +293,15 @@ export function createRunCmd(context: InfrastructureContext): Command {
         if (result.reply) {
           if (options.json) {
             if (orchestrateSteps.length === 0) {
-              const payload: Record<string, unknown> = {
-                ok: true,
-                reply: result.reply,
-                intent: recognizedIntent,
-              };
               if (options.dryRun) {
-                payload.dryRun = true;
+                output.json(buildReplyEnvelope(result.reply, recognizedIntent));
+              } else {
+                output.json({
+                  ok: true,
+                  reply: result.reply,
+                  intent: recognizedIntent,
+                });
               }
-              output.json(payload);
               restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
               return;
             }
@@ -326,14 +324,12 @@ export function createRunCmd(context: InfrastructureContext): Command {
 
         if (options.dryRun) {
           if (options.json) {
-            output.json({
-              ok: true,
-              dryRun: true,
-              steps: orchestrateSteps.map(s => ({
+            output.json(buildStepsEnvelope(
+              orchestrateSteps.map(s => ({
                 cli: s.cli,
                 args: s.args ?? []
               }))
-            });
+            ));
           } else {
             logger.info('\n📋 将要执行的命令:');
             for (const s of orchestrateSteps) {
