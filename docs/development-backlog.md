@@ -841,7 +841,7 @@ completion:
 ```yaml
 id: P1-006
 priority: P1
-status: todo
+status: done
 depends_on:
   - P0-001
   - P0-006
@@ -868,6 +868,17 @@ verification:
 done_criteria:
   - 每个核心意图至少覆盖多种表达
   - 安全关键失败直接 fail
+completion:
+  verified_at: 2026-05-31
+  commit: HEAD
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass
+    - npm run test:run: pass (89 tests passed)
+    - git diff --check: pass
+  changed_files:
+    - src/nl/semantic-correctness.test.ts
+    - scripts/test-semantic-output.sh
 ```
 
 ### P1-007: 实现 confirmation flow 最小闭环

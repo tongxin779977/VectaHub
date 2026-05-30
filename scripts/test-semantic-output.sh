@@ -392,12 +392,21 @@ if [ $LLM_AVAILABLE -eq 1 ]; then
     fi
   }
 
-  d_test "git status" "non-UNKNOWN" "git status"
+  d_test "git status (EN)" "non-UNKNOWN" "git status"
   d_test "list files (CN)" "non-UNKNOWN" "列出当前目录文件"
   d_test "find ts files (CN)" "non-UNKNOWN" "查找所有 ts 文件"
   d_test "hello chat" "UNKNOWN-with-reply" "hello"
   d_test "pwd command" "non-UNKNOWN" "pwd"
   d_test "echo command" "non-UNKNOWN" "echo hello"
+  d_test "git status (CN)" "non-UNKNOWN" "查看 git 状态"
+  d_test "check git status" "non-UNKNOWN" "check git status"
+  d_test "run tests (EN)" "non-UNKNOWN" "run tests"
+  d_test "run tests (CN)" "non-UNKNOWN" "运行测试"
+  d_test "npm test" "non-UNKNOWN" "npm test"
+  d_test "ambiguous input" "UNKNOWN-with-reply" "搞一下"
+  d_test "ambiguous input 2" "UNKNOWN-with-reply" "fix it"
+  d_test "what is this" "UNKNOWN-with-reply" "what is this project"
+  d_test "who are you" "UNKNOWN-with-reply" "who are you"
 else
   for i in 1 2 3 4 5 6; do
     record "SKIP" "D: test $i" "LLM not configured"
