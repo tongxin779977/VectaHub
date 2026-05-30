@@ -499,7 +499,7 @@ completion:
 ```yaml
 id: P0-006
 priority: P0
-status: todo
+status: done
 depends_on:
   - P0-001
 evidence:
@@ -540,6 +540,20 @@ done_criteria:
   - --json 成功和失败路径都输出单个纯 JSON 对象
   - human logs、trace、debug 信息不进入 stdout JSON
   - blocked / clarify / validation_error / safety_error 可被语义测试断言
+completion:
+  verified_at: 2026-05-31
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass (0 errors, 0 warnings)
+    - npm run check:default-context-usage: pass
+    - npm run test:run: pass (218 files, 3012 tests passed, 11 skipped)
+    - git diff --check: pass
+  changed_files:
+    - src/types/machine-response.ts
+    - src/types/index.ts
+    - src/machine-response/index.ts
+    - src/machine-response/index.test.ts
+    - docs/development-backlog.md
 ```
 
 ### P1-001: 实现 Project Context Pack builder

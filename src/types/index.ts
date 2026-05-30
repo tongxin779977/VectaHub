@@ -8,3 +8,4 @@ export * from './agent.js';
 export * from './security.js';
 export * from './orchestration-plan.js';
 export * from './workflow-draft.js';
+export * from './machine-response.js';
