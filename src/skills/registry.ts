@@ -227,6 +227,9 @@ export class SkillRegistry {
   /**
    * Manually triggers skill discovery
    * @returns Promise resolving to array of newly discovered skills
+   *
+   * Note: scanForSkills() is currently a no-op placeholder that returns [].
+   * Discovery will succeed but find no new skills until the scanner is implemented.
    */
   async discoverSkills(): Promise<Skill[]> {
     if (!this.discoveryConfig) {
@@ -417,10 +420,11 @@ export class SkillRegistry {
    * @param path - The directory path to scan
    * @returns Promise resolving to array of discovered skills
    * @private
+   *
+   * Not yet implemented — returns empty array. Callers receive a warning log.
    */
-  private async scanForSkills(_path: string): Promise<Skill[]> {
-    // This is a placeholder implementation
-    // In a real implementation, this would scan the filesystem for skill modules
+  private async scanForSkills(path: string): Promise<Skill[]> {
+    logger.warn({ path }, 'Skill discovery scanner not implemented; returning empty results');
     return [];
   }
 
