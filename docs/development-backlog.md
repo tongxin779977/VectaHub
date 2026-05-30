@@ -611,7 +611,19 @@ completion:
 ```yaml
 id: P1-002
 priority: P1
-status: todo
+status: done
+completion:
+  verified_at: 2026-05-31
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass (0 errors, 0 warnings)
+    - npm run test:run: pass (220 files, 3028 tests passed, 11 skipped)
+    - git diff --check: pass
+  changed_files:
+    - src/capability-catalog/builder.ts
+    - src/capability-catalog/index.ts
+    - src/capability-catalog/builder.test.ts
+    - src/project-context/builder.ts
 depends_on:
   - P0-005
 evidence:

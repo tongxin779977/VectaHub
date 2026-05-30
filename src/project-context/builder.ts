@@ -11,6 +11,7 @@ import type {
 } from '../types/project-context.js';
 import type { IEnvironmentService, IConfigService } from '../infrastructure/interfaces/index.js';
 import { getAgentRegistry } from '../agent-runtime/registry.js';
+import { createCapabilityCatalogBuilder } from '../capability-catalog/index.js';
 
 export interface ProjectContextBuilderDeps {
   environment: IEnvironmentService;
@@ -189,40 +190,8 @@ export class ProjectContextBuilder {
 
   private collectCapabilityInfo(): CapabilitySummary[] {
     try {
-      const knownCapabilities: CapabilitySummary[] = [
-        {
-          id: 'git-workflow',
-          title: 'Git Workflow',
-          inputKinds: ['git', 'repository'],
-          outputKinds: ['action', 'report'],
-          sideEffects: ['write', 'command'],
-          requiresConfirmation: true,
-          verificationRequired: true,
-          currentStatus: 'current',
-        },
-        {
-          id: 'package-script',
-          title: 'Package Script Runner',
-          inputKinds: ['npm', 'yarn', 'pnpm', 'script'],
-          outputKinds: ['output', 'status'],
-          sideEffects: ['command'],
-          requiresConfirmation: true,
-          verificationRequired: true,
-          currentStatus: 'current',
-        },
-        {
-          id: 'github-actions-repair',
-          title: 'GitHub Actions Repair',
-          inputKinds: ['ci', 'github-actions', 'workflow'],
-          outputKinds: ['repair', 'suggestion'],
-          sideEffects: ['write'],
-          requiresConfirmation: true,
-          verificationRequired: true,
-          currentStatus: 'current',
-        },
-      ];
-
-      return knownCapabilities;
+      const catalogBuilder = createCapabilityCatalogBuilder({});
+      return catalogBuilder.build();
     } catch {
       return [];
     }
