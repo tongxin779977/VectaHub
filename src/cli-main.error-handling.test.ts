@@ -101,7 +101,7 @@ describe('cli-main error handling', () => {
     expect(result.stderr).toContain('Security policy warning failed');
   });
 
-  it('fails fast when CLI audit event cannot be recorded', async () => {
+  it('warns on stderr when CLI audit event cannot be recorded (fail-open)', async () => {
     const auditWriteFailureHome = join(testHome, 'audit-write-failure-home');
     mkdirSync(join(auditWriteFailureHome, 'logs'), { recursive: true });
     writeFileSync(join(auditWriteFailureHome, 'logs', 'audit'), 'not-a-directory', 'utf-8');
@@ -110,8 +110,8 @@ describe('cli-main error handling', () => {
       VECTAHUB_HOME: auditWriteFailureHome,
     });
 
-    expect(result.code).toBe(1);
-    expect(result.stderr).toContain('CLI audit event recording failed');
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain('audit');
   });
 
   it('still falls back to package version metadata default only after explicit stderr reporting', async () => {

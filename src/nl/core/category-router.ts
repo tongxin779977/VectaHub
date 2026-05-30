@@ -27,6 +27,7 @@ const CATEGORY_MAP: Record<string, IntentCategory> = {
   'ci': IntentCategory.EXECUTE,
   'tool': IntentCategory.EXECUTE,
   'workflow': IntentCategory.GENERATE,
+  'dialog': IntentCategory.DIALOG,
 };
 
 const CATEGORY_METADATA: Record<IntentCategory, CategoryMetadata> = {

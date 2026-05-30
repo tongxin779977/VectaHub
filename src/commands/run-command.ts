@@ -9,6 +9,7 @@ import type { Step } from '../types/index.js';
 import type { ExecutionMetadata, ExecutionRecord as StoredRecord } from '../execution/types.js';
 import type { ExecutionRecord as EngineRecord } from '../types/index.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
+import { markCliOutputHandled } from '../infrastructure/cli-output.js';
 
 interface RunCommandOptions {
   mode: 'strict' | 'relaxed' | 'consensus';
@@ -167,7 +168,9 @@ export function createRunCommandCmd(context: InfrastructureContext): Command {
           nlInput: fullCommand
         };
 
-        const rawOutput = result.steps[0]?.output?.join('\n') || '';
+        const rawOutput = (result.steps[0]?.output ?? [])
+          .filter((line): line is string => line != null)
+          .join('\n');
         const redactedOutput = guard.redactOutput(rawOutput, securityContext);
 
         const recordToSave: StoredRecord = {
@@ -194,10 +197,14 @@ export function createRunCommandCmd(context: InfrastructureContext): Command {
         await recordManager.save(recordToSave);
 
         if (options.json) {
+          const outputLines = redactedOutput.split('\n');
+          while (outputLines.length > 0 && outputLines[outputLines.length - 1] === '') {
+            outputLines.pop();
+          }
           output.log(JSON.stringify({
             ok: result.status === 'COMPLETED',
             status: result.status,
-            output: redactedOutput.split('\n'),
+            output: outputLines,
             error: result.steps[0]?.error,
             security: decision
           }, null, 2));
@@ -214,7 +221,11 @@ export function createRunCommandCmd(context: InfrastructureContext): Command {
         }
 
         if (result.status !== 'COMPLETED') {
-          throw new VectaHubError('Command execution failed', ErrorType.RUNTIME);
+          const err = new VectaHubError('Command execution failed', ErrorType.RUNTIME);
+          if (options.json) {
+            throw markCliOutputHandled(err);
+          }
+          throw err;
         }
       } catch (error) {
         if (error instanceof VectaHubError) {
@@ -229,6 +240,7 @@ export function createRunCommandCmd(context: InfrastructureContext): Command {
               message
             }
           }, null, 2));
+          throw markCliOutputHandled(new VectaHubError(message, ErrorType.RUNTIME, error));
         } else {
           output.error(`❌ Execution Error: ${message}`);
         }

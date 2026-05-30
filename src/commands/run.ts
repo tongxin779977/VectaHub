@@ -295,16 +295,23 @@ export function createRunCmd(context: InfrastructureContext): Command {
         if (result.reply) {
           if (options.json) {
             if (orchestrateSteps.length === 0) {
-              output.json({
+              const payload: Record<string, unknown> = {
                 ok: true,
                 reply: result.reply,
                 intent: recognizedIntent,
-              });
+              };
+              if (options.dryRun) {
+                payload.dryRun = true;
+              }
+              output.json(payload);
               restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
               return;
             }
           } else {
             logger.info(`\n🤖 VectaHub Expert:\n\n${result.reply}\n`);
+            if (options.dryRun && orchestrateSteps.length === 0) {
+              logger.info('\nDry-run: 未执行任何命令。');
+            }
           }
         }
 

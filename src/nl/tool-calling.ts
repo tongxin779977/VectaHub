@@ -400,18 +400,33 @@ export function buildProviderManagementTools(): LLMTool[] {
   ];
 }
 
+const DIALOG_INTENTS = new Set(['DIALOG_GREETING']);
+
 export function convertToolCallToSteps(toolCall: LLMToolCall): { intent: string; params: Record<string, unknown>; steps: Step[] } {
   const intentName = toolCall.function.name;
 
   let params: Record<string, unknown>;
-  try {
-    params = JSON.parse(toolCall.function.arguments);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `Invalid JSON in tool call arguments for "${intentName}": ${errorMessage}`,
-      { cause: error }
-    );
+  const rawArgs = toolCall.function.arguments;
+  if (typeof rawArgs === 'object' && rawArgs !== null) {
+    params = rawArgs as Record<string, unknown>;
+  } else {
+    try {
+      params = JSON.parse(String(rawArgs));
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Invalid JSON in tool call arguments for "${intentName}": ${errorMessage}`,
+        { cause: error }
+      );
+    }
+  }
+
+  if (DIALOG_INTENTS.has(intentName)) {
+    return {
+      intent: intentName,
+      params,
+      steps: [],
+    };
   }
 
   if (intentName.startsWith('run_agent_')) {

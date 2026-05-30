@@ -16,6 +16,10 @@ const moduleLogger = getLogger('nl-pipeline');
 
 const SAFE_SHELL_COMMANDS = new Set(['pwd', 'ls', 'echo']);
 
+const DIALOG_DEFAULT_REPLIES: Record<string, string> = {
+  DIALOG_GREETING: '你好！我是 VectaHub，你的智能工作流助手。有什么我可以帮你的吗？',
+};
+
 function tryDeterministicShellCommand(
   input: string,
   semanticDetector: ReturnType<typeof createSemanticDetector>
@@ -152,9 +156,42 @@ async function executeLLMToolCalling(
   
   if (llmResponse.tool_calls && llmResponse.tool_calls.length > 0) {
     const toolCall = llmResponse.tool_calls[0];
-    const parsed = convertToolCallToSteps(toolCall);
-    
-    // 校验每个 step 至少具备最小可执行字段，不允许静默补默认值
+
+    let parsed: { intent: string; params: Record<string, unknown>; steps: Step[] };
+    try {
+      parsed = convertToolCallToSteps(toolCall);
+    } catch (toolCallError) {
+      const errorMessage = toolCallError instanceof Error ? toolCallError.message : String(toolCallError);
+      if (llmResponse.reply) {
+        return {
+          success: true,
+          intent: (llmResponse.intent || toolCall.function.name) as IntentName,
+          confidence: llmResponse.confidence || 0.8,
+          reply: sanitizeReply(llmResponse.reply),
+          metadata: {
+            path: 'dialog',
+            fallbackReason: `tool_call failed: ${errorMessage}`,
+          },
+        };
+      }
+      throw toolCallError;
+    }
+
+    if (parsed.steps.length === 0) {
+      const reply = llmResponse.reply
+        ? sanitizeReply(llmResponse.reply)
+        : (DIALOG_DEFAULT_REPLIES[parsed.intent] ?? undefined);
+      return {
+        success: true,
+        intent: parsed.intent as IntentName,
+        confidence: llmResponse.confidence || 0.8,
+        reply,
+        metadata: {
+          path: 'dialog',
+        },
+      };
+    }
+
     for (let i = 0; i < parsed.steps.length; i++) {
       validateWorkflowStep(parsed.steps[i], `steps[${i}]`);
     }
@@ -207,6 +244,16 @@ async function executeLLMToolCalling(
       };
     } else if (llmResponse.workflow) {
       throw new Error('Workflow must contain at least one step');
+    } else if (DIALOG_DEFAULT_REPLIES[llmResponse.intent]) {
+      return {
+        success: true,
+        intent: llmResponse.intent as IntentName,
+        confidence: llmResponse.confidence || 0.8,
+        reply: DIALOG_DEFAULT_REPLIES[llmResponse.intent],
+        metadata: {
+          path: 'dialog',
+        },
+      };
     }
   }
 

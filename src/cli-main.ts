@@ -167,13 +167,15 @@ program.hook('preSubcommand', async (_thisCommand, subcommand) => {
   try {
     const sessionId = ensureAuditLoggerInitialized();
     const args = ctx.environment.getArgv().slice(3);
-    const strictAudit = new AuditService(ctx.environment, {
+    const auditService = new AuditService(ctx.environment, {
       sessionId,
-      failureMode: 'fail-closed',
-      onError: () => {},
+      failureMode: 'fail-open',
+      onError: (error: Error) => {
+        process.stderr.write(`[audit] warning: ${error.message}\n`);
+      },
     });
 
-    strictAudit.getLogger().write({
+    auditService.getLogger().write({
       event: AuditEventType.CLI_COMMAND,
       timestamp: new Date().toISOString(),
       sessionId,
@@ -187,7 +189,7 @@ program.hook('preSubcommand', async (_thisCommand, subcommand) => {
       metadata: {}
     });
   } catch (error) {
-    throw new Error(`CLI audit event recording failed: ${formatErrorMessage(error, '命令审计')}`, { cause: error });
+    process.stderr.write(`[audit] warning: CLI audit event recording failed: ${formatErrorMessage(error, '命令审计')}\n`);
   }
 });
 

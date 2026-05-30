@@ -432,6 +432,37 @@ describe('convertToolCallToSteps', () => {
 
       expect(() => convertToolCallToSteps(toolCall)).toThrow('Unknown intent');
     });
+
+    it('should return empty steps for DIALOG_GREETING tool_call', () => {
+      const toolCall: LLMToolCall = {
+        id: 'call_greeting',
+        type: 'function',
+        function: {
+          name: 'DIALOG_GREETING',
+          arguments: JSON.stringify({}),
+        },
+      };
+
+      const result = convertToolCallToSteps(toolCall);
+      expect(result.intent).toBe('DIALOG_GREETING');
+      expect(result.steps).toEqual([]);
+      expect(result.params).toEqual({});
+    });
+
+    it('should return empty steps for DIALOG_GREETING with object arguments', () => {
+      const toolCall: LLMToolCall = {
+        id: 'call_greeting_obj',
+        type: 'function',
+        function: {
+          name: 'DIALOG_GREETING',
+          arguments: {} as unknown as string,
+        },
+      };
+
+      const result = convertToolCallToSteps(toolCall);
+      expect(result.intent).toBe('DIALOG_GREETING');
+      expect(result.steps).toEqual([]);
+    });
   });
 
   describe('error handling', () => {

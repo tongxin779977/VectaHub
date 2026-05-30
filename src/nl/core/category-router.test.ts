@@ -73,6 +73,11 @@ describe('category-router', () => {
       const executeIntents = router.getIntentsByCategory(IntentCategory.EXECUTE);
       expect(executeIntents.length).toBeGreaterThan(0);
     });
+
+    it('should return DIALOG_GREETING for DIALOG category', () => {
+      const dialogIntents = router.getIntentsByCategory(IntentCategory.DIALOG);
+      expect(dialogIntents).toContain('DIALOG_GREETING');
+    });
   });
 
   describe('route', () => {
@@ -90,6 +95,27 @@ describe('category-router', () => {
       expect(result.success).toBe(false);
       expect(result.intent).toBe('UNKNOWN');
       expect(result.confidence).toBe(0);
+    });
+
+    it('should route DIALOG_GREETING as DIALOG category with no workflow', () => {
+      const result = router.route('DIALOG_GREETING' as any, mockContext);
+      expect(result.success).toBe(true);
+      expect(result.intent).toBe('DIALOG_GREETING');
+      expect(result.metadata?.path).toBe('dialog');
+      expect(result.taskList).toBeUndefined();
+      expect(result.workflowYAML).toBeUndefined();
+    });
+
+    it('should return DIALOG category for DIALOG_GREETING', () => {
+      expect(router.getCategory('DIALOG_GREETING' as any)).toBe(IntentCategory.DIALOG);
+    });
+
+    it('should not require workflow for DIALOG_GREETING', () => {
+      expect(router.requiresWorkflow('DIALOG_GREETING' as any)).toBe(false);
+    });
+
+    it('should not require LLM for DIALOG_GREETING', () => {
+      expect(router.shouldUseLLM('DIALOG_GREETING' as any)).toBe(false);
     });
   });
 

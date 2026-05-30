@@ -467,6 +467,146 @@ describe('Pipeline end-to-end semantic correctness', () => {
     expect(result.metadata.path).toBe('dialog');
   });
 
+  it('LLM returns DIALOG_GREETING as tool_call -> returns dialog path without steps', async () => {
+    const mockClient = createMockLLMClient({
+      intent: 'UNKNOWN',
+      confidence: 0,
+      params: {},
+      reply: '你好！有什么我可以帮你的吗？',
+      tool_calls: [{
+        id: 'call_greeting',
+        type: 'function',
+        function: {
+          name: 'DIALOG_GREETING',
+          arguments: JSON.stringify({}),
+        },
+      }],
+    });
+
+    const processor = createNLProcessor({
+      llmConfig: mockLLMConfig,
+      llmClient: mockClient,
+      auditHelper: mockAuditHelper,
+      logger: mockLogger,
+    });
+    const result = await processor.parse({ input: '你好' });
+
+    expect(result.success).toBe(true);
+    expect(result.intent).toBe('DIALOG_GREETING');
+    expect(result.metadata.path).toBe('dialog');
+    expect(result.taskList).toBeUndefined();
+    expect(result.workflowYAML).toBeUndefined();
+  });
+
+  it('LLM returns DIALOG_GREETING as tool_call without reply -> returns dialog path', async () => {
+    const mockClient = createMockLLMClient({
+      intent: 'UNKNOWN',
+      confidence: 0,
+      params: {},
+      tool_calls: [{
+        id: 'call_greeting_no_reply',
+        type: 'function',
+        function: {
+          name: 'DIALOG_GREETING',
+          arguments: JSON.stringify({}),
+        },
+      }],
+    });
+
+    const processor = createNLProcessor({
+      llmConfig: mockLLMConfig,
+      llmClient: mockClient,
+      auditHelper: mockAuditHelper,
+      logger: mockLogger,
+    });
+    const result = await processor.parse({ input: 'hello' });
+
+    expect(result.success).toBe(true);
+    expect(result.intent).toBe('DIALOG_GREETING');
+    expect(result.metadata.path).toBe('dialog');
+    expect(result.reply).toBeDefined();
+    expect(result.reply).toContain('VectaHub');
+    expect(result.taskList).toBeUndefined();
+  });
+
+  it('LLM returns DIALOG_GREETING intent without reply or tool_calls -> returns default reply', async () => {
+    const mockClient = createMockLLMClient({
+      intent: 'DIALOG_GREETING',
+      confidence: 0.7,
+      params: {},
+    });
+
+    const processor = createNLProcessor({
+      llmConfig: mockLLMConfig,
+      llmClient: mockClient,
+      auditHelper: mockAuditHelper,
+      logger: mockLogger,
+    });
+    const result = await processor.parse({ input: '你好' });
+
+    expect(result.success).toBe(true);
+    expect(result.intent).toBe('DIALOG_GREETING');
+    expect(result.metadata.path).toBe('dialog');
+    expect(result.reply).toBeDefined();
+    expect(result.reply).toContain('VectaHub');
+  });
+
+  it('QUERY_INFO tool_call with missing topic falls back to reply when available', async () => {
+    const mockClient = createMockLLMClient({
+      intent: 'UNKNOWN',
+      confidence: 0,
+      params: {},
+      reply: 'VectaHub is a workflow editor and execution engine.',
+      tool_calls: [{
+        id: 'call_query_no_topic',
+        type: 'function',
+        function: {
+          name: 'QUERY_INFO',
+          arguments: JSON.stringify({}),
+        },
+      }],
+    });
+
+    const processor = createNLProcessor({
+      llmConfig: mockLLMConfig,
+      llmClient: mockClient,
+      auditHelper: mockAuditHelper,
+      logger: mockLogger,
+    });
+    const result = await processor.parse({ input: 'what is VectaHub' });
+
+    expect(result.success).toBe(true);
+    expect(result.reply).toBe('VectaHub is a workflow editor and execution engine.');
+    expect(result.metadata.path).toBe('dialog');
+    expect(result.metadata.fallbackReason).toContain('tool_call failed');
+  });
+
+  it('QUERY_INFO tool_call with missing topic and no reply throws error', async () => {
+    const mockClient = createMockLLMClient({
+      intent: 'UNKNOWN',
+      confidence: 0,
+      params: {},
+      tool_calls: [{
+        id: 'call_query_no_topic_no_reply',
+        type: 'function',
+        function: {
+          name: 'QUERY_INFO',
+          arguments: JSON.stringify({}),
+        },
+      }],
+    });
+
+    const processor = createNLProcessor({
+      llmConfig: mockLLMConfig,
+      llmClient: mockClient,
+      auditHelper: mockAuditHelper,
+      logger: mockLogger,
+    });
+    const result = processor.parse({ input: 'what is VectaHub' });
+
+    await expect(result).rejects.toThrow('Missing required parameters');
+  });
+
   it('pipeline passes through LLM reply as-is (sanitize is at command level)', async () => {
     const mockClient = createMockLLMClient({
       intent: 'UNKNOWN',

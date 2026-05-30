@@ -309,8 +309,8 @@ export const DEFAULT_SECURITY_RULES: SecurityRule[] = [
     category: 'network',
     severity: 'high',
     patterns: [
-      'nc\\s+.*-e\\s+.*(bash|sh|zsh|/bin/sh|/bin/bash)',
-      'ncat\\s+.*-e\\s+.*(bash|sh|zsh|/bin/sh|/bin/bash)',
+      'nc\\s+.*(-e|--exec)\\s+.*(bash|sh|zsh|/bin/sh|/bin/bash)',
+      'ncat\\s+.*(-e|--exec)\\s+.*(bash|sh|zsh|/bin/sh|/bin/bash)',
       '/dev/tcp/',
       'bash\\s+-i\\s+.*>/dev/tcp/',
       'mkfifo\\s+.*(/tmp/|/dev/).*&&.*nc\\s+',

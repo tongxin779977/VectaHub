@@ -246,6 +246,32 @@ else
   fi
 fi
 
+echo "━━━ [C] run-command nonexistent single JSON ━━━"
+c_json=$(run_json $VH run-command --json nonexistent-command-xyz-abc)
+c_json_count=$(echo "$c_json" | node -e "
+  const lines = require('fs').readFileSync('/dev/stdin','utf8').trim().split('\n');
+  let count = 0;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (const line of lines) {
+    for (const ch of line) {
+      if (escape) { escape = false; continue; }
+      if (ch === '\\\\') { escape = true; continue; }
+      if (ch === '\"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (ch === '{') { if (depth === 0) count++; depth++; }
+      if (ch === '}') { depth--; }
+    }
+  }
+  console.log(count);
+" 2>/dev/null)
+if [ "$c_json_count" = "1" ]; then
+  record "PASS" "C: run-command nonexistent single JSON" "exactly 1 JSON object in stdout"
+else
+  record "FAIL" "C: run-command nonexistent single JSON" "found $c_json_count JSON objects (expected 1)"
+fi
+
 echo "━━━ [C] verify --type invalid ━━━"
 c_json=$(run_json $VH verify --type invalid-type --json)
 c_rc=$?

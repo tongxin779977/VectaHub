@@ -143,11 +143,37 @@ export class SecurityConfigStore {
 
     try {
       const content = readFileSync(this.databasePath, 'utf-8');
-      const loaded = JSON.parse(content);
-      return loaded;
+      const loaded = JSON.parse(content) as SecurityDatabase;
+      return this.mergeDefaultRules(loaded);
     } catch (error) {
       throw toError(error, `Failed to load security database from ${this.databasePath}`);
     }
+  }
+
+  /**
+   * Merges newly added default rules into an existing database.
+   * Only adds rules whose IDs are not already present, preserving user customizations.
+   * Saves the database if any rules were added.
+   */
+  private mergeDefaultRules(loaded: SecurityDatabase): SecurityDatabase {
+    const existingIds = new Set(loaded.rules.map(r => r.id));
+    const defaultRules = getDefaultRules();
+    const missingRules = defaultRules.filter(r => !existingIds.has(r.id));
+
+    if (missingRules.length === 0) {
+      return loaded;
+    }
+
+    loaded.rules.push(...missingRules);
+    loaded.lastUpdated = new Date().toISOString();
+
+    try {
+      writeFileSync(this.databasePath, JSON.stringify(loaded, null, 2), 'utf-8');
+    } catch {
+      this.logger.warn(`Failed to persist merged security database with ${missingRules.length} new rules`);
+    }
+
+    return loaded;
   }
 
   /** Saves current database to disk (or updates test state in test mode) */
