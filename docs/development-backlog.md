@@ -271,7 +271,7 @@ completion:
 ```yaml
 id: P0-003
 priority: P0
-status: todo
+status: done
 depends_on: []
 evidence:
   - level: contract_target
@@ -300,6 +300,19 @@ verification:
 done_criteria:
   - delegate / exec / dependency / confirmation 规则可校验
   - unsafe draft 不能进入 executable 状态
+completion:
+  verified_at: 2026-05-31
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass (0 errors, 0 warnings)
+    - npm run test:run: pass (216 files, 2973 tests passed)
+    - git diff --check: pass
+  changed_files:
+    - docs/development-backlog.md
+    - src/types/index.ts
+    - src/types/workflow-draft.ts
+    - src/orchestration-plan/workflow-draft-validator.ts
+    - src/orchestration-plan/workflow-draft-validator.test.ts
 ```
 
 ### P0-004: 建立 NL request envelope 和入口 normalization 合同
