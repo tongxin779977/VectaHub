@@ -48,3 +48,5 @@ export type {
 export { validateWorkflowDraft } from './workflow-draft-validator.js';
 export type { DraftValidationError, DraftValidationResult } from './workflow-draft-validator.js';
 export { runVerificationPlan } from './verification-runner.js';
+export { createDraftStorage } from './draft-storage.js';
+export type { DraftStorageOptions } from './draft-storage.js';

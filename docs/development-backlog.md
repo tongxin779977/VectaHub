@@ -1006,7 +1006,7 @@ completion:
 ```yaml
 id: P1-009
 priority: P1
-status: todo
+status: done
 depends_on:
   - P0-003
   - P1-005
@@ -1045,6 +1045,18 @@ done_criteria:
   - persisted draft 能重新读取并通过 schema validation
   - 保存内容不包含 secrets、完整 prompt、完整 trace 或未脱敏大输出
   - list/detail 输出能稳定关联 planId 和 draftId
+completion:
+  verified_at: 2026-05-31
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass (0 errors, 0 warnings)
+    - npm run test:run: pass (224 files, 3093 tests passed, 11 skipped)
+    - git diff --check: pass
+  changed_files:
+    - src/orchestration-plan/draft-storage.ts
+    - src/orchestration-plan/draft-storage.test.ts
+    - src/orchestration-plan/index.ts
+    - docs/development-backlog.md
 ```
 
 ### P1-010: 统一 human-readable 与 machine-readable response contract
