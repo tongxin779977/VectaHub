@@ -6,3 +6,4 @@ export * from './diagnostic.js';
 export * from './doc-task.js';
 export * from './agent.js';
 export * from './security.js';
+export * from './orchestration-plan.js';

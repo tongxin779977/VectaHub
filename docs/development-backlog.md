@@ -222,7 +222,7 @@ completion:
 ```yaml
 id: P0-002
 priority: P0
-status: todo
+status: done
 depends_on: []
 evidence:
   - level: contract_target
@@ -250,6 +250,20 @@ verification:
 done_criteria:
   - invalid task id / dependency / command shape 会失败
   - blocked / needs_confirmation / ready 状态可校验
+completion:
+  verified_at: 2026-05-31
+  commit: pending
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass
+    - npm run test:run: pass (215 files, 2932 tests)
+    - git diff --check: pass
+  changed_files:
+    - src/types/orchestration-plan.ts
+    - src/orchestration-plan/validator.ts
+    - src/orchestration-plan/validator.test.ts
+    - src/orchestration-plan/index.ts
+    - src/types/index.ts
 ```
 
 ### P0-003: 建立 `WorkflowDraft` runtime schema
@@ -1043,15 +1057,250 @@ done_criteria:
   - appliedTo 明确为 eval/prompt_proposal/rule_proposal/catalog_gap/backlog
 ```
 
-### P2-002: Agent delegate runtime 接线和 preflight
+### P2-002: Worker Capability Matrix
 
 ```yaml
 id: P2-002
 priority: P2
 status: todo
 depends_on:
+  - P1-002
+evidence:
+  - level: product_decision
+    source: docs/nl-workflow-orchestrator.md
+    fact: >
+      外部 Agent CLI 是 worker，不是系统真相源；VectaHub 负责选择 Agent、控制生命周期、记录输出、运行验证和触发恢复。
+  - level: confirmed_source
+    source: src/agent-runtime/
+    fact: >
+      当前已有内建 Agent Runtime registry 和 adapters，覆盖 codex、claude、gemini、aider。
+source_docs:
+  - docs/nl-workflow-orchestrator.md
+  - docs/design/agent-cli-runtime-architecture.md
+goal: >
+  建立 worker capability matrix，记录每个外部 Agent CLI 的可治理能力，而不是在 VectaHub 内重复实现这些能力。
+scope:
+  - worker capability summary type
+  - built-in worker matrix for codex / claude / gemini / aider
+  - capability flags for json output、headless、approval、sandbox、mcp、subagent、memory、checkpoint/resume
+  - tests for unknown worker and unsupported native feature flags
+out_of_scope:
+  - 重新实现 worker 自己的 MCP runtime
+  - 重新实现 worker 自己的 subagent / memory / custom command 系统
+  - 声明所有 native feature 都可安全透传
+required_contracts:
+  - docs/contracts/tools-security-management.md
+verification:
+  - npm run typecheck
+  - npm run lint
+  - npm run test:run
+  - git diff --check
+done_criteria:
+  - VectaHub 能区分 worker 支持、部分支持和不支持的 native capability
+  - unsupported native feature 不会进入 executable plan
+  - capability matrix 不成为第二套执行真相源，只作为编排选择依据
+```
+
+### P2-003: Delegation Policy
+
+```yaml
+id: P2-003
+priority: P2
+status: todo
+depends_on:
+  - P2-002
+  - P1-008
+evidence:
+  - level: product_decision
+    source: docs/nl-workflow-orchestrator.md
+    fact: >
+      VectaHub 的价值是决定什么时候调用谁、调用前是否安全、调用后是否验证、失败后如何恢复。
+  - level: contract_target
+    source: docs/contracts/orchestration-plan.md
+    fact: >
+      executor: agent 时必须明确 delegateTo，Agent 选择未知且没有 runtime catalog 支持时必须阻断。
+source_docs:
+  - docs/nl-workflow-orchestrator.md
+  - docs/contracts/orchestration-plan.md
+goal: >
+  定义 delegation policy，让计划任务能基于任务类型、风险、验证要求、worker readiness 和 native capability 选择合适 worker。
+scope:
+  - task-to-worker routing policy
+  - worker readiness and capability checks
+  - verification requirement mapping for delegated tasks
+  - tests for unsupported worker、unsafe delegation、missing verification
+out_of_scope:
+  - 多 Agent swarm supervisor
+  - worker 内部 prompt 策略重写
+  - 自动安装或配置外部 Agent CLI
+required_contracts:
+  - docs/contracts/orchestration-plan.md
+  - docs/contracts/agent-worker-contract.md
+verification:
+  - npm run typecheck
+  - npm run lint
+  - npm run test:run
+  - scripts/test-semantic-output.sh
+  - git diff --check
+done_criteria:
+  - code edit / review / docs / semantic test / shell probe 等任务有可解释 worker 选择依据
+  - unknown 或 unready worker 被 blocked 或 clarify
+  - delegated apply task 默认要求 verification
+```
+
+### P2-004: Worker Result Contract
+
+```yaml
+id: P2-004
+priority: P2
+status: todo
+depends_on:
+  - P2-002
+  - P1-008
+evidence:
+  - level: product_decision
+    source: docs/nl-workflow-orchestrator.md
+    fact: >
+      Agent 成功退出不等于任务成功，VectaHub 必须运行验证、分类失败并触发恢复。
+  - level: contract_target
+    source: docs/contracts/agent-worker-contract.md
+    fact: >
+      Agent worker 输出需要被编排层记录和解释，而不是作为最终真相直接透出。
+source_docs:
+  - docs/contracts/agent-worker-contract.md
+  - docs/contracts/verification-loop.md
+goal: >
+  统一外部 worker 输出为 WorkerResult，让 VectaHub 能稳定记录 status、summary、changed files、artifacts、verification 和 failure kind。
+scope:
+  - WorkerResult type
+  - adapter result normalization
+  - changed file / artifact / summary extraction boundary
+  - failure kind and verification linkage
+out_of_scope:
+  - 解析所有 worker 私有日志格式
+  - 将 worker stdout 原样保存为长期 artifact
+  - 用 worker 自报成功覆盖 verification failure
+required_contracts:
+  - docs/contracts/agent-worker-contract.md
+  - docs/contracts/verification-loop.md
+verification:
+  - npm run typecheck
+  - npm run lint
+  - npm run test:run
+  - scripts/test-semantic-output.sh
+  - git diff --check
+done_criteria:
+  - worker success、failure、cancelled、needs_review 能稳定分类
+  - worker result 不保存 secrets、完整 prompt 或未脱敏大输出
+  - verification failure 会覆盖 worker 自报成功
+```
+
+### P2-005: Native Feature Passthrough Policy
+
+```yaml
+id: P2-005
+priority: P2
+status: todo
+depends_on:
+  - P2-002
+  - P2-003
+  - P2-004
+evidence:
+  - level: product_decision
+    source: docs/nl-workflow-orchestrator.md
+    fact: >
+      当前阶段不建议把 VectaHub 描述成通用 MCP marketplace、多 agent swarm supervisor 或 chat-first assistant。
+  - level: product_decision
+    source: docs/design/module-scope-cleanup.md
+    fact: >
+      MCP marketplace、动态安装社区 skill、多 Agent swarm 状态共享和 runtime 生成 adapter 源码都不建议当前阶段投入。
+source_docs:
+  - docs/nl-workflow-orchestrator.md
+  - docs/design/module-scope-cleanup.md
+goal: >
+  定义 worker-native 能力的透传策略，明确 MCP、subagent、memory、custom command、checkpoint 等能力何时允许、何时阻断、如何记录。
+scope:
+  - native feature allow / confirm / block policy
+  - feature-level audit metadata
+  - feature passthrough defaults for built-in workers
+  - tests for unsafe passthrough requests
+out_of_scope:
+  - VectaHub 自建 MCP marketplace
+  - VectaHub 自建 worker memory
+  - VectaHub 自建 worker subagent runtime
+  - 自动启用第三方工具或插件
+required_contracts:
+  - docs/contracts/tools-security-management.md
+  - docs/contracts/security-permission-loop.md
+verification:
+  - npm run typecheck
+  - npm run lint
+  - npm run test:run
+  - git diff --check
+done_criteria:
+  - 默认不透传未知或未治理 native feature
+  - 透传行为可审计并关联 plan task / draft step
+  - memory、MCP、subagent、custom command 都不能绕过 VectaHub safety 和 verification
+```
+
+### P2-006: Checkpoint Reference Policy
+
+```yaml
+id: P2-006
+priority: P2
+status: todo
+depends_on:
+  - P1-009
+  - P2-002
+evidence:
+  - level: contract_target
+    source: docs/contracts/workflow-draft.md
+    fact: >
+      WorkflowDraftSnapshot 要保存 planHash、workflowHash、generatedAt 和 sourceCwd，用于 rerun / resume / recover 判断定义是否变化。
+  - level: product_decision
+    source: docs/nl-workflow-orchestrator.md
+    fact: >
+      VectaHub 应治理 worker 能力，不应复制每个 Agent CLI 自己的 checkpoint 引擎。
+source_docs:
+  - docs/contracts/workflow-draft.md
+  - docs/contracts/recovery-loop.md
+goal: >
+  记录 git ref、worktree snapshot 或 worker-native checkpoint 的引用和可恢复边界，而不是在 VectaHub 内重造完整 checkpoint engine。
+scope:
+  - checkpoint reference type
+  - git/worktree/native checkpoint reference mapping
+  - checkpoint availability and stale check
+  - tests for missing checkpoint and changed workflow hash
+out_of_scope:
+  - 复制 worker 的 checkpoint 实现
+  - 自动回滚用户未确认改动
+  - 分布式 snapshot storage
+required_contracts:
+  - docs/contracts/workflow-draft.md
+  - docs/contracts/recovery-loop.md
+verification:
+  - npm run typecheck
+  - npm run lint
+  - npm run test:run
+  - git diff --check
+done_criteria:
+  - checkpoint reference 不包含 secrets 或完整 diff
+  - missing checkpoint 时 recovery 保守阻断或要求人工处理
+  - checkpoint reference 能关联 draft snapshot 和 execution metadata
+```
+
+### P2-007: Agent delegate runtime 接线和 preflight
+
+```yaml
+id: P2-007
+priority: P2
+status: todo
+depends_on:
   - P1-005
   - P1-008
+  - P2-002
+  - P2-003
+  - P2-004
 evidence:
   - level: product_decision
     source: docs/design/nl-workflow-orchestrator-product-design.md
@@ -1065,17 +1314,21 @@ source_docs:
   - docs/design/agent-cli-runtime-architecture.md
   - docs/contracts/workflow-draft.md
 goal: >
-  将 workflow delegate step 与 Agent Runtime、preflight、permission 和 result classification 接起来。
+  将 workflow delegate step 与 Agent Runtime、preflight、permission、result classification 和 worker governance 接起来。
 scope:
   - delegate handler deps
   - runtime readiness check
+  - delegation policy integration
+  - worker result normalization
   - failure classification
 out_of_scope:
   - multi-agent supervisor
   - shared sub-agent state
+  - worker-native MCP / subagent / memory reimplementation
 required_contracts:
   - docs/contracts/tools-security-management.md
   - docs/contracts/workflow-lifecycle.md
+  - docs/contracts/agent-worker-contract.md
 verification:
   - npm run typecheck
   - npm run lint
@@ -1085,17 +1338,19 @@ verification:
 done_criteria:
   - unknown/unready agent blocked
   - delegate success still requires verification when task mutates state
+  - worker native features cannot bypass VectaHub governance
 ```
 
-### P2-003: Artifact handoff 合同与最小实现
+### P2-008: Artifact handoff 合同与最小实现
 
 ```yaml
-id: P2-003
+id: P2-008
 priority: P2
 status: todo
 depends_on:
   - P1-005
   - P1-009
+  - P2-004
 evidence:
   - level: contract_target
     source: docs/contracts/orchestration-plan.md
@@ -1126,15 +1381,16 @@ done_criteria:
   - 不保存未脱敏敏感内容
 ```
 
-### P2-004: Workflow snapshot/hash guard
+### P2-009: Workflow snapshot/hash guard
 
 ```yaml
-id: P2-004
+id: P2-009
 priority: P2
 status: todo
 depends_on:
   - P1-009
   - P1-013
+  - P2-006
 evidence:
   - level: contract_target
     source: docs/contracts/workflow-draft.md
@@ -1168,16 +1424,17 @@ done_criteria:
   - hash 不包含 secrets 或未脱敏大输出
 ```
 
-### P2-005: 打通 plan / draft / execution / recovery trace identity
+### P2-010: 打通 plan / draft / execution / recovery trace identity
 
 ```yaml
-id: P2-005
+id: P2-010
 priority: P2
 status: todo
 depends_on:
   - P1-008
   - P1-009
   - P1-013
+  - P2-004
 evidence:
   - level: contract_target
     source: docs/contracts/orchestration-plan.md
@@ -1196,6 +1453,7 @@ goal: >
 scope:
   - trace link metadata model
   - plan/draft/execution/recovery id propagation
+  - worker result trace linkage
   - tests for missing trace writer and JSON stdout purity
 out_of_scope:
   - 新 trace backend
@@ -1215,16 +1473,16 @@ done_criteria:
   - recovery 能从 execution 反查 plan/draft 上下文
 ```
 
-### P2-006: 将 orchestration failure 接入 recovery loop
+### P2-011: 将 orchestration failure 接入 recovery loop
 
 ```yaml
-id: P2-006
+id: P2-011
 priority: P2
 status: todo
 depends_on:
   - P1-008
-  - P2-004
-  - P2-005
+  - P2-009
+  - P2-010
 evidence:
   - level: product_decision
     source: docs/nl-workflow-orchestrator.md
@@ -1238,10 +1496,11 @@ source_docs:
   - docs/contracts/recovery-loop.md
   - docs/design/recovery-model.md
 goal: >
-  让 plan validation、draft validation、execution failure 和 verification failure 都能形成可分类 recovery decision。
+  让 plan validation、draft validation、execution failure、worker failure 和 verification failure 都能形成可分类 recovery decision。
 scope:
   - orchestration failure kind mapping
   - recovery context builder for plan/draft
+  - worker failure to recovery decision mapping
   - blocked vs recoverable decision
   - trace and hash validation before recovery
 out_of_scope:
@@ -1257,15 +1516,15 @@ verification:
   - scripts/test-semantic-output.sh
   - git diff --check
 done_criteria:
-  - validation failure、execution failure、verification failure 分类明确
+  - validation failure、execution failure、worker failure、verification failure 分类明确
   - stale hash 时 recovery 保守阻断
   - recovery result 能回写 trace 或 task run record
 ```
 
-### P2-007: Prompt / eval / rule proposal 治理闭环
+### P2-012: Prompt / eval / rule proposal 治理闭环
 
 ```yaml
-id: P2-007
+id: P2-012
 priority: P2
 status: todo
 depends_on:
@@ -1308,16 +1567,17 @@ done_criteria:
   - proposal 不保存 secrets、完整 prompt 或未脱敏 trace
 ```
 
-### P2-008: NL / plan / draft / feedback 全链路脱敏审计
+### P2-013: NL / plan / draft / feedback 全链路脱敏审计
 
 ```yaml
-id: P2-008
+id: P2-013
 priority: P2
 status: todo
 depends_on:
   - P0-006
   - P2-001
-  - P2-003
+  - P2-005
+  - P2-008
 evidence:
   - level: standard_gate
     source: docs/standards/semantic-acceptance.md
@@ -1332,11 +1592,12 @@ source_docs:
   - docs/contracts/workflow-draft.md
   - docs/contracts/trace-execution.md
 goal: >
-  对 NL request、OrchestrationPlan、WorkflowDraft、FeedbackRecord、ArtifactRef 和 trace/audit 链路做统一脱敏审计。
+  对 NL request、OrchestrationPlan、WorkflowDraft、FeedbackRecord、WorkerResult、ArtifactRef 和 trace/audit 链路做统一脱敏审计。
 scope:
   - redaction boundary tests
   - no secret in JSON stdout
   - no full prompt/trace/diff in persisted records
+  - worker-native feature passthrough redaction checks
   - unsafe field audit
 out_of_scope:
   - 新 secret scanner 产品
@@ -1357,10 +1618,10 @@ done_criteria:
   - stack trace 只进入受控 debug/log 路径，不进入机器响应字段
 ```
 
-### P2-009: 实现标准化语义评分报告
+### P2-014: 实现标准化语义评分报告
 
 ```yaml
-id: P2-009
+id: P2-014
 priority: P2
 status: todo
 depends_on:
@@ -1494,7 +1755,7 @@ priority: P3
 status: todo
 depends_on:
   - P1-011
-  - P2-009
+  - P2-014
 evidence:
   - level: automation_need
     source: docs/development-backlog.md
@@ -1535,7 +1796,7 @@ priority: P4
 status: todo
 depends_on:
   - P1-013
-  - P2-006
+  - P2-011
 evidence:
   - level: product_decision
     source: docs/design/module-scope-cleanup.md
@@ -1567,8 +1828,9 @@ priority: P4
 status: todo
 depends_on:
   - P1-002
+  - P2-005
   - P2-007
-  - P2-008
+  - P2-013
 evidence:
   - level: product_decision
     source: docs/design/hybrid-ai-nl-engine.md
