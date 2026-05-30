@@ -789,7 +789,7 @@ completion:
 ```yaml
 id: P1-005
 priority: P1
-status: todo
+status: done
 depends_on:
   - P0-002
   - P0-003
@@ -823,6 +823,17 @@ verification:
 done_criteria:
   - 多步骤 plan 可生成 draft
   - 未确认副作用 draft 不能执行
+completion:
+  verified_at: 2026-05-31
+  commit: HEAD
+  verification_results:
+    - npm run typecheck: pass
+    - npm run test:run: pass (7 tests passed)
+  changed_files:
+    - src/orchestration-plan/workflow-draft-converter.ts
+    - src/orchestration-plan/workflow-draft-converter.test.ts
+    - src/orchestration-plan/index.ts
+    - docs/development-backlog.md
 ```
 
 ### P1-006: 扩展 semantic acceptance cases

@@ -27,3 +27,12 @@ export {
 export type {
   SafetyReviewOptions,
 } from './safety-reviewer.js';
+export {
+  convertPlanToDraft,
+  convertAndValidatePlanToDraft,
+} from './workflow-draft-converter.js';
+export type {
+  ConvertPlanToDraftOptions,
+} from './workflow-draft-converter.js';
+export { validateWorkflowDraft } from './workflow-draft-validator.js';
+export type { DraftValidationError, DraftValidationResult } from './workflow-draft-validator.js';
