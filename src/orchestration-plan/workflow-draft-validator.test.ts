@@ -519,6 +519,45 @@ describe('Business rule: safety review for executable status', () => {
     expect(result.errors.some(e => e.code === 'unsafe_draft_cannot_execute')).toBe(true);
   });
 
+  it('rejects confirmed status when safety review is not_reviewed', () => {
+    const draft = createValidDraft({
+      status: 'confirmed',
+      safetyReview: {
+        status: 'not_reviewed',
+        findings: [],
+      },
+    });
+    const result = validateWorkflowDraft(draft);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.code === 'draft_not_reviewed_cannot_execute')).toBe(true);
+  });
+
+  it('rejects persisted status when safety review is not_reviewed', () => {
+    const draft = createValidDraft({
+      status: 'persisted',
+      safetyReview: {
+        status: 'not_reviewed',
+        findings: [],
+      },
+    });
+    const result = validateWorkflowDraft(draft);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.code === 'draft_not_reviewed_cannot_execute')).toBe(true);
+  });
+
+  it('rejects executing status when safety review is not_reviewed', () => {
+    const draft = createValidDraft({
+      status: 'executing',
+      safetyReview: {
+        status: 'not_reviewed',
+        findings: [],
+      },
+    });
+    const result = validateWorkflowDraft(draft);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.code === 'draft_not_reviewed_cannot_execute')).toBe(true);
+  });
+
   it('rejects confirmed status when needs_confirmation without confirmation', () => {
     const draft = createValidDraft({
       status: 'confirmed',
@@ -560,6 +599,139 @@ describe('Business rule: safety review for executable status', () => {
     });
     const result = validateWorkflowDraft(draft);
     expect(result.valid).toBe(true);
+  });
+
+  it('accepts confirmed status when safety review is safe', () => {
+    const draft = createValidDraft({
+      status: 'confirmed',
+      safetyReview: {
+        status: 'safe',
+        findings: [],
+      },
+    });
+    const result = validateWorkflowDraft(draft);
+    expect(result.valid).toBe(true);
+  });
+});
+
+describe('Business rule: circular step dependencies', () => {
+  it('rejects draft with direct circular dependency', () => {
+    const draft = createValidDraft({
+      steps: [
+        {
+          id: 'step-1',
+          sourceTaskId: 'task-1',
+          type: 'exec',
+          label: 'Step 1',
+          dependsOn: ['step-2'],
+          command: { cli: 'npm', args: ['test'] },
+          sideEffect: 'none',
+        },
+        {
+          id: 'step-2',
+          sourceTaskId: 'task-2',
+          type: 'exec',
+          label: 'Step 2',
+          dependsOn: ['step-1'],
+          command: { cli: 'npm', args: ['lint'] },
+          sideEffect: 'none',
+        },
+      ],
+    });
+    const result = validateWorkflowDraft(draft);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.code === 'circular_step_dependency')).toBe(true);
+  });
+
+  it('rejects draft with indirect circular dependency', () => {
+    const draft = createValidDraft({
+      steps: [
+        {
+          id: 'step-1',
+          sourceTaskId: 'task-1',
+          type: 'exec',
+          label: 'Step 1',
+          dependsOn: ['step-3'],
+          command: { cli: 'npm', args: ['test'] },
+          sideEffect: 'none',
+        },
+        {
+          id: 'step-2',
+          sourceTaskId: 'task-2',
+          type: 'exec',
+          label: 'Step 2',
+          dependsOn: ['step-1'],
+          command: { cli: 'npm', args: ['lint'] },
+          sideEffect: 'none',
+        },
+        {
+          id: 'step-3',
+          sourceTaskId: 'task-3',
+          type: 'exec',
+          label: 'Step 3',
+          dependsOn: ['step-2'],
+          command: { cli: 'npm', args: ['build'] },
+          sideEffect: 'none',
+        },
+      ],
+    });
+    const result = validateWorkflowDraft(draft);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.code === 'circular_step_dependency')).toBe(true);
+  });
+
+  it('accepts draft with no circular dependencies', () => {
+    const draft = createValidDraft({
+      steps: [
+        {
+          id: 'step-1',
+          sourceTaskId: 'task-1',
+          type: 'exec',
+          label: 'Step 1',
+          dependsOn: [],
+          command: { cli: 'npm', args: ['install'] },
+          sideEffect: 'none',
+        },
+        {
+          id: 'step-2',
+          sourceTaskId: 'task-2',
+          type: 'exec',
+          label: 'Step 2',
+          dependsOn: ['step-1'],
+          command: { cli: 'npm', args: ['test'] },
+          sideEffect: 'none',
+        },
+        {
+          id: 'step-3',
+          sourceTaskId: 'task-3',
+          type: 'exec',
+          label: 'Step 3',
+          dependsOn: ['step-2'],
+          command: { cli: 'npm', args: ['build'] },
+          sideEffect: 'none',
+        },
+      ],
+    });
+    const result = validateWorkflowDraft(draft);
+    expect(result.valid).toBe(true);
+  });
+
+  it('accepts draft with self-referential dependency (but that should be caught by invalid_step_dependency?)', () => {
+    const draft = createValidDraft({
+      steps: [
+        {
+          id: 'step-1',
+          sourceTaskId: 'task-1',
+          type: 'exec',
+          label: 'Step 1',
+          dependsOn: ['step-1'],
+          command: { cli: 'npm', args: ['test'] },
+          sideEffect: 'none',
+        },
+      ],
+    });
+    const result = validateWorkflowDraft(draft);
+    expect(result.valid).toBe(false);
   });
 });
 

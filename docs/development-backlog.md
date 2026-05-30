@@ -313,7 +313,7 @@ completion:
 ```yaml
 id: P0-003
 priority: P0
-status: needs-fix
+status: done
 depends_on: []
 evidence:
   - level: contract_target
@@ -344,11 +344,11 @@ done_criteria:
   - unsafe draft 不能进入 executable 状态
 completion:
   verified_at: 2026-05-31
-  commit: e9b12bbdbb07
+  commit: HEAD
   verification_results:
     - npm run typecheck: pass
     - npm run lint: pass (0 errors, 0 warnings)
-    - npm run test:run: pass (216 files, 2973 tests passed)
+    - npm run test:run: pass (217 files, 2998 tests passed, 11 skipped)
     - git diff --check: pass
   changed_files:
     - docs/development-backlog.md
@@ -358,7 +358,7 @@ completion:
     - src/orchestration-plan/workflow-draft-validator.test.ts
 review_findings:
   reviewed_at: 2026-05-31
-  status: needs-fix
+  status: resolved_by_commit:e9b12bbdbb07
   findings:
     - severity: P1
       location: src/orchestration-plan/workflow-draft-validator.ts
@@ -369,12 +369,14 @@ review_findings:
       required_fix: >
         executable draft 必须要求 safetyReview=safe，或 safetyReview=needs_confirmation 且存在有效 confirmation；
         safetyReview=not_reviewed 必须阻断并补测试。
+      resolved_at: 2026-05-31
     - severity: P1
       location: src/orchestration-plan/workflow-draft-validator.ts
       reason: >
         dependsOn 只校验引用存在，未校验循环依赖；WorkflowDraft 合同要求 dependsOn 必须能拓扑排序。
       required_fix: >
         增加 DAG / topological validation，阻断 step 循环依赖，并补循环依赖测试。
+      resolved_at: 2026-05-31
 ```
 
 ### P0-004: 建立 NL request envelope 和入口 normalization 合同

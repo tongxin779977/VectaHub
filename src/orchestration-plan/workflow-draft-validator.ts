@@ -152,6 +152,62 @@ function validateStepDependsOnReferences(steps: WorkflowDraftStep[]): DraftValid
   return errors;
 }
 
+function validateStepDependencyCycles(steps: WorkflowDraftStep[]): DraftValidationError[] {
+  const errors: DraftValidationError[] = [];
+  const stepMap = new Map<string, WorkflowDraftStep>();
+  
+  for (const step of steps) {
+    stepMap.set(step.id, step);
+  }
+
+  const visited = new Set<string>();
+  const recursionStack = new Set<string>();
+  const cyclePath: string[] = [];
+
+  function dfs(stepId: string): boolean {
+    if (recursionStack.has(stepId)) {
+      const cycleStartIndex = cyclePath.indexOf(stepId);
+      const cycle = cyclePath.slice(cycleStartIndex);
+      errors.push({
+        code: 'circular_step_dependency',
+        message: `Circular dependency detected: ${cycle.join(' -> ')} -> ${stepId}`,
+        path: ['steps'],
+      });
+      return true;
+    }
+    if (visited.has(stepId)) {
+      return false;
+    }
+
+    visited.add(stepId);
+    recursionStack.add(stepId);
+    cyclePath.push(stepId);
+
+    const step = stepMap.get(stepId);
+    if (step) {
+      for (const depId of step.dependsOn) {
+        if (dfs(depId)) {
+          return true;
+        }
+      }
+    }
+
+    recursionStack.delete(stepId);
+    cyclePath.pop();
+    return false;
+  }
+
+  for (const step of steps) {
+    if (!visited.has(step.id)) {
+      if (dfs(step.id)) {
+        break;
+      }
+    }
+  }
+
+  return errors;
+}
+
 function validateStepTypeRequirements(steps: WorkflowDraftStep[]): DraftValidationError[] {
   const errors: DraftValidationError[] = [];
 
@@ -191,6 +247,13 @@ function validateSafetyReviewForExecutableStatus(
         path: ['status'],
       });
     }
+    if (safetyReviewStatus === 'not_reviewed') {
+      errors.push({
+        code: 'draft_not_reviewed_cannot_execute',
+        message: 'Draft cannot be in executable status when safety review is not reviewed',
+        path: ['status'],
+      });
+    }
     if (safetyReviewStatus === 'needs_confirmation' && !confirmation) {
       errors.push({
         code: 'needs_confirmation_without_confirmation',
@@ -219,6 +282,7 @@ export function validateWorkflowDraft(input: unknown): DraftValidationResult {
   const businessErrors: DraftValidationError[] = [
     ...validateStepIdUniqueness(draft.steps),
     ...validateStepDependsOnReferences(draft.steps),
+    ...validateStepDependencyCycles(draft.steps),
     ...validateStepTypeRequirements(draft.steps),
     ...validateSafetyReviewForExecutableStatus(
       draft.status,
