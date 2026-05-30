@@ -1,9 +1,9 @@
 
 import type {
-  OrchestrationPlan, OrchestrationTask, OrchestrationPlanMetadata } from '../types/index.js';
-import type { ProjectContextPack } from '../types/index.js';
+  OrchestrationPlan, OrchestrationTask } from '../types/index.js';
 import { validateOrchestrationPlan } from './validator.js';
 import { validateCommandSurface } from './command-surface-validator.js';
+import { applySafetyReviewToPlan } from './safety-reviewer.js';
 
 export interface PlannerResult {
   kind: 'plan' | 'reply' | 'clarify' | 'blocked';
@@ -78,15 +78,21 @@ export async function planFromCapability(
     };
   }
 
+  // Apply safety review
+  const reviewedPlan = applySafetyReviewToPlan(plan, {
+    cwd: options.cwd,
+    isDryRun: true,
+  });
+
   return {
     kind: 'plan',
-    plan,
+    plan: reviewedPlan,
   };
 }
 
 export function planToReply(
   message: string,
-  options: PlannerOptions = {}
+  _options: PlannerOptions = {}
 ): PlannerResult {
   return {
     kind: 'reply',
@@ -96,7 +102,7 @@ export function planToReply(
 
 export function planToClarify(
   message: string,
-  options: PlannerOptions = {}
+  _options: PlannerOptions = {}
 ): PlannerResult {
   return {
     kind: 'clarify',
@@ -106,7 +112,7 @@ export function planToClarify(
 
 export function planToBlocked(
   message: string,
-  options: PlannerOptions = {}
+  _options: PlannerOptions = {}
 ): PlannerResult {
   return {
     kind: 'blocked',

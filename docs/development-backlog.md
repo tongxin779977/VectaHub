@@ -730,7 +730,7 @@ completion:
 ```yaml
 id: P1-004
 priority: P1
-status: todo
+status: done
 depends_on:
   - P0-002
   - P0-005
@@ -768,6 +768,20 @@ done_criteria:
   - critical 默认 blocked
   - high 默认 needs_confirmation
   - LLM 不能覆盖 deterministic safety decision
+completion:
+  verified_at: 2026-05-31
+  commit: HEAD
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass
+    - npm run test:run: pass (3036 tests passed, 11 skipped)
+    - git diff --check: pass
+  changed_files:
+    - src/orchestration-plan/safety-reviewer.ts
+    - src/orchestration-plan/safety-reviewer.test.ts
+    - src/orchestration-plan/planner.ts
+    - src/orchestration-plan/index.ts
+    - docs/development-backlog.md
 ```
 
 ### P1-005: 将多步骤 NL plan 转为 WorkflowDraft

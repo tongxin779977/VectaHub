@@ -20,3 +20,10 @@ export type {
   PlannerResult,
   PlannerOptions,
 } from './planner.js';
+export {
+  reviewPlanSafety,
+  applySafetyReviewToPlan,
+} from './safety-reviewer.js';
+export type {
+  SafetyReviewOptions,
+} from './safety-reviewer.js';
