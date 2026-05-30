@@ -9,7 +9,6 @@ import {
   getMaxJsonOutputLength,
   TRUNCATED_OUTPUT_MARKER,
   getContext,
-  TRACE_TEXT_MAX_LENGTH,
   VERIFICATION_SUMMARY_MAX_LENGTH,
   FAILURE_HUMAN_SUMMARY_MAX_LENGTH
 } from './run-task-shared.js';
@@ -220,11 +219,6 @@ export function buildUserVisibleSummary(output: string): { output: string; trunc
     output: summary,
     truncated: compacted.truncated || omittedLines || summary.length < summarySource.length,
   };
-}
-
-function formatListForPrompt(values: string[], emptyText: string): string {
-  if (!values.length) return emptyText;
-  return values.map(value => `\n- ${value}`).join('');
 }
 
 function formatHumanList(values: string[], emptyText: string): string {
@@ -717,42 +711,6 @@ export function buildRecoveryDecisionSummary(input: {
   });
 
   return summarizeRecoveryDecision(decision);
-}
-
-function mapErrorCodeToFailureKind(
-  errorCode: string | undefined,
-  verification?: VerificationResult,
-): DocTaskFailureKind | undefined {
-  if (verification?.isSystemError) {
-    return 'system_internal';
-  }
-  if (verification && !verification.ok) {
-    return 'test';
-  }
-
-  switch (errorCode) {
-    case 'TIMEOUT':
-      return 'timeout';
-    case 'AGENT_SYSTEM_ERROR':
-      return 'system_internal';
-    case 'AGENT_CONFIG_ERROR':
-    case 'INVALID_INVOCATION':
-      return 'config';
-    case 'SECURITY_BLOCKED':
-      return 'conflict';
-    case 'INVALID_JSON':
-      return 'json_protocol';
-    case 'CANCELLED':
-      return 'cancelled';
-    case 'AGENT_PLANNED_ONLY':
-      return undefined;
-    case 'NEEDS_CONFIRMATION':
-      return undefined;
-    case 'AGENT_FAILED':
-      return 'agent';
-    default:
-      return errorCode ? 'unknown' : undefined;
-  }
 }
 
 export function inferExecutionFailureKind(input: {

@@ -121,22 +121,18 @@ export function satisfiesRange(version: string, range: string): boolean {
   const v = parseVersion(version);
 
   if (range.startsWith('>=')) {
-    const target = parseVersion(range.slice(2));
     return compareVersions(version, range.slice(2)) >= 0;
   }
 
   if (range.startsWith('<=')) {
-    const target = parseVersion(range.slice(2));
     return compareVersions(version, range.slice(2)) <= 0;
   }
 
   if (range.startsWith('>')) {
-    const target = parseVersion(range.slice(1));
     return compareVersions(version, range.slice(1)) > 0;
   }
 
   if (range.startsWith('<')) {
-    const target = parseVersion(range.slice(1));
     return compareVersions(version, range.slice(1)) < 0;
   }
 

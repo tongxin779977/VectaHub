@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { existsSync, accessSync, constants, createReadStream } from 'node:fs';
 import { join } from 'node:path';
-import { BWRAP_PATH, UNSHARE_PATH, FALLBACK_PATH } from './constants.js';
+import { FALLBACK_PATH } from './constants.js';
 import type { CommandSignature, SignatureValidation, ExecutableVerification } from './types.js';
 
 /**

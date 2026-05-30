@@ -279,7 +279,7 @@ export function generateFormattedHelp(
  * @param options - Help generator options.
  * @returns Markdown formatted help text.
  */
-function generateMarkdownHelp(command: Command, options: HelpGeneratorOptions): string {
+function generateMarkdownHelp(command: Command, _options: HelpGeneratorOptions): string {
   const sections: string[] = [];
 
   sections.push(`# ${command.name()}`);
@@ -309,7 +309,7 @@ function generateMarkdownHelp(command: Command, options: HelpGeneratorOptions): 
  * @param options - Help generator options.
  * @returns JSON formatted help text.
  */
-function generateJsonHelp(command: Command, options: HelpGeneratorOptions): string {
+function generateJsonHelp(command: Command, _options: HelpGeneratorOptions): string {
   const helpData = {
     name: command.name(),
     version: command.version(),

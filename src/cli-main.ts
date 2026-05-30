@@ -1,9 +1,5 @@
 #!/usr/bin/env node
 
-// --- Standard library ---
-import { dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
 // --- Third-party ---
 import { Command } from 'commander';
 
@@ -30,62 +26,10 @@ import { lazyLoadCommand, lazyLoadCliTools, lazyLoadAgentRuntime, resolveLazyCom
 import { setupGlobalSignals, setupProcessListeners } from './cli-signal-handler.js';
 import { displayPolicyWarning } from './cli-security.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
 const ctx = getDefaultContext();
 
 let auditLoggerInitialized = false;
 let policyWarningShown = false;
-
-/** Configuration for retry mechanism. */
-interface RetryConfig {
-  maxRetries: number;
-  baseDelayMs: number;
-  maxDelayMs: number;
-}
-
-const DEFAULT_RETRY_CONFIG: RetryConfig = {
-  maxRetries: 2,
-  baseDelayMs: 100,
-  maxDelayMs: 1000,
-};
-
-/**
- * Execute an async operation with exponential backoff retry.
- * @param operation - The async operation to execute.
- * @param config - Retry configuration.
- * @param context - Description for logging.
- * @returns The result of the operation.
- * @throws {Error} When all retries are exhausted.
- */
-async function withRetry<T>(
-  operation: () => Promise<T>,
-  config: RetryConfig = DEFAULT_RETRY_CONFIG,
-  context?: string,
-): Promise<T> {
-  let lastError: unknown;
-
-  for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
-    try {
-      return await operation();
-    } catch (error) {
-      lastError = error;
-
-      if (attempt < config.maxRetries) {
-        const delay = Math.min(
-          config.baseDelayMs * Math.pow(2, attempt),
-          config.maxDelayMs,
-        );
-        ctx.logger.getLogger('cli-main').debug(
-          { attempt, delay, context },
-          'Retrying operation after transient failure',
-        );
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-    }
-  }
-
-  throw lastError;
-}
 
 /** Dependencies for the first-run wizard. */
 const firstRunWizardDeps = {
@@ -166,26 +110,6 @@ if (ctx.environment.getArgv().includes('--dry-run')) {
 
 /** The main Commander program instance for CLI command parsing and execution. */
 const program = new Command();
-
-/** Cache for generated help information to avoid repeated generation. */
-const helpInfoCache = new Map<string, string>();
-
-/**
- * Get cached help information for a command, generating it if not cached.
- * @param command - The Commander command instance.
- * @returns The help information string.
- */
-function getCachedHelpInfo(command: Command): string {
-  const commandName = command.name();
-  const cached = helpInfoCache.get(commandName);
-  if (cached !== undefined) {
-    return cached;
-  }
-
-  const helpInfo = command.helpInformation();
-  helpInfoCache.set(commandName, helpInfo);
-  return helpInfo;
-}
 
 program
   .name('vectahub')

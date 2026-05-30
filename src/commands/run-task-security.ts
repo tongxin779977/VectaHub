@@ -1,8 +1,7 @@
-import { getSecurityGuard, getSecurityManager, assessCommandRisk } from '../security-protocol/index.js';
+import { getSecurityGuard, assessCommandRisk } from '../security-protocol/index.js';
 import type { SecurityContext, CommandIntention } from '../types/security.js';
 import {
   RunTaskRiskAssessment,
-  getContext,
   limitText,
   MAX_VERIFICATION_COMMANDS
 } from './run-task-shared.js';

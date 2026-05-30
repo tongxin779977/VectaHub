@@ -30,7 +30,7 @@ export function createRedactTransport(options: RedactTransportOptions = {}) {
         } else {
           (dest as NodeJS.WritableStream).write(redacted + '\n');
         }
-      } catch (error) {
+      } catch {
         // Fallback: write original if redaction fails
         if (typeof dest !== 'string') {
           (dest as NodeJS.WritableStream).write(msg + '\n');

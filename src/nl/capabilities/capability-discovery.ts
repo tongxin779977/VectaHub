@@ -1,5 +1,4 @@
-import type { Capability, RouterResult } from './types.js';
-import type { ParsedGoal, ProjectContext } from '../core/goal-types.js';
+import type { Capability } from './types.js';
 
 const DEFAULT_DISCOVERY_TTL_MS = 300_000;
 

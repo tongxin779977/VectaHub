@@ -106,7 +106,7 @@ export class LLMClient {
    * @returns 执行结果
    * @throws 重试耗尽后抛出最后一次错误
    */
-  private async withRetry<T>(fn: () => Promise<T>, operationName: string): Promise<T> {
+  private async withRetry<T>(fn: () => Promise<T>, _operationName: string): Promise<T> {
     const { maxRetries, baseDelayMs, maxDelayMs } = this.retryOptions;
     let lastError: unknown;
 

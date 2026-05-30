@@ -108,12 +108,6 @@ export interface VerificationResult {
 
 export type SpawnCompletionSignal = 'close' | 'exit-stream-drain' | 'exit-flush-grace' | 'output-last-message' | 'evidence-closeout' | 'timeout';
 
-interface SpawnCompletionResult {
-  exitCode: number;
-  signal: NodeJS.Signals | null;
-  completionSignal: SpawnCompletionSignal;
-}
-
 export interface RunTaskRecoveryDecisionSummary {
   kind: string;
   mode: string;

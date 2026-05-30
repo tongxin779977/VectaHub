@@ -477,7 +477,7 @@ cat >> "$REPORT" <<EOF
 |----|-------|-------------|--------|
 | P0 | Critical | nl-processor-tool-calling prompt not in BUILTIN_PROMPTS | FIXED (prompt exists in BUILTIN_PROMPTS) |
 | P1 | High | pwd/ls/echo → domains=[] → empty tools | FIXED (buildAllTools([]) returns all tools; deterministic shell intercept) |
-| P2 | Medium | No generic shell command intent type | FIXED (tryDeterministicShellCommand handles pwd/ls/echo/cat/etc.) |
+| P2 | Medium | No generic shell command intent type | FIXED (tryDeterministicShellCommand handles pwd/ls/echo only) |
 
 ## Notes
 

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync, accessSync, constants } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { platform } from 'node:os';
 
@@ -11,9 +11,7 @@ import {
   loadProjectBlocklist,
   loadProjectAllowlist,
 } from '../command-rules/loader.js';
-import { DEFAULT_PROTECTED_DIRS } from './constants.js';
-import type { SandboxMode, CommandDetection } from '../types/index.js';
-import type { DefaultPolicy } from '../command-rules/types.js';
+import type { SandboxMode } from '../types/index.js';
 import { performEnvAudit, AuditEventType, createNoopAuditHelper, type AuditHelper } from '../infrastructure/audit/index.js';
 import { createSecurityGuard } from '../security-protocol/factory.js';
 import type { SecurityGuard } from '../types/security.js';
@@ -42,7 +40,6 @@ import type {
   SignatureValidation,
   SudoStatus,
   ExecutableVerification,
-  SudoConfigResult,
 } from './types.js';
 
 // Re-export all shared types
@@ -55,7 +52,6 @@ export type {
   SignatureValidation,
   SudoStatus,
   ExecutableVerification,
-  SudoConfigResult,
 } from './types.js';
 
 /**
@@ -153,7 +149,6 @@ export class SandboxManager {
     if (this.capabilities) return;
 
     const auditResult = await performEnvAudit();
-    const os = auditResult.platform;
     
     this.auditHelper.log({
       event: AuditEventType.ENV_AUDIT,

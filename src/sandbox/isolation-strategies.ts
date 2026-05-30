@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { SANDBOX_EXEC_PATH, DEFAULT_PROTECTED_DIRS } from './constants.js';
-import type { ExecOptions, ExecResult, IsolationStrategy, SandboxMode } from './types.js';
+import type { ExecOptions, ExecResult, SandboxMode } from './types.js';
 
 /**
  * 通用的进程执行器

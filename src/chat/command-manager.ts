@@ -12,7 +12,7 @@ import type { ChatInput } from './types.js';
  * @param config - 聊天配置
  * @returns 包含 `parseInput` 和 `validateCommand` 方法的命令管理器
  */
-export function createCommandManager(config: ChatConfig) {
+export function createCommandManager(_config: ChatConfig) {
   return {
     /**
      * 解析用户输入，判断输入类型并提取有效内容。

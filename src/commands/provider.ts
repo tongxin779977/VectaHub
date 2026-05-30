@@ -102,7 +102,7 @@ function formatTestResult(providerId: string, result: { available: boolean; vers
   }
 }
 
-export function createProviderCmd(context: InfrastructureContext): Command {
+export function createProviderCmd(_context: InfrastructureContext): Command {
   const cliOutput = createProviderCommandOutput();
   const providerCmd = new Command('provider')
     .description('AI Provider management commands');

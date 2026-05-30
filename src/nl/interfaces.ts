@@ -5,7 +5,6 @@
 
 import type {
   IntentMatch, MultiIntentResult, NLResult, NLContext } from './types.js';
-import type { IntentName } from '../types/index.js';
 
 /**
  * LLM 配置接口

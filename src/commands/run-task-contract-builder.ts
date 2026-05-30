@@ -1,5 +1,4 @@
 import { deriveAgentTaskBoundary, deriveDocExcerpt, computeInstructionHash } from './agent-task-contract.js';
-import { buildGlobalConfigDigest } from '@vectahub/doc-task-contract-core';
 import type { AgentTaskContract } from '../types/doc-task.js';
 import {
   AgentTaskContractSummary,

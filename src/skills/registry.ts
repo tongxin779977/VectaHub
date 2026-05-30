@@ -240,7 +240,7 @@ export class SkillRegistry {
             discovered.push(skill);
           }
         }
-      } catch (error) {
+      } catch {
         // Silently continue if path scanning fails
       }
     }
@@ -313,7 +313,7 @@ export class SkillRegistry {
         if (await skill.canHandle(context)) {
           applicable.push(skill);
         }
-      } catch (error) {
+      } catch {
         // Individual skill failed to check applicability, skip it
       }
     }
@@ -413,7 +413,7 @@ export class SkillRegistry {
    * @returns Promise resolving to array of discovered skills
    * @private
    */
-  private async scanForSkills(path: string): Promise<Skill[]> {
+  private async scanForSkills(_path: string): Promise<Skill[]> {
     // This is a placeholder implementation
     // In a real implementation, this would scan the filesystem for skill modules
     return [];

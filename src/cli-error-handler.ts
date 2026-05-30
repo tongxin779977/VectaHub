@@ -5,7 +5,7 @@
 
 import type { InfrastructureContext } from './infrastructure/context.js';
 import { createCliOutput, isCliOutputHandledError } from './infrastructure/cli-output.js';
-import { formatErrorMessage, toJSONError } from './infrastructure/errors/index.js';
+import { toJSONError } from './infrastructure/errors/index.js';
 import { AsyncLogWriter } from './infrastructure/trace-audit/async-writer.js';
 import { isVerbose } from './utils/global-options.js';
 
@@ -203,7 +203,7 @@ export async function withRetry<T>(
 export async function withFallback<T>(
   primary: () => Promise<T>,
   fallback: () => Promise<T>,
-  context?: string,
+  _context?: string,
 ): Promise<RecoveryResult<T>> {
   try {
     const result = await primary();
@@ -213,7 +213,7 @@ export async function withFallback<T>(
       strategy: 'retry',
       attempts: 1,
     };
-  } catch (primaryError) {
+  } catch {
     try {
       const result = await fallback();
       return {

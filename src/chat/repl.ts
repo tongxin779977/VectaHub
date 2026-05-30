@@ -137,7 +137,7 @@ export function createREPL(deps: ReplDeps) {
   const slashCommands = new Map<string, SlashCommand>();
   defaultSlashCommands.forEach(cmd => slashCommands.set(cmd.name, cmd));
 
-  const contextBuilder = createContextBuilder(deps.sessionManager);
+  createContextBuilder(deps.sessionManager);
 
   const sessionId = deps.config.defaultSessionId;
   const pendingWorkflows = new Map<string, PendingWorkflow>();

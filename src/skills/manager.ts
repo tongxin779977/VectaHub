@@ -182,7 +182,7 @@ export class SkillManager {
     }
 
     try {
-      const canHandle = await skill.canHandle({
+      await skill.canHandle({
         userInput: 'health check',
         sessionId: 'health-check'
       });
