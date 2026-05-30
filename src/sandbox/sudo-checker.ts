@@ -3,9 +3,6 @@ import { accessSync, constants } from 'node:fs';
 import { platform } from 'node:os';
 import { BWRAP_PATH, UNSHARE_PATH, SUDOERS_PATH } from './constants.js';
 import type { SudoStatus, SudoConfigResult } from './types.js';
-import { getLogger } from '../infrastructure/logger/index.js';
-
-const logger = getLogger(import.meta.url);
 
 /**
  * 检查 sudo 状态
@@ -83,9 +80,7 @@ async function testBwrapSudo(): Promise<boolean> {
   return new Promise((resolve) => {
     try {
       accessSync(BWRAP_PATH, constants.X_OK);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.debug({ error: message }, 'bwrap not accessible');
+    } catch {
       resolve(false);
       return;
     }
@@ -111,9 +106,7 @@ async function testUnshareSudo(): Promise<boolean> {
   return new Promise((resolve) => {
     try {
       accessSync(UNSHARE_PATH, constants.X_OK);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.warn({ error: message }, 'Unshare access check failed');
+    } catch {
       resolve(false);
       return;
     }

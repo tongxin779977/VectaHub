@@ -1,8 +1,6 @@
 import YAML from 'yaml';
 import type { OutputFormat, ValidationResult } from './types.js';
 
-const debug = { debug: (_opts?: object, _msg?: string) => {} };
-
 export function validateOutput(
   output: string,
   format: OutputFormat,
@@ -36,9 +34,7 @@ function validateJSON(output: string): ValidationResult {
   try {
     JSON.parse(output);
     return { valid: true };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    debug.debug({ error: message }, 'JSON parse failed, trying cleanup');
+  } catch {
     let cleaned = output.trim();
     
     if (cleaned.startsWith('```json')) {
@@ -54,9 +50,7 @@ function validateJSON(output: string): ValidationResult {
     try {
       JSON.parse(cleaned);
       return { valid: true };
-    } catch (secondError) {
-      const secondMessage = secondError instanceof Error ? secondError.message : String(secondError);
-      debug.debug({ error: secondMessage }, 'JSON parse failed after cleanup');
+    } catch {
       return { valid: false, error: 'Invalid JSON format' };
     }
   }
@@ -72,9 +66,7 @@ function validateYAML(output: string): ValidationResult {
   try {
     YAML.parse(cleaned);
     return { valid: true };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    debug.debug({ error: message }, 'YAML parse failed, trying cleanup');
+  } catch {
     if (cleaned.startsWith('```yaml')) {
       cleaned = cleaned.substring(7).trim();
     } else if (cleaned.startsWith('```')) {
@@ -90,7 +82,6 @@ function validateYAML(output: string): ValidationResult {
       return { valid: true };
     } catch (secondError) {
       const errorMsg = secondError instanceof Error ? secondError.message : String(secondError);
-      debug.debug({ error: errorMsg }, 'YAML parse failed after cleanup');
       
       if (errorMsg.includes('multiple documents')) {
         const parts = cleaned.split(/^---$/m);
@@ -99,9 +90,7 @@ function validateYAML(output: string): ValidationResult {
           try {
             YAML.parse(cleaned);
             return { valid: true };
-          } catch (thirdError) {
-            const thirdMessage = thirdError instanceof Error ? thirdError.message : String(thirdError);
-            debug.debug({ error: thirdMessage }, 'YAML parse failed for first document');
+          } catch {
             return { valid: false, error: 'Invalid YAML format' };
           }
         }

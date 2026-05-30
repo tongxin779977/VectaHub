@@ -362,9 +362,8 @@ export class SkillExecutor {
         if (result.success) {
           return result as SkillResult<TOutput>;
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.logger.debug({ error: message }, `Conditional skill ${skill.id} failed, trying next`);
+      } catch {
+        this.logger.debug(`Conditional skill ${skill.id} failed, trying next`);
       }
     }
 

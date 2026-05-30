@@ -45,16 +45,14 @@ async function extractFilePath(input: string): Promise<string | null> {
  * @param filePath - The path to the documentation file
  * @returns Promise resolving to the file content or null if not found
  */
-async function readDocContent(filePath: string, logger: Pick<pino.Logger, 'debug'>): Promise<string | null> {
+async function readDocContent(filePath: string): Promise<string | null> {
   if (!existsSync(filePath)) {
     return null;
   }
   try {
     const content = await readFile(filePath, 'utf-8');
     return content.substring(0, 8000);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logger.debug({ error: message }, 'Read doc content skipped');
+  } catch {
     return null;
   }
 }
@@ -100,7 +98,7 @@ export function createWorkflowSkill(
         let docContent = '';
 
         if (filePath) {
-          const content = await readDocContent(filePath, logger);
+          const content = await readDocContent(filePath);
           if (content) {
             docContent = `\n\nDocument content:\n${content}`;
           }
@@ -141,9 +139,7 @@ export function createWorkflowSkill(
           data: { workflowYAML: result.output },
           confidence: 0.85
         };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logger.debug({ error: message }, 'LLM YAML generation failed, using fallback');
+      } catch {
         const fallbackYAML = createFallbackWorkflow(input);
         return {
           success: true,

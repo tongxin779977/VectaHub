@@ -49,7 +49,7 @@ export function createDaemonClient(options: DaemonClientOptions = {}): DaemonCli
               pendingMessages.delete(response.id);
             }
           } catch {
-            // 忽略无效响应行
+            continue;
           }
         }
       }

@@ -5,7 +5,7 @@
 
 ## 产品方向
 
-VectaHub 当前最适合被理解成一个**单用户、本地优先的 CLI 自动化内核**，文档处理和编排能力是它的核心优势。
+VectaHub 当前最适合被理解成一个**单用户、本地优先的 NL Workflow Orchestrator**，自然语言编排、文档处理和可治理执行是它的核心优势。
 
 它的主要价值不是“自己就是最聪明的 agent”，而是：
 
@@ -13,6 +13,8 @@ VectaHub 当前最适合被理解成一个**单用户、本地优先的 CLI 自�
 - 把大任务文档变成边界清楚的工作包，
 - 协调本地工具和外部 Agent CLI，
 - 让执行过程可看、可控、更安全、可恢复。
+
+产品定位入口见 [NL Workflow Orchestrator](./nl-workflow-orchestrator.md)。详细产品设计见 [NL Workflow Orchestrator 产品设计](./design/nl-workflow-orchestrator-product-design.md)。
 
 ## 能力域
 
@@ -222,7 +224,7 @@ VectaHub 现在已经有一些真正可用的编排能力，但“多 agent 编�
 
 ## 8. 本地服务与集成层
 
-**Status:** Current Implementation / Partial Implementation
+**Status:** Secondary / Not Mainline
 
 当前范围：
 
@@ -236,6 +238,7 @@ VectaHub 现在已经有一些真正可用的编排能力，但“多 agent 编�
 
 - 这些能力确实存在，作为本地服务层和集成层是成立的，
 - 但它们是本机适配层，不是成熟的多用户服务平台，
+- 当前不属于 NL Workflow Orchestrator 主产品面，
 - VS Code、API、socket client 应调用 CLI core 或共享合同，不应复制执行逻辑，
 - import/export 是备份和迁移辅助能力，不是完整跨版本迁移系统。
 
@@ -251,11 +254,10 @@ VS Code / local script / client / API
 
 关键参考：
 
-- [design/local-service-integration-architecture.md](./design/local-service-integration-architecture.md)
-- [contracts/service-import-export.md](./contracts/service-import-export.md)
 - [ui/vscode-extension.md](./ui/vscode-extension.md)
 - [src/daemon/socket-server.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/daemon/socket-server.ts:1)
 - [src/api/server.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/api/server.ts:1)
+- [design/module-scope-cleanup.md](./design/module-scope-cleanup.md)
 
 ## 下一步建议阅读
 

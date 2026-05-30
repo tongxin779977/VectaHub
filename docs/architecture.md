@@ -289,7 +289,7 @@ User Intent / Document Task
 
 ## 9. 本地服务与集成层
 
-本地服务与集成层是 CLI core 外围的本机适配层。
+本地服务与集成层是 CLI core 外围的本机适配层，当前已从 NL Workflow Orchestrator 主产品面降级。
 
 当前组件：
 
@@ -303,6 +303,7 @@ User Intent / Document Task
 当前边界：
 
 - 这些能力是本地入口扩展，不是多用户 SaaS control plane，
+- 当前不作为主线合同或主线设计入口维护，
 - HTTP API 应按本地 API server 理解，不能默认写成公网稳定 API，
 - VS Code extension 应调用 CLI 或共享合同，不应复制执行真相，
 - import/export 是备份和迁移辅助能力，不是完整跨版本迁移协议。
@@ -326,7 +327,7 @@ VS Code / local script / socket client / API
 - [src/api/server.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/api/server.ts:1)
 - [src/commands/export.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/commands/export.ts:1)
 - [packages/vectahub-vscode-extension/package.json](/Users/xin.tong/apps/project/test_trae/VectaHub/packages/vectahub-vscode-extension/package.json:1)
-- [design/local-service-integration-architecture.md](./design/local-service-integration-architecture.md)
+- [design/module-scope-cleanup.md](./design/module-scope-cleanup.md)
 
 ## 10. Trace、Audit 与恢复层
 

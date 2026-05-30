@@ -1,6 +1,6 @@
 # 核心合同
 
-本文档是合同入口，不复制所有字段细节。实现前应读取对应合同文档和当前源码，以代码和测试结果确认最终状态。
+本文档保留为根级合同入口兼容页。新的合同索引见 [docs/contracts/README.md](./contracts/)。
 
 > Document Status: Current Implementation / Migration Contract
 > Authority: Contract index only. Field-level behavior is owned by the linked contract files.
@@ -14,6 +14,8 @@ VectaHub 的关键合同如下：
 | 合同 | 目标 | 详细规格 |
 |------|------|----------|
 | CLI JSON | 让插件、脚本和未来 SDK 不解析人类日志。 | [插件/CLI 边界设计](./design/plugin-cli-boundary.md) |
+| Orchestration Plan | 约束自然语言编排输出、计划状态、安全审查和验证计划。 | [编排计划合同](./contracts/orchestration-plan.md) |
+| Workflow Draft | 约束计划到可审查 workflow 的生命周期、确认、snapshot/hash 和执行前阻断。 | [Workflow Draft 合同](./contracts/workflow-draft.md) |
 | Doc Task Run | 记录文档任务运行状态、失败分类和恢复信息。 | [文档任务状态机规格](./contracts/doc-task-state-machine.md) |
 | Agent Task Contract | 限制 Agent 输入、修改范围和验证命令。 | [Agent Worker 合同规格](./contracts/agent-worker-contract.md) |
 | Trace | 贯通插件、CLI、Agent、验证和恢复链路。 | [Trace 执行规格](./contracts/trace-execution.md) |
@@ -22,9 +24,9 @@ VectaHub 的关键合同如下：
 | Workflow Lifecycle | 管理工作流执行、历史、详情、重跑、恢复和归档。 | [工作流生命周期规格](./contracts/workflow-lifecycle.md) |
 | Storage | 约束配置、执行记录、输出、trace、队列等落点。 | [配置与数据存储规格](./contracts/config-data-storage.md) |
 | Tools / Security Rules | 管理 CLI 工具、命令规则和安全规则。 | [工具与安全规则规格](./contracts/tools-security-management.md) |
-| Templates / Scheduling | 管理 workflow 生成、模板和调度。 | [生成、模板与调度规格](./contracts/templates-generation-scheduling.md) |
-| Local Service / Import Export | 管理本地服务、daemon 和数据迁移。 | [服务与导入导出规格](./contracts/service-import-export.md) |
 | Implementation Traceability | 关联目标能力、权威文档、代码入口、测试入口和已知缺口。 | [实现追踪矩阵](./contracts/implementation-traceability.md) |
+
+已降级的 service、daemon、template、schedule、monitor、debug 等能力不再保留独立合同文档。后续若重新进入主线，必须先补充 `docs/contracts/` 下的权威合同和实现追踪矩阵。
 
 ## CLI JSON 合同
 

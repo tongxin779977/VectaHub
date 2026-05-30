@@ -148,9 +148,7 @@ export class SocketServer {
       try {
         const message = JSON.parse(messageStr);
         void this.handleMessage(socket, message);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.logger.error({ error: message }, 'Invalid JSON received');
+      } catch {
         socket.write(JSON.stringify({ type: 'error', message: 'Invalid JSON' }) + '\n');
       }
     }
@@ -227,10 +225,7 @@ export class SocketServer {
       success: true,
     });
 
-    try { unlinkSync(this.socketPath); } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.error({ error: message }, 'Socket cleanup skipped (may not exist)');
-    }
+    try { unlinkSync(this.socketPath); } catch { /* ignore if not exists */ }
 
     this.server = createServer((socket) => {
       socket.on('data', (data) => this.handleSocketData(socket, data));
@@ -250,10 +245,7 @@ export class SocketServer {
       await new Promise<void>((resolve) => this.server!.close(() => resolve()));
       this.server = null;
     }
-    try { unlinkSync(this.socketPath); } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.error({ error: message }, 'Socket cleanup skipped (may not exist)');
-    }
+    try { unlinkSync(this.socketPath); } catch { /* ignore if not exists */ }
   }
 
   getSocketPath(): string {

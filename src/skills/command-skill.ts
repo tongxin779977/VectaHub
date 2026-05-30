@@ -4,8 +4,6 @@ import { join, extname } from 'path';
 import { execSync } from 'child_process';
 import { getVectaHubHome } from '../infrastructure/paths/index.js';
 
-const debug = { debug: (_opts?: object, _msg?: string) => {} };
-
 /**
  * Definition of a core skill with its keywords
  * @property name - The skill name
@@ -316,9 +314,7 @@ export function createCommandSkill(): CommandSkill {
               });
             }
           }
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          debug.debug({ error: message }, 'Search path skipped');
+        } catch {
           continue;
         }
       }
@@ -547,9 +543,7 @@ function readFileSnippet(filePath: string, maxLines = 5): string {
   try {
     const content = readFileSync(filePath, 'utf-8');
     return content.split('\n').slice(0, maxLines).join('\n');
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    debug.debug({ error: message }, 'Read file snippet failed');
+  } catch {
     return '';
   }
 }

@@ -871,7 +871,7 @@ Plan / Workflow / Agent Step
 
 ## 本地服务与集成
 
-**Status:** Current Implementation / Partial Implementation
+**Status:** Secondary / Not Mainline
 
 当前能力：
 
@@ -897,23 +897,24 @@ Plan / Workflow / Agent Step
 
 - 这些是围绕 CLI 内核长出来的本地平台扩展，
 - 但不应该写成生产级多用户服务层，
+- 当前不属于 NL Workflow Orchestrator 主产品面，
 - socket service 和 daemon 是本地辅助进程能力，
 - HTTP API 当前应按本地 API server 理解，不应承诺公网访问、安全租户隔离或长期兼容的开放平台 API，
 - VS Code extension 是 CLI 的本地 UI 入口，不应该复制 workflow、Agent Runtime、permission、trace 或 recovery 的权威逻辑，
 - import/export 可用于备份、迁移和检查，但当前不应描述成完整跨版本迁移协议。
 
-目标能力：
+如果后续要重新进入主线，需要先补充权威合同、实现追踪矩阵和验证门禁：
 
-- service、API、VS Code 和 CLI 共享 RunContext，
-- 所有机器入口使用稳定结构化输出，
-- 权限确认统一进入 Permission Gate，
-- execution record、trace、artifact 和 recovery decision 互相关联，
+- service、API、VS Code 和 CLI 共享 RunContext。
+- 所有机器入口使用稳定结构化输出。
+- 权限确认统一进入 Permission Gate。
+- execution record、trace、artifact 和 recovery decision 互相关联。
 - import/export manifest 增加 schema version、文件清单、脱敏摘要和 dry-run diff。
 
 关键参考：
 
-- [design/local-service-integration-architecture.md](./design/local-service-integration-architecture.md)
-- [contracts/service-import-export.md](./contracts/service-import-export.md)
+- [design/module-scope-cleanup.md](./design/module-scope-cleanup.md)
+- [ui/vscode-extension.md](./ui/vscode-extension.md)
 
 ## 旧文档的阅读建议
 

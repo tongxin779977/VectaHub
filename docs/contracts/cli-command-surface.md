@@ -170,10 +170,7 @@ LLM 调用不应依赖手写长 prompt 来熟悉 VectaHub。CLI 命令面必须�
 | `verify` | 验证工作流。 |
 | `dev` | 隐藏开发命令集合：`status`、`module`、`validate`、`test`、`build`。其中 `dev module` 当前仅保留合同入口，脚手架生成已禁用。 |
 
-生成、模板、调度、服务和导入导出细节见：
-
-- [生成、模板与调度规格](./templates-generation-scheduling.md)
-- [服务与导入导出规格](./service-import-export.md)
+生成、模板、调度、服务和导入导出当前属于次级产品方向，不再保留主线合同文档。后续若重新进入主线，必须补充对应 `docs/contracts/` 权威合同和实现追踪矩阵。
 
 ## 维护要求
 
