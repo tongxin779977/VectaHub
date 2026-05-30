@@ -127,7 +127,7 @@ export function createDaemon(options: DaemonOptions = {}): Daemon {
               output.error(error instanceof Error ? error.message : String(error));
             });
           } catch {
-            continue;
+            // 忽略无效行，继续处理
           }
         }
       }
