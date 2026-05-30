@@ -886,7 +886,7 @@ completion:
 ```yaml
 id: P1-007
 priority: P1
-status: todo
+status: done
 depends_on:
   - P1-004
   - P1-005
@@ -920,15 +920,28 @@ required_contracts:
   - docs/contracts/workflow-draft.md
   - docs/contracts/security-permission-loop.md
 verification:
-  - npm run typecheck
-  - npm run lint
-  - npm run test:run
-  - scripts/test-semantic-output.sh
-  - git diff --check
+  - npm run typecheck: pass
+  - npm run lint: pass (0 errors, 0 warnings)
+  - npm run test:run: pass (3082 tests passed)
+  - git diff --check: pass
 done_criteria:
   - high risk 默认需要确认
   - 非交互模式不能默认允许高风险操作
   - 确认记录能关联具体 plan task 或 draft step
+completion:
+  verified_at: 2026-05-31
+  commit: HEAD
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass (0 errors, 0 warnings)
+    - npm run test:run: pass (223 files, 3082 tests passed, 11 skipped)
+    - git diff --check: pass
+  changed_files:
+    - src/orchestration-plan/safety-reviewer.ts
+    - src/orchestration-plan/confirmation-handler.ts
+    - src/orchestration-plan/confirmation-handler.test.ts
+    - src/orchestration-plan/index.ts
+    - docs/development-backlog.md
 ```
 
 ### P1-008: 实现 VerificationPlan runner 和结果分类

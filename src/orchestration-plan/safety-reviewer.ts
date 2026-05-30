@@ -5,6 +5,7 @@ import type {
   PlanSafetyReview,
   SafetyFinding,
   CommandInvocation,
+  ConfirmationRequest,
 } from '../types/orchestration-plan.js';
 
 export interface SafetyReviewOptions {
@@ -129,6 +130,43 @@ function determineReviewStatus(findings: SafetyFinding[]): PlanSafetyReview['sta
   return 'safe';
 }
 
+export function generateConfirmationRequests(
+  plan: OrchestrationPlan,
+  safetyReview: PlanSafetyReview
+): ConfirmationRequest[] {
+  const requests: ConfirmationRequest[] = [];
+  
+  // Group confirm needs by task
+  const taskConfirmFindings: Map<string, SafetyFinding[]> = new Map();
+  
+  for (const finding of safetyReview.findings) {
+    if (finding.requiredAction === 'confirm' && finding.taskId) {
+      const existing = taskConfirmFindings.get(finding.taskId) || [];
+      existing.push(finding);
+      taskConfirmFindings.set(finding.taskId, existing);
+    }
+  }
+  
+  // If we have any confirm findings, create requests
+  if (taskConfirmFindings.size > 0) {
+    const taskIds = Array.from(taskConfirmFindings.keys());
+    const reasons = Array.from(taskConfirmFindings.values())
+      .flat()
+      .map(f => f.reason)
+      .join('; ');
+    
+    requests.push({
+      id: `confirm-${Date.now()}`,
+      taskIds,
+      reason: reasons,
+      prompt: `The plan includes tasks that need your confirmation: ${taskIds.join(', ')}. Reasons: ${reasons}`,
+      defaultAction: 'deny',
+    });
+  }
+  
+  return requests;
+}
+
 export function reviewPlanSafety(
   plan: OrchestrationPlan,
   _options: SafetyReviewOptions = {}
@@ -175,10 +213,12 @@ export function applySafetyReviewToPlan(
   options: SafetyReviewOptions = {}
 ): OrchestrationPlan {
   const safetyReview = reviewPlanSafety(plan, options);
+  const requiredConfirmations = generateConfirmationRequests(plan, safetyReview);
 
   const updatedPlan = {
     ...plan,
     safetyReview,
+    requiredConfirmations,
   };
 
   if (safetyReview.status === 'blocked') {

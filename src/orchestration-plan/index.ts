@@ -23,10 +23,21 @@ export type {
 export {
   reviewPlanSafety,
   applySafetyReviewToPlan,
+  generateConfirmationRequests,
 } from './safety-reviewer.js';
 export type {
   SafetyReviewOptions,
 } from './safety-reviewer.js';
+export {
+  applyConfirmationToPlan,
+  applyConfirmationToDraft,
+  applyNonInteractiveDenyToPlan,
+  applyNonInteractiveDenyToDraft,
+} from './confirmation-handler.js';
+export type {
+  ConfirmationDecision,
+  ApplyConfirmationOptions,
+} from './confirmation-handler.js';
 export {
   convertPlanToDraft,
   convertAndValidatePlanToDraft,
