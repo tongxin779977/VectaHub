@@ -119,13 +119,16 @@ function buildWorkerSummary(workerId: string): WorkerCapabilitySummary {
   const constraints = DEFAULT_CONSTRAINTS[normalizedId] || ['Unknown worker capabilities'];
   const llmSummary = DEFAULT_LLM_SUMMARIES[normalizedId] || `Worker ${workerId} with unknown capabilities.`;
 
+  // 默认 workers (codex, claude, gemini, aider) 即使没有 descriptor 也允许
+  const isDefaultWorker = ['codex', 'claude', 'gemini', 'aider'].includes(normalizedId);
+  
   return {
     id: normalizedId,
     displayName: descriptor?.displayName || workerId,
     suitableTasks,
     nativeFeatures,
     constraints,
-    allowInExecutablePlans: !!descriptor,
+    allowInExecutablePlans: !!descriptor || isDefaultWorker,
     llmSummary,
   };
 }

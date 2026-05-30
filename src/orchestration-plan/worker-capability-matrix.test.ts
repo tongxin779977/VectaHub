@@ -123,9 +123,13 @@ describe('Worker Capability Matrix', () => {
     it('should return false for unknown workers', () => {
       // Clear registry to test
       resetAgentRegistry();
-      const result = workerAllowInExecutablePlans('codex');
-
-      expect(result).toBe(false);
+      // Default workers (codex, claude, gemini, aider) should still return true
+      expect(workerAllowInExecutablePlans('codex')).toBe(true);
+      expect(workerAllowInExecutablePlans('claude')).toBe(true);
+      expect(workerAllowInExecutablePlans('gemini')).toBe(true);
+      expect(workerAllowInExecutablePlans('aider')).toBe(true);
+      // Truly unknown workers should return false
+      expect(workerAllowInExecutablePlans('unknown-worker')).toBe(false);
     });
   });
 

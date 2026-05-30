@@ -64,3 +64,12 @@ export {
   workerIsSuitableForTask,
   workerAllowInExecutablePlans,
 } from './worker-capability-matrix.js';
+export {
+  makeDelegationDecision,
+  applyDelegationDecision,
+  delegatedTaskRequiresVerification,
+} from './delegation-policy.js';
+export type {
+  DelegationDecision,
+  DelegationPolicyOptions,
+} from './delegation-policy.js';

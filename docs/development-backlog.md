@@ -1416,7 +1416,7 @@ completion:
 ```yaml
 id: P2-003
 priority: P2
-status: todo
+status: done
 depends_on:
   - P2-002
   - P1-008
@@ -1456,6 +1456,21 @@ done_criteria:
   - code edit / review / docs / semantic test / shell probe 等任务有可解释 worker 选择依据
   - unknown 或 unready worker 被 blocked 或 clarify
   - delegated apply task 默认要求 verification
+completion:
+  verified_at: 2026-05-31
+  commit: HEAD
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass (0 errors, 1 warning unrelated)
+    - npm run test:run: pass (229 files, 3149 tests passed, 11 skipped)
+    - git diff --check: pass
+  changed_files:
+    - src/orchestration-plan/delegation-policy.ts
+    - src/orchestration-plan/delegation-policy.test.ts
+    - src/orchestration-plan/index.ts
+    - src/orchestration-plan/worker-capability-matrix.ts
+    - src/orchestration-plan/worker-capability-matrix.test.ts
+    - docs/development-backlog.md
 ```
 
 ### P2-004: Worker Result Contract
