@@ -1,6 +1,8 @@
 import type { AIModule, AIModuleContext, AIModuleResult } from '../types.js';
 import type { SemanticMatchingConfig, SemanticMatchInput, SemanticMatchOutput } from './types.js';
 
+const debug = { debug: (_opts?: object, _msg?: string) => {} };
+
 interface SemanticLLMClient {
   embed(text: string): Promise<number[]>;
   provider?: string;
@@ -56,7 +58,9 @@ export function createSemanticMatchingModule(
         embeddingCache.set(text, embedding);
       }
       return embedding;
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      debug.debug({ error: message }, 'Embedding failed, returning null');
       return null;
     }
   }

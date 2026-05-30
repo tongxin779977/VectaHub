@@ -1,6 +1,8 @@
 
 import type { AIModule, AIModuleContext, AIModuleMetadata, AIModuleRegistry as IAIModuleRegistry, AIModuleType } from './types.js';
 
+const debug = { debug: (_opts?: object, _msg?: string) => {} };
+
 export function createAIModuleRegistry(): IAIModuleRegistry {
   const modules = new Map<string, AIModule>();
   const metadata = new Map<string, AIModuleMetadata>();
@@ -47,8 +49,9 @@ export function createAIModuleRegistry(): IAIModuleRegistry {
           if (await module.canHandle(context)) {
             applicable.push(module);
           }
-        } catch {
-          // skip modules that throw in canHandle
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          debug.debug({ error: message }, 'Skip module that throws in canHandle');
         }
       }
       return applicable;

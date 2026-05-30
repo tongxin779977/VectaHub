@@ -2,6 +2,8 @@ import { execSync, spawn } from 'child_process';
 import type { AIModuleContext, AIModuleResult, CliPluginResult } from '../types.js';
 import type { CliPlugin, CreateCliPluginOptions, CliPluginCapabilities } from './types.js';
 
+const debug = { debug: (_opts?: object, _msg?: string) => {} };
+
 export function createCliPlugin(options: CreateCliPluginOptions): CliPlugin {
   const {
     id,
@@ -17,7 +19,9 @@ export function createCliPlugin(options: CreateCliPluginOptions): CliPlugin {
     try {
       execSync(`which ${cliCommand}`, { stdio: 'ignore' });
       return true;
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      debug.debug({ error: message }, 'CLI not available');
       return false;
     }
   }

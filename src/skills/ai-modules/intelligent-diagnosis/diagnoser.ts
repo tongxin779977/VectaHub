@@ -2,6 +2,8 @@ import type { AIModule, AIModuleContext, AIModuleResult, FixSuggestion } from '.
 import type { DiagnosisInput, DiagnosisOutput } from './types.js';
 import type { Detector } from '../../../sandbox/detector.js';
 
+const debug = { debug: (_opts?: object, _msg?: string) => {} };
+
 export interface DiagnosisLLMClient {
   complete(systemPrompt: string, userPrompt: string): Promise<string>;
 }
@@ -49,7 +51,9 @@ export function createIntelligentDiagnosisModule(deps?: DiagnosisDeps) {
         let parsed: DiagnosisOutput;
         try {
           parsed = JSON.parse(responseText) as DiagnosisOutput;
-        } catch {
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          debug.debug({ error: message }, 'Invalid diagnosis response');
           return { success: false, error: 'Invalid diagnosis response' };
         }
 
@@ -70,7 +74,9 @@ export function createIntelligentDiagnosisModule(deps?: DiagnosisDeps) {
         }
 
         return { success: true, data: parsed, confidence: parsed.confidence };
-      } catch {
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        debug.debug({ error: message }, 'Diagnosis parsing failed');
         return { success: false, error: 'LLM unavailable' };
       }
     },
