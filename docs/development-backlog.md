@@ -1222,7 +1222,7 @@ done_criteria:
   - run-task 验证结果能回填 plan/draft trace 或 metadata
 completion:
   verified_at: 2026-05-30T22:38
-  commit: 9dbf6fa
+  commit: 086125c
   verification_results:
     - npm run typecheck: pass
     - npm run lint: pass
@@ -1242,7 +1242,7 @@ completion:
 ```yaml
 id: P1-013
 priority: P1
-status: todo
+status: done
 depends_on:
   - P1-005
   - P1-007
@@ -1285,6 +1285,18 @@ done_criteria:
   - 未确认副作用 draft 被阻断
   - confirmed draft 可进入 workflow engine
   - execution result 不绕过 verification closure
+completion:
+  verified_at: 2026-05-31
+  commit: fa1157d
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass
+    - npm run test:run: pass (226 files, 3103 tests, 11 skipped)
+    - git diff --check: pass
+  changed_files:
+    - src/orchestration-plan/draft-executor.ts
+    - src/orchestration-plan/index.ts
+    - docs/development-backlog.md
 ```
 
 ### P2-001: FeedbackRecord 存储与回放候选
