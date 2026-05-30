@@ -252,7 +252,7 @@ done_criteria:
   - blocked / needs_confirmation / ready 状态可校验
 completion:
   verified_at: 2026-05-31
-  commit: pending
+  commit: 36cf1816511ed9da2e81a40933740e6dd948201f
   verification_results:
     - npm run typecheck: pass
     - npm run lint: pass
