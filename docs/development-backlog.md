@@ -1396,6 +1396,7 @@ done_criteria:
   - capability matrix 不成为第二套执行真相源，只作为编排选择依据
 completion:
   verified_at: 2026-05-31
+  commit: 7405d7870d88fa04d2b04198c346e3ea65cbf91f
   verification_results:
     - npm run typecheck: pass
     - npm run lint: pass (0 errors, 1 warning unrelated)
