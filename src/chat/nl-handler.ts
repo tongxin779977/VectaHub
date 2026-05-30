@@ -13,6 +13,9 @@ import { LLMClient } from '../nl/llm.js';
 import { buildAllTools } from '../nl/tool-calling.js';
 import { parseWorkflowSteps } from './workflow-parser.js';
 import { formatError, SimpleCache } from './utils.js';
+import { getLogger } from '../infrastructure/logger/index.js';
+
+const moduleLogger = getLogger('nl-handler');
 
 /** 意图解析缓存 TTL（毫秒），120 秒 */
 const INTENT_CACHE_TTL_MS = 120_000;
@@ -215,7 +218,9 @@ function sanitizeReply(reply: string): string {
       return tail ? `${sanitized}\n\n${tail}` : sanitized;
     }
     return reply;
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    moduleLogger.debug({ error: message, input: trimmed.slice(0, 100) }, 'NL reply JSON parse failed');
     if (/^\{[a-zA-Z_]+\}$/.test(trimmed) || /^\{[a-zA-Z_]+:\s*.+\}$/.test(trimmed)) {
       return '收到，但未生成有效回复。请重试或换个方式提问。';
     }
@@ -252,7 +257,10 @@ function sanitizeSingleValue(val: string): string {
       try {
         const innerParsed: Record<string, unknown> = JSON.parse(innerJson);
         return sanitizeParsedJSON(innerParsed) || trimmed;
-      } catch { /* not valid JSON, return as-is */ }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        moduleLogger.debug({ error: message }, 'Inner JSON sanitize fallback');
+      }
     }
   }
   return val;

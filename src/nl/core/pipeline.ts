@@ -10,6 +10,9 @@ import { buildAllTools, convertToolCallToSteps } from '../tool-calling.js';
 import { createSemanticDetector } from '../../sandbox/semantic-detector.js';
 import { parseGoal } from './goal-parser.js';
 import { getAgentRegistry } from '../../agent-runtime/registry.js';
+import { getLogger } from '../../infrastructure/logger/index.js';
+
+const moduleLogger = getLogger('nl-pipeline');
 
 const SAFE_SHELL_COMMANDS = new Set(['pwd', 'ls', 'echo']);
 
@@ -114,7 +117,9 @@ export function createNLProcessor(deps: NLProcessorDeps): NLProcessor {
           const lowerInput = input.toLowerCase();
           containsAgentName = agentIds.some(id => lowerInput.includes(id));
         }
-      } catch {
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        moduleLogger.debug({ error: message }, 'Agent name check failed');
         containsAgentName = false;
       }
 
@@ -260,7 +265,9 @@ function sanitizeReply(reply: string): string {
       return tail ? `${sanitized}\n\n${tail}` : sanitized;
     }
     return reply;
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    moduleLogger.debug({ error: message, input: trimmed.slice(0, 100) }, 'LLM reply JSON parse failed');
     if (/^\{[a-zA-Z_]+\}$/.test(trimmed) || /^\{[a-zA-Z_]+:\s*.+\}$/.test(trimmed)) {
       return '收到，但未生成有效回复。请重试或换个方式提问。';
     }
@@ -297,7 +304,10 @@ function sanitizeSingleValue(val: string): string {
       try {
         const innerParsed: Record<string, unknown> = JSON.parse(innerJson);
         return sanitizeParsedJSON(innerParsed) || trimmed;
-      } catch { /* not valid JSON, return as-is */ }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        moduleLogger.debug({ error: message }, 'Inner JSON sanitize fallback');
+      }
     }
   }
   return val;

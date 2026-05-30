@@ -71,8 +71,9 @@ export function createRecordManager(baseDir?: string, deps?: { logger?: LoggerLi
             records.push(record);
             if (records.length >= targetLimit) break;
           }
-        } catch {
-          logger.warn(`Skipping malformed JSONL line in ${file}`);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          logger.warn(`Skipping malformed JSONL line in ${file}: ${message}`);
         }
       }
     }
@@ -90,7 +91,9 @@ export function createRecordManager(baseDir?: string, deps?: { logger?: LoggerLi
       try {
         const existing = await readFile(filePath, 'utf-8');
         await writeFile(filePath, existing + line, 'utf-8');
-      } catch {
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn(`Append write failed for ${filePath}, falling back to overwrite: ${message}`);
         await writeFile(filePath, line, 'utf-8');
       }
     },
