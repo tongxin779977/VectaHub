@@ -1,4 +1,37 @@
 import type { NormalizedInput } from './goal-types.js';
+import type { NLRequestEnvelope, NLRequestSource, NLRequestMode } from '../../types/nl.js';
+import { randomUUID } from 'crypto';
+
+export function buildNLRequestEnvelope(options: {
+  source: NLRequestSource;
+  mode: NLRequestMode;
+  dryRun: boolean;
+  json: boolean;
+  cwd: string;
+  userInput: string;
+  language?: string;
+  sessionId?: string;
+  contextId?: string;
+}): NLRequestEnvelope {
+  const normalizedInput = normalizeInput(options.userInput);
+  return {
+    schemaVersion: '1.0',
+    requestId: randomUUID(),
+    source: options.source,
+    mode: options.mode,
+    dryRun: options.dryRun,
+    json: options.json,
+    language: options.language,
+    cwd: options.cwd,
+    userInput: options.userInput,
+    normalizedInput,
+    sessionId: options.sessionId,
+    contextId: options.contextId,
+    metadata: {
+      createdAt: new Date().toISOString(),
+    },
+  };
+}
 
 export function normalizeInput(rawInput: string): NormalizedInput {
   const cleanText = rawInput.toLowerCase().trim().replace(/\s+/g, ' ');

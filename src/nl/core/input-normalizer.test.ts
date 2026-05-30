@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeInput } from './input-normalizer.js';
+import { normalizeInput, buildNLRequestEnvelope } from './input-normalizer.js';
 
 describe('normalizeInput', () => {
   describe('同义词归一化', () => {
@@ -77,5 +77,47 @@ describe('normalizeInput', () => {
       expect(result.tokens).toContain('hello');
       expect(result.tokens).toContain('world');
     });
+  });
+});
+
+describe('buildNLRequestEnvelope', () => {
+  it('builds a valid envelope with required fields', () => {
+    const envelope = buildNLRequestEnvelope({
+      source: 'run',
+      mode: 'dry-run',
+      dryRun: true,
+      json: true,
+      cwd: '/test/path',
+      userInput: 'test input',
+    });
+
+    expect(envelope.schemaVersion).toBe('1.0');
+    expect(envelope.requestId).toBeDefined();
+    expect(envelope.source).toBe('run');
+    expect(envelope.mode).toBe('dry-run');
+    expect(envelope.dryRun).toBe(true);
+    expect(envelope.json).toBe(true);
+    expect(envelope.cwd).toBe('/test/path');
+    expect(envelope.userInput).toBe('test input');
+    expect(envelope.normalizedInput).toBeDefined();
+    expect(envelope.metadata.createdAt).toBeDefined();
+  });
+
+  it('includes optional fields when provided', () => {
+    const envelope = buildNLRequestEnvelope({
+      source: 'document',
+      mode: 'execute',
+      dryRun: false,
+      json: false,
+      cwd: '/test/path',
+      userInput: 'test input',
+      language: 'zh',
+      sessionId: 'session-123',
+      contextId: 'context-456',
+    });
+
+    expect(envelope.language).toBe('zh');
+    expect(envelope.sessionId).toBe('session-123');
+    expect(envelope.contextId).toBe('context-456');
   });
 });

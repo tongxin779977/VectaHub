@@ -48,13 +48,16 @@
 每轮自动化任务必须：
 
 1. 读取本文。
-2. 如果存在 `status: in-progress` 的任务，优先继续该任务的开发、审计或修复；不得另开新任务。
-3. 如果不存在 `in-progress`，选择 priority 最高、排序最靠前、依赖已完成的 `needs-fix` 任务。
+2. 检查是否存在 `in-progress:<timestamp>` 的任务：
+   - 如果时间戳超过 30 分钟，视为 stale，重置为 `todo`。
+   - 如果未超时，继续该任务；不得另开新任务。
+3. 如果不存在有效的 `in-progress`，选择 priority 最高、排序最靠前、依赖已完成的 `needs-fix` 任务。
 4. 如果不存在可执行 `needs-fix`，选择 priority 最高、排序最靠前、依赖已完成的 `todo` 任务。
-5. 只开发这一项。
-6. 完成后审计和验证。
-7. 通过后将该项改为 `done`，记录验证命令和提交信息。
-8. 未通过则改为 `needs-fix` 或 `blocked`，记录失败证据。
+5. 将选中任务状态改为 `in-progress:<当前时间>`。
+6. 只开发这一项。
+7. 完成后审计和验证。
+8. 通过后将该项改为 `done`，记录验证命令和提交信息。
+9. 未通过则改为 `needs-fix` 或 `blocked`，记录失败证据。
 
 禁止：
 
@@ -100,13 +103,22 @@
 
 ## 状态模型
 
-| Status | 含义 |
-|--------|------|
-| `todo` | 可被自动化选择。 |
-| `in-progress` | 当前轮正在开发或审计；下一轮必须继续此任务，不得另选。 |
-| `needs-fix` | 已开发但审计或验证失败，需要下一轮修复。 |
-| `blocked` | 缺少合同、权限、环境或产品决策，不能继续。 |
-| `done` | 开发、审计、验证和提交均完成。 |
+| Status | 含义 | 跨 session 行为 |
+|--------|------|-----------------|
+| `todo` | 待开发，可被自动化选择。 | 直接选择。 |
+| `in-progress:<timestamp>` | 当前轮正在开发；时间戳格式 `YYYY-MM-DDTHH:MM`。 | 超过 30 分钟视为 stale，重置为 `todo`；未超时则继续该任务。 |
+| `needs-fix` | 已开发但审计或验证失败，需要修复。 | 优先于 `todo` 选择。 |
+| `blocked` | 缺少合同、权限、环境或产品决策，不能继续。 | 跳过。 |
+| `done` | 开发、审计、验证和提交均完成。 | 跳过。 |
+
+### 状态转换规则
+
+- `todo` → `in-progress:<now>`：开始开发时。
+- `in-progress:<ts>` → `todo`：超过 30 分钟未完成，视为 stale 自动重置。
+- `in-progress:<ts>` → `needs-fix`：审计或验证失败。
+- `in-progress:<ts>` → `done`：全部验证通过。
+- `needs-fix` → `in-progress:<now>`：开始修复时。
+- `blocked` → `todo`：阻塞条件解除时（手动）。
 
 ## 优先级规则
 
@@ -320,7 +332,7 @@ completion:
 ```yaml
 id: P0-004
 priority: P0
-status: todo
+status: done
 depends_on:
   - P0-001
 evidence:
@@ -358,6 +370,19 @@ done_criteria:
   - 所有 NL 路径都能拿到同一请求 envelope
   - cwd 来自运行环境，不从自然语言猜测
   - 空输入或上下文不足返回 clarify / blocked，而不是猜测执行
+completion:
+  verified_at: 2026-05-31
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass
+    - npm run test:run: pass
+    - scripts/test-semantic-output.sh: pass
+    - git diff --check: pass
+  changed_files:
+    - src/types/nl.ts
+    - src/nl/core/input-normalizer.ts
+    - src/nl/core/input-normalizer.test.ts
+    - docs/development-backlog.md
 ```
 
 ### P0-005: 建立 Command Surface Validator
@@ -1885,16 +1910,21 @@ done_criteria:
 ```text
 1. git status --short
 2. 读取 docs/development-backlog.md
-3. 如果有 in-progress，继续该任务；否则选择第一个依赖已完成的 needs-fix；否则选择第一个依赖已完成的 todo
-4. 将当前任务状态改为 in-progress
-5. 开发最小实现
-6. 自审：事实依据、合同、范围、安全、测试、JSON、trace、recovery、semantic acceptance
-7. 运行该任务 verification 中列出的命令
-8. 失败则修复，最多 3 轮
-9. 仍失败则改为 needs-fix 或 blocked，并记录失败证据
-10. 通过后将任务改为 done，并记录验证结果
-11. 只 stage 本轮相关文件
-12. git commit
+3. 检查 in-progress:<timestamp> 任务：
+   - 时间戳超过 30 分钟 → 重置为 todo
+   - 未超时 → 继续该任务
+4. 如果无有效 in-progress：
+   - 优先选择 needs-fix（最高优先级）
+   - 否则选择 todo（最高优先级）
+5. 将选中任务状态改为 in-progress:<当前时间>
+6. 开发最小实现
+7. 自审：事实依据、合同、范围、安全、测试、JSON、trace、recovery、semantic acceptance
+8. 运行该任务 verification 中列出的命令
+9. 失败则修复，最多 3 轮
+10. 仍失败则改为 needs-fix 或 blocked，并记录失败证据
+11. 通过后将任务改为 done，并记录验证结果
+12. 只 stage 本轮相关文件
+13. git commit
 ```
 
 如果工作树在开始时已有无关改动，自动化必须避免提交无关文件；无法区分时停止并报告。

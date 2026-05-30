@@ -98,3 +98,24 @@ export interface ParseResult {
   confidenceLevel: ConfidenceLevel;
   originalInput: string;
 }
+
+export type NLRequestSource = 'run' | 'chat' | 'document' | 'manual';
+export type NLRequestMode = 'dry-run' | 'execute';
+
+export interface NLRequestEnvelope {
+  schemaVersion: '1.0';
+  requestId: string;
+  source: NLRequestSource;
+  mode: NLRequestMode;
+  dryRun: boolean;
+  json: boolean;
+  language?: string;
+  cwd: string;
+  userInput: string;
+  normalizedInput?: import('../nl/core/goal-types.js').NormalizedInput;
+  sessionId?: string;
+  contextId?: string;
+  metadata: {
+    createdAt: string;
+  };
+}
