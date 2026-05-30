@@ -75,7 +75,9 @@ export class ToolCacheManager {
       const config = this.context.config.getConfig();
       const configTools = Object.keys(config.external_cli);
       return [...new Set([...DEFAULT_AGENT_CLIS, ...configTools])];
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.getLogger().debug({ error: message }, 'Failed to load agent CLIs from config, using defaults');
       return [...DEFAULT_AGENT_CLIS];
     }
   }
@@ -139,7 +141,9 @@ export class ToolCacheManager {
         timeout: 5000,
       });
       version = stdout.trim();
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.getLogger().debug({ error: message, tool: toolName }, 'Version detection failed');
       version = 'unknown';
     }
 
@@ -205,7 +209,9 @@ export class ToolCacheManager {
       return files
         .filter((f: string) => f.endsWith('.help.json'))
         .map((f: string) => f.replace('.help.json', ''));
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.getLogger().debug({ error: message, dir: this.cacheDir }, 'Failed to list cached tools');
       return [];
     }
   }

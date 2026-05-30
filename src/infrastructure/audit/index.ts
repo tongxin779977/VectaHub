@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { VectaHubError, ErrorType } from '../errors/index.js';
 import { redactSensitiveData } from '../../utils/sensitive-data.js';
 import { getVectaHubPath } from '../paths/index.js';
+import { getLogger } from '../logger/index.js';
 
 // 导出 AuditService
 export { AuditService } from './service.js';
@@ -162,7 +163,9 @@ export class AuditLogger {
           if (command && event.action !== command) continue;
           results.push(event);
           if (results.length >= limit) break;
-        } catch {
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          getLogger('audit').debug({ error: message }, 'Skipping malformed JSONL line in audit log');
           continue;
         }
       }

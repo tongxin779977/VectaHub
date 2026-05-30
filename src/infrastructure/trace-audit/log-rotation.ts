@@ -242,7 +242,9 @@ export class LogRotationManager {
     const logDirSize = logFiles.reduce((sum, file) => {
       try {
         return sum + fs.statSync(file).size;
-      } catch {
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.debug({ error: message, file }, 'statSync failed for log file');
         return sum;
       }
     }, 0);
@@ -250,7 +252,9 @@ export class LogRotationManager {
     const archiveDirSize = archiveFiles.reduce((sum, file) => {
       try {
         return sum + fs.statSync(file).size;
-      } catch {
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.debug({ error: message, file }, 'statSync failed for archive file');
         return sum;
       }
     }, 0);

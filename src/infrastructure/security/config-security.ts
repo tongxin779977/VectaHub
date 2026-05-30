@@ -95,7 +95,9 @@ export class ConfigSecurity {
       const content = await fs.readFile(hashFile, 'utf-8');
       const hashes = JSON.parse(content);
       this.hashStore = new Map(Object.entries(hashes));
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.debug({ error: message, file: hashFile }, 'Hash store load failed, starting empty');
       this.hashStore = new Map();
     }
   }
@@ -140,7 +142,9 @@ export class ConfigSecurity {
       }
 
       return { valid: currentHash === storedHash, hash: currentHash };
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.debug({ error: message, file: targetPath }, 'Config hash validation failed');
       return { valid: false, hash: '' };
     }
   }
@@ -195,7 +199,9 @@ export class ConfigSecurity {
         secure: isSecure, 
         permissions: permissionOctal 
       };
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.debug({ error: message, file: targetPath }, 'Permission check failed');
       return { secure: false, permissions: 'unknown' };
     }
   }

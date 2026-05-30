@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { getVectaHubPath } from '../paths/index.js';
 import { Redactor } from '../../security-protocol/redactor.js';
 import { TraceSpanRecord } from './types.js';
+import { getLogger } from '../logger/index.js';
 
 const redactor = new Redactor();
 
@@ -17,7 +18,8 @@ export async function writeTraceSpan(record: TraceSpanRecord): Promise<void> {
     await mkdir(dirname(file), { recursive: true });
     const redacted = redactor.redactObject(record as unknown as Record<string, unknown>) as unknown as TraceSpanRecord;
     await appendFile(file, `${JSON.stringify(redacted)}\n`, 'utf8');
-  } catch {
-    // trace 落盘失败不能影响主流程
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    getLogger('trace-writer').debug({ error: message }, 'Trace span write failed, skipping');
   }
 }

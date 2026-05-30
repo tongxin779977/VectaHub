@@ -1,4 +1,7 @@
 import { execSync } from 'node:child_process';
+import { getLogger } from '../../infrastructure/logger/index.js';
+
+const moduleLogger = getLogger('opencli');
 
 export const OPENCLI_TOOL = {
   id: 'opencli',
@@ -18,7 +21,9 @@ export function isOpencliInstalled(): boolean {
   try {
     execSync('opencli --version', { stdio: 'ignore' });
     return true;
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    moduleLogger.debug({ error: message }, 'opencli not installed or not accessible');
     return false;
   }
 }

@@ -77,7 +77,9 @@ export class QueryEngine {
         try {
           const span = JSON.parse(line) as TraceSpan;
           this.indexSpan(span);
-        } catch {
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.debug({ error: message }, 'Skipping malformed JSONL line in trace log');
           continue;
         }
       }

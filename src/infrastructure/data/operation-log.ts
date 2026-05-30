@@ -97,11 +97,15 @@ export class OperationLog {
         try {
           const entry = JSON.parse(line) as OperationLogEntry;
           this.entries.push(entry);
-        } catch {
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.debug({ error: message }, 'Skipping malformed JSONL line in operation log');
           continue;
         }
       }
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.debug({ error: message, file: this.logFile }, 'Operation log file load failed, starting empty');
       this.entries = [];
     }
   }
