@@ -53,5 +53,7 @@ export type { DraftValidationError, DraftValidationResult } from './workflow-dra
 export { runVerificationPlan } from './verification-runner.js';
 export { createDraftStorage } from './draft-storage.js';
 export type { DraftStorageOptions } from './draft-storage.js';
+export { createFeedbackStorage, createFeedbackRecord } from './feedback-storage.js';
+export type { FeedbackStorageOptions } from './feedback-storage.js';
 export { createDraftExecutor } from './draft-executor.js';
 export type { DraftExecutor, DraftExecutorDeps, DraftExecutionOptions, DraftExecutionResult } from './draft-executor.js';

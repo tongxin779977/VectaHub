@@ -11,3 +11,4 @@ export * from './workflow-draft.js';
 export * from './machine-response.js';
 export * from './project-context.js';
 export * from './verification-result.js';
+export * from './feedback.js';
