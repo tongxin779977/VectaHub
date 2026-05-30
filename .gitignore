@@ -78,6 +78,13 @@ coverage/
 .gemini/tasks/
 .gemini/responses/
 .claude/
+.cline/
+.clinerules
+.atomcode/
+
+# Temporary / Generated
+.test-reports/
+.tmp/
 
 # Debug
 *.debug

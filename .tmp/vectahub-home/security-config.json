@@ -1,8 +1,0 @@
-{
-  "databasePath": "/Users/xin.tong/apps/project/test_trae/VectaHub/.tmp/vectahub-home/security-database.json",
-  "autoUpdate": true,
-  "rules": {
-    "enabled": [],
-    "disabled": []
-  }
-}
