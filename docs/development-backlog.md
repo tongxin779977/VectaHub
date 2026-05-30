@@ -949,7 +949,7 @@ completion:
 ```yaml
 id: P1-008
 priority: P1
-status: todo
+status: done
 depends_on:
   - P0-005
   - P1-005
@@ -988,6 +988,17 @@ done_criteria:
   - verification 命令同样经过命令面和安全评估
   - verification 失败时 plan/draft/execution 不能标记为成功
   - 验证结果能进入 execution record 或 task run record
+completion:
+  verified_at: "2026-05-31"
+  verification_results:
+    - npm run typecheck: pass
+    - npm run test:run: pass (130 tests)
+  changed_files:
+    - src/types/verification-result.ts
+    - src/types/index.ts
+    - src/orchestration-plan/verification-runner.ts
+    - src/orchestration-plan/index.ts
+    - docs/development-backlog.md
 ```
 
 ### P1-009: 实现 WorkflowDraft 持久化、读取和列表

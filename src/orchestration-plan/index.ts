@@ -47,3 +47,4 @@ export type {
 } from './workflow-draft-converter.js';
 export { validateWorkflowDraft } from './workflow-draft-validator.js';
 export type { DraftValidationError, DraftValidationResult } from './workflow-draft-validator.js';
+export { runVerificationPlan } from './verification-runner.js';
