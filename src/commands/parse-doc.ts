@@ -5,6 +5,7 @@ import { DOC_TASK_PARSER_ID } from '../nl/prompt-manager.js';
 import type { DocTask } from '../types/index.js';
 import { type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
+import { planFromDocTasks } from '../orchestration-plan/index.js';
 
 const DEFAULT_MAX_DOC_LENGTH = 50000;
 const DEFAULT_MAX_RETRIES = 2;
@@ -532,8 +533,9 @@ export function createParseDocCmd(context: InfrastructureContext): Command {
     .description('解析开发文档，提取结构化任务列表')
     .argument('<path>', '文档文件路径')
     .option('--json', '以 JSON 格式输出')
-    .action(async (filePath: string, options: { json?: boolean }) => {
-      if (options.json) {
+    .option('--plan', '生成 OrchestrationPlan 作为执行计划')
+    .action(async (filePath: string, options: { json?: boolean; plan?: boolean }) => {
+      if (options.json || options.plan) {
         context.logger.setMuted(true);
       }
       try {
@@ -542,7 +544,25 @@ export function createParseDocCmd(context: InfrastructureContext): Command {
         const result = await parseDocTaskResult(context, filePath);
         const { tasks } = result;
 
-        if (options.json) {
+        if (options.plan) {
+          const planResult = await planFromDocTasks(tasks, {
+            docPath: filePath,
+            cwd: context.environment.getCwd(),
+            source: 'document',
+          });
+
+          output.json({
+            ok: true,
+            tasks,
+            source: result.source,
+            degraded: result.degraded,
+            warnings: result.warnings,
+            plan: planResult.plan,
+            planKind: planResult.kind,
+            message: planResult.message,
+          });
+          return;
+        } else if (options.json) {
           output.json({
             ok: true,
             tasks,
@@ -568,7 +588,7 @@ export function createParseDocCmd(context: InfrastructureContext): Command {
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        if (options.json) {
+        if (options.json || options.plan) {
           output.json({ ok: false, error: message });
         } else {
           logger.error(`解析失败: ${message}`);

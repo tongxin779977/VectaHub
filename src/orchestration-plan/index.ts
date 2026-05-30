@@ -21,6 +21,9 @@ export type {
   PlannerOptions,
 } from './planner.js';
 export {
+  planFromDocTasks,
+} from './doc-task-planner.js';
+export {
   reviewPlanSafety,
   applySafetyReviewToPlan,
   generateConfirmationRequests,

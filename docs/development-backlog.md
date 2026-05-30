@@ -1179,7 +1179,7 @@ completion:
 ```yaml
 id: P1-012
 priority: P1
-status: todo
+status: done
 depends_on:
   - P0-002
   - P1-005
@@ -1220,6 +1220,21 @@ done_criteria:
   - 单任务路径保持兼容
   - 多阶段文档任务能产生 plan/draft summary
   - run-task 验证结果能回填 plan/draft trace 或 metadata
+completion:
+  verified_at: 2026-05-30T22:38
+  commit: 9dbf6fa
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass
+    - npm run check:default-context-usage: pass
+    - npm run test:run: pass (226 files, 3103 tests passed, 11 skipped)
+    - git diff --check: pass
+  changed_files:
+    - docs/development-backlog.md
+    - src/commands/parse-doc.ts
+    - src/orchestration-plan/index.ts
+    - src/orchestration-plan/doc-task-planner.ts
+    - src/orchestration-plan/doc-task-planner.test.ts
 ```
 
 ### P1-013: 将 confirmed WorkflowDraft 接入 workflow execution
