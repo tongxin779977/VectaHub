@@ -14,6 +14,7 @@ This directory contains standards that apply across modules. It is not a place f
 | [Intelligent systems](./intelligent-systems.md) | Shared model for deterministic rules, LLM reasoning, feedback learning, and auditable verification. |
 | [Documentation governance](./documentation-governance.md) | Document status, authority, migration, deletion, and link hygiene rules. |
 | [Verification gates](./verification-gates.md) | Required build, type, lint, test, semantic, and extension validation gates. |
+| [Development checklists](./development-checklists.md) | Actionable checklists for quality gate fixes, import-time side effects, logger usage, NL pipeline, and final merge verification. |
 
 ## Relationship To Other Docs
 
