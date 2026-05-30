@@ -18,10 +18,10 @@
 这份路线图的方向基本符合当前项目问题面，但原文把部分待办项写成了已完成状态，也包含若干过期数字和示例路径。以下结论已经按 2026-05-30 的本地源码与验证输出核对：
 
 - **P0 全部清零**：`npm run typecheck`、`npm run lint`、`npm run test:run`（2878 passed / 0 failures）、`npm run check:default-context-usage`、`scripts/test-semantic-output.sh`（35/35）、`scripts/collect_quality_signals.sh` 均已通过。P0-NL1、P0-CODE1、P0-CODE2、P0-TEST1、P0-ARCH1 已修复。
-- **P1 部分修复**：P1-NL2（`buildAllTools` 空工具）、P1-VERIFY1（semantic E2E 验证 stale dist）、P1-WF1（delegate handler）、P1-ERR1（关键路径 bare catch）已修复。P1-SKILL1（skill discovery 占位）仍 open。
+- **P1 部分修复**：P1-NL2（`buildAllTools` 空工具）、P1-VERIFY1（semantic E2E 验证 stale dist）、P1-WF1（delegate handler）、P1-ERR1（关键路径 bare catch）已修复。P1-SKILL1（skill discovery 占位）已添加 warn 日志和 JSDoc 标注，完整文件扫描待实现。
 - 当前仓库没有 `src/nl/intent-classifier.ts` / `src/types/intent.ts`，相关修复示例应理解为伪代码，实际修复点在 `src/nl/core/pipeline.ts`、`src/nl/core/goal-parser.ts`、`src/nl/tool-calling.ts`、`src/nl/prompt-manager.ts` 和共享类型定义。
 - Shell 语义端到端：35 项全部通过（0 expected fail）。
-- 剩余 open 项：P1-SKILL1（skill discovery 占位）、P2-NL4（prompt registry 双轨）、P1-ERR1 剩余非关键路径 bare catch（~17 处）。
+- 剩余 open 项：P1-SKILL1（warn 已添加，完整文件扫描待实现）、P2-NL4（prompt registry 双轨）、P1-ERR1 剩余非关键路径 bare catch（~17 处）。
 - `SecurityRuleStore` 与 `security` CLI 已支持安全规则 CRUD、导入、导出、启用、禁用和测试；不能再写成“有 API 但无 CLI 入口”。
 - MCP 支持、工作流 `skill` / `mcp` / `rule` / `llm` 步骤、统一 `CapabilityRegistry` 仍未在当前源码中实现，适合作为后续路线图，不应描述为当前能力。
 - 额外质量检查发现：默认 context 边界、静默失败、Skill discovery 占位、语义端到端脚本使用 `dist`、`delegate` step 类型与默认 handler 不一致、prompt registry 双轨等问题也需要纳入路线图。
@@ -74,7 +74,7 @@
 |----|------|------|------|------|
 | P0-ARCH1 | 🔴 阻断 | 默认 context 边界违规 | `npm run check:default-context-usage` 失败；`src/utils/version.ts:18` | ✅ 已修复 |
 | P1-ERR1 | 🟠 严重 | 静默失败隐藏真实问题 | `src/skills/registry.ts:243`、`src/skills/registry.ts:316`、`src/nl/tool-calling.ts:283` | ✅ 关键路径已修复；剩余 ~17 处非关键路径 bare catch 待后续批次 |
-| P1-SKILL1 | 🟠 严重 | Skill discovery 是占位实现 | `src/skills/registry.ts:416` 固定返回空数组 | 明确标注 unsupported，或实现真实文件扫描合同 |
+| P1-SKILL1 | 🟠 严重 | Skill discovery 是占位实现 | `src/skills/registry.ts:416` 固定返回空数组 | ⚠️ 已添加 warn 日志和 JSDoc 标注；完整文件扫描待实现 |
 | P1-VERIFY1 | 🟠 严重 | 语义端到端脚本可能验证过期构建产物 | `scripts/test-semantic-output.sh:8` 使用 `node dist/cli.js` | ✅ 已修复（默认 source mode） |
 | P1-WF1 | 🟠 严重 | `delegate` StepType 与默认执行器 handler 不一致 | `src/types/workflow.ts:1` 声明 `delegate`；默认 handler 不包含 `delegate` | ✅ 已修复（添加默认 delegate handler） |
 | P2-NL4 | 🟡 一般 | Prompt registry 双轨 | `src/nl/prompt-manager.ts:7` 与 `src/nl/prompt/v3.ts:14` 都定义 `BUILTIN_PROMPTS` | 收敛到单一 registry，或明确 v3 边界与同步规则 |
@@ -89,7 +89,7 @@
 │     紧急程度     │     影响范围      │       行动项            │
 ├─────────────────┼─────────────────┼─────────────────────────┤
 │ ✅ P0           │ 高              │ 全部清零（已修复）        │
-│ 🟠 P1           │ 高              │ P1-SKILL1 skill discovery │
+│ 🟠 P1           │ 高              │ P1-SKILL1 skill discovery（warn 已添加，扫描待实现） │
 │ 🟠 P1           │ 中              │ P1-ERR1 剩余 bare catch   │
 │ 🟡 P2           │ 中              │ P2-NL4 prompt 双轨        │
 └─────────────────┴─────────────────┴─────────────────────────┘
