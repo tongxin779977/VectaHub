@@ -107,9 +107,9 @@
 |--------|------|-----------------|
 | `todo` | 待开发，可被自动化选择。 | 直接选择。 |
 | `in-progress:<timestamp>` | 当前轮正在开发；时间戳格式 `YYYY-MM-DDTHH:MM`。 | 超过 30 分钟视为 stale，重置为 `todo`；未超时则继续该任务。 |
-| `needs-fix` | 已开发但审计或验证失败，需要修复。 | 优先于 `todo` 选择。 |
+| `needs-fix` | 已开发但审计、验证或后续复审失败，需要修复。 | 优先于 `todo` 选择。 |
 | `blocked` | 缺少合同、权限、环境或产品决策，不能继续。 | 跳过。 |
-| `done` | 开发、审计、验证和提交均完成。 | 跳过。 |
+| `done` | 开发、审计、验证和提交均完成。 | 跳过；如果后续复审发现不满足 `done_criteria`，必须改回 `needs-fix` 并记录复审证据。 |
 
 ### 状态转换规则
 
@@ -118,6 +118,7 @@
 - `in-progress:<ts>` → `needs-fix`：审计或验证失败。
 - `in-progress:<ts>` → `done`：全部验证通过。
 - `needs-fix` → `in-progress:<now>`：开始修复时。
+- `done` → `needs-fix`：后续复审发现实现、验证记录或完成证据不满足 `done_criteria`。
 - `blocked` → `todo`：阻塞条件解除时（手动）。
 
 ## 优先级规则
@@ -164,6 +165,21 @@ completion:
     - npm run typecheck: pass
 ```
 
+如果任务被复审打回，应追加：
+
+```yaml
+review_findings:
+  reviewed_at: YYYY-MM-DD
+  status: needs-fix
+  findings:
+    - severity: P1
+      location: <file-or-doc-reference>
+      reason: >
+        说明不满足哪个 done_criteria、合同或验证要求。
+      required_fix: >
+        说明下一轮必须完成的修复。
+```
+
 ## Backlog
 
 ### P0-001: 统一 `run --dry-run --json` 输出 envelope
@@ -171,7 +187,7 @@ completion:
 ```yaml
 id: P0-001
 priority: P0
-status: done
+status: needs-fix
 depends_on: []
 evidence:
   - level: product_decision
@@ -214,7 +230,7 @@ done_criteria:
   - 现有语义 E2E 通过
 completion:
   verified_at: 2026-05-31
-  commit: "21aa77b"
+  commit: 066e15b
   verification_results:
     - npm run typecheck: pass
     - npm run lint: pass (0 errors, 0 warnings)
@@ -227,6 +243,19 @@ completion:
     - src/commands/run-dry-run-envelope.test.ts
     - src/commands/run.ts
     - docs/development-backlog.md
+review_findings:
+  reviewed_at: 2026-05-31
+  status: needs-fix
+  findings:
+    - severity: P1
+      location: src/commands/run.ts
+      reason: >
+        buildClarifyEnvelope 和 buildBlockedEnvelope 已实现但未接入 run --dry-run --json 主路径。
+        当前错误路径仍输出 ok/error 结构，不能稳定表达 result.kind=clarify 或 result.kind=blocked，
+        不满足 done_criteria 中的 reply / clarify / blocked / plan / workflow_draft 统一 envelope。
+      required_fix: >
+        在 run --dry-run --json 的不可解析、blocked、needs clarification 路径统一返回 RunDryRunEnvelope，
+        并补主路径测试和 semantic E2E 覆盖。
 ```
 
 ### P0-002: 建立 `OrchestrationPlan` runtime schema
@@ -283,7 +312,7 @@ completion:
 ```yaml
 id: P0-003
 priority: P0
-status: done
+status: needs-fix
 depends_on: []
 evidence:
   - level: contract_target
@@ -314,6 +343,7 @@ done_criteria:
   - unsafe draft 不能进入 executable 状态
 completion:
   verified_at: 2026-05-31
+  commit: e9b12bbdbb07
   verification_results:
     - npm run typecheck: pass
     - npm run lint: pass (0 errors, 0 warnings)
@@ -325,6 +355,25 @@ completion:
     - src/types/workflow-draft.ts
     - src/orchestration-plan/workflow-draft-validator.ts
     - src/orchestration-plan/workflow-draft-validator.test.ts
+review_findings:
+  reviewed_at: 2026-05-31
+  status: needs-fix
+  findings:
+    - severity: P1
+      location: src/orchestration-plan/workflow-draft-validator.ts
+      reason: >
+        confirmed / persisted / executing 状态只阻断 safetyReview=blocked 和 needs_confirmation 无 confirmation，
+        但未阻断 safetyReview=not_reviewed，导致未审查 draft 可进入 executable 状态，
+        不满足 unsafe draft 不能进入 executable 状态。
+      required_fix: >
+        executable draft 必须要求 safetyReview=safe，或 safetyReview=needs_confirmation 且存在有效 confirmation；
+        safetyReview=not_reviewed 必须阻断并补测试。
+    - severity: P1
+      location: src/orchestration-plan/workflow-draft-validator.ts
+      reason: >
+        dependsOn 只校验引用存在，未校验循环依赖；WorkflowDraft 合同要求 dependsOn 必须能拓扑排序。
+      required_fix: >
+        增加 DAG / topological validation，阻断 step 循环依赖，并补循环依赖测试。
 ```
 
 ### P0-004: 建立 NL request envelope 和入口 normalization 合同
@@ -390,7 +439,7 @@ completion:
 ```yaml
 id: P0-005
 priority: P0
-status: todo
+status: done
 depends_on:
   - P0-002
 evidence:
@@ -427,6 +476,19 @@ done_criteria:
   - 不存在的 vectahub 子命令被 blocked
   - args 必须是字符串数组，不能是一整段未解析 shell
   - validator 可被 OrchestrationPlan、VerificationPlan 和 WorkflowDraft 共用
+completion:
+  verified_at: 2026-05-31
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass
+    - npm run test:run: pass
+    - git diff --check: pass
+  changed_files:
+    - src/orchestration-plan/command-surface-validator.ts
+    - src/orchestration-plan/command-surface-validator.test.ts
+    - src/orchestration-plan/validator.ts
+    - src/orchestration-plan/index.ts
+    - docs/development-backlog.md
 ```
 
 ### P0-006: 统一机器响应和错误 JSON envelope
@@ -1910,21 +1972,24 @@ done_criteria:
 ```text
 1. git status --short
 2. 读取 docs/development-backlog.md
-3. 检查 in-progress:<timestamp> 任务：
+3. 复核已标记 done 但带 review_findings.status=needs-fix 的任务：
+   - 必须视为 needs-fix
+   - 不得继续跳过
+4. 检查 in-progress:<timestamp> 任务：
    - 时间戳超过 30 分钟 → 重置为 todo
    - 未超时 → 继续该任务
-4. 如果无有效 in-progress：
+5. 如果无有效 in-progress：
    - 优先选择 needs-fix（最高优先级）
    - 否则选择 todo（最高优先级）
-5. 将选中任务状态改为 in-progress:<当前时间>
-6. 开发最小实现
-7. 自审：事实依据、合同、范围、安全、测试、JSON、trace、recovery、semantic acceptance
-8. 运行该任务 verification 中列出的命令
-9. 失败则修复，最多 3 轮
-10. 仍失败则改为 needs-fix 或 blocked，并记录失败证据
-11. 通过后将任务改为 done，并记录验证结果
-12. 只 stage 本轮相关文件
-13. git commit
+6. 将选中任务状态改为 in-progress:<当前时间>
+7. 开发最小实现
+8. 自审：事实依据、合同、范围、安全、测试、JSON、trace、recovery、semantic acceptance
+9. 运行该任务 verification 中列出的命令
+10. 失败则修复，最多 3 轮
+11. 仍失败则改为 needs-fix 或 blocked，并记录失败证据
+12. 通过后将任务改为 done，并记录验证结果
+13. 只 stage 本轮相关文件
+14. git commit
 ```
 
 如果工作树在开始时已有无关改动，自动化必须避免提交无关文件；无法区分时停止并报告。

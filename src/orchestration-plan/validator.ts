@@ -3,7 +3,9 @@ import type {
   OrchestrationPlan,
   OrchestrationTask,
   ConfirmationRequest,
+  CommandInvocation,
 } from '../types/orchestration-plan.js';
+import { validateCommandInvocation, validateCommandInvocations } from './command-surface-validator.js';
 
 const CommandInvocationSchema = z.object({
   cli: z.string().min(1, 'cli cannot be empty'),
@@ -216,6 +218,31 @@ function validateConfirmationTaskIds(confirmations: ConfirmationRequest[], tasks
   return errors;
 }
 
+function validateTaskCommands(tasks: OrchestrationTask[]): PlanValidationError[] {
+  const errors: PlanValidationError[] = [];
+
+  for (let i = 0; i < tasks.length; i++) {
+    const task = tasks[i];
+    if (task.command) {
+      const result = validateCommandInvocation(task.command, ['tasks', String(i), 'command']);
+      if (!result.valid) {
+        errors.push(...result.errors as PlanValidationError[]);
+      }
+    }
+  }
+
+  return errors;
+}
+
+function validateVerificationCommands(verification: { commands: CommandInvocation[] }): PlanValidationError[] {
+  const errors: PlanValidationError[] = [];
+  const result = validateCommandInvocations(verification.commands, ['verification', 'commands']);
+  if (!result.valid) {
+    errors.push(...result.errors as PlanValidationError[]);
+  }
+  return errors;
+}
+
 export function validateOrchestrationPlan(input: unknown): PlanValidationResult {
   const schemaResult = OrchestrationPlanSchema.safeParse(input);
 
@@ -235,6 +262,8 @@ export function validateOrchestrationPlan(input: unknown): PlanValidationResult 
     ...validateAgentExecutorDelegate(plan.tasks, plan.status),
     ...validateReplyTaskNoCommand(plan.tasks),
     ...validateConfirmationTaskIds(plan.requiredConfirmations, plan.tasks),
+    ...validateTaskCommands(plan.tasks),
+    ...validateVerificationCommands(plan.verification),
   ];
 
   if (businessErrors.length > 0) {

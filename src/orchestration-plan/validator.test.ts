@@ -823,3 +823,92 @@ describe('Multiple business rule violations', () => {
     expect(result.errors.some(e => e.code === 'agent_missing_delegate')).toBe(true);
   });
 });
+
+describe('Business rule: command surface validation', () => {
+  it('rejects task with unknown vectahub command', () => {
+    const plan = createValidPlan({
+      tasks: [
+        {
+          id: 'task-1',
+          kind: 'apply',
+          title: 'Test task',
+          executor: 'local',
+          command: { cli: 'vectahub', args: ['unknown-command'] },
+          dependsOn: [],
+          inputs: [],
+          outputs: [],
+          sideEffect: 'none',
+          confidence: 'high',
+          needsConfirmation: false,
+        },
+      ],
+    });
+    const result = validateOrchestrationPlan(plan);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.code === 'unknown_command')).toBe(true);
+  });
+
+  it('rejects verification with unknown vectahub command', () => {
+    const plan = createValidPlan({
+      verification: {
+        required: true,
+        commands: [{ cli: 'vectahub', args: ['unknown-command'] }],
+        semanticChecks: [],
+        successCriteria: [],
+      },
+    });
+    const result = validateOrchestrationPlan(plan);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.code === 'unknown_command')).toBe(true);
+  });
+
+  it('accepts plan with valid vectahub commands', () => {
+    const plan = createValidPlan({
+      tasks: [
+        {
+          id: 'task-1',
+          kind: 'apply',
+          title: 'Test task',
+          executor: 'local',
+          command: { cli: 'vectahub', args: ['run', '--help'] },
+          dependsOn: [],
+          inputs: [],
+          outputs: [],
+          sideEffect: 'none',
+          confidence: 'high',
+          needsConfirmation: false,
+        },
+      ],
+      verification: {
+        required: true,
+        commands: [{ cli: 'vectahub', args: ['config', 'show'] }],
+        semanticChecks: [],
+        successCriteria: [],
+      },
+    });
+    const result = validateOrchestrationPlan(plan);
+    expect(result.valid).toBe(true);
+  });
+
+  it('accepts plan with non-vectahub commands (like git, npm)', () => {
+    const plan = createValidPlan({
+      tasks: [
+        {
+          id: 'task-1',
+          kind: 'apply',
+          title: 'Git status',
+          executor: 'local',
+          command: { cli: 'git', args: ['status'] },
+          dependsOn: [],
+          inputs: [],
+          outputs: [],
+          sideEffect: 'none',
+          confidence: 'high',
+          needsConfirmation: false,
+        },
+      ],
+    });
+    const result = validateOrchestrationPlan(plan);
+    expect(result.valid).toBe(true);
+  });
+});
