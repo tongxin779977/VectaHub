@@ -20,6 +20,8 @@ import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { createRunDispatch, formatRunDispatchText } from './run-dispatch.js';
 import {
   buildReplyEnvelope,
+  buildClarifyEnvelope,
+  buildBlockedEnvelope,
   buildPlanEnvelope,
   buildWorkflowDraftEnvelope,
   buildStepsEnvelope,
@@ -292,18 +294,16 @@ export function createRunCmd(context: InfrastructureContext): Command {
 
         if (result.reply) {
           if (options.json) {
-            if (orchestrateSteps.length === 0) {
-              if (options.dryRun) {
-                output.json(buildReplyEnvelope(result.reply, recognizedIntent));
-              } else {
-                output.json({
-                  ok: true,
-                  reply: result.reply,
-                  intent: recognizedIntent,
-                });
-              }
+            if (options.dryRun) {
+              output.json(buildReplyEnvelope(result.reply, recognizedIntent));
               restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
               return;
+            } else {
+              output.json({
+                ok: true,
+                reply: result.reply,
+                intent: recognizedIntent,
+              });
             }
           } else {
             logger.info(`\n🤖 VectaHub Expert:\n\n${result.reply}\n`);
@@ -316,6 +316,11 @@ export function createRunCmd(context: InfrastructureContext): Command {
         if (orchestrateSteps.length === 0) {
           if (result.reply) {
             // 已显示回复，直接退出
+            restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+            return;
+          }
+          if (options.dryRun && options.json) {
+            output.json(buildClarifyEnvelope('无法解析意图，请尝试更明确的输入！'));
             restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
             return;
           }
@@ -347,7 +352,13 @@ export function createRunCmd(context: InfrastructureContext): Command {
           reply: result.reply,
         });
         if (!dispatch.executable) {
-          if (options.json) {
+          if (options.dryRun && options.json) {
+            if (dispatch.kind === 'blocked') {
+              output.json(buildBlockedEnvelope(dispatch.reason, dispatch));
+            } else {
+              output.json(buildClarifyEnvelope(dispatch.reason, dispatch));
+            }
+          } else if (options.json) {
             output.json({
               ok: false,
               dispatch,

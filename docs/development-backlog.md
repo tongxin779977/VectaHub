@@ -187,7 +187,7 @@ review_findings:
 ```yaml
 id: P0-001
 priority: P0
-status: needs-fix
+status: done
 depends_on: []
 evidence:
   - level: product_decision
@@ -230,13 +230,13 @@ done_criteria:
   - 现有语义 E2E 通过
 completion:
   verified_at: 2026-05-31
-  commit: 066e15b
+  commit: HEAD
   verification_results:
     - npm run typecheck: pass
     - npm run lint: pass (0 errors, 0 warnings)
     - npm run check:default-context-usage: pass
-    - npm run test:run: pass (214 files, 2887 tests passed)
-    - scripts/test-semantic-output.sh: pass (36 PASS / 0 FAIL)
+    - npm run test:run: pass (217 files, 2990 tests passed, 11 skipped)
+    - scripts/test-semantic-output.sh: pass
     - git diff --check: pass
   changed_files:
     - src/commands/run-dry-run-envelope.ts
@@ -245,7 +245,7 @@ completion:
     - docs/development-backlog.md
 review_findings:
   reviewed_at: 2026-05-31
-  status: needs-fix
+  status: resolved_by_commit:HEAD
   findings:
     - severity: P1
       location: src/commands/run.ts
@@ -256,6 +256,7 @@ review_findings:
       required_fix: >
         在 run --dry-run --json 的不可解析、blocked、needs clarification 路径统一返回 RunDryRunEnvelope，
         并补主路径测试和 semantic E2E 覆盖。
+      resolved_at: 2026-05-31
 ```
 
 ### P0-002: 建立 `OrchestrationPlan` runtime schema
