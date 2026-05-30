@@ -71,7 +71,7 @@
 ```yaml
 id: P0-001
 priority: P0
-status: todo
+status: in-progress
 source_docs:
   - docs/nl-workflow-orchestrator.md
   - docs/contracts/orchestration-plan.md
