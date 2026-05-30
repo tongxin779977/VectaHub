@@ -57,3 +57,10 @@ export { createFeedbackStorage, createFeedbackRecord } from './feedback-storage.
 export type { FeedbackStorageOptions } from './feedback-storage.js';
 export { createDraftExecutor } from './draft-executor.js';
 export type { DraftExecutor, DraftExecutorDeps, DraftExecutionOptions, DraftExecutionResult } from './draft-executor.js';
+export {
+  buildWorkerCapabilityMatrix,
+  getWorkerCapability,
+  workerSupportsFeature,
+  workerIsSuitableForTask,
+  workerAllowInExecutablePlans,
+} from './worker-capability-matrix.js';

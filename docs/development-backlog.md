@@ -1357,7 +1357,7 @@ completion:
 ```yaml
 id: P2-002
 priority: P2
-status: todo
+status: done
 depends_on:
   - P1-002
 evidence:
@@ -1394,6 +1394,20 @@ done_criteria:
   - VectaHub 能区分 worker 支持、部分支持和不支持的 native capability
   - unsupported native feature 不会进入 executable plan
   - capability matrix 不成为第二套执行真相源，只作为编排选择依据
+completion:
+  verified_at: 2026-05-31
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass (0 errors, 1 warning unrelated)
+    - npm run test:run: pass (228 files, 3139 tests passed, 11 skipped)
+    - git diff --check: pass
+  changed_files:
+    - src/types/worker-capability.ts
+    - src/types/index.ts
+    - src/orchestration-plan/worker-capability-matrix.ts
+    - src/orchestration-plan/worker-capability-matrix.test.ts
+    - src/orchestration-plan/index.ts
+    - docs/development-backlog.md
 ```
 
 ### P2-003: Delegation Policy
