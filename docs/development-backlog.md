@@ -561,7 +561,7 @@ completion:
 ```yaml
 id: P1-001
 priority: P1
-status: todo
+status: done
 depends_on:
   - P0-004
 evidence:
@@ -591,6 +591,19 @@ verification:
 done_criteria:
   - 不读取 secrets 或完整环境变量
   - 缺少项目文件时保守返回 unknown/empty，而不是猜测
+completion:
+  verified_at: 2026-05-31
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass
+    - npm run test:run: pass (10 tests)
+    - git diff --check: pass
+  changed_files:
+    - src/types/project-context.ts
+    - src/project-context/builder.ts
+    - src/project-context/builder.test.ts
+    - src/project-context/index.ts
+    - src/types/index.ts
 ```
 
 ### P1-002: 实现 Capability Catalog builder

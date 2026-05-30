@@ -9,3 +9,4 @@ export * from './security.js';
 export * from './orchestration-plan.js';
 export * from './workflow-draft.js';
 export * from './machine-response.js';
+export * from './project-context.js';
