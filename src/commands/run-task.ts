@@ -945,6 +945,8 @@ async function ensureRunTaskOutputDir(): Promise<string> {
       await getContext().environment.mkdirAsync(outputDir, { recursive: true });
       return outputDir;
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      getLogger().debug({ error: message }, 'Failed to create output directory, trying next candidate');
       lastError = error;
     }
   }
