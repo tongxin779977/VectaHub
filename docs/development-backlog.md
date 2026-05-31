@@ -2141,7 +2141,7 @@ completion:
 ```yaml
 id: P3-001
 priority: P3
-status: todo
+status: done
 depends_on:
   - P0-006
   - P1-005
@@ -2173,6 +2173,30 @@ verification:
 done_criteria:
   - UI 不复制执行真相
   - CLI JSON 字段可供 UI 稳定消费
+completion:
+  verified_at: 2026-05-31
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass (1 pre-existing error in src/workflow/executor.ts unrelated to this task)
+    - npm run test:run: skipped (documentation review task)
+    - npm run compile -w packages/vectahub-vscode-extension: pass
+    - git diff --check: pass
+  changed_files:
+    - docs/development-backlog.md
+  contract_review_findings:
+    - UI 不复制执行真相: CONFIRMED - 扩展使用 runCli() 适配器调用 CLI 命令，不复制执行逻辑
+    - CLI JSON 字段可供 UI 稳定消费: CONFIRMED - 使用 parseCliJsonOutput() 处理多种 JSON 格式
+    - 扩展 smoke test 存在: e2e/runner.cjs 测试 CLI 调用模式，验证正确命令带 --json 被调用
+    - CLI 命令消费模式:
+      - doctor --json
+      - run --json / run --dry-run --json
+      - parse-doc --json
+      - tools agents --json --sync-config
+      - tools list --json
+      - security test --json
+      - queue remove/clear --json
+      - run-task --json
+      - recover-task --json
 ```
 
 ### P3-002: CLI draft review / confirm UX
