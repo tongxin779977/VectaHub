@@ -90,3 +90,9 @@ export type {
   FeaturePassthroughResult,
   FeaturePassthroughDecision,
 } from '../types/native-feature-passthrough.js';
+export {
+  validateCheckpointReference,
+  checkGitCheckpointAvailability,
+  checkWorktreeCheckpointAvailability,
+  checkCheckpointAvailability,
+} from './checkpoint-reference-validator.js';

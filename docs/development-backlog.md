@@ -1598,7 +1598,7 @@ done_criteria:
 ```yaml
 id: P2-006
 priority: P2
-status: todo
+status: in-progress:2026-05-31T12:36
 depends_on:
   - P1-009
   - P2-002
@@ -1637,6 +1637,21 @@ done_criteria:
   - checkpoint reference 不包含 secrets 或完整 diff
   - missing checkpoint 时 recovery 保守阻断或要求人工处理
   - checkpoint reference 能关联 draft snapshot 和 execution metadata
+completion:
+  verified_at: "2026-05-31"
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass (no errors in modified files)
+    - npm run test:run: pass (8 tests passed)
+    - git diff --check: pass
+  changed_files:
+    - src/types/checkpoint-reference.ts
+    - src/types/index.ts
+    - src/orchestration-plan/checkpoint-reference-validator.ts
+    - src/orchestration-plan/checkpoint-reference-validator.test.ts
+    - src/orchestration-plan/index.ts
+    - docs/development-backlog.md
+status: done
 ```
 
 ### P2-007: Agent delegate runtime 接线和 preflight
