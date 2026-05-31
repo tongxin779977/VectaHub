@@ -2157,7 +2157,7 @@ done_criteria:
   - hash 不包含 secrets 或未脱敏大输出
 completion:
   verified_at: "2026-05-31T17:07"
-  commit: "5dd4706"
+  commit: "e234e27"
   verification_results:
     - npm run typecheck: "pass (exit code 0)"
     - npm run lint: "pass (exit code 0, full gate)"
