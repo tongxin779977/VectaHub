@@ -67,6 +67,9 @@ export interface ExecutionRecord {
   warnings: string[];
   logs: string[];
   workflowHash?: string;
+  traceId?: string;
+  planId?: string;
+  draftId?: string;
 }
 
 export interface StepRecord {

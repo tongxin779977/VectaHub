@@ -4,6 +4,8 @@ import { planFromCapability, planToReply, type PlannerOptions, type PlannerResul
 
 export interface DocTaskPlannerOptions extends PlannerOptions {
   docPath?: string;
+  traceId?: string;
+  auditEventIds?: string[];
 }
 
 export async function planFromDocTasks(
@@ -61,6 +63,8 @@ export async function planFromDocTasks(
   const result = await planFromCapability(goal, tasks, {
     cwd: options.cwd,
     source: 'document',
+    traceId: options.traceId,
+    auditEventIds: options.auditEventIds,
   });
 
   if (result.kind === 'plan' && result.plan && docTasks.length > 1) {

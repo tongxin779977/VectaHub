@@ -15,6 +15,7 @@ export interface DraftExecutionOptions {
   onProgress?: (info: { currentStep: number; totalSteps: number; stepId: string; stepType: string; status: 'starting' | 'completed' | 'failed' }) => void;
   initialVariables?: Record<string, unknown>;
   sessionId?: string;
+  traceId?: string;
 }
 
 export interface DraftExecutionResult {
@@ -141,6 +142,11 @@ export function createDraftExecutor(deps: DraftExecutorDeps) {
     const workflowHash = computeWorkflowHash(workflow);
     const executionRecord = await workflowEngine.execute(workflow, executeOptions);
     executionRecord.workflowHash = workflowHash;
+
+    // 关联 trace 信息
+    executionRecord.traceId = options.traceId ?? draft.trace?.traceId;
+    executionRecord.planId = draft.planId;
+    executionRecord.draftId = draft.draftId;
 
     // 如果需要验证，运行验证
     let verificationResults;

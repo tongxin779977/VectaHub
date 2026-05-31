@@ -4,6 +4,7 @@ import type {
 import { validateOrchestrationPlan } from './validator.js';
 import { validateCommandSurface } from './command-surface-validator.js';
 import { applySafetyReviewToPlan } from './safety-reviewer.js';
+import { createRootTraceContext } from '../infrastructure/trace/index.js';
 
 export interface PlannerResult {
   kind: 'plan' | 'reply' | 'clarify' | 'blocked';
@@ -17,8 +18,9 @@ export interface PlannerOptions {
   source?: 'run' | 'chat' | 'document' | 'manual';
 }
 
-export function createEmptyPlan(options: PlannerOptions = {}): OrchestrationPlan {
+export function createEmptyPlan(options: PlannerOptions & { traceId?: string; auditEventIds?: string[] } = {}): OrchestrationPlan {
   const now = new Date().toISOString();
+  const traceContext = options.traceId ? { traceId: options.traceId } : createRootTraceContext();
   return {
     schemaVersion: '1.0',
     planId: `plan-${Date.now()}`,
@@ -39,6 +41,10 @@ export function createEmptyPlan(options: PlannerOptions = {}): OrchestrationPlan
       semanticChecks: [],
       successCriteria: [],
     },
+    trace: {
+      traceId: traceContext.traceId,
+      auditEventIds: options.auditEventIds || [],
+    },
     metadata: {
       createdAt: now,
       cwd: options.cwd || process.cwd(),
@@ -51,7 +57,7 @@ export function createEmptyPlan(options: PlannerOptions = {}): OrchestrationPlan
 export async function planFromCapability(
   goal: string,
   tasks: OrchestrationTask[],
-  options: PlannerOptions = {}
+  options: PlannerOptions & { traceId?: string; auditEventIds?: string[] } = {}
 ): Promise<PlannerResult> {
   const plan = createEmptyPlan(options);
   plan.goal = goal;

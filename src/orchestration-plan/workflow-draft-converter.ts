@@ -78,7 +78,7 @@ export interface ConvertPlanToDraftOptions {
 
 export function convertPlanToDraft(
   plan: OrchestrationPlan,
-  options: ConvertPlanToDraftOptions = {}
+  options: ConvertPlanToDraftOptions & { executionId?: string; auditEventIds?: string[] } = {}
 ): WorkflowDraft {
   const now = new Date().toISOString();
   const planHash = hashObject(plan);
@@ -116,6 +116,12 @@ export function convertPlanToDraft(
       sourceCwd: options.cwd || process.cwd(),
     },
     verification: convertVerification(plan),
+    trace: {
+      traceId: plan.trace?.traceId,
+      planId: plan.planId,
+      executionId: options.executionId,
+      auditEventIds: options.auditEventIds || plan.trace?.auditEventIds || [],
+    },
     metadata: {
       createdAt: now,
       createdFrom: plan.source,

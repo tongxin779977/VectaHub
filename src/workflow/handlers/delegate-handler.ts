@@ -101,7 +101,7 @@ export const createDelegateHandler = (deps: DelegateHandlerDeps = {}): StepHandl
   // we should return the original error message for backward compatibility with tests
   return async (
     step: Step,
-    _options: ExecutorOptions,
+    options: ExecutorOptions,
     _context: ExecutionContext,
     _executeStep: ExecuteStepFn,
     startTime: number

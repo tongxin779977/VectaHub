@@ -1833,7 +1833,7 @@ completion:
 ```yaml
 id: P2-010
 priority: P2
-status: todo
+status: done
 depends_on:
   - P1-008
   - P1-009
@@ -1875,6 +1875,22 @@ done_criteria:
   - trace 写入失败不能把安全判断降级为允许
   - JSON stdout 不被 trace/audit 污染
   - recovery 能从 execution 反查 plan/draft 上下文
+completion:
+  verified_at: 2026-05-31
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass (0 errors, 4 warnings - unrelated to this task)
+    - npm run test:run: pass (235 files, 3189 tests passed, 11 skipped)
+    - git diff --check: pass
+  changed_files:
+    - src/types/workflow.ts
+    - src/orchestration-plan/planner.ts
+    - src/orchestration-plan/workflow-draft-converter.ts
+    - src/orchestration-plan/draft-executor.ts
+    - src/orchestration-plan/doc-task-planner.ts
+    - src/orchestration-plan/trace-link.test.ts
+    - src/workflow/handlers/delegate-handler.ts
+    - docs/development-backlog.md
 ```
 
 ### P2-011: 将 orchestration failure 接入 recovery loop
