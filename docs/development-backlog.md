@@ -48,39 +48,44 @@
 每轮自动化任务必须：
 
 1. 读取本文，并为本轮生成唯一 `run_id`。
-   - 在完成 active lock 判定前，只允许扫描任务 `id`、`status`、`priority` 和 `lock` 字段。
-   - 在完成 active lock 判定前，不得把任何任务设为 selected task。
-   - 在完成 active lock 判定前，不得读取任何任务的 `source_docs`、`required_contracts`、`scope`、`done_criteria` 或 `verification`。
+   - 在完成 lock availability scan 前，只允许扫描任务 `id`、`priority`、`status`、`depends_on`、`review_findings.status` 和 `lock` 字段。
+   - 在完成 lock availability scan 前，不得把任何任务设为 selected task。
+   - 对 active locked item，不得读取该任务的 `source_docs`、`required_contracts`、`scope`、`done_criteria` 或 `verification`。
 2. 执行 lock consistency check：
    - `lock` 只能出现在 `status: in-progress:<timestamp>` 的任务块内。
    - 每个 `status: in-progress:<timestamp>` 任务必须有且只能有一个 `lock`。
    - 如果 `todo`、`needs-fix`、`blocked` 或 `done` 任务带有 `lock`，视为协议错误；自动化必须停止并报告，不得选择任务。
-   - 如果存在多个 `in-progress`、多个 `lock`，或 `in-progress` 缺少 `lock`，视为协议错误；自动化必须停止并报告。
-3. 检查是否存在 `in-progress:<timestamp>` 的任务：
-   - active lock 是全局互斥锁，不是可继续任务。
-   - 如果时间戳未超过 30 分钟，或时间戳晚于当前时间，视为 active lock。
-   - 遇到 active lock 时，新的自动化实例必须直接报告 `locked` 并结束；不得选择该任务，不得读取该任务上下文，也不得选择其他任务。
-   - 新的自动化实例包括同名自动化、同一分支、同一机器上的下一次定时触发。
+   - 如果某个 `in-progress` 任务缺少 `lock`，或同一任务块内存在多个 `lock`，视为协议错误；自动化必须停止并报告。
+   - 多个不同任务同时处于 `in-progress` 是允许的；它表示多个自动化 run 正在处理不同 backlog item。
+3. 执行 lock availability scan：
+   - active lock 只占用当前任务；其他依赖已完成、未被锁定的 eligible item 仍可被本轮选择。
+   - 如果某个 `in-progress:<timestamp>` 未超过 30 分钟，或时间戳晚于当前时间，视为该任务 active locked。
+   - active locked item 必须标记为 unavailable；本轮不得选择它，不得读取它的开发上下文。
    - 只有设置该 lock 的同一个正在运行进程可以继续完成该任务；判定依据是进程内持有的 `run_id` 等于 `lock.run_id`，不是 `owner` 相同。
    - 每次定时触发都必须生成新的 `run_id`，因此不能接管已有 active lock。
-   - 如果时间戳超过 30 分钟，视为 stale lock，按任务原始状态恢复为 `needs-fix` 或 `todo`，并记录 stale 证据。
+   - 如果某个 `in-progress:<timestamp>` 超过 30 分钟，视为 stale lock，按任务原始状态恢复为 `needs-fix` 或 `todo`，移除 `lock`，并记录 stale 证据。
+   - 如果存在 active locked item，但仍有其他依赖已满足的 `needs-fix` 或 `todo` 任务，本轮应跳过 locked item 并继续选择下一个可执行任务。
+   - 如果所有可执行任务都被 active lock 占用，或剩余任务都依赖未完成的 locked item，本轮输出 `locked_no_eligible_task` 并结束。
 4. 复核 `done` 任务的完成证据；如果存在 `review_findings.status=needs-fix`、非稳定 commit、缺失必需验证或验证未严格通过，必须改回 `needs-fix`。
-5. 优先选择 `status=needs-fix` 且存在未解决 `review_findings.status=needs-fix` 的任务。
-6. 如果不存在可执行 review-fix 任务，选择 priority 最高、排序最靠前、依赖已完成的普通 `needs-fix` 任务。
-7. 如果不存在可执行 `needs-fix`，选择 priority 最高、排序最靠前、依赖已完成的 `todo` 任务。
-8. 将选中任务状态改为 `in-progress:<当前时间>`，并写入 `lock.owner`、`lock.run_id`、`lock.acquired_at`、`lock.expires_at` 和 `lock.previous_status`。
-9. 只开发这一项。
-10. 完成后审计和验证。
-11. 通过后将该项改为 `done`，记录验证命令和提交信息，并移除 `lock`。
-12. 未通过则改为 `needs-fix` 或 `blocked`，记录失败证据，并移除 `lock`。
+5. 在排除 active locked item 后，优先选择 `status=needs-fix` 且存在未解决 `review_findings.status=needs-fix` 的任务。
+6. 如果不存在可执行 review-fix 任务，选择 priority 最高、排序最靠前、依赖已完成且未被 active lock 占用的普通 `needs-fix` 任务。
+7. 如果不存在可执行 `needs-fix`，选择 priority 最高、排序最靠前、依赖已完成且未被 active lock 占用的 `todo` 任务。
+8. 写入 lock 前必须重新读取本文，确认选中任务仍是 `todo` 或 `needs-fix`，没有 `lock`，且依赖仍已完成；如果状态已变化，重新执行 lock availability scan 和任务选择。
+9. 将选中任务状态改为 `in-progress:<当前时间>`，并写入 `lock.owner`、`lock.run_id`、`lock.acquired_at`、`lock.expires_at` 和 `lock.previous_status`。
+10. 写入 lock 后必须重新读取本文，确认该任务的 `lock.run_id` 等于本轮 `run_id`；如果不是，说明并发抢锁失败，本轮必须停止或重新选择其他可执行任务，不得继续开发该任务。
+11. 只开发这一项。
+12. 完成后审计和验证。
+13. 通过后将该项改为 `done`，记录验证命令和提交信息，并移除 `lock`。
+14. 未通过则改为 `needs-fix` 或 `blocked`，记录失败证据，并移除 `lock`。
 
 禁止：
 
 - 一轮同时开发多个 backlog item。
-- 在存在 active lock 时继续领取同一任务或领取其他任务。
-- 在存在 active lock 时读取被锁定任务的 `source_docs`、`required_contracts`、`scope`、`done_criteria` 或 `verification`。
+- 接管其他 run 已锁定的 backlog item。
+- 在存在 active locked item 时读取该 locked item 的 `source_docs`、`required_contracts`、`scope`、`done_criteria` 或 `verification`。
 - 把 `status: in-progress:<timestamp>` 任务当作当前轮 selected task。
 - 仅因为 `lock.owner` 与当前自动化名称相同就接管 active lock。
+- 选择依赖未完成或依赖 active locked item 的下游任务。
 - 在存在可执行 review-fix 任务时选择普通 `needs-fix` 或 `todo` 任务。
 - 跳过 P0/P1 去做低优先级功能。
 - 在依赖任务未完成时开发下游任务。
@@ -91,8 +96,9 @@
 
 ## 多 Subagent 协作规则
 
-可以使用多个 subagent，但所有 subagent 必须围绕同一个 backlog item 工作。
-任务选择只能由一个 coordinator 完成一次；Developer、Audit、Verification 和 Commit/report subagent 不得再次执行任务选择规则。
+同一个自动化 run 内可以使用多个 subagent，但这些 subagent 必须围绕同一个 selected backlog item 工作。
+同一个 run 内任务选择只能由一个 coordinator 完成一次；Developer、Audit、Verification 和 Commit/report subagent 不得再次执行任务选择规则。
+不同自动化 run 可以并行领取不同 backlog item，前提是它们都通过 lock availability scan，且没有接管 active locked item。
 
 推荐角色：
 
@@ -101,7 +107,7 @@
 - Verification agent：运行当前 item 的 verification 命令并整理证据。
 - Commit/report agent：只在所有验证通过后 stage 当前 item 相关文件并提交。
 
-禁止不同 subagent 同时领取不同 backlog item。
+禁止同一个自动化 run 内的不同 subagent 同时领取不同 backlog item。
 
 ## 工程标准
 
@@ -124,12 +130,12 @@
 
 ## 状态模型
 
-Active lock 是全局互斥锁。新的自动化实例不能把 active `in-progress` 任务当作 selected task，也不能读取该任务的开发上下文；只能输出 `locked` 后结束。只有进程内持有相同 `run_id` 的原始执行进程可以继续完成并移除该锁。
+Active lock 是单任务独占锁。新的自动化实例不能接管 active `in-progress` 任务，也不能读取该任务的开发上下文；但可以跳过该 locked item，并继续选择其他依赖已完成、未被锁定的 eligible item。只有进程内持有相同 `run_id` 的原始执行进程可以继续完成并移除该锁。
 
 | Status | 含义 | 跨 session 行为 |
 |--------|------|-----------------|
 | `todo` | 待开发，可被自动化选择。 | 直接选择。 |
-| `in-progress:<timestamp>` | 当前轮正在开发；时间戳格式 `YYYY-MM-DDTHH:MM`。 | 未超时或时间戳晚于当前时间时是 active lock；新的自动化实例必须退出，不得读取上下文、继续或重复选择。 |
+| `in-progress:<timestamp>` | 当前轮正在开发；时间戳格式 `YYYY-MM-DDTHH:MM`。 | 未超时或时间戳晚于当前时间时是 active locked item；新的自动化实例必须跳过该 item，不得读取上下文、继续或重复选择；如果还有其他 eligible item，可以继续领取其他任务。 |
 | `needs-fix` | 已开发但审计、验证或后续复审失败，需要修复。 | 优先于 `todo` 选择；其中未解决 `review_findings.status=needs-fix` 的 review-fix 任务优先于普通 `needs-fix`。 |
 | `blocked` | 缺少合同、权限、环境或产品决策，不能继续。 | 跳过。 |
 | `done` | 开发、审计、验证和提交均完成。 | 跳过；如果后续复审发现不满足 `done_criteria`，必须改回 `needs-fix` 并记录复审证据。 |
@@ -800,7 +806,7 @@ completion:
 ```yaml
 id: P1-004
 priority: P1
-status: needs-fix
+status: done
 depends_on:
   - P0-002
   - P0-005
@@ -839,27 +845,24 @@ done_criteria:
   - high 默认 needs_confirmation
   - LLM 不能覆盖 deterministic safety decision
 completion:
-  verified_at: 2026-05-31T11:40
-  commit: cbc52a8
+    verified_at: 2026-05-31T17:46
+    commit: 852bef7
   verification_results:
-    - npm run typecheck: pass
+    - npm run typecheck: pass (0 errors)
     - npm run lint: pass (0 errors, 0 warnings)
-    - npm run test:run: pass (3307 passed, 1 pre-existing failure in engine.test.ts unrelated to P1-004, 11 skipped)
-    - scripts/test-semantic-output.sh: 20 pass / 22 fail (sandbox environment restriction, not P1-004 code issue)
-    - git diff --check: pass
+    - npm run test:run: pass (239 files, 3308 tests passed, 11 skipped)
+    - scripts/test-semantic-output.sh: pass (44 PASS / 0 EXPECTED_FAIL / 0 FAIL / 0 SKIP / 44 TOTAL)
+    - npm run check:default-context-usage: pass (0 violations)
+    - git diff --check: pass (no whitespace errors)
   changed_files:
     - src/orchestration-plan/safety-reviewer.ts
     - src/orchestration-plan/safety-reviewer.test.ts
     - src/orchestration-plan/planner.ts
     - src/orchestration-plan/index.ts
     - docs/development-backlog.md
-  notes: >
-    P1-004 safety-reviewer implementation verified correct. 8/8 safety-reviewer tests pass.
-    test:run has 1 pre-existing failure in engine.test.ts (should resume from paused state) unrelated to PlanSafetyReview.
-    semantic test failures are due to Trae sandbox restrictions preventing CLI from writing to audit/execution files, not P1-004 code issues.
 review_findings:
   reviewed_at: 2026-05-31T17:16
-  status: needs-fix
+  status: resolved_by_reverification:2026-05-31T17:46
   findings:
     - severity: P1
       location: docs/development-backlog.md:735
@@ -868,12 +871,17 @@ review_findings:
       required_fix: >
         Re-run this backlog item from its current implementation state, execute every command listed in verification with strict pass evidence, ensure lint is 0 problems when required, and update completion with a stable commit hash after the fix is committed.
       resolved_at: 2026-05-31T11:40
+      resolved_by: >
+        Re-ran all verification commands: typecheck pass, lint 0 problems, test:run 239 files/3308 tests pass, test-semantic-output.sh 44/44 pass, check:default-context-usage pass, git diff --check pass.
     - severity: P1
       location: docs/development-backlog.md:782
       reason: >
         Fact review found this task cannot remain done: npm run test:run records one pre-existing failure, and scripts/test-semantic-output.sh records 20 pass / 22 fail. Done evidence cannot rely on unrelated-failure or sandbox-exception explanations.
       required_fix: >
         Re-run every command listed in verification with strict pass evidence, ensure npm run test:run has 0 failures and scripts/test-semantic-output.sh has 0 fail, then update completion.verification_results with exact command names and a stable existing commit hash.
+      resolved_at: 2026-05-31T17:46
+      resolved_by: >
+        Re-ran all verification commands with strict pass evidence: npm run test:run 0 failures (3308 passed), scripts/test-semantic-output.sh 0 fail (44/44 pass). Previous failures were resolved by prior commits in other tasks.
 
 ```
 
@@ -2801,39 +2809,43 @@ done_criteria:
 ```text
 1. git status --short
 2. 生成本轮唯一 run_id，并读取 docs/development-backlog.md
-   - 完成 active lock 判定前，只允许扫描任务 id / status / priority / lock
-   - 完成 active lock 判定前，不得设置 selected task
-   - 完成 active lock 判定前，不得读取任何任务的 source_docs / required_contracts / scope / done_criteria / verification
+   - 完成 lock availability scan 前，只允许扫描任务 id / priority / status / depends_on / review_findings.status / lock
+   - 完成 lock availability scan 前，不得设置 selected task
+   - 对 active locked item，不得读取该任务的 source_docs / required_contracts / scope / done_criteria / verification
 3. 执行 lock consistency check：
    - lock 只能出现在 status=in-progress:<timestamp> 的任务块内
    - 每个 in-progress 任务必须有且只能有一个 lock
    - todo / needs-fix / blocked / done 任务带 lock → protocol_error，停止报告
-   - 多个 in-progress、多个 lock、或 in-progress 缺少 lock → protocol_error，停止报告
-4. 检查是否存在 in-progress:<timestamp> 任务：
-   - active lock 是全局互斥锁，不是当前轮可继续任务
-   - timestamp 未超过 30 分钟，或 timestamp 晚于当前时间 → active lock
-   - active lock 存在时，本轮必须输出 locked 并结束
-   - 不得继续该任务
-   - 不得读取该任务的 source_docs / required_contracts / scope / done_criteria / verification
-   - 不得选择其他任务
+   - 单个 in-progress 任务缺少 lock，或同一任务块内存在多个 lock → protocol_error，停止报告
+   - 多个不同任务同时 in-progress 是允许的，表示不同自动化 run 正在处理不同 item
+4. 执行 lock availability scan：
+   - active lock 只占用当前任务；其他依赖已完成、未被锁定的 eligible item 仍可被本轮选择
+   - 某个 in-progress:<timestamp> 未超过 30 分钟，或 timestamp 晚于当前时间 → 该任务是 active locked item
+   - active locked item 必须标记为 unavailable
+   - 不得继续 active locked item
+   - 不得读取 active locked item 的 source_docs / required_contracts / scope / done_criteria / verification
    - 新的定时触发即使 automation name / branch / owner 相同，也不是原始持锁进程
    - 只有进程内持有的 run_id 等于 lock.run_id 的原始持锁进程可以完成该任务并移除 lock
-   - timestamp 超过 30 分钟 → stale lock，按 lock.previous_status 恢复为 needs-fix 或 todo，并记录 stale 证据
+   - in-progress:<timestamp> 超过 30 分钟 → stale lock，按 lock.previous_status 恢复为 needs-fix 或 todo，移除 lock，并记录 stale 证据
+   - 如果存在 active locked item，但仍有其他依赖已完成的 needs-fix 或 todo 任务，本轮必须跳过 locked item 并继续选择下一个 eligible item
+   - 如果所有 eligible item 都被 active lock 占用，或剩余任务都依赖未完成的 locked item，本轮输出 locked_no_eligible_task 并结束
 5. 复核已标记 done 但带 review_findings.status=needs-fix 的任务：
    - 必须视为 needs-fix
    - 不得继续跳过
-6. 如果没有 active lock，优先选择 status=needs-fix 且存在未解决 review_findings.status=needs-fix 的任务
-7. 如果没有可执行 review-fix 任务，选择普通 needs-fix（最高优先级）
-8. 如果没有可执行 needs-fix，选择 todo（最高优先级）
-9. 将选中任务状态改为 in-progress:<当前时间>，并写入 lock.owner、lock.run_id、lock.acquired_at、lock.expires_at、lock.previous_status
-10. 开发最小实现
-11. 自审：事实依据、合同、范围、安全、测试、JSON、trace、recovery、semantic acceptance
-12. 运行该任务 verification 中列出的命令
-13. 失败则修复，最多 3 轮
-14. 仍失败则改为 needs-fix 或 blocked，记录失败证据，并移除 lock
-15. 通过后将任务改为 done，记录验证结果，并移除 lock
-16. 只 stage 本轮相关文件
-17. git commit
+6. 在排除 active locked item 后，优先选择 status=needs-fix 且存在未解决 review_findings.status=needs-fix 的任务
+7. 如果没有可执行 review-fix 任务，选择依赖已完成且未被 active lock 占用的普通 needs-fix（最高优先级）
+8. 如果没有可执行 needs-fix，选择依赖已完成且未被 active lock 占用的 todo（最高优先级）
+9. 写入 lock 前必须重新读取本文，确认选中任务仍是 todo 或 needs-fix，没有 lock，且依赖仍已完成；如果状态已变化，重新执行 lock availability scan 和任务选择
+10. 将选中任务状态改为 in-progress:<当前时间>，并写入 lock.owner、lock.run_id、lock.acquired_at、lock.expires_at、lock.previous_status
+11. 写入 lock 后必须重新读取本文，确认该任务的 lock.run_id 等于本轮 run_id；如果不是，说明并发抢锁失败，本轮必须停止或重新选择其他 eligible item，不得继续开发该任务
+12. 开发最小实现
+13. 自审：事实依据、合同、范围、安全、测试、JSON、trace、recovery、semantic acceptance
+14. 运行该任务 verification 中列出的命令
+15. 失败则修复，最多 3 轮
+16. 仍失败则改为 needs-fix 或 blocked，记录失败证据，并移除 lock
+17. 通过后将任务改为 done，记录验证结果，并移除 lock
+18. 只 stage 本轮相关文件
+19. git commit
 ```
 
 如果工作树在开始时已有无关改动，自动化必须避免提交无关文件；无法区分时停止并报告。
