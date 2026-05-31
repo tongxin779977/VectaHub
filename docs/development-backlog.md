@@ -50,8 +50,9 @@
 1. 读取本文，并为本轮生成唯一 `run_id`。
 2. 执行 lock consistency check：
    - `lock` 只能出现在 `status: in-progress:<timestamp>` 的任务块内。
+   - 每个 `status: in-progress:<timestamp>` 任务必须有且只能有一个 `lock`。
    - 如果 `todo`、`needs-fix`、`blocked` 或 `done` 任务带有 `lock`，视为协议错误；自动化必须停止并报告，不得选择任务。
-   - 如果存在多个 `in-progress` 或多个 `lock`，视为协议错误；自动化必须停止并报告。
+   - 如果存在多个 `in-progress`、多个 `lock`，或 `in-progress` 缺少 `lock`，视为协议错误；自动化必须停止并报告。
 3. 检查是否存在 `in-progress:<timestamp>` 的任务：
    - 如果时间戳未超过 30 分钟，或时间戳晚于当前时间，视为 active lock。
    - 遇到 active lock 时，新的自动化实例必须直接报告 `locked` 并结束；不得选择该任务，也不得选择其他任务。
@@ -178,7 +179,7 @@ lock:
   previous_status: todo
 ```
 
-`lock` 只允许和 `status: in-progress:<timestamp>` 同时存在。任务完成、失败或阻塞后必须移除 `lock`。
+`lock` 只允许和 `status: in-progress:<timestamp>` 同时存在；每个 `in-progress` 任务必须有且只能有一个 `lock`。任务完成、失败或阻塞后必须移除 `lock`。
 
 如果任务完成，应追加：
 
@@ -1848,7 +1849,7 @@ review_findings:
 ```yaml
 id: P2-006
 priority: P2
-status: needs-fix
+status: done
 depends_on:
   - P1-009
   - P2-002
@@ -1888,11 +1889,12 @@ done_criteria:
   - missing checkpoint 时 recovery 保守阻断或要求人工处理
   - checkpoint reference 能关联 draft snapshot 和 execution metadata
 completion:
-  verified_at: "2026-05-31"
+  verified_at: "2026-05-31T18:35"
+  commit: 6cbd9e6
   verification_results:
     - npm run typecheck: pass
-    - npm run lint: pass (no errors in modified files)
-    - npm run test:run: pass (8 tests passed)
+    - npm run lint: pass (full gate, 0 errors, 0 warnings)
+    - npm run test:run: pass (239 files, 3308 passed, 11 skipped)
     - git diff --check: pass
   changed_files:
     - src/types/checkpoint-reference.ts
@@ -1903,7 +1905,7 @@ completion:
     - docs/development-backlog.md
 review_findings:
   reviewed_at: 2026-05-31T10:54
-  status: needs-fix
+  status: resolved_by_reverification:P2-006-V3
   findings:
     - severity: P1
       location: docs/development-backlog.md:1603
@@ -1911,6 +1913,9 @@ review_findings:
         Post-review found that this task does not meet the completion evidence rules: commit is missing; npm run lint only reported modified-file status, not the required full lint gate.
       required_fix: >
         Re-run this backlog item from its current implementation state, execute every command listed in verification with strict pass evidence, ensure lint is 0 problems when required, and update completion with a stable commit hash after the fix is committed.
+      resolved_by_verification: P2-006-V3
+  reverified_at: "2026-05-31T18:35"
+  run_id: run-2026-05-31-P2-006-V3
 
 ```
 
@@ -2750,28 +2755,33 @@ done_criteria:
 ```text
 1. git status --short
 2. 生成本轮唯一 run_id，并读取 docs/development-backlog.md
-3. 检查是否存在 in-progress:<timestamp> 任务：
+3. 执行 lock consistency check：
+   - lock 只能出现在 status=in-progress:<timestamp> 的任务块内
+   - 每个 in-progress 任务必须有且只能有一个 lock
+   - todo / needs-fix / blocked / done 任务带 lock → protocol_error，停止报告
+   - 多个 in-progress、多个 lock、或 in-progress 缺少 lock → protocol_error，停止报告
+4. 检查是否存在 in-progress:<timestamp> 任务：
    - timestamp 未超过 30 分钟，或 timestamp 晚于当前时间 → active lock
    - active lock 存在时，本轮必须输出 locked 并结束
    - 不得继续该任务
    - 不得选择其他任务
    - 只有原始持锁进程可以完成该任务并移除 lock
    - timestamp 超过 30 分钟 → stale lock，按 lock.previous_status 恢复为 needs-fix 或 todo，并记录 stale 证据
-4. 复核已标记 done 但带 review_findings.status=needs-fix 的任务：
+5. 复核已标记 done 但带 review_findings.status=needs-fix 的任务：
    - 必须视为 needs-fix
    - 不得继续跳过
-5. 如果没有 active lock，优先选择 status=needs-fix 且存在未解决 review_findings.status=needs-fix 的任务
-6. 如果没有可执行 review-fix 任务，选择普通 needs-fix（最高优先级）
-7. 如果没有可执行 needs-fix，选择 todo（最高优先级）
-8. 将选中任务状态改为 in-progress:<当前时间>，并写入 lock.owner、lock.run_id、lock.acquired_at、lock.expires_at、lock.previous_status
-9. 开发最小实现
-10. 自审：事实依据、合同、范围、安全、测试、JSON、trace、recovery、semantic acceptance
-11. 运行该任务 verification 中列出的命令
-12. 失败则修复，最多 3 轮
-13. 仍失败则改为 needs-fix 或 blocked，记录失败证据，并移除 lock
-14. 通过后将任务改为 done，记录验证结果，并移除 lock
-15. 只 stage 本轮相关文件
-16. git commit
+6. 如果没有 active lock，优先选择 status=needs-fix 且存在未解决 review_findings.status=needs-fix 的任务
+7. 如果没有可执行 review-fix 任务，选择普通 needs-fix（最高优先级）
+8. 如果没有可执行 needs-fix，选择 todo（最高优先级）
+9. 将选中任务状态改为 in-progress:<当前时间>，并写入 lock.owner、lock.run_id、lock.acquired_at、lock.expires_at、lock.previous_status
+10. 开发最小实现
+11. 自审：事实依据、合同、范围、安全、测试、JSON、trace、recovery、semantic acceptance
+12. 运行该任务 verification 中列出的命令
+13. 失败则修复，最多 3 轮
+14. 仍失败则改为 needs-fix 或 blocked，记录失败证据，并移除 lock
+15. 通过后将任务改为 done，记录验证结果，并移除 lock
+16. 只 stage 本轮相关文件
+17. git commit
 ```
 
 如果工作树在开始时已有无关改动，自动化必须避免提交无关文件；无法区分时停止并报告。
