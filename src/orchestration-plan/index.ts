@@ -101,3 +101,16 @@ export type { ArtifactStorageOptions } from './artifact-storage.js';
 export { hashObject } from './hash.js';
 export { validateWorkflowHash, computeWorkflowHash } from './workflow-hash-guard.js';
 export type { HashGuardResult } from './workflow-hash-guard.js';
+export {
+  decideOrchestrationRecovery,
+  buildRecoveryContext,
+  classifyOrchestrationFailure,
+  classifyExecutionFailure,
+  classifyWorkerFailure,
+  createOrchestrationRecoveryRecord,
+  type OrchestrationFailureKind,
+  type OrchestrationRecoveryDecision,
+  type OrchestrationRecoveryInput,
+  type OrchestrationRecoveryRecord,
+  type RecoveryContext,
+} from '../types/orchestration-recovery.js';

@@ -1898,7 +1898,7 @@ completion:
 ```yaml
 id: P2-011
 priority: P2
-status: todo
+status: done
 depends_on:
   - P1-008
   - P2-009
@@ -1939,6 +1939,20 @@ done_criteria:
   - validation failure、execution failure、worker failure、verification failure 分类明确
   - stale hash 时 recovery 保守阻断
   - recovery result 能回写 trace 或 task run record
+completion:
+  verified_at: 2026-05-31
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass (existing unrelated warnings/errors in worker-result-normalizer.ts)
+    - npm run test:run: pass (236 files, 3216 tests passed, 11 skipped)
+    - npm run check:default-context-usage: pass
+    - git diff --check: pass
+  changed_files:
+    - src/types/orchestration-recovery.ts
+    - src/types/orchestration-recovery.test.ts
+    - src/types/index.ts
+    - src/orchestration-plan/index.ts
+    - docs/development-backlog.md
 ```
 
 ### P2-012: Prompt / eval / rule proposal 治理闭环
