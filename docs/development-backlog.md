@@ -926,7 +926,7 @@ done_criteria:
   - 未确认副作用 draft 不能执行
 completion:
   verified_at: 2026-05-31T23:20
-  commit: pending
+  commit: 92af6ad
   verification_results:
     - npm run typecheck: pass (0 errors)
     - npm run lint: pass (0 errors, 0 warnings)
