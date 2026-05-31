@@ -1775,7 +1775,7 @@ completion:
 ```yaml
 id: P2-009
 priority: P2
-status: todo
+status: done
 depends_on:
   - P1-009
   - P1-013
@@ -1811,6 +1811,21 @@ verification:
 done_criteria:
   - workflow definition changed 时恢复保守阻断
   - hash 不包含 secrets 或未脱敏大输出
+completion:
+  verified_at: "2026-05-31"
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass (no errors in modified files)
+    - npm run test:run: pass
+  changed_files:
+    - src/orchestration-plan/hash.ts
+    - src/orchestration-plan/workflow-hash-guard.ts
+    - src/orchestration-plan/workflow-hash-guard.test.ts
+    - src/orchestration-plan/draft-executor.ts
+    - src/orchestration-plan/workflow-draft-converter.ts
+    - src/orchestration-plan/index.ts
+    - src/types/workflow.ts
+    - docs/development-backlog.md
 ```
 
 ### P2-010: 打通 plan / draft / execution / recovery trace identity

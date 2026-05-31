@@ -9,14 +9,7 @@ import type {
   DraftVerification,
 } from '../types/workflow-draft.js';
 import { validateWorkflowDraft, type DraftValidationError } from './workflow-draft-validator.js';
-import { createHash } from 'crypto';
-
-function hashObject(obj: unknown): string {
-  return createHash('sha256')
-    .update(JSON.stringify(obj))
-    .digest('hex')
-    .slice(0, 16);
-}
+import { hashObject } from './hash.js';
 
 function convertSafetyReview(
   plan: OrchestrationPlan

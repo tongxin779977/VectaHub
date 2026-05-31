@@ -7,7 +7,7 @@ import type { VerificationPlan } from '../types/index.js';
 import { validateWorkflowDraft } from './workflow-draft-validator.js';
 import { runVerificationPlan } from './verification-runner.js';
 import { createWorkflowEngine } from '../workflow/engine.js';
-import { createHash } from 'crypto';
+import { computeWorkflowHash } from './workflow-hash-guard.js';
 
 export interface DraftExecutionOptions {
   dryRun?: boolean;
@@ -138,7 +138,9 @@ export function createDraftExecutor(deps: DraftExecutorDeps) {
       sessionId: options.sessionId,
     };
 
+    const workflowHash = computeWorkflowHash(workflow);
     const executionRecord = await workflowEngine.execute(workflow, executeOptions);
+    executionRecord.workflowHash = workflowHash;
 
     // 如果需要验证，运行验证
     let verificationResults;

@@ -66,6 +66,7 @@ export interface ExecutionRecord {
   steps: StepRecord[];
   warnings: string[];
   logs: string[];
+  workflowHash?: string;
 }
 
 export interface StepRecord {

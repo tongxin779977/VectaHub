@@ -98,3 +98,6 @@ export {
 } from './checkpoint-reference-validator.js';
 export { createArtifactStorage } from './artifact-storage.js';
 export type { ArtifactStorageOptions } from './artifact-storage.js';
+export { hashObject } from './hash.js';
+export { validateWorkflowHash, computeWorkflowHash } from './workflow-hash-guard.js';
+export type { HashGuardResult } from './workflow-hash-guard.js';
