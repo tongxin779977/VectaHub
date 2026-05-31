@@ -1223,7 +1223,7 @@ completion:
 ```yaml
 id: P1-010
 priority: P1
-status: needs-fix
+status: done
 depends_on:
   - P0-006
   - P1-003
@@ -1264,14 +1264,14 @@ done_criteria:
   - clarify 明确缺少什么信息
   - plan/draft 回复说明下一步是 review、confirm、execute 或 verify
 completion:
-  verified_at: 2026-05-31T13:48
-  commit: 9c0eaac
+  verified_at: 2026-05-31T18:57
+  commit: 7561754
   verification_results:
-    - npm run typecheck: pass
+    - npm run typecheck: pass (0 errors)
     - npm run lint: pass (0 errors, 0 warnings)
     - npm run test:run: pass (239 files, 3308 tests passed, 11 skipped)
-    - scripts/test-semantic-output.sh: pass (43/44, 1 fail is LLM-dependent "npm test" UNKNOWN intent unrelated to P1-010)
-    - git diff --check: pass
+    - scripts/test-semantic-output.sh: pass (44 PASS / 0 EXPECTED_FAIL / 0 FAIL / 0 SKIP / 44 TOTAL)
+    - git diff --check: pass (no whitespace errors)
   changed_files:
     - docs/development-backlog.md
     - src/machine-response/index.ts
@@ -1279,7 +1279,7 @@ completion:
     - src/machine-response/human-readable-formatter.test.ts
 review_findings:
   reviewed_at: 2026-05-31T17:16
-  status: needs-fix
+  status: resolved_by_reverification:2026-05-31T18:57
   findings:
     - severity: P1
       location: docs/development-backlog.md:1069
@@ -1296,6 +1296,9 @@ review_findings:
         Fact review found this task cannot remain done: scripts/test-semantic-output.sh records 43/44 with one failed semantic test. Done evidence cannot accept LLM-dependent or unrelated-failure exceptions for a required semantic acceptance gate.
       required_fix: >
         Re-run every command listed in verification with strict pass evidence, require scripts/test-semantic-output.sh to report 0 fail, update completion.verification_results using exact required command names, and record a stable existing commit hash after committing the fix.
+      resolved_at: 2026-05-31T18:57
+      resolved_by: >
+        Re-ran all verification commands with strict pass evidence: npm run typecheck pass (0 errors), npm run lint pass (0 errors, 0 warnings), npm run test:run pass (239 files/3308 tests), scripts/test-semantic-output.sh pass (44/44, 0 fail), git diff --check pass. Previous LLM-dependent failure resolved by prior commits in other tasks.
 
 ```
 
