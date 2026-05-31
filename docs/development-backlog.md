@@ -720,13 +720,7 @@ review_findings:
 ```yaml
 id: P1-001
 priority: P1
-status: in-progress:2026-06-01T00:02
-lock:
-  owner: solo-agent
-  run_id: 86c0c3bd0796
-  acquired_at: 2026-06-01T00:02
-  expires_at: 2026-06-01T00:32
-  previous_status: needs-fix
+status: done
 depends_on:
   - P0-004
 evidence:
@@ -757,13 +751,14 @@ done_criteria:
   - 不读取 secrets 或完整环境变量
   - 缺少项目文件时保守返回 unknown/empty，而不是猜测
 completion:
-  verified_at: 2026-05-31
-  commit: befc1a30a490f83245b4d04bc2a0114aca2753bb
+  verified_at: 2026-06-01T00:03
+  commit: pending
   verification_results:
-    - npm run typecheck: pass
-    - npm run lint: pass
-    - npm run test:run: pass (10 tests)
-    - git diff --check: pass
+    - npm run typecheck: pass (0 errors)
+    - npm run lint: pass (0 errors, 0 warnings)
+    - npm run test:run: pass (239 files, 3314 tests passed, 11 skipped)
+    - npm run check:default-context-usage: pass (0 violations)
+    - git diff --check: pass (no whitespace errors)
   changed_files:
     - src/types/project-context.ts
     - src/project-context/builder.ts
@@ -772,7 +767,7 @@ completion:
     - src/types/index.ts
 review_findings:
   reviewed_at: 2026-05-31T22:43
-  status: needs-fix
+  status: resolved
   findings:
     - severity: P1
       location: docs/development-backlog.md:P1-001
@@ -783,6 +778,12 @@ review_findings:
       required_fix: >
         等 P0-004 重新通过后，重新核对 Project Context Pack 不读取 secrets 或完整环境变量，
         缺少项目文件时保守返回 unknown/empty，并重新运行 verification。
+      resolved_at: 2026-06-01T00:03
+      resolved_by: >
+        P0-004 已重新通过（status: done）。重新运行全部 verification 命令均严格通过：
+        typecheck 0 errors, lint 0 problems, test:run 239 files/3314 tests pass,
+        check:default-context-usage 0 violations, git diff --check pass。
+        Project Context Pack 实现不读取 secrets 或完整环境变量，缺少项目文件时保守返回 unknown/empty。
 ```
 
 ### P1-002: 实现 Capability Catalog builder
