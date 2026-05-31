@@ -48,15 +48,21 @@
 每轮自动化任务必须：
 
 1. 读取本文，并为本轮生成唯一 `run_id`。
+   - 在完成 active lock 判定前，只允许扫描任务 `id`、`status`、`priority` 和 `lock` 字段。
+   - 在完成 active lock 判定前，不得把任何任务设为 selected task。
+   - 在完成 active lock 判定前，不得读取任何任务的 `source_docs`、`required_contracts`、`scope`、`done_criteria` 或 `verification`。
 2. 执行 lock consistency check：
    - `lock` 只能出现在 `status: in-progress:<timestamp>` 的任务块内。
    - 每个 `status: in-progress:<timestamp>` 任务必须有且只能有一个 `lock`。
    - 如果 `todo`、`needs-fix`、`blocked` 或 `done` 任务带有 `lock`，视为协议错误；自动化必须停止并报告，不得选择任务。
    - 如果存在多个 `in-progress`、多个 `lock`，或 `in-progress` 缺少 `lock`，视为协议错误；自动化必须停止并报告。
 3. 检查是否存在 `in-progress:<timestamp>` 的任务：
+   - active lock 是全局互斥锁，不是可继续任务。
    - 如果时间戳未超过 30 分钟，或时间戳晚于当前时间，视为 active lock。
-   - 遇到 active lock 时，新的自动化实例必须直接报告 `locked` 并结束；不得选择该任务，也不得选择其他任务。
-   - 只有设置该 lock 的同一个正在运行进程可以继续完成该任务；新的定时触发不视为同一进程。
+   - 遇到 active lock 时，新的自动化实例必须直接报告 `locked` 并结束；不得选择该任务，不得读取该任务上下文，也不得选择其他任务。
+   - 新的自动化实例包括同名自动化、同一分支、同一机器上的下一次定时触发。
+   - 只有设置该 lock 的同一个正在运行进程可以继续完成该任务；判定依据是进程内持有的 `run_id` 等于 `lock.run_id`，不是 `owner` 相同。
+   - 每次定时触发都必须生成新的 `run_id`，因此不能接管已有 active lock。
    - 如果时间戳超过 30 分钟，视为 stale lock，按任务原始状态恢复为 `needs-fix` 或 `todo`，并记录 stale 证据。
 4. 复核 `done` 任务的完成证据；如果存在 `review_findings.status=needs-fix`、非稳定 commit、缺失必需验证或验证未严格通过，必须改回 `needs-fix`。
 5. 优先选择 `status=needs-fix` 且存在未解决 `review_findings.status=needs-fix` 的任务。
@@ -72,6 +78,9 @@
 
 - 一轮同时开发多个 backlog item。
 - 在存在 active lock 时继续领取同一任务或领取其他任务。
+- 在存在 active lock 时读取被锁定任务的 `source_docs`、`required_contracts`、`scope`、`done_criteria` 或 `verification`。
+- 把 `status: in-progress:<timestamp>` 任务当作当前轮 selected task。
+- 仅因为 `lock.owner` 与当前自动化名称相同就接管 active lock。
 - 在存在可执行 review-fix 任务时选择普通 `needs-fix` 或 `todo` 任务。
 - 跳过 P0/P1 去做低优先级功能。
 - 在依赖任务未完成时开发下游任务。
@@ -115,10 +124,12 @@
 
 ## 状态模型
 
+Active lock 是全局互斥锁。新的自动化实例不能把 active `in-progress` 任务当作 selected task，也不能读取该任务的开发上下文；只能输出 `locked` 后结束。只有进程内持有相同 `run_id` 的原始执行进程可以继续完成并移除该锁。
+
 | Status | 含义 | 跨 session 行为 |
 |--------|------|-----------------|
 | `todo` | 待开发，可被自动化选择。 | 直接选择。 |
-| `in-progress:<timestamp>` | 当前轮正在开发；时间戳格式 `YYYY-MM-DDTHH:MM`。 | 未超时或时间戳晚于当前时间时是 active lock；新的自动化实例必须退出，不得继续或重复选择。 |
+| `in-progress:<timestamp>` | 当前轮正在开发；时间戳格式 `YYYY-MM-DDTHH:MM`。 | 未超时或时间戳晚于当前时间时是 active lock；新的自动化实例必须退出，不得读取上下文、继续或重复选择。 |
 | `needs-fix` | 已开发但审计、验证或后续复审失败，需要修复。 | 优先于 `todo` 选择；其中未解决 `review_findings.status=needs-fix` 的 review-fix 任务优先于普通 `needs-fix`。 |
 | `blocked` | 缺少合同、权限、环境或产品决策，不能继续。 | 跳过。 |
 | `done` | 开发、审计、验证和提交均完成。 | 跳过；如果后续复审发现不满足 `done_criteria`，必须改回 `needs-fix` 并记录复审证据。 |
@@ -536,7 +547,7 @@ completion:
 ```yaml
 id: P0-006
 priority: P0
-status: done
+status: needs-fix
 depends_on:
   - P0-001
 evidence:
@@ -595,8 +606,8 @@ completion:
     - src/workflow/executor.ts
     - docs/development-backlog.md
 review_findings:
-  reviewed_at: 2026-05-31T10:54
-  status: resolved_by_commit:5e39f94010f7a50f1f7f0b4101c4f449d6c341
+  reviewed_at: 2026-05-31T17:16
+  status: needs-fix
   findings:
     - severity: P1
       location: docs/development-backlog.md:504
@@ -605,6 +616,12 @@ review_findings:
       required_fix: >
         Re-run this backlog item from its current implementation state, execute every command listed in verification with strict pass evidence, ensure lint is 0 problems when required, and update completion with a stable commit hash after the fix is committed.
       resolved_at: 2026-05-31T08:27
+    - severity: P1
+      location: docs/development-backlog.md:534
+      reason: >
+        Fact review found this task cannot remain done: completion.commit does not resolve to an existing local commit, and scripts/test-semantic-output.sh records 44/45 with one failed semantic test. Required verification must be strict pass evidence, not pass-with-exception evidence.
+      required_fix: >
+        Re-run every command listed in verification from the current implementation state, require scripts/test-semantic-output.sh to report 0 fail, update completion.verification_results using the exact required command names, and replace completion.commit with a stable commit hash that exists in git history after committing the fix.
 
 ```
 
@@ -784,7 +801,7 @@ completion:
 ```yaml
 id: P1-004
 priority: P1
-status: done
+status: needs-fix
 depends_on:
   - P0-002
   - P0-005
@@ -842,8 +859,8 @@ completion:
     test:run has 1 pre-existing failure in engine.test.ts (should resume from paused state) unrelated to PlanSafetyReview.
     semantic test failures are due to Trae sandbox restrictions preventing CLI from writing to audit/execution files, not P1-004 code issues.
 review_findings:
-  reviewed_at: 2026-05-31T10:54
-  status: resolved_by_commit:cbc52a8
+  reviewed_at: 2026-05-31T17:16
+  status: needs-fix
   findings:
     - severity: P1
       location: docs/development-backlog.md:735
@@ -852,6 +869,12 @@ review_findings:
       required_fix: >
         Re-run this backlog item from its current implementation state, execute every command listed in verification with strict pass evidence, ensure lint is 0 problems when required, and update completion with a stable commit hash after the fix is committed.
       resolved_at: 2026-05-31T11:40
+    - severity: P1
+      location: docs/development-backlog.md:782
+      reason: >
+        Fact review found this task cannot remain done: npm run test:run records one pre-existing failure, and scripts/test-semantic-output.sh records 20 pass / 22 fail. Done evidence cannot rely on unrelated-failure or sandbox-exception explanations.
+      required_fix: >
+        Re-run every command listed in verification with strict pass evidence, ensure npm run test:run has 0 failures and scripts/test-semantic-output.sh has 0 fail, then update completion.verification_results with exact command names and a stable existing commit hash.
 
 ```
 
@@ -860,7 +883,7 @@ review_findings:
 ```yaml
 id: P1-005
 priority: P1
-status: done
+status: needs-fix
 depends_on:
   - P0-002
   - P0-003
@@ -909,8 +932,8 @@ completion:
     - src/orchestration-plan/index.ts
     - docs/development-backlog.md
 review_findings:
-  reviewed_at: 2026-05-31T10:54
-  status: resolved
+  reviewed_at: 2026-05-31T17:16
+  status: needs-fix
   findings:
     - severity: P1
       location: docs/development-backlog.md:794
@@ -920,6 +943,12 @@ review_findings:
         Re-run this backlog item from its current implementation state, execute every command listed in verification with strict pass evidence, ensure lint is 0 problems when required, and update completion with a stable commit hash after the fix is committed.
       resolved_at: 2026-05-31T11:52
       resolved_by: re-ran all verification commands with strict pass evidence
+    - severity: P1
+      location: docs/development-backlog.md:858
+      reason: >
+        Fact review found this task cannot remain done: scripts/test-semantic-output.sh records 44/45 with one failed semantic test. Done evidence must show strict 0-fail semantic acceptance for this task's required verification.
+      required_fix: >
+        Re-run every command listed in verification, require scripts/test-semantic-output.sh to report 0 fail, update completion.verification_results with the exact required command names, and commit the fix before recording the final stable commit hash.
 
 ```
 
@@ -1187,7 +1216,7 @@ completion:
 ```yaml
 id: P1-010
 priority: P1
-status: done
+status: needs-fix
 depends_on:
   - P0-006
   - P1-003
@@ -1242,8 +1271,8 @@ completion:
     - src/machine-response/human-readable-formatter.ts
     - src/machine-response/human-readable-formatter.test.ts
 review_findings:
-  reviewed_at: 2026-05-31T10:54
-  status: resolved_by_verification:2026-05-31T13:48
+  reviewed_at: 2026-05-31T17:16
+  status: needs-fix
   findings:
     - severity: P1
       location: docs/development-backlog.md:1069
@@ -1254,6 +1283,12 @@ review_findings:
       resolved_at: 2026-05-31T13:48
       resolved_by: >
         Re-ran all verification commands: typecheck pass, lint 0 problems, test:run 239 files/3308 tests pass, test-semantic-output.sh 43/44 pass (1 LLM-dependent failure unrelated to P1-010), git diff --check pass.
+    - severity: P1
+      location: docs/development-backlog.md:1203
+      reason: >
+        Fact review found this task cannot remain done: scripts/test-semantic-output.sh records 43/44 with one failed semantic test. Done evidence cannot accept LLM-dependent or unrelated-failure exceptions for a required semantic acceptance gate.
+      required_fix: >
+        Re-run every command listed in verification with strict pass evidence, require scripts/test-semantic-output.sh to report 0 fail, update completion.verification_results using exact required command names, and record a stable existing commit hash after committing the fix.
 
 ```
 
@@ -1262,7 +1297,7 @@ review_findings:
 ```yaml
 id: P1-011
 priority: P1
-status: done
+status: needs-fix
 depends_on:
   - P1-006
   - P1-010
@@ -1315,19 +1350,15 @@ completion:
     - src/semantic-testing/runner.ts
     - src/semantic-testing/index.ts
 review_findings:
-  - reviewed_by: agent
-    reviewed_at: 2026-05-31T10:54
-    status: resolved_by_reverification
-    findings:
-      - category: verification
-        severity: P1
-        location: docs/development-backlog.md#P1-011
-        message: >
-          Post-review found that this task does not meet the completion evidence rules: commit is HEAD; missing required verification: scripts/test-semantic-output.sh.
-        required_fix: >
-          Re-run this backlog item from its current implementation state, execute every command listed in verification with strict pass evidence, ensure lint is 0 problems when required, and update completion with a stable commit hash after the fix is committed.
-        resolved_by_commit: HEAD
-        resolved_at: 2026-05-31T16:05
+  reviewed_at: 2026-05-31T17:16
+  status: needs-fix
+  findings:
+    - severity: P1
+      location: docs/development-backlog.md:1278
+      reason: >
+        Fact review found this task cannot remain done: the task verification list requires scripts/test-semantic-output.sh and git diff --check, but completion.verification_results records test-semantic-output.sh and git-diff-check instead of the exact required command names. The review_findings block also used a list shape that the backlog automation does not recognize as an unresolved review-fix task.
+      required_fix: >
+        Re-run the exact required verification commands scripts/test-semantic-output.sh and git diff --check, record them under completion.verification_results using the same command names, keep semantic output at 0 fail, and update completion.commit to a stable existing commit hash after committing the fix.
 
 ```
 
@@ -1414,7 +1445,7 @@ review_findings:
 ```yaml
 id: P1-013
 priority: P1
-status: done
+status: needs-fix
 depends_on:
   - P1-005
   - P1-007
@@ -1470,8 +1501,8 @@ completion:
   changed_files:
     - docs/development-backlog.md
 review_findings:
-  reviewed_at: 2026-05-31T10:54
-  status: resolved_by_reverification
+  reviewed_at: 2026-05-31T17:16
+  status: needs-fix
   findings:
     - severity: P1
       location: docs/development-backlog.md:1247
@@ -1480,6 +1511,12 @@ review_findings:
       required_fix: >
         Re-run this backlog item from its current implementation state, execute every command listed in verification with strict pass evidence, ensure lint is 0 problems when required, and update completion with a stable commit hash after the fix is committed.
       resolved_by_commit: 0e40141
+    - severity: P1
+      location: docs/development-backlog.md:1430
+      reason: >
+        Fact review found this task cannot remain done: completion.verification_results uses non-matching keys such as typecheck, lint, test_run, semantic_output, and git_diff_check instead of the exact required command names, and the recorded semantic output includes 2 failed tests.
+      required_fix: >
+        Re-run npm run typecheck, npm run lint, npm run test:run, scripts/test-semantic-output.sh, and git diff --check with strict pass evidence, require semantic output to report 0 fail, record results using the exact command names from verification, and update completion.commit to a stable existing commit hash after committing the fix.
 
 ```
 
@@ -2569,7 +2606,7 @@ review_findings:
 ```yaml
 id: P3-002
 priority: P3
-status: done
+status: needs-fix
 depends_on:
   - P1-007
   - P1-009
@@ -2628,6 +2665,16 @@ completion:
     Commands support: list, detail, review, confirm, deny, execute, delete.
     Supports both human-readable and JSON output with --json flag.
     Safety review status is enforced - blocked drafts cannot be confirmed.
+review_findings:
+  reviewed_at: 2026-05-31T17:16
+  status: needs-fix
+  findings:
+    - severity: P1
+      location: docs/development-backlog.md:2585
+      reason: >
+        Fact review found this task cannot remain done: completion.verification_results is missing scripts/test-semantic-output.sh, and npm run lint records pre-existing warnings instead of strict 0-warning pass evidence.
+      required_fix: >
+        Re-run every command listed in verification with strict pass evidence, include scripts/test-semantic-output.sh with 0 fail, ensure npm run lint reports 0 errors and 0 warnings, update completion.verification_results using exact required command names, and record a stable existing commit hash after committing the fix.
 ```
 
 ### P3-003: Backlog automation runner / report hardening
@@ -2755,17 +2802,23 @@ done_criteria:
 ```text
 1. git status --short
 2. 生成本轮唯一 run_id，并读取 docs/development-backlog.md
+   - 完成 active lock 判定前，只允许扫描任务 id / status / priority / lock
+   - 完成 active lock 判定前，不得设置 selected task
+   - 完成 active lock 判定前，不得读取任何任务的 source_docs / required_contracts / scope / done_criteria / verification
 3. 执行 lock consistency check：
    - lock 只能出现在 status=in-progress:<timestamp> 的任务块内
    - 每个 in-progress 任务必须有且只能有一个 lock
    - todo / needs-fix / blocked / done 任务带 lock → protocol_error，停止报告
    - 多个 in-progress、多个 lock、或 in-progress 缺少 lock → protocol_error，停止报告
 4. 检查是否存在 in-progress:<timestamp> 任务：
+   - active lock 是全局互斥锁，不是当前轮可继续任务
    - timestamp 未超过 30 分钟，或 timestamp 晚于当前时间 → active lock
    - active lock 存在时，本轮必须输出 locked 并结束
    - 不得继续该任务
+   - 不得读取该任务的 source_docs / required_contracts / scope / done_criteria / verification
    - 不得选择其他任务
-   - 只有原始持锁进程可以完成该任务并移除 lock
+   - 新的定时触发即使 automation name / branch / owner 相同，也不是原始持锁进程
+   - 只有进程内持有的 run_id 等于 lock.run_id 的原始持锁进程可以完成该任务并移除 lock
    - timestamp 超过 30 分钟 → stale lock，按 lock.previous_status 恢复为 needs-fix 或 todo，并记录 stale 证据
 5. 复核已标记 done 但带 review_findings.status=needs-fix 的任务：
    - 必须视为 needs-fix
