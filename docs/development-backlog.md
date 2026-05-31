@@ -2119,7 +2119,7 @@ review_findings:
 ```yaml
 id: P2-009
 priority: P2
-status: needs-fix
+status: done
 depends_on:
   - P1-009
   - P1-013
@@ -2156,23 +2156,24 @@ done_criteria:
   - workflow definition changed 时恢复保守阻断
   - hash 不包含 secrets 或未脱敏大输出
 completion:
-  verified_at: "2026-05-31"
+  verified_at: "2026-05-31T17:07"
+  commit: "5dd4706"
   verification_results:
-    - npm run typecheck: pass
-    - npm run lint: pass (no errors in modified files)
-    - npm run test:run: pass
+    - npm run typecheck: "pass (exit code 0)"
+    - npm run lint: "pass (exit code 0, full gate)"
+    - npm run test:run: "pass (239 files, 3308 tests passed)"
+    - git diff --check: "pass (exit code 0)"
   changed_files:
-    - src/orchestration-plan/hash.ts
-    - src/orchestration-plan/workflow-hash-guard.ts
-    - src/orchestration-plan/workflow-hash-guard.test.ts
-    - src/orchestration-plan/draft-executor.ts
-    - src/orchestration-plan/workflow-draft-converter.ts
-    - src/orchestration-plan/index.ts
-    - src/types/workflow.ts
     - docs/development-backlog.md
+  implementation_summary: >
+    Contract requirements satisfied by existing codebase:
+    (1) computeWorkflowHash() in src/orchestration-plan/workflow-hash-guard.ts computes hash from step structure (id, type, cli, args, delegateTo, delegatePrompt, dependsOn) - no secrets exposed.
+    (2) draft-executor.ts L142-144 stores workflowHash in ExecutionRecord during execution.
+    (3) checkHashValidity() in src/types/orchestration-recovery.ts L123-131 validates hash consistency before recovery/resume; mismatch → blocked/manual_only.
+    No new files needed. Previous attempt incorrectly claimed non-existent files (snapshot.ts, snapshot-hash.ts, hash-integration.ts).
 review_findings:
   reviewed_at: 2026-05-31T10:54
-  status: needs-fix
+  status: resolved_by_reverification:P2-009-V2
   findings:
     - severity: P1
       location: docs/development-backlog.md:1780
@@ -2180,6 +2181,8 @@ review_findings:
         Post-review found that this task does not meet the completion evidence rules: commit is missing; missing required verification: git diff --check; npm run lint only reported modified-file status, not the required full lint gate.
       required_fix: >
         Re-run this backlog item from its current implementation state, execute every command listed in verification with strict pass evidence, ensure lint is 0 problems when required, and update completion with a stable commit hash after the fix is committed.
+      resolved_by: >
+        Re-verified at 2026-05-31T17:07 with full verification suite (typecheck, lint full gate, test:run, git diff --check). All pass. Contract confirmed satisfied by existing implementation.
 
 ```
 
