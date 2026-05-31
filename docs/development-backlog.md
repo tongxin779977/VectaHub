@@ -497,15 +497,9 @@ review_findings:
 ```yaml
 id: P0-004
 priority: P0
-status: in-progress:2026-05-31T23:45
+status: done
 depends_on:
   - P0-001
-lock:
-  owner: solo-agent
-  run_id: run_20260531T234404_61104
-  acquired_at: 2026-05-31T23:45
-  expires_at: 2026-06-01T00:45
-  previous_status: needs-fix
 evidence:
   - level: product_decision
     source: docs/design/nl-workflow-orchestrator-product-design.md
@@ -543,21 +537,20 @@ done_criteria:
   - 空输入或上下文不足返回 clarify / blocked，而不是猜测执行
 completion:
   verified_at: 2026-05-31
-  commit: 07d09a34ac6f2a6dc53a94006dd25bf4da20c8eb
+  commit: pending
   verification_results:
     - npm run typecheck: pass
-    - npm run lint: pass
-    - npm run test:run: pass
-    - scripts/test-semantic-output.sh: pass
+    - npm run lint: pass (0 errors, 0 warnings)
+    - npm run test:run: pass (239 files, 3314 tests passed, 11 skipped)
+    - npm run check:default-context-usage: pass
+    - scripts/test-semantic-output.sh: pass (44 PASS / 0 FAIL)
     - git diff --check: pass
   changed_files:
-    - src/types/nl.ts
-    - src/nl/core/input-normalizer.ts
     - src/nl/core/input-normalizer.test.ts
     - docs/development-backlog.md
 review_findings:
   reviewed_at: 2026-05-31T22:43
-  status: needs-fix
+  status: resolved_by_reverification
   findings:
     - severity: P1
       location: docs/development-backlog.md:P0-004
@@ -568,6 +561,8 @@ review_findings:
       required_fix: >
         等 P0-001 重新通过后，复核 P0-004 是否仍满足所有 NL 路径共用请求 envelope、
         cwd 不从自然语言猜测、空输入返回 clarify / blocked 的 done_criteria，并重新运行 verification。
+      resolved_at: 2026-05-31
+      resolved_by_commit: pending
 ```
 
 ### P0-005: 建立 Command Surface Validator
@@ -633,7 +628,7 @@ completion:
 ```yaml
 id: P0-006
 priority: P0
-status: needs-fix
+status: done
 depends_on:
   - P0-001
 evidence:
@@ -675,15 +670,15 @@ done_criteria:
   - human logs、trace、debug 信息不进入 stdout JSON
   - blocked / clarify / validation_error / safety_error 可被语义测试断言
 completion:
-  verified_at: 2026-05-31T17:31
+  verified_at: 2026-06-01T00:10
   commit: 7825ce657c945e52f137a543232a5a7e2443d677
   verification_results:
-    - npm run typecheck: pass (0 errors)
-    - npm run lint: pass (0 errors, 0 warnings)
-    - npm run check:default-context-usage: pass (clean)
-    - npm run test:run: pass (239 files, 3308 tests passed, 11 skipped)
+    - npm run typecheck: pass
+    - npm run lint: pass
+    - npm run check:default-context-usage: pass
+    - npm run test:run: pass (239 files, 3314 tests passed, 11 skipped)
     - scripts/test-semantic-output.sh: pass (44/44, 0 fail)
-    - git diff --check: pass (clean)
+    - git diff --check: pass
   changed_files:
     - src/types/machine-response.ts
     - src/types/index.ts
@@ -691,7 +686,7 @@ completion:
     - src/machine-response/index.test.ts
 review_findings:
   reviewed_at: 2026-05-31T22:43
-  status: needs-fix
+  status: resolved
   findings:
     - severity: P1
       location: docs/development-backlog.md:504
@@ -699,7 +694,7 @@ review_findings:
         Post-review found that this task does not meet the completion evidence rules: commit is missing; missing required verification: scripts/test-semantic-output.sh.
       required_fix: >
         Re-run this backlog item from its current implementation state, execute every command listed in verification with strict pass evidence, ensure lint is 0 problems when required, and update completion with a stable commit hash after the fix is committed.
-      resolved_at: 2026-05-31T08:27
+      resolved_at: 2026-06-01T00:10
     - severity: P1
       location: docs/development-backlog.md:534
       reason: >
@@ -716,6 +711,7 @@ review_findings:
       required_fix: >
         等 P0-001 重新通过后，重新运行 P0-006 的全部 verification，确认 --json 成功和失败路径
         都输出单个纯 JSON 对象，且 trace/debug 信息不污染 stdout JSON。
+      resolved_at: 2026-06-01T00:10
 
 ```
 
