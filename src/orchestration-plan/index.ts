@@ -73,3 +73,5 @@ export type {
   DelegationDecision,
   DelegationPolicyOptions,
 } from './delegation-policy.js';
+export { normalizeWorkerResult } from './worker-result-normalizer.js';
+export type { RawWorkerOutput } from './worker-result-normalizer.js';

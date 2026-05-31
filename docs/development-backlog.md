@@ -1478,7 +1478,7 @@ completion:
 ```yaml
 id: P2-004
 priority: P2
-status: todo
+status: done
 depends_on:
   - P2-002
   - P1-008
@@ -1518,6 +1518,18 @@ done_criteria:
   - worker success、failure、cancelled、needs_review 能稳定分类
   - worker result 不保存 secrets、完整 prompt 或未脱敏大输出
   - verification failure 会覆盖 worker 自报成功
+completion:
+  verified_at: "2026-05-31"
+  verification_results:
+    - npm run typecheck: pass
+    - npm run test:run: pass (5 tests)
+  changed_files:
+    - src/types/worker-result.ts
+    - src/types/index.ts
+    - src/orchestration-plan/worker-result-normalizer.ts
+    - src/orchestration-plan/worker-result-normalizer.test.ts
+    - src/orchestration-plan/index.ts
+    - docs/development-backlog.md
 ```
 
 ### P2-005: Native Feature Passthrough Policy
