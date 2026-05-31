@@ -82,6 +82,7 @@ const COMMAND_REGISTRY: RegistryEntry[] = [
   { modulePath: './commands/recover-task.js', bindings: [{ name: 'recover-task', exportName: 'createRecoverTaskCmd', isFactory: true }] },
   { modulePath: './commands/provider.js', bindings: [{ name: 'provider', exportName: 'createProviderCmd', isFactory: true }], needsAgentRuntime: true },
   { modulePath: './commands/queue.js', bindings: [{ name: 'queue', exportName: 'createQueueCmd', isFactory: true }] },
+  { modulePath: './commands/draft.js', bindings: [{ name: 'draft', exportName: 'createDraftCommand', isFactory: true }] },
 ];
 
 /** Metadata for a lazy-loaded command proxy. */
@@ -128,6 +129,7 @@ export const LAZY_COMMAND_METAS: LazyCommandMeta[] = [
   { name: 'trace', description: '查看链路追踪数据' },
   { name: 'queue', description: '管理诊断队列' },
   { name: 'provider', description: 'AI Provider 管理' },
+  { name: 'draft', description: '管理 Workflow Drafts' },
   { name: 'dev', description: '开发命令' },
 ];
 
