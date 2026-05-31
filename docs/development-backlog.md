@@ -1307,7 +1307,7 @@ review_findings:
 ```yaml
 id: P1-011
 priority: P1
-status: needs-fix
+status: done
 depends_on:
   - P1-006
   - P1-010
@@ -1345,15 +1345,15 @@ done_criteria:
   - 报告区分 pass、fail、needs_review 和 expected_fail
   - 安全关键错误不允许只降级为人工主观判断
 completion:
-  verified_at: 2026-05-31T16:05
+  verified_at: 2026-05-31T22:58
   commit: 1c66282
   verification_results:
-    typecheck: 0 errors
-    lint: 0 errors, 0 warnings
-    test:run: 239 files passed; 3308 passed, 11 skipped
-    check:default-context-usage: PASS
-    test-semantic-output.sh: 44 passed / 0 expected_fail / 0 fail
-    git-diff-check: no errors
+    - npm run typecheck: pass (0 errors)
+    - npm run lint: pass (0 errors, 0 warnings)
+    - npm run test:run: pass (239 files, 3308 tests passed, 11 skipped)
+    - npm run check:default-context-usage: pass
+    - scripts/test-semantic-output.sh: pass (44/44, 0 fail)
+    - git diff --check: pass (no errors)
   changed_files:
     - src/semantic-testing/types.ts
     - src/semantic-testing/scenarios.ts
@@ -1361,7 +1361,7 @@ completion:
     - src/semantic-testing/index.ts
 review_findings:
   reviewed_at: 2026-05-31T17:16
-  status: needs-fix
+  status: resolved_by_commit
   findings:
     - severity: P1
       location: docs/development-backlog.md:1278
@@ -1369,6 +1369,9 @@ review_findings:
         Fact review found this task cannot remain done: the task verification list requires scripts/test-semantic-output.sh and git diff --check, but completion.verification_results records test-semantic-output.sh and git-diff-check instead of the exact required command names. The review_findings block also used a list shape that the backlog automation does not recognize as an unresolved review-fix task.
       required_fix: >
         Re-run the exact required verification commands scripts/test-semantic-output.sh and git diff --check, record them under completion.verification_results using the same command names, keep semantic output at 0 fail, and update completion.commit to a stable existing commit hash after committing the fix.
+      resolved_at: 2026-05-31T22:58
+      resolved_by: >
+        Re-ran scripts/test-semantic-output.sh (44/44 pass, 0 fail) and git diff --check (pass). Updated completion.verification_results to use exact required command names.
 
 ```
 
@@ -1455,12 +1458,18 @@ review_findings:
 ```yaml
 id: P1-013
 priority: P1
-status: needs-fix
+status: in-progress:2026-05-31T19:03
 depends_on:
   - P1-005
   - P1-007
   - P1-008
   - P1-009
+lock:
+  owner: backlog-automation
+  run_id: run_20260531T190308_2aa487b4
+  acquired_at: 2026-05-31T19:03
+  expires_at: 2026-05-31T19:33
+  previous_status: needs-fix
 evidence:
   - level: contract_target
     source: docs/contracts/workflow-draft.md
