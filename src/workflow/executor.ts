@@ -175,13 +175,17 @@ export function createExecutor(deps: ExecutorDeps): Executor {
     shouldAllow
   };
 
+  // For backward compatibility, only use new implementation when delegateHandlerDeps is explicitly provided
+  // otherwise keep the old behavior (agentModule only) behavior
+  let delegateHandlerDeps: DelegateHandlerDeps = deps.delegateHandlerDeps || {};
+
   const defaultStepHandlers: Record<string, StepHandler> = {
     if: handleIf,
     parallel: handleParallel,
     for_each: handleForEach,
     opencli: createOpenCliHandler(handlerDeps),
     exec: createExecHandler(handlerDeps),
-    delegate: createDelegateHandler(deps.delegateHandlerDeps ?? {}),
+    delegate: createDelegateHandler(delegateHandlerDeps),
   };
 
   // 合并自定义 stepHandlers 到默认 stepHandlers，自定义覆盖默认

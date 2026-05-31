@@ -1598,7 +1598,7 @@ done_criteria:
 ```yaml
 id: P2-006
 priority: P2
-status: in-progress:2026-05-31T12:36
+status: done
 depends_on:
   - P1-009
   - P2-002
@@ -1651,7 +1651,6 @@ completion:
     - src/orchestration-plan/checkpoint-reference-validator.test.ts
     - src/orchestration-plan/index.ts
     - docs/development-backlog.md
-status: done
 ```
 
 ### P2-007: Agent delegate runtime 接线和 preflight
@@ -1659,7 +1658,7 @@ status: done
 ```yaml
 id: P2-007
 priority: P2
-status: todo
+status: done
 depends_on:
   - P1-005
   - P1-008
@@ -1704,6 +1703,17 @@ done_criteria:
   - unknown/unready agent blocked
   - delegate success still requires verification when task mutates state
   - worker native features cannot bypass VectaHub governance
+completion:
+  verified_at: 2026-05-31
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass
+    - npm run test:run: pass (3172 tests passed, 11 skipped)
+    - git diff --check: pass
+  changed_files:
+    - src/workflow/executor.ts
+    - src/workflow/handlers/delegate-handler.ts
+    - docs/development-backlog.md
 ```
 
 ### P2-008: Artifact handoff 合同与最小实现
