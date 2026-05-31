@@ -48,19 +48,23 @@
 每轮自动化任务必须：
 
 1. 读取本文，并为本轮生成唯一 `run_id`。
-2. 检查是否存在 `in-progress:<timestamp>` 的任务：
+2. 执行 lock consistency check：
+   - `lock` 只能出现在 `status: in-progress:<timestamp>` 的任务块内。
+   - 如果 `todo`、`needs-fix`、`blocked` 或 `done` 任务带有 `lock`，视为协议错误；自动化必须停止并报告，不得选择任务。
+   - 如果存在多个 `in-progress` 或多个 `lock`，视为协议错误；自动化必须停止并报告。
+3. 检查是否存在 `in-progress:<timestamp>` 的任务：
    - 如果时间戳未超过 30 分钟，或时间戳晚于当前时间，视为 active lock。
    - 遇到 active lock 时，新的自动化实例必须直接报告 `locked` 并结束；不得选择该任务，也不得选择其他任务。
    - 只有设置该 lock 的同一个正在运行进程可以继续完成该任务；新的定时触发不视为同一进程。
    - 如果时间戳超过 30 分钟，视为 stale lock，按任务原始状态恢复为 `needs-fix` 或 `todo`，并记录 stale 证据。
-3. 复核 `done` 任务的完成证据；如果存在 `review_findings.status=needs-fix`、非稳定 commit、缺失必需验证或验证未严格通过，必须改回 `needs-fix`。
-4. 选择 priority 最高、排序最靠前、依赖已完成的 `needs-fix` 任务。
-5. 如果不存在可执行 `needs-fix`，选择 priority 最高、排序最靠前、依赖已完成的 `todo` 任务。
-6. 将选中任务状态改为 `in-progress:<当前时间>`，并写入 `lock.owner`、`lock.run_id`、`lock.acquired_at`、`lock.expires_at` 和 `lock.previous_status`。
-7. 只开发这一项。
-8. 完成后审计和验证。
-9. 通过后将该项改为 `done`，记录验证命令和提交信息，并移除 `lock`。
-10. 未通过则改为 `needs-fix` 或 `blocked`，记录失败证据，并移除 `lock`。
+4. 复核 `done` 任务的完成证据；如果存在 `review_findings.status=needs-fix`、非稳定 commit、缺失必需验证或验证未严格通过，必须改回 `needs-fix`。
+5. 选择 priority 最高、排序最靠前、依赖已完成的 `needs-fix` 任务。
+6. 如果不存在可执行 `needs-fix`，选择 priority 最高、排序最靠前、依赖已完成的 `todo` 任务。
+7. 将选中任务状态改为 `in-progress:<当前时间>`，并写入 `lock.owner`、`lock.run_id`、`lock.acquired_at`、`lock.expires_at` 和 `lock.previous_status`。
+8. 只开发这一项。
+9. 完成后审计和验证。
+10. 通过后将该项改为 `done`，记录验证命令和提交信息，并移除 `lock`。
+11. 未通过则改为 `needs-fix` 或 `blocked`，记录失败证据，并移除 `lock`。
 
 禁止：
 
@@ -1646,12 +1650,6 @@ out_of_scope:
 required_contracts:
   - docs/contracts/orchestration-plan.md
   - docs/contracts/agent-worker-contract.md
-lock:
-  owner: external-automation
-  run_id: existing-lock-20260531T1648-P2-003
-  acquired_at: 2026-05-31T16:48
-  expires_at: 2026-05-31T17:18
-  previous_status: needs-fix
 verification:
   - npm run typecheck
   - npm run lint
