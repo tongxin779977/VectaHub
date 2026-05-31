@@ -59,13 +59,13 @@
    - 多个不同任务同时处于 `in-progress` 是允许的；它表示多个自动化 run 正在处理不同 backlog item。
 3. 执行 lock availability scan：
    - active lock 只占用当前任务；其他依赖已完成、未被锁定的 eligible item 仍可被本轮选择。
-   - 如果某个 `in-progress:<timestamp>` 未超过 30 分钟，或时间戳晚于当前时间，视为该任务 active locked。
+   - 如果某个 `in-progress:<timestamp>` 未超过 1 小时，或时间戳晚于当前时间，视为该任务 active locked。
    - 如果某个任务存在本地原子 claim 目录，视为该任务 claim locked；本轮不得选择它，除非该 claim 已按 stale claim 规则清理。
    - active locked item 必须标记为 unavailable；本轮不得选择它，不得读取它的开发上下文。
    - 只有设置该 lock 的同一个正在运行进程可以继续完成该任务；判定依据是进程内持有的 `run_id` 等于 `lock.run_id`，不是 `owner` 相同。
    - 每次定时触发都必须生成新的 `run_id`，因此不能接管已有 active lock。
-   - 如果某个 `in-progress:<timestamp>` 超过 30 分钟，视为 stale lock，按任务原始状态恢复为 `needs-fix` 或 `todo`，移除 `lock`，并记录 stale 证据。
-   - 如果某个任务只有 claim 目录但没有 active `in-progress`，且 claim 目录超过 30 分钟，视为 stale claim，可以移除该 claim 目录并继续选择。
+   - 如果某个 `in-progress:<timestamp>` 超过 1 小时，视为 stale lock，按任务原始状态恢复为 `needs-fix` 或 `todo`，移除 `lock`，并记录 stale 证据。
+   - 如果某个任务只有 claim 目录但没有 active `in-progress`，且 claim 目录超过 1 小时，视为 stale claim，可以移除该 claim 目录并继续选择。
    - 如果存在 active locked 或 claim locked item，但仍有其他依赖已满足的 `needs-fix` 或 `todo` 任务，本轮应跳过 locked item 并继续选择下一个可执行任务。
    - 如果所有可执行任务都被 active lock 或 claim lock 占用，或剩余任务都依赖未完成的 locked item，本轮输出 `locked_no_eligible_task` 并结束。
 4. 复核 `done` 任务的完成证据；如果存在 `review_findings.status=needs-fix`、非稳定 commit、缺失必需验证或验证未严格通过，必须改回 `needs-fix`。
@@ -156,8 +156,8 @@ Active lock 是单任务独占锁。新的自动化实例不能接管 active `in
 
 - `todo` → `in-progress:<now>`：开始开发时。
 - `needs-fix` → `in-progress:<now>`：开始修复时。
-- `in-progress:<ts>` → `todo`：超过 30 分钟未完成且 `lock.previous_status=todo`，视为 stale lock 自动重置。
-- `in-progress:<ts>` → `needs-fix`：超过 30 分钟未完成且 `lock.previous_status=needs-fix` 或存在 `review_findings.status=needs-fix`，视为 stale lock 自动重置。
+- `in-progress:<ts>` → `todo`：超过 1 小时未完成且 `lock.previous_status=todo`，视为 stale lock 自动重置。
+- `in-progress:<ts>` → `needs-fix`：超过 1 小时未完成且 `lock.previous_status=needs-fix` 或存在 `review_findings.status=needs-fix`，视为 stale lock 自动重置。
 - `in-progress:<ts>` → `needs-fix`：审计或验证失败。
 - `in-progress:<ts>` → `done`：全部验证通过。
 - `done` → `needs-fix`：后续复审发现实现、验证记录或完成证据不满足 `done_criteria`。
@@ -410,7 +410,7 @@ completion:
 ```yaml
 id: P0-003
 priority: P0
-status: needs-fix
+status: done
 depends_on: []
 evidence:
   - level: contract_target
@@ -441,11 +441,11 @@ done_criteria:
   - unsafe draft 不能进入 executable 状态
 completion:
   verified_at: 2026-05-31
-  commit: 1bbe616963c49948061f5e87875b8d1393a0d88a
+  commit: e9b12bbdbb0754a4f37555074e674f8e64e7df17
   verification_results:
     - npm run typecheck: pass
     - npm run lint: pass (0 errors, 0 warnings)
-    - npm run test:run: pass (217 files, 2998 tests passed, 11 skipped)
+    - npm run test:run: pass (239 files, 3311 tests passed, 11 skipped)
     - git diff --check: pass
   changed_files:
     - docs/development-backlog.md
@@ -453,9 +453,13 @@ completion:
     - src/types/workflow-draft.ts
     - src/orchestration-plan/workflow-draft-validator.ts
     - src/orchestration-plan/workflow-draft-validator.test.ts
+  notes: >
+    commit e9b12bb 包含全部5个文件（types、validator、test、index、backlog）；
+    commit 1bbe6169 是后续 validator 修复提交（3个文件）。
+    Finding 2 修复：completion.commit 更新为包含全部文件的 e9b12bb。
 review_findings:
   reviewed_at: 2026-05-31T22:43
-  status: needs-fix
+  status: resolved
   findings:
     - severity: P1
       location: src/orchestration-plan/workflow-draft-validator.ts
@@ -477,6 +481,8 @@ review_findings:
       required_fix: >
         重新核对 WorkflowDraft runtime schema 的权威类型、validator、snapshot/hash 和状态校验是否完整；
         用实际提交和源码路径更新 completion.changed_files，并重新运行 verification 中全部命令后再标记 done。
+      resolved_at: 2026-05-31
+      resolved_by_commit: e9b12bbdbb0754a4f37555074e674f8e64e7df17
     - severity: P1
       location: src/orchestration-plan/workflow-draft-validator.ts
       reason: >
@@ -491,9 +497,15 @@ review_findings:
 ```yaml
 id: P0-004
 priority: P0
-status: needs-fix
+status: in-progress:2026-05-31T23:45
 depends_on:
   - P0-001
+lock:
+  owner: solo-agent
+  run_id: run_20260531T234404_61104
+  acquired_at: 2026-05-31T23:45
+  expires_at: 2026-06-01T00:45
+  previous_status: needs-fix
 evidence:
   - level: product_decision
     source: docs/design/nl-workflow-orchestrator-product-design.md
@@ -3125,15 +3137,15 @@ done_criteria:
    - 多个不同任务同时 in-progress 是允许的，表示不同自动化 run 正在处理不同 item
 4. 执行 lock availability scan：
    - active lock 只占用当前任务；其他依赖已完成、未被锁定的 eligible item 仍可被本轮选择
-   - 某个 in-progress:<timestamp> 未超过 30 分钟，或 timestamp 晚于当前时间 → 该任务是 active locked item
-   - 某个任务存在本地 atomic claim 目录 → 该任务是 claim locked item，除非该 claim 已超过 30 分钟并按 stale claim 清理
+   - 某个 in-progress:<timestamp> 未超过 1 小时，或 timestamp 晚于当前时间 → 该任务是 active locked item
+   - 某个任务存在本地 atomic claim 目录 → 该任务是 claim locked item，除非该 claim 已超过 1 小时并按 stale claim 清理
    - active locked item 必须标记为 unavailable
    - 不得继续 active locked item
    - 不得读取 active locked item 的 source_docs / required_contracts / scope / done_criteria / verification
    - 新的定时触发即使 automation name / branch / owner 相同，也不是原始持锁进程
    - 只有进程内持有的 run_id 等于 lock.run_id 的原始持锁进程可以完成该任务并移除 lock
-   - in-progress:<timestamp> 超过 30 分钟 → stale lock，按 lock.previous_status 恢复为 needs-fix 或 todo，移除 lock，并记录 stale 证据
-   - 只有 atomic claim 目录但没有 active in-progress，且 claim 目录超过 30 分钟 → stale claim，可以移除 claim 目录并继续选择
+   - in-progress:<timestamp> 超过 1 小时 → stale lock，按 lock.previous_status 恢复为 needs-fix 或 todo，移除 lock，并记录 stale 证据
+   - 只有 atomic claim 目录但没有 active in-progress，且 claim 目录超过 1 小时 → stale claim，可以移除 claim 目录并继续选择
    - 如果存在 active locked 或 claim locked item，但仍有其他依赖已完成的 needs-fix 或 todo 任务，本轮必须跳过 locked item 并继续选择下一个 eligible item
    - 如果所有 eligible item 都被 active lock 或 claim lock 占用，或剩余任务都依赖未完成的 locked item，本轮输出 locked_no_eligible_task 并结束
 5. 复核已标记 done 但带 review_findings.status=needs-fix 的任务：
