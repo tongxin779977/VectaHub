@@ -47,22 +47,25 @@
 
 每轮自动化任务必须：
 
-1. 读取本文。
+1. 读取本文，并为本轮生成唯一 `run_id`。
 2. 检查是否存在 `in-progress:<timestamp>` 的任务：
-   - 如果时间戳超过 30 分钟，视为 stale，重置为 `todo`。
-   - 如果未超时，继续该任务；不得另开新任务。
+   - 如果时间戳未超过 30 分钟，或时间戳晚于当前时间，视为 active lock。
+   - 遇到 active lock 时，新的自动化实例必须直接报告 `locked` 并结束；不得选择该任务，也不得选择其他任务。
+   - 只有设置该 lock 的同一个正在运行进程可以继续完成该任务；新的定时触发不视为同一进程。
+   - 如果时间戳超过 30 分钟，视为 stale lock，按任务原始状态恢复为 `needs-fix` 或 `todo`，并记录 stale 证据。
 3. 复核 `done` 任务的完成证据；如果存在 `review_findings.status=needs-fix`、非稳定 commit、缺失必需验证或验证未严格通过，必须改回 `needs-fix`。
-4. 如果不存在有效的 `in-progress`，选择 priority 最高、排序最靠前、依赖已完成的 `needs-fix` 任务。
+4. 选择 priority 最高、排序最靠前、依赖已完成的 `needs-fix` 任务。
 5. 如果不存在可执行 `needs-fix`，选择 priority 最高、排序最靠前、依赖已完成的 `todo` 任务。
-6. 将选中任务状态改为 `in-progress:<当前时间>`。
+6. 将选中任务状态改为 `in-progress:<当前时间>`，并写入 `lock.owner`、`lock.run_id`、`lock.acquired_at`、`lock.expires_at` 和 `lock.previous_status`。
 7. 只开发这一项。
 8. 完成后审计和验证。
-9. 通过后将该项改为 `done`，记录验证命令和提交信息。
-10. 未通过则改为 `needs-fix` 或 `blocked`，记录失败证据。
+9. 通过后将该项改为 `done`，记录验证命令和提交信息，并移除 `lock`。
+10. 未通过则改为 `needs-fix` 或 `blocked`，记录失败证据，并移除 `lock`。
 
 禁止：
 
 - 一轮同时开发多个 backlog item。
+- 在存在 active lock 时继续领取同一任务或领取其他任务。
 - 跳过 P0/P1 去做低优先级功能。
 - 在依赖任务未完成时开发下游任务。
 - 实现 `secondary` 或 `unsupported` 能力，除非 backlog 明确要求。
@@ -73,6 +76,7 @@
 ## 多 Subagent 协作规则
 
 可以使用多个 subagent，但所有 subagent 必须围绕同一个 backlog item 工作。
+任务选择只能由一个 coordinator 完成一次；Developer、Audit、Verification 和 Commit/report subagent 不得再次执行任务选择规则。
 
 推荐角色：
 
@@ -107,7 +111,7 @@
 | Status | 含义 | 跨 session 行为 |
 |--------|------|-----------------|
 | `todo` | 待开发，可被自动化选择。 | 直接选择。 |
-| `in-progress:<timestamp>` | 当前轮正在开发；时间戳格式 `YYYY-MM-DDTHH:MM`。 | 超过 30 分钟视为 stale，重置为 `todo`；未超时则继续该任务。 |
+| `in-progress:<timestamp>` | 当前轮正在开发；时间戳格式 `YYYY-MM-DDTHH:MM`。 | 未超时或时间戳晚于当前时间时是 active lock；新的自动化实例必须退出，不得继续或重复选择。 |
 | `needs-fix` | 已开发但审计、验证或后续复审失败，需要修复。 | 优先于 `todo` 选择。 |
 | `blocked` | 缺少合同、权限、环境或产品决策，不能继续。 | 跳过。 |
 | `done` | 开发、审计、验证和提交均完成。 | 跳过；如果后续复审发现不满足 `done_criteria`，必须改回 `needs-fix` 并记录复审证据。 |
@@ -115,10 +119,11 @@
 ### 状态转换规则
 
 - `todo` → `in-progress:<now>`：开始开发时。
-- `in-progress:<ts>` → `todo`：超过 30 分钟未完成，视为 stale 自动重置。
+- `needs-fix` → `in-progress:<now>`：开始修复时。
+- `in-progress:<ts>` → `todo`：超过 30 分钟未完成且 `lock.previous_status=todo`，视为 stale lock 自动重置。
+- `in-progress:<ts>` → `needs-fix`：超过 30 分钟未完成且 `lock.previous_status=needs-fix` 或存在 `review_findings.status=needs-fix`，视为 stale lock 自动重置。
 - `in-progress:<ts>` → `needs-fix`：审计或验证失败。
 - `in-progress:<ts>` → `done`：全部验证通过。
-- `needs-fix` → `in-progress:<now>`：开始修复时。
 - `done` → `needs-fix`：后续复审发现实现、验证记录或完成证据不满足 `done_criteria`。
 - `blocked` → `todo`：阻塞条件解除时（手动）。
 
@@ -154,7 +159,15 @@ out_of_scope: []
 required_contracts: []
 verification: []
 done_criteria: []
+lock:
+  owner: <automation-name>
+  run_id: <unique-run-id>
+  acquired_at: YYYY-MM-DDTHH:MM
+  expires_at: YYYY-MM-DDTHH:MM
+  previous_status: todo
 ```
+
+`lock` 只允许和 `status: in-progress:<timestamp>` 同时存在。任务完成、失败或阻塞后必须移除 `lock`。
 
 如果任务完成，应追加：
 
@@ -1598,7 +1611,7 @@ review_findings:
 ```yaml
 id: P2-003
 priority: P2
-status: needs-fix
+status: done
 depends_on:
   - P2-002
   - P1-008
@@ -1639,12 +1652,13 @@ done_criteria:
   - unknown 或 unready worker 被 blocked 或 clarify
   - delegated apply task 默认要求 verification
 completion:
-  verified_at: 2026-05-31
-  commit: HEAD
+  verified_at: 2026-05-31T16:48
+  commit: 8f07ddf50a547f9cddc3d027012687aea1e7c3d4
   verification_results:
     - npm run typecheck: pass
-    - npm run lint: pass (0 errors, 1 warning unrelated)
-    - npm run test:run: pass (229 files, 3149 tests passed, 11 skipped)
+    - npm run lint: pass (0 errors, 0 warnings)
+    - npm run test:run: pass (239 files, 3308 tests passed, 11 skipped)
+    - scripts/test-semantic-output.sh: pass (44/44 tests passed)
     - git diff --check: pass
   changed_files:
     - src/orchestration-plan/delegation-policy.ts
@@ -1655,7 +1669,7 @@ completion:
     - docs/development-backlog.md
 review_findings:
   reviewed_at: 2026-05-31T10:54
-  status: needs-fix
+  status: resolved
   findings:
     - severity: P1
       location: docs/development-backlog.md:1421
@@ -1663,6 +1677,7 @@ review_findings:
         Post-review found that this task does not meet the completion evidence rules: commit is HEAD; missing required verification: scripts/test-semantic-output.sh; npm run lint recorded a warning instead of 0 problems.
       required_fix: >
         Re-run this backlog item from its current implementation state, execute every command listed in verification with strict pass evidence, ensure lint is 0 problems when required, and update completion with a stable commit hash after the fix is committed.
+      resolved_by_commit: 8f07ddf50a547f9cddc3d027012687aea1e7c3d4
 
 ```
 
@@ -1671,7 +1686,7 @@ review_findings:
 ```yaml
 id: P2-004
 priority: P2
-status: needs-fix
+status: done
 depends_on:
   - P2-002
   - P1-008
@@ -1712,10 +1727,14 @@ done_criteria:
   - worker result 不保存 secrets、完整 prompt 或未脱敏大输出
   - verification failure 会覆盖 worker 自报成功
 completion:
-  verified_at: "2026-05-31"
+  verified_at: 2026-05-31T14:31
+  commit: d07d92b
   verification_results:
-    - npm run typecheck: pass
-    - npm run test:run: pass (5 tests)
+    - npm run typecheck: pass (0 errors)
+    - npm run lint: pass (0 errors, 0 warnings)
+    - npm run test:run: pass (239 files, 3308 tests passed, 11 skipped)
+    - scripts/test-semantic-output.sh: pass (44/44, 100% pass rate)
+    - git diff --check: pass
   changed_files:
     - src/types/worker-result.ts
     - src/types/index.ts
@@ -1725,7 +1744,7 @@ completion:
     - docs/development-backlog.md
 review_findings:
   reviewed_at: 2026-05-31T10:54
-  status: needs-fix
+  status: resolved_by_reverification:2026-05-31T14:31
   findings:
     - severity: P1
       location: docs/development-backlog.md:1483
@@ -1733,6 +1752,9 @@ review_findings:
         Post-review found that this task does not meet the completion evidence rules: commit is missing; missing required verification: npm run lint, scripts/test-semantic-output.sh, git diff --check.
       required_fix: >
         Re-run this backlog item from its current implementation state, execute every command listed in verification with strict pass evidence, ensure lint is 0 problems when required, and update completion with a stable commit hash after the fix is committed.
+      resolved_at: 2026-05-31T14:31
+      resolved_by: >
+        Re-ran all verification commands: typecheck pass, lint 0 errors 0 warnings, test:run 239 files/3308 tests pass, test-semantic-output.sh 44/44 pass, git diff --check pass.
 
 ```
 
