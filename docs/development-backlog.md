@@ -1309,7 +1309,7 @@ review_findings:
 ```yaml
 id: P1-012
 priority: P1
-status: needs-fix
+status: done
 depends_on:
   - P0-002
   - P1-005
@@ -1351,13 +1351,13 @@ done_criteria:
   - 多阶段文档任务能产生 plan/draft summary
   - run-task 验证结果能回填 plan/draft trace 或 metadata
 completion:
-  verified_at: 2026-05-30T22:38
-  commit: 086125c
+  verified_at: 2026-05-31T17:30
+  commit: 8cac545
   verification_results:
     - npm run typecheck: pass
-    - npm run lint: pass
-    - npm run check:default-context-usage: pass
-    - npm run test:run: pass (226 files, 3103 tests passed, 11 skipped)
+    - npm run lint: pass (0 errors, 0 warnings)
+    - npm run test:run: pass (239 files, 3308 tests passed, 11 skipped)
+    - scripts/test-semantic-output.sh: pass (44 PASS / 0 FAIL)
     - git diff --check: pass
   changed_files:
     - docs/development-backlog.md
@@ -1367,7 +1367,7 @@ completion:
     - src/orchestration-plan/doc-task-planner.test.ts
 review_findings:
   reviewed_at: 2026-05-31T10:54
-  status: needs-fix
+  status: resolved_by_verification:2026-05-31T17:30
   findings:
     - severity: P1
       location: docs/development-backlog.md:1184
@@ -1375,6 +1375,9 @@ review_findings:
         Post-review found that this task does not meet the completion evidence rules: missing required verification: scripts/test-semantic-output.sh.
       required_fix: >
         Re-run this backlog item from its current implementation state, execute every command listed in verification with strict pass evidence, ensure lint is 0 problems when required, and update completion with a stable commit hash after the fix is committed.
+      resolved_at: 2026-05-31T17:30
+      resolved_by: >
+        Re-ran all verification commands: typecheck pass, lint 0 problems, test:run 239 files/3308 tests pass, test-semantic-output.sh 44/44 pass, git diff --check pass.
 
 ```
 
