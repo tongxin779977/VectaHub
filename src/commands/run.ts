@@ -327,6 +327,36 @@ export function createRunCmd(context: InfrastructureContext): Command {
           exitWithError(logger, output, '❌ 无法解析意图，请尝试更明确的输入！', 'INTENT_PARSE_FAILED', options.json);
         }
 
+        const dispatch = createRunDispatch({
+          text,
+          steps: orchestrateSteps,
+          reply: result.reply,
+        });
+
+        if (!dispatch.executable) {
+          if (options.dryRun) {
+            if (options.json) {
+              if (dispatch.kind === 'blocked') {
+                output.json(buildBlockedEnvelope(dispatch.reason, dispatch));
+              } else {
+                output.json(buildClarifyEnvelope(dispatch.reason, dispatch));
+              }
+            } else {
+              logger.info(`\n${formatRunDispatchText(dispatch)}`);
+              logger.info('\nDry-run: 未执行任何命令。');
+            }
+          } else if (options.json) {
+            output.json({
+              ok: false,
+              dispatch,
+            });
+          } else {
+            logger.info(`\n${formatRunDispatchText(dispatch)}`);
+          }
+          restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+          return;
+        }
+
         if (options.dryRun) {
           if (options.json) {
             output.json(buildStepsEnvelope(
@@ -341,30 +371,6 @@ export function createRunCmd(context: InfrastructureContext): Command {
               logger.info(`  ${s.cli} ${(s.args ?? []).join(' ')}`);
             }
             logger.info('\nDry-run: 未执行任何命令。');
-          }
-          restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
-          return;
-        }
-
-        const dispatch = createRunDispatch({
-          text,
-          steps: orchestrateSteps,
-          reply: result.reply,
-        });
-        if (!dispatch.executable) {
-          if (options.dryRun && options.json) {
-            if (dispatch.kind === 'blocked') {
-              output.json(buildBlockedEnvelope(dispatch.reason, dispatch));
-            } else {
-              output.json(buildClarifyEnvelope(dispatch.reason, dispatch));
-            }
-          } else if (options.json) {
-            output.json({
-              ok: false,
-              dispatch,
-            });
-          } else {
-            logger.info(`\n${formatRunDispatchText(dispatch)}`);
           }
           restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
           return;

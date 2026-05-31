@@ -311,4 +311,116 @@ describe('run command dry-run first run behavior', () => {
     expect(executeWorkflow).not.toHaveBeenCalled();
     expect(process.exit).not.toHaveBeenCalled();
   });
+
+  it('outputs blocked envelope in dry-run --json for unregistered VectaHub command', async () => {
+    const consoleSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    orchestrateIntent.mockResolvedValue({
+      steps: [
+        {
+          id: 'step_blocked',
+          description: 'Blocked command',
+          status: 'PENDING',
+          cli: 'vectahub',
+          args: ['ci', 'diagnose'],
+          type: 'exec',
+        },
+      ],
+      intentRecognitionMethod: 'llm',
+      recognizedIntent: 'ci_diagnose',
+      score: 0.8,
+    });
+
+    const runCmd = await createTestRunCmd();
+
+    await runCmd.parseAsync(['node', 'test', '--dry-run', '--json', '诊断 CI 失败']);
+
+    const output = consoleSpy.mock.calls.map(c => c[0]).join('');
+    const parsed = JSON.parse(output);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.dryRun).toBe(true);
+    expect(parsed.result.kind).toBe('blocked');
+    expect(createWorkflow).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  it('outputs clarify envelope in dry-run --json for doc-task-edit dispatch', async () => {
+    const consoleSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    orchestrateIntent.mockResolvedValue({
+      steps: [
+        {
+          id: 'step_doc',
+          description: 'Doc task',
+          status: 'PENDING',
+          cli: 'vectahub',
+          args: ['run-task'],
+          type: 'exec',
+        },
+      ],
+      intentRecognitionMethod: 'llm',
+      recognizedIntent: 'doc_task',
+      score: 0.8,
+    });
+
+    const runCmd = await createTestRunCmd();
+
+    await runCmd.parseAsync(['node', 'test', '--dry-run', '--json', '在 docs/tasks/run-task-kernel-hardening.md 追加 Task RTK-006D']);
+
+    const output = consoleSpy.mock.calls.map(c => c[0]).join('');
+    const parsed = JSON.parse(output);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.dryRun).toBe(true);
+    expect(parsed.result.kind).toBe('clarify');
+    expect(createWorkflow).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  it('outputs workflow_draft envelope in dry-run --json for executable steps', async () => {
+    const consoleSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    orchestrateIntent.mockResolvedValue({
+      steps: [
+        {
+          id: 'step_1',
+          description: 'Git status',
+          status: 'PENDING',
+          cli: 'git',
+          args: ['status'],
+          type: 'exec',
+        },
+      ],
+      plan: {
+        id: 'plan_dry',
+        label: 'Git status plan',
+        capabilityId: 'git-workflow',
+        goal: { action: 'analyze', scope: 'project' },
+        steps: [
+          {
+            id: 'step_1',
+            label: 'Git status',
+            type: 'command',
+            command: { cli: 'git', args: ['status'] },
+          },
+        ],
+        userReport: {
+          summaryTemplate: 'Dry run: git status',
+          nextActions: ['Check output'],
+          verificationSteps: ['Verify git status output'],
+        },
+      },
+      intentRecognitionMethod: 'capability',
+      matchedCapability: 'git-workflow',
+      score: 0.9,
+    });
+
+    const runCmd = await createTestRunCmd();
+
+    await runCmd.parseAsync(['node', 'test', '--dry-run', '--json', 'git status']);
+
+    const output = consoleSpy.mock.calls.map(c => c[0]).join('');
+    const parsed = JSON.parse(output);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.dryRun).toBe(true);
+    expect(parsed.result.kind).toBe('plan');
+    expect(createWorkflow).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
 });
