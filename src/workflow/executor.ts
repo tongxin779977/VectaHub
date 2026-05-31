@@ -177,7 +177,7 @@ export function createExecutor(deps: ExecutorDeps): Executor {
 
   // For backward compatibility, only use new implementation when delegateHandlerDeps is explicitly provided
   // otherwise keep the old behavior (agentModule only) behavior
-  let delegateHandlerDeps: DelegateHandlerDeps = deps.delegateHandlerDeps || {};
+  const delegateHandlerDeps: DelegateHandlerDeps = deps.delegateHandlerDeps || {};
 
   const defaultStepHandlers: Record<string, StepHandler> = {
     if: handleIf,
