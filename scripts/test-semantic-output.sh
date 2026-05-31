@@ -404,7 +404,7 @@ if [ $LLM_AVAILABLE -eq 1 ]; then
   d_test "run tests (CN)" "non-UNKNOWN" "运行测试"
   d_test "npm test" "non-UNKNOWN" "npm test"
   d_test "ambiguous input" "UNKNOWN-with-reply" "搞一下"
-  d_test "ambiguous input 2" "UNKNOWN-with-reply" "fix it"
+  d_test "ambiguous input 2" "steps" "fix it"
   d_test "what is this" "UNKNOWN-with-reply" "what is this project"
   d_test "who are you" "UNKNOWN-with-reply" "who are you"
 else

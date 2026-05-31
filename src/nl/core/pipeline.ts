@@ -174,6 +174,18 @@ async function executeLLMToolCalling(
           },
         };
       }
+      if (errorMessage.includes('Missing required parameters')) {
+        return {
+          success: true,
+          intent: 'UNKNOWN' as IntentName,
+          confidence: 0.3,
+          reply: '收到，但缺少必要参数，无法执行。请提供更具体的信息后重试。',
+          metadata: {
+            path: 'dialog',
+            fallbackReason: `tool_call failed: ${errorMessage}`,
+          },
+        };
+      }
       throw toolCallError;
     }
 

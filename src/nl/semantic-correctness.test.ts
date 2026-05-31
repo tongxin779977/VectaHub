@@ -581,7 +581,7 @@ describe('Pipeline end-to-end semantic correctness', () => {
     expect(result.metadata.fallbackReason).toContain('tool_call failed');
   });
 
-  it('QUERY_INFO tool_call with missing topic and no reply throws error', async () => {
+  it('QUERY_INFO tool_call with missing topic and no reply returns UNKNOWN with fallback reply', async () => {
     const mockClient = createMockLLMClient({
       intent: 'UNKNOWN',
       confidence: 0,
@@ -602,9 +602,12 @@ describe('Pipeline end-to-end semantic correctness', () => {
       auditHelper: mockAuditHelper,
       logger: mockLogger,
     });
-    const result = processor.parse({ input: 'what is VectaHub' });
+    const result = await processor.parse({ input: 'what is VectaHub' });
 
-    await expect(result).rejects.toThrow('Missing required parameters');
+    expect(result.success).toBe(true);
+    expect(result.intent).toBe('UNKNOWN');
+    expect(result.reply).toContain('缺少必要参数');
+    expect(result.metadata.fallbackReason).toContain('Missing required parameters');
   });
 
   it('pipeline passes through LLM reply as-is (sanitize is at command level)', async () => {
