@@ -159,6 +159,11 @@ out_of_scope: []
 required_contracts: []
 verification: []
 done_criteria: []
+```
+
+如果任务进入 `in-progress`，应追加临时锁：
+
+```yaml
 lock:
   owner: <automation-name>
   run_id: <unique-run-id>
@@ -1641,6 +1646,12 @@ out_of_scope:
 required_contracts:
   - docs/contracts/orchestration-plan.md
   - docs/contracts/agent-worker-contract.md
+lock:
+  owner: external-automation
+  run_id: existing-lock-20260531T1648-P2-003
+  acquired_at: 2026-05-31T16:48
+  expires_at: 2026-05-31T17:18
+  previous_status: needs-fix
 verification:
   - npm run typecheck
   - npm run lint
@@ -1653,7 +1664,7 @@ done_criteria:
   - delegated apply task 默认要求 verification
 completion:
   verified_at: 2026-05-31T16:48
-  commit: 8f07ddf50a547f9cddc3d027012687aea1e7c3d4
+  commit: 8c40aff5061ff845aab803df301025dcfa7381dd
   verification_results:
     - npm run typecheck: pass
     - npm run lint: pass (0 errors, 0 warnings)
@@ -1677,7 +1688,7 @@ review_findings:
         Post-review found that this task does not meet the completion evidence rules: commit is HEAD; missing required verification: scripts/test-semantic-output.sh; npm run lint recorded a warning instead of 0 problems.
       required_fix: >
         Re-run this backlog item from its current implementation state, execute every command listed in verification with strict pass evidence, ensure lint is 0 problems when required, and update completion with a stable commit hash after the fix is committed.
-      resolved_by_commit: 8f07ddf50a547f9cddc3d027012687aea1e7c3d4
+      resolved_by_commit: 8c40aff5061ff845aab803df301025dcfa7381dd
 
 ```
 
@@ -2736,25 +2747,28 @@ done_criteria:
 
 ```text
 1. git status --short
-2. 读取 docs/development-backlog.md
-3. 复核已标记 done 但带 review_findings.status=needs-fix 的任务：
+2. 生成本轮唯一 run_id，并读取 docs/development-backlog.md
+3. 检查是否存在 in-progress:<timestamp> 任务：
+   - timestamp 未超过 30 分钟，或 timestamp 晚于当前时间 → active lock
+   - active lock 存在时，本轮必须输出 locked 并结束
+   - 不得继续该任务
+   - 不得选择其他任务
+   - 只有原始持锁进程可以完成该任务并移除 lock
+   - timestamp 超过 30 分钟 → stale lock，按 lock.previous_status 恢复为 needs-fix 或 todo，并记录 stale 证据
+4. 复核已标记 done 但带 review_findings.status=needs-fix 的任务：
    - 必须视为 needs-fix
    - 不得继续跳过
-4. 检查 in-progress:<timestamp> 任务：
-   - 时间戳超过 30 分钟 → 重置为 todo
-   - 未超时 → 继续该任务
-5. 如果无有效 in-progress：
-   - 优先选择 needs-fix（最高优先级）
-   - 否则选择 todo（最高优先级）
-6. 将选中任务状态改为 in-progress:<当前时间>
-7. 开发最小实现
-8. 自审：事实依据、合同、范围、安全、测试、JSON、trace、recovery、semantic acceptance
-9. 运行该任务 verification 中列出的命令
-10. 失败则修复，最多 3 轮
-11. 仍失败则改为 needs-fix 或 blocked，并记录失败证据
-12. 通过后将任务改为 done，并记录验证结果
-13. 只 stage 本轮相关文件
-14. git commit
+5. 如果没有 active lock，优先选择 needs-fix（最高优先级）
+6. 如果没有可执行 needs-fix，选择 todo（最高优先级）
+7. 将选中任务状态改为 in-progress:<当前时间>，并写入 lock.owner、lock.run_id、lock.acquired_at、lock.expires_at、lock.previous_status
+8. 开发最小实现
+9. 自审：事实依据、合同、范围、安全、测试、JSON、trace、recovery、semantic acceptance
+10. 运行该任务 verification 中列出的命令
+11. 失败则修复，最多 3 轮
+12. 仍失败则改为 needs-fix 或 blocked，记录失败证据，并移除 lock
+13. 通过后将任务改为 done，记录验证结果，并移除 lock
+14. 只 stage 本轮相关文件
+15. git commit
 ```
 
 如果工作树在开始时已有无关改动，自动化必须避免提交无关文件；无法区分时停止并报告。
