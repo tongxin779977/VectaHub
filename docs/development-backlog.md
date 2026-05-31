@@ -58,18 +58,20 @@
    - 只有设置该 lock 的同一个正在运行进程可以继续完成该任务；新的定时触发不视为同一进程。
    - 如果时间戳超过 30 分钟，视为 stale lock，按任务原始状态恢复为 `needs-fix` 或 `todo`，并记录 stale 证据。
 4. 复核 `done` 任务的完成证据；如果存在 `review_findings.status=needs-fix`、非稳定 commit、缺失必需验证或验证未严格通过，必须改回 `needs-fix`。
-5. 选择 priority 最高、排序最靠前、依赖已完成的 `needs-fix` 任务。
-6. 如果不存在可执行 `needs-fix`，选择 priority 最高、排序最靠前、依赖已完成的 `todo` 任务。
-7. 将选中任务状态改为 `in-progress:<当前时间>`，并写入 `lock.owner`、`lock.run_id`、`lock.acquired_at`、`lock.expires_at` 和 `lock.previous_status`。
-8. 只开发这一项。
-9. 完成后审计和验证。
-10. 通过后将该项改为 `done`，记录验证命令和提交信息，并移除 `lock`。
-11. 未通过则改为 `needs-fix` 或 `blocked`，记录失败证据，并移除 `lock`。
+5. 优先选择 `status=needs-fix` 且存在未解决 `review_findings.status=needs-fix` 的任务。
+6. 如果不存在可执行 review-fix 任务，选择 priority 最高、排序最靠前、依赖已完成的普通 `needs-fix` 任务。
+7. 如果不存在可执行 `needs-fix`，选择 priority 最高、排序最靠前、依赖已完成的 `todo` 任务。
+8. 将选中任务状态改为 `in-progress:<当前时间>`，并写入 `lock.owner`、`lock.run_id`、`lock.acquired_at`、`lock.expires_at` 和 `lock.previous_status`。
+9. 只开发这一项。
+10. 完成后审计和验证。
+11. 通过后将该项改为 `done`，记录验证命令和提交信息，并移除 `lock`。
+12. 未通过则改为 `needs-fix` 或 `blocked`，记录失败证据，并移除 `lock`。
 
 禁止：
 
 - 一轮同时开发多个 backlog item。
 - 在存在 active lock 时继续领取同一任务或领取其他任务。
+- 在存在可执行 review-fix 任务时选择普通 `needs-fix` 或 `todo` 任务。
 - 跳过 P0/P1 去做低优先级功能。
 - 在依赖任务未完成时开发下游任务。
 - 实现 `secondary` 或 `unsupported` 能力，除非 backlog 明确要求。
@@ -116,7 +118,7 @@
 |--------|------|-----------------|
 | `todo` | 待开发，可被自动化选择。 | 直接选择。 |
 | `in-progress:<timestamp>` | 当前轮正在开发；时间戳格式 `YYYY-MM-DDTHH:MM`。 | 未超时或时间戳晚于当前时间时是 active lock；新的自动化实例必须退出，不得继续或重复选择。 |
-| `needs-fix` | 已开发但审计、验证或后续复审失败，需要修复。 | 优先于 `todo` 选择。 |
+| `needs-fix` | 已开发但审计、验证或后续复审失败，需要修复。 | 优先于 `todo` 选择；其中未解决 `review_findings.status=needs-fix` 的 review-fix 任务优先于普通 `needs-fix`。 |
 | `blocked` | 缺少合同、权限、环境或产品决策，不能继续。 | 跳过。 |
 | `done` | 开发、审计、验证和提交均完成。 | 跳过；如果后续复审发现不满足 `done_criteria`，必须改回 `needs-fix` 并记录复审证据。 |
 
@@ -209,6 +211,8 @@ review_findings:
       required_fix: >
         说明下一轮必须完成的修复。
 ```
+
+`review_findings.status=needs-fix` 表示审查发现的问题仍未解决。只要任务本身是 `needs-fix`，下一轮自动化必须先修这类 review-fix 任务，再处理普通 `needs-fix` 或 `todo`。
 
 ## Backlog
 
@@ -1772,23 +1776,20 @@ review_findings:
 ```yaml
 id: P2-005
 priority: P2
-status: needs-fix
+status: done
 depends_on:
   - P2-002
   - P2-003
   - P2-004
 completion:
-  verified_at: 2026-05-31
+  verified_at: 2026-06-01T00:00
+  commit: 44dab5b
   verification_results:
-    - npm run typecheck: pass
-    - npm run test:run: pass (231 files, 3175 tests passed, 11 skipped)
+    - npm run typecheck: pass (0 errors)
+    - npm run lint: pass (0 errors, 0 warnings)
+    - npm run test:run: pass (239 files, 3308 tests passed, 11 skipped)
     - git diff --check: pass
   changed_files:
-    - src/types/native-feature-passthrough.ts
-    - src/types/index.ts
-    - src/orchestration-plan/native-feature-passthrough-policy.ts
-    - src/orchestration-plan/native-feature-passthrough-policy.test.ts
-    - src/orchestration-plan/index.ts
     - docs/development-backlog.md
 evidence:
   - level: product_decision
@@ -1828,7 +1829,7 @@ done_criteria:
   - memory、MCP、subagent、custom command 都不能绕过 VectaHub safety 和 verification
 review_findings:
   reviewed_at: 2026-05-31T10:54
-  status: needs-fix
+  status: resolved
   findings:
     - severity: P1
       location: docs/development-backlog.md:1542
@@ -1836,6 +1837,9 @@ review_findings:
         Post-review found that this task does not meet the completion evidence rules: commit is missing; missing required verification: npm run lint.
       required_fix: >
         Re-run this backlog item from its current implementation state, execute every command listed in verification with strict pass evidence, ensure lint is 0 problems when required, and update completion with a stable commit hash after the fix is committed.
+      resolved_at: 2026-06-01T00:00
+      resolved_by: >
+        Re-ran all verification commands: typecheck pass (0 errors), lint pass (0 errors, 0 warnings), test:run pass (239 files/3308 tests), git diff --check pass.
 
 ```
 
@@ -2756,17 +2760,18 @@ done_criteria:
 4. 复核已标记 done 但带 review_findings.status=needs-fix 的任务：
    - 必须视为 needs-fix
    - 不得继续跳过
-5. 如果没有 active lock，优先选择 needs-fix（最高优先级）
-6. 如果没有可执行 needs-fix，选择 todo（最高优先级）
-7. 将选中任务状态改为 in-progress:<当前时间>，并写入 lock.owner、lock.run_id、lock.acquired_at、lock.expires_at、lock.previous_status
-8. 开发最小实现
-9. 自审：事实依据、合同、范围、安全、测试、JSON、trace、recovery、semantic acceptance
-10. 运行该任务 verification 中列出的命令
-11. 失败则修复，最多 3 轮
-12. 仍失败则改为 needs-fix 或 blocked，记录失败证据，并移除 lock
-13. 通过后将任务改为 done，记录验证结果，并移除 lock
-14. 只 stage 本轮相关文件
-15. git commit
+5. 如果没有 active lock，优先选择 status=needs-fix 且存在未解决 review_findings.status=needs-fix 的任务
+6. 如果没有可执行 review-fix 任务，选择普通 needs-fix（最高优先级）
+7. 如果没有可执行 needs-fix，选择 todo（最高优先级）
+8. 将选中任务状态改为 in-progress:<当前时间>，并写入 lock.owner、lock.run_id、lock.acquired_at、lock.expires_at、lock.previous_status
+9. 开发最小实现
+10. 自审：事实依据、合同、范围、安全、测试、JSON、trace、recovery、semantic acceptance
+11. 运行该任务 verification 中列出的命令
+12. 失败则修复，最多 3 轮
+13. 仍失败则改为 needs-fix 或 blocked，记录失败证据，并移除 lock
+14. 通过后将任务改为 done，记录验证结果，并移除 lock
+15. 只 stage 本轮相关文件
+16. git commit
 ```
 
 如果工作树在开始时已有无关改动，自动化必须避免提交无关文件；无法区分时停止并报告。
