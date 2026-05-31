@@ -1265,7 +1265,7 @@ done_criteria:
   - plan/draft 回复说明下一步是 review、confirm、execute 或 verify
 completion:
   verified_at: 2026-05-31T18:57
-  commit: 7561754
+  commit: e5a9a17
   verification_results:
     - npm run typecheck: pass (0 errors)
     - npm run lint: pass (0 errors, 0 warnings)
