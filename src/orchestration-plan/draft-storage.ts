@@ -1,6 +1,7 @@
 import type { WorkflowDraft } from '../types/workflow-draft.js';
 import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 import type pino from 'pino';
+import { redactString } from '../utils/sensitive-data.js';
 
 export interface DraftStorageOptions {
   storageDir?: string;
@@ -56,13 +57,11 @@ export function createDraftStorage(options: DraftStorageOptions) {
   }
 
   function redactDraft(draft: WorkflowDraft): WorkflowDraft {
-    // 深拷贝并脱敏
     const redacted: WorkflowDraft = JSON.parse(JSON.stringify(draft));
-    
-    // 确保没有敏感信息在持久化中
-    // 目前 WorkflowDraft 设计上就不包含 secrets，所以这里保持原样
-    // 如果未来有需要，可以在这里添加脱敏逻辑
-    
+    redacted.name = redactString(redacted.name);
+    if (redacted.metadata) {
+      redacted.metadata.cwd = redactString(redacted.metadata.cwd);
+    }
     return redacted;
   }
 

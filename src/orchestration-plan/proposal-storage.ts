@@ -12,6 +12,7 @@ import type { IEnvironmentService } from '../infrastructure/interfaces/index.js'
 import type pino from 'pino';
 import type { NLFeedbackRecord } from '../types/feedback.js';
 import * as crypto from 'crypto';
+import { redactString } from '../utils/sensitive-data.js';
 
 export interface ProposalStorageOptions {
   storageDir?: string;
@@ -203,6 +204,19 @@ export function createProposalStorage(options: ProposalStorageOptions) {
 
   function redactProposal(record: ProposalRecord): ProposalRecord {
     const redacted: ProposalRecord = JSON.parse(JSON.stringify(record));
+
+    if (redacted.content) {
+      if (redacted.content.impact) {
+        redacted.content.impact = redactString(redacted.content.impact);
+      }
+      if (redacted.content.description) {
+        redacted.content.description = redactString(redacted.content.description);
+      }
+      if (redacted.content.rationale) {
+        redacted.content.rationale = redactString(redacted.content.rationale);
+      }
+    }
+
     return redacted;
   }
 

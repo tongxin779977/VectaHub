@@ -7,6 +7,7 @@ import type {
 import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 import type pino from 'pino';
 import { createHash } from 'crypto';
+import { redactString } from '../utils/sensitive-data.js';
 
 export interface ArtifactStorageOptions {
   storageDir?: string;
@@ -77,7 +78,7 @@ function containsForbiddenPatterns(content: string, patterns: string[]): boolean
 }
 
 function redactContent(content: string, forbiddenPatterns: string[]): string {
-  let redacted = content;
+  let redacted = redactString(content);
   forbiddenPatterns.forEach(pattern => {
     try {
       const regex = new RegExp(pattern, 'gi');
@@ -141,8 +142,8 @@ export function createArtifactStorage(options: ArtifactStorageOptions) {
       type,
       producerExecutionId,
       producerTaskId,
-      title,
-      summary,
+      title: redactString(title),
+      summary: redactString(summary),
       contentHash,
       createdAt: new Date().toISOString(),
       storagePath,

@@ -1,6 +1,7 @@
 import type { NLFeedbackRecord, FeedbackAppliedTo, FeedbackSource, FeedbackOutcome } from '../types/feedback.js';
 import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 import type pino from 'pino';
+import { redactString } from '../utils/sensitive-data.js';
 import * as crypto from 'crypto';
 
 export interface FeedbackStorageOptions {
@@ -88,12 +89,11 @@ export function createFeedbackStorage(options: FeedbackStorageOptions) {
   }
 
   function redactFeedback(record: NLFeedbackRecord): NLFeedbackRecord {
-    // 深拷贝
     const redacted: NLFeedbackRecord = JSON.parse(JSON.stringify(record));
 
-    // 确保记录中不包含敏感信息
-    // 设计上，NLFeedbackRecord 已经不应该包含敏感信息
-    // 但这里还是做一层保护
+    if (redacted.plannerDecision) {
+      redacted.plannerDecision = redactString(redacted.plannerDecision);
+    }
 
     return redacted;
   }

@@ -2020,7 +2020,7 @@ completion:
 ```yaml
 id: P2-013
 priority: P2
-status: todo
+status: done
 depends_on:
   - P0-006
   - P2-001
@@ -2064,6 +2064,22 @@ done_criteria:
   - 关键输出路径都有脱敏测试
   - JSON stdout 和持久化记录不包含 secrets
   - stack trace 只进入受控 debug/log 路径，不进入机器响应字段
+completion:
+  verified_at: "2026-05-31T10:15:00"
+  commit: "pending"
+  verification_results:
+    - typecheck: pass
+    - lint: pass
+    - test:run: pass (3295 tests, 50 new tests for P2-013)
+    - git diff --check: pass
+  changed_files:
+    - src/orchestration-plan/redaction-audit.test.ts (新增 50 个脱敏边界测试)
+    - src/machine-response/index.ts (添加 redactSensitiveFields, redactString 调用)
+    - src/orchestration-plan/artifact-storage.ts (redactString 对 content/title/summary)
+    - src/orchestration-plan/draft-storage.ts (redactDraft 添加 redactString)
+    - src/orchestration-plan/feedback-storage.ts (redactFeedback 添加 plannerDecision 脱敏)
+    - src/orchestration-plan/proposal-storage.ts (redactProposal 添加 content 脱敏)
+    - src/orchestration-plan/worker-result-normalizer.ts (添加 redactString 到 failureReason)
 ```
 
 ### P2-014: 实现标准化语义评分报告

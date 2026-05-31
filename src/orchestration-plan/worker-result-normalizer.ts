@@ -1,10 +1,8 @@
 import type { WorkerResult, WorkerChangedFile, WorkerArtifact, WorkerResultStatus, WorkerFailureKind } from '../types/worker-result.js';
+import { redactString } from '../utils/sensitive-data.js';
 
 const MAX_SUMMARY_LENGTH = 2000;
-const MAX_DIFF_SUMMARY_LENGTH = 500;
-const MAX_ARTIFACT_SUMMARY_LENGTH = 500;
 const MAX_CHANGED_FILES = 100;
-const MAX_ARTIFACTS = 50;
 
 export interface RawWorkerOutput {
   stdout?: string;
@@ -35,18 +33,18 @@ export function normalizeWorkerResult(
   } else if (rawOutput.exitCode !== 0) {
     status = 'failure';
     failureKind = 'command_failure';
-    failureReason = rawOutput.stderr ? truncate(rawOutput.stderr, MAX_SUMMARY_LENGTH) : 'Worker command failed with non-zero exit code';
+    const rawFailureReason = rawOutput.stderr
+      ? rawOutput.stderr
+      : 'Worker command failed with non-zero exit code';
+    failureReason = redactString(truncate(rawFailureReason, MAX_SUMMARY_LENGTH));
   } else {
     status = 'success';
   }
 
-  // Generate summary
-  let summary = '';
-  if (status === 'success') {
-    summary = truncate(rawOutput.stdout || 'Worker completed successfully', MAX_SUMMARY_LENGTH);
-  } else {
-    summary = failureReason || 'Worker failed';
-  }
+  // Generate summary with redaction
+  const summary = status === 'success'
+    ? redactString(truncate(rawOutput.stdout || 'Worker completed successfully', MAX_SUMMARY_LENGTH))
+    : (failureReason || 'Worker failed');
 
   // Normalize changed files
   const changedFiles: WorkerChangedFile[] = [];

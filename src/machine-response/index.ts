@@ -14,6 +14,7 @@ import type {
 import type { OrchestrationPlan } from '../types/orchestration-plan.js';
 import type { WorkflowDraft } from '../types/workflow-draft.js';
 import { formatHumanReadable } from './human-readable-formatter.js';
+import { redactString } from '../utils/sensitive-data.js';
 
 /**
  * Safe error serializer - prevents secrets, stack traces, and sensitive data from appearing in machine responses
@@ -26,14 +27,20 @@ export function safeErrorSerialize(error: unknown): {
   let errorId: string | undefined;
 
   if (error instanceof Error) {
-    reason = error.message || reason;
-    // Generate a unique error ID for tracking without exposing stack traces
+    const cleanMessage = error.message
+      .replace(/\n\s*at .*/g, '')
+      .replace(/\/[^/]*:\d+:\d+/g, '')
+      .trim();
+    reason = redactString(cleanMessage) || reason;
     errorId = `err_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   } else if (typeof error === 'string') {
-    reason = error;
+    const cleanMessage = error
+      .replace(/\n\s*at .*/g, '')
+      .replace(/\/[^/]*:\d+:\d+/g, '')
+      .trim();
+    reason = redactString(cleanMessage) || reason;
   }
 
-  // Never expose sensitive data - always return a safe, redacted message
   return {
     reason,
     errorId,
@@ -88,9 +95,9 @@ export function buildReplyResponse(
 ): MachineResponseEnvelope {
   const result: MachineResponseReply = {
     kind: 'reply',
-    reply,
+    reply: redactString(reply),
   };
-  return buildMachineResponse(result, { ...options, reply });
+  return buildMachineResponse(result, { ...options, reply: redactString(reply) });
 }
 
 /**
@@ -122,11 +129,11 @@ export function buildBlockedResponse(
 ): MachineResponseEnvelope {
   const result: MachineResponseBlocked = {
     kind: 'blocked',
-    reason,
+    reason: redactString(reason),
     blockedBy: options?.blockedBy,
     suggestedAction: options?.suggestedAction,
   };
-  return buildMachineResponse(result, { ...options, reply: reason });
+  return buildMachineResponse(result, { ...options, reply: redactString(reason) });
 }
 
 /**
@@ -185,6 +192,32 @@ export function buildInternalErrorResponse(
 }
 
 /**
+ * Recursively redact sensitive data from an object by serializing to JSON and back
+ */
+function redactSensitiveFields(obj: unknown): unknown {
+  const json = JSON.stringify(obj);
+  const redacted = JSON.parse(json);
+  return redactRecursive(redacted);
+}
+
+function redactRecursive(obj: unknown): unknown {
+  if (typeof obj === 'string') {
+    return redactString(obj);
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(item => redactRecursive(item));
+  }
+  if (obj !== null && typeof obj === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      result[key] = redactRecursive(value);
+    }
+    return result;
+  }
+  return obj;
+}
+
+/**
  * Build plan response
  */
 export function buildPlanResponse(
@@ -193,7 +226,7 @@ export function buildPlanResponse(
 ): MachineResponseEnvelope {
   const result: MachineResponsePlan = {
     kind: 'plan',
-    plan,
+    plan: redactSensitiveFields(plan) as OrchestrationPlan,
   };
   return buildMachineResponse(result, options);
 }
@@ -207,7 +240,7 @@ export function buildWorkflowDraftResponse(
 ): MachineResponseEnvelope {
   const result: MachineResponseWorkflowDraft = {
     kind: 'workflow_draft',
-    workflowDraft,
+    workflowDraft: redactSensitiveFields(workflowDraft) as WorkflowDraft,
   };
   return buildMachineResponse(result, options);
 }
