@@ -1960,7 +1960,7 @@ completion:
 ```yaml
 id: P2-012
 priority: P2
-status: todo
+status: done
 depends_on:
   - P2-001
   - P1-011
@@ -1999,6 +1999,20 @@ done_criteria:
   - feedback appliedTo 有明确去向
   - 未审查 proposal 不影响生产路径
   - proposal 不保存 secrets、完整 prompt 或未脱敏 trace
+completion:
+  verified_at: 2026-05-31
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass (0 errors, pre-existing unrelated warnings in worker-result-normalizer.ts)
+    - npm run test:run: pass (237 files, 3245 tests passed, 11 skipped)
+    - git diff --check: pass
+  changed_files:
+    - src/types/proposal.ts
+    - src/types/index.ts
+    - src/orchestration-plan/proposal-storage.ts
+    - src/orchestration-plan/proposal-storage.test.ts
+    - src/orchestration-plan/index.ts
+    - docs/development-backlog.md
 ```
 
 ### P2-013: NL / plan / draft / feedback 全链路脱敏审计
