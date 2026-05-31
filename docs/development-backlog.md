@@ -60,28 +60,40 @@
 3. 执行 lock availability scan：
    - active lock 只占用当前任务；其他依赖已完成、未被锁定的 eligible item 仍可被本轮选择。
    - 如果某个 `in-progress:<timestamp>` 未超过 30 分钟，或时间戳晚于当前时间，视为该任务 active locked。
+   - 如果某个任务存在本地原子 claim 目录，视为该任务 claim locked；本轮不得选择它，除非该 claim 已按 stale claim 规则清理。
    - active locked item 必须标记为 unavailable；本轮不得选择它，不得读取它的开发上下文。
    - 只有设置该 lock 的同一个正在运行进程可以继续完成该任务；判定依据是进程内持有的 `run_id` 等于 `lock.run_id`，不是 `owner` 相同。
    - 每次定时触发都必须生成新的 `run_id`，因此不能接管已有 active lock。
    - 如果某个 `in-progress:<timestamp>` 超过 30 分钟，视为 stale lock，按任务原始状态恢复为 `needs-fix` 或 `todo`，移除 `lock`，并记录 stale 证据。
-   - 如果存在 active locked item，但仍有其他依赖已满足的 `needs-fix` 或 `todo` 任务，本轮应跳过 locked item 并继续选择下一个可执行任务。
-   - 如果所有可执行任务都被 active lock 占用，或剩余任务都依赖未完成的 locked item，本轮输出 `locked_no_eligible_task` 并结束。
+   - 如果某个任务只有 claim 目录但没有 active `in-progress`，且 claim 目录超过 30 分钟，视为 stale claim，可以移除该 claim 目录并继续选择。
+   - 如果存在 active locked 或 claim locked item，但仍有其他依赖已满足的 `needs-fix` 或 `todo` 任务，本轮应跳过 locked item 并继续选择下一个可执行任务。
+   - 如果所有可执行任务都被 active lock 或 claim lock 占用，或剩余任务都依赖未完成的 locked item，本轮输出 `locked_no_eligible_task` 并结束。
 4. 复核 `done` 任务的完成证据；如果存在 `review_findings.status=needs-fix`、非稳定 commit、缺失必需验证或验证未严格通过，必须改回 `needs-fix`。
-5. 在排除 active locked item 后，优先选择 `status=needs-fix` 且存在未解决 `review_findings.status=needs-fix` 的任务。
-6. 如果不存在可执行 review-fix 任务，选择 priority 最高、排序最靠前、依赖已完成且未被 active lock 占用的普通 `needs-fix` 任务。
-7. 如果不存在可执行 `needs-fix`，选择 priority 最高、排序最靠前、依赖已完成且未被 active lock 占用的 `todo` 任务。
-8. 写入 lock 前必须重新读取本文，确认选中任务仍是 `todo` 或 `needs-fix`，没有 `lock`，且依赖仍已完成；如果状态已变化，重新执行 lock availability scan 和任务选择。
-9. 将选中任务状态改为 `in-progress:<当前时间>`，并写入 `lock.owner`、`lock.run_id`、`lock.acquired_at`、`lock.expires_at` 和 `lock.previous_status`。
-10. 写入 lock 后必须重新读取本文，确认该任务的 `lock.run_id` 等于本轮 `run_id`；如果不是，说明并发抢锁失败，本轮必须停止或重新选择其他可执行任务，不得继续开发该任务。
-11. 只开发这一项。
-12. 完成后审计和验证。
-13. 通过后将该项改为 `done`，记录验证命令和提交信息，并移除 `lock`。
-14. 未通过则改为 `needs-fix` 或 `blocked`，记录失败证据，并移除 `lock`。
+5. 在排除 active locked 和 claim locked item 后，优先选择 `status=needs-fix` 且存在未解决 `review_findings.status=needs-fix` 的任务。
+6. 如果不存在可执行 review-fix 任务，选择 priority 最高、排序最靠前、依赖已完成且未被 active lock 或 claim lock 占用的普通 `needs-fix` 任务。
+7. 如果不存在可执行 `needs-fix`，选择 priority 最高、排序最靠前、依赖已完成且未被 active lock 或 claim lock 占用的 `todo` 任务。
+8. 写入 Markdown lock 前必须先执行 atomic claim：
+   - claim path 必须使用 `$(git rev-parse --git-path vectahub-backlog-claims/<TASK_ID>)`。
+   - 先确保 claim root 存在，再对选中任务执行原子 `mkdir <claim path>`。
+   - 如果 `mkdir <claim path>` 失败，说明其他 run 已抢到该任务；本轮不得继续该任务，必须重新执行 lock availability scan 和任务选择。
+   - `mkdir <claim path>` 成功后，必须在 claim 目录内写入 `claim.json`，内容包含 `task_id`、`run_id`、`owner`、`claimed_at`、`expires_at`。
+   - 释放 claim 前必须读取 `claim.json`，只有 `claim.json.run_id` 等于本轮 `run_id` 时才能删除该 claim 目录。
+   - atomic claim 成功前，不得修改该任务状态，不得读取该任务开发上下文。
+9. atomic claim 成功并写入 `claim.json` 后必须重新读取本文，确认选中任务仍是 `todo` 或 `needs-fix`，没有 `lock`，且依赖仍已完成；如果状态已变化，释放本轮 claim，并重新执行 lock availability scan 和任务选择。
+10. 将选中任务状态改为 `in-progress:<当前时间>`，并写入 `lock.owner`、`lock.run_id`、`lock.acquired_at`、`lock.expires_at` 和 `lock.previous_status`。
+11. 写入 Markdown lock 后必须重新读取本文，确认该任务的 `lock.run_id` 等于本轮 `run_id`；如果不是，说明并发写入失败，本轮必须释放本轮 claim，停止或重新选择其他可执行任务，不得继续开发该任务。
+12. 只有同时持有 atomic claim 和 matching Markdown lock 后，才能读取该任务上下文并开发。
+13. 只开发这一项。
+14. 完成后审计和验证。
+15. 通过后将该项改为 `done`，记录验证命令和提交信息，移除 Markdown lock，并释放本轮 atomic claim。
+16. 未通过则改为 `needs-fix` 或 `blocked`，记录失败证据，移除 Markdown lock，并释放本轮 atomic claim。
 
 禁止：
 
 - 一轮同时开发多个 backlog item。
 - 接管其他 run 已锁定的 backlog item。
+- 在没有 atomic claim 的情况下把 `needs-fix` 或 `todo` 改成 `in-progress`。
+- atomic claim 失败后继续处理同一个 backlog item。
 - 在存在 active locked item 时读取该 locked item 的 `source_docs`、`required_contracts`、`scope`、`done_criteria` 或 `verification`。
 - 把 `status: in-progress:<timestamp>` 任务当作当前轮 selected task。
 - 仅因为 `lock.owner` 与当前自动化名称相同就接管 active lock。
@@ -186,6 +198,15 @@ done_criteria: []
 ```
 
 如果任务进入 `in-progress`，应追加临时锁：
+
+进入 `in-progress` 前必须先持有本地 atomic claim。claim 目录不写入仓库，路径固定为：
+
+```text
+$(git rev-parse --git-path vectahub-backlog-claims/<TASK_ID>)
+```
+
+claim 目录必须通过原子 `mkdir <claim path>` 创建。创建失败表示其他 run 已领取该任务；当前 run 必须跳过该任务并重新选择。
+创建成功后必须写入 `<claim path>/claim.json`，内容包含 `task_id`、`run_id`、`owner`、`claimed_at`、`expires_at`。释放 claim 前必须读取 `claim.json`，只有 `claim.json.run_id` 等于本轮 `run_id` 时才能删除该 claim 目录。
 
 ```yaml
 lock:
@@ -2738,7 +2759,8 @@ verification:
   - git diff --check
 done_criteria:
   - runner/report 能明确当前选择的唯一 backlog item
-  - 有 in-progress 时不会领取新任务
+  - active locked item 不会被重复领取，但其他 eligible item 仍可被并行领取
+  - 同一个 needs-fix 或 todo 任务在并发启动时只能被一个 run 的 atomic claim 抢到
   - 验证失败会生成 needs-fix 证据而不是提交
 ```
 
@@ -2838,31 +2860,41 @@ done_criteria:
 4. 执行 lock availability scan：
    - active lock 只占用当前任务；其他依赖已完成、未被锁定的 eligible item 仍可被本轮选择
    - 某个 in-progress:<timestamp> 未超过 30 分钟，或 timestamp 晚于当前时间 → 该任务是 active locked item
+   - 某个任务存在本地 atomic claim 目录 → 该任务是 claim locked item，除非该 claim 已超过 30 分钟并按 stale claim 清理
    - active locked item 必须标记为 unavailable
    - 不得继续 active locked item
    - 不得读取 active locked item 的 source_docs / required_contracts / scope / done_criteria / verification
    - 新的定时触发即使 automation name / branch / owner 相同，也不是原始持锁进程
    - 只有进程内持有的 run_id 等于 lock.run_id 的原始持锁进程可以完成该任务并移除 lock
    - in-progress:<timestamp> 超过 30 分钟 → stale lock，按 lock.previous_status 恢复为 needs-fix 或 todo，移除 lock，并记录 stale 证据
-   - 如果存在 active locked item，但仍有其他依赖已完成的 needs-fix 或 todo 任务，本轮必须跳过 locked item 并继续选择下一个 eligible item
-   - 如果所有 eligible item 都被 active lock 占用，或剩余任务都依赖未完成的 locked item，本轮输出 locked_no_eligible_task 并结束
+   - 只有 atomic claim 目录但没有 active in-progress，且 claim 目录超过 30 分钟 → stale claim，可以移除 claim 目录并继续选择
+   - 如果存在 active locked 或 claim locked item，但仍有其他依赖已完成的 needs-fix 或 todo 任务，本轮必须跳过 locked item 并继续选择下一个 eligible item
+   - 如果所有 eligible item 都被 active lock 或 claim lock 占用，或剩余任务都依赖未完成的 locked item，本轮输出 locked_no_eligible_task 并结束
 5. 复核已标记 done 但带 review_findings.status=needs-fix 的任务：
    - 必须视为 needs-fix
    - 不得继续跳过
-6. 在排除 active locked item 后，优先选择 status=needs-fix 且存在未解决 review_findings.status=needs-fix 的任务
-7. 如果没有可执行 review-fix 任务，选择依赖已完成且未被 active lock 占用的普通 needs-fix（最高优先级）
-8. 如果没有可执行 needs-fix，选择依赖已完成且未被 active lock 占用的 todo（最高优先级）
-9. 写入 lock 前必须重新读取本文，确认选中任务仍是 todo 或 needs-fix，没有 lock，且依赖仍已完成；如果状态已变化，重新执行 lock availability scan 和任务选择
-10. 将选中任务状态改为 in-progress:<当前时间>，并写入 lock.owner、lock.run_id、lock.acquired_at、lock.expires_at、lock.previous_status
-11. 写入 lock 后必须重新读取本文，确认该任务的 lock.run_id 等于本轮 run_id；如果不是，说明并发抢锁失败，本轮必须停止或重新选择其他 eligible item，不得继续开发该任务
-12. 开发最小实现
-13. 自审：事实依据、合同、范围、安全、测试、JSON、trace、recovery、semantic acceptance
-14. 运行该任务 verification 中列出的命令
-15. 失败则修复，最多 3 轮
-16. 仍失败则改为 needs-fix 或 blocked，记录失败证据，并移除 lock
-17. 通过后将任务改为 done，记录验证结果，并移除 lock
-18. 只 stage 本轮相关文件
-19. git commit
+6. 在排除 active locked 和 claim locked item 后，优先选择 status=needs-fix 且存在未解决 review_findings.status=needs-fix 的任务
+7. 如果没有可执行 review-fix 任务，选择依赖已完成且未被 active lock 或 claim lock 占用的普通 needs-fix（最高优先级）
+8. 如果没有可执行 needs-fix，选择依赖已完成且未被 active lock 或 claim lock 占用的 todo（最高优先级）
+9. 写入 Markdown lock 前必须先执行 atomic claim：
+   - claim path 必须使用 $(git rev-parse --git-path vectahub-backlog-claims/<TASK_ID>)
+   - 先确保 claim root 存在，再对选中任务执行原子 mkdir <claim path>
+   - 如果 mkdir <claim path> 失败，说明其他 run 已抢到该任务；本轮不得继续该任务，必须重新执行 lock availability scan 和任务选择
+   - mkdir <claim path> 成功后，必须写入 <claim path>/claim.json，内容包含 task_id、run_id、owner、claimed_at、expires_at
+   - 释放 claim 前必须读取 claim.json，只有 claim.json.run_id 等于本轮 run_id 时才能删除该 claim 目录
+   - atomic claim 成功前，不得修改该任务状态，不得读取该任务 source_docs / required_contracts / scope / done_criteria / verification
+10. atomic claim 成功并写入 claim.json 后必须重新读取本文，确认选中任务仍是 todo 或 needs-fix，没有 lock，且依赖仍已完成；如果状态已变化，释放本轮 claim，并重新执行 lock availability scan 和任务选择
+11. 将选中任务状态改为 in-progress:<当前时间>，并写入 lock.owner、lock.run_id、lock.acquired_at、lock.expires_at、lock.previous_status
+12. 写入 Markdown lock 后必须重新读取本文，确认该任务的 lock.run_id 等于本轮 run_id；如果不是，说明并发写入失败，本轮必须释放本轮 claim，停止或重新选择其他 eligible item，不得继续开发该任务
+13. 只有同时持有 atomic claim 和 matching Markdown lock 后，才能读取该任务上下文并开发
+14. 开发最小实现
+15. 自审：事实依据、合同、范围、安全、测试、JSON、trace、recovery、semantic acceptance
+16. 运行该任务 verification 中列出的命令
+17. 失败则修复，最多 3 轮
+18. 仍失败则改为 needs-fix 或 blocked，记录失败证据，移除 Markdown lock，并释放本轮 atomic claim
+19. 通过后将任务改为 done，记录验证结果，移除 Markdown lock，并释放本轮 atomic claim
+20. 只 stage 本轮相关文件
+21. git commit
 ```
 
 如果工作树在开始时已有无关改动，自动化必须避免提交无关文件；无法区分时停止并报告。
