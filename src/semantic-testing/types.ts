@@ -22,11 +22,20 @@ export interface SemanticTestResult {
     safetyCorrectness: number; // 0-100
     outputContract: number; // 0-100
     userUsefulness: number; // 0-100
+    recoveryAwareness?: number; // 0-100 (optional)
     total: number; // 0-100
   };
   details: {
     actualBehavior?: string;
     blockingIssues?: string[];
+    dimensions?: {
+      intentCorrectness?: string;
+      planQuality?: string;
+      safetyCorrectness?: string;
+      outputContract?: string;
+      userUsefulness?: string;
+      recoveryAwareness?: string;
+    };
   };
   durationMs: number;
 }
@@ -43,5 +52,13 @@ export interface SemanticTestReport {
     skipped: number;
     averageScore: number;
     passRate: number;
+    dimensions?: {
+      intentCorrectness: number;
+      planQuality: number;
+      safetyCorrectness: number;
+      outputContract: number;
+      userUsefulness: number;
+      recoveryAwareness: number;
+    };
   };
 }

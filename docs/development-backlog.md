@@ -2087,7 +2087,7 @@ completion:
 ```yaml
 id: P2-014
 priority: P2
-status: todo
+status: done
 depends_on:
   - P1-011
 evidence:
@@ -2122,6 +2122,18 @@ done_criteria:
   - 每个测试样本都有维度评分和失败原因
   - 安全、JSON 合同、幻觉命令为硬失败维度
   - 报告可被自动化用于 needs-fix 判定
+completion:
+  verified_at: 2026-05-31
+  commit: 4026624
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass (0 errors, 0 warnings)
+    - npm run test:run: pass (238 files, 3295 tests passed, 11 skipped)
+    - git diff --check: pass
+  changed_files:
+    - docs/development-backlog.md
+    - src/semantic-testing/types.ts
+    - src/semantic-testing/runner.ts
 ```
 
 ### P3-001: VS Code/UI 消费统一 JSON contract
