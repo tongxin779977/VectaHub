@@ -537,7 +537,7 @@ done_criteria:
   - 空输入或上下文不足返回 clarify / blocked，而不是猜测执行
 completion:
   verified_at: 2026-05-31
-  commit: pending
+  commit: 428b957
   verification_results:
     - npm run typecheck: pass
     - npm run lint: pass (0 errors, 0 warnings)
@@ -562,7 +562,7 @@ review_findings:
         等 P0-001 重新通过后，复核 P0-004 是否仍满足所有 NL 路径共用请求 envelope、
         cwd 不从自然语言猜测、空输入返回 clarify / blocked 的 done_criteria，并重新运行 verification。
       resolved_at: 2026-05-31
-      resolved_by_commit: pending
+      resolved_by_commit: 428b957
 ```
 
 ### P0-005: 建立 Command Surface Validator
