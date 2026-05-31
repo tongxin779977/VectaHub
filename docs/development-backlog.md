@@ -1978,7 +1978,7 @@ review_findings:
 ```yaml
 id: P2-007
 priority: P2
-status: needs-fix
+status: done
 depends_on:
   - P1-005
   - P1-008
@@ -2024,11 +2024,13 @@ done_criteria:
   - delegate success still requires verification when task mutates state
   - worker native features cannot bypass VectaHub governance
 completion:
-  verified_at: 2026-05-31
+  verified_at: 2026-05-31T20:00
+  commit: 8a7eece
   verification_results:
     - npm run typecheck: pass
     - npm run lint: pass
-    - npm run test:run: pass (3172 tests passed, 11 skipped)
+    - npm run test:run: pass (3308 tests passed, 11 skipped)
+    - scripts/test-semantic-output.sh: pass (44/44)
     - git diff --check: pass
   changed_files:
     - src/workflow/executor.ts
@@ -2036,7 +2038,7 @@ completion:
     - docs/development-backlog.md
 review_findings:
   reviewed_at: 2026-05-31T10:54
-  status: needs-fix
+  status: resolved_by_reverification:2026-05-31T20:00
   findings:
     - severity: P1
       location: docs/development-backlog.md:1663
@@ -2044,6 +2046,7 @@ review_findings:
         Post-review found that this task does not meet the completion evidence rules: commit is missing; missing required verification: scripts/test-semantic-output.sh.
       required_fix: >
         Re-run this backlog item from its current implementation state, execute every command listed in verification with strict pass evidence, ensure lint is 0 problems when required, and update completion with a stable commit hash after the fix is committed.
+      resolved_by_commit: 8a7eece
 
 ```
 
