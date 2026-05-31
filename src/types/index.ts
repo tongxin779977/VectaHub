@@ -14,3 +14,4 @@ export * from './verification-result.js';
 export * from './feedback.js';
 export * from './worker-capability.js';
 export * from './worker-result.js';
+export * from './native-feature-passthrough.js';

@@ -1537,11 +1537,24 @@ completion:
 ```yaml
 id: P2-005
 priority: P2
-status: todo
+status: done
 depends_on:
   - P2-002
   - P2-003
   - P2-004
+completion:
+  verified_at: 2026-05-31
+  verification_results:
+    - npm run typecheck: pass
+    - npm run test:run: pass (231 files, 3175 tests passed, 11 skipped)
+    - git diff --check: pass
+  changed_files:
+    - src/types/native-feature-passthrough.ts
+    - src/types/index.ts
+    - src/orchestration-plan/native-feature-passthrough-policy.ts
+    - src/orchestration-plan/native-feature-passthrough-policy.test.ts
+    - src/orchestration-plan/index.ts
+    - docs/development-backlog.md
 evidence:
   - level: product_decision
     source: docs/nl-workflow-orchestrator.md

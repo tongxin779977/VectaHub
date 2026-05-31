@@ -75,3 +75,18 @@ export type {
 } from './delegation-policy.js';
 export { normalizeWorkerResult } from './worker-result-normalizer.js';
 export type { RawWorkerOutput } from './worker-result-normalizer.js';
+export {
+  buildNativeFeaturePassthroughPolicy,
+  getNativeFeaturePolicy,
+  evaluateFeaturePassthroughRequest,
+  isFeaturePassthroughAllowed,
+  doesFeaturePassthroughRequireConfirmation,
+  isFeaturePassthroughBlocked,
+} from './native-feature-passthrough-policy.js';
+export type {
+  NativeFeaturePolicy,
+  NativeFeaturePassthroughPolicy,
+  FeaturePassthroughRequest,
+  FeaturePassthroughResult,
+  FeaturePassthroughDecision,
+} from '../types/native-feature-passthrough.js';
