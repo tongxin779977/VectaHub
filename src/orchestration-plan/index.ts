@@ -96,3 +96,5 @@ export {
   checkWorktreeCheckpointAvailability,
   checkCheckpointAvailability,
 } from './checkpoint-reference-validator.js';
+export { createArtifactStorage } from './artifact-storage.js';
+export type { ArtifactStorageOptions } from './artifact-storage.js';

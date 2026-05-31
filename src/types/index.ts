@@ -16,3 +16,4 @@ export * from './worker-capability.js';
 export * from './worker-result.js';
 export * from './native-feature-passthrough.js';
 export * from './checkpoint-reference.js';
+export * from './artifact.js';

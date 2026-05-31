@@ -1721,7 +1721,7 @@ completion:
 ```yaml
 id: P2-008
 priority: P2
-status: todo
+status: done
 depends_on:
   - P1-005
   - P1-009
@@ -1754,6 +1754,20 @@ verification:
 done_criteria:
   - artifact 与 execution id / producer task 关联
   - 不保存未脱敏敏感内容
+completion:
+  verified_at: 2026-05-31
+  verification_results:
+    - npm run typecheck: pass
+    - npm run lint: pass (0 errors, 4 warnings - unrelated to this task)
+    - npm run test:run: pass (10 tests)
+    - git diff --check: pass
+  changed_files:
+    - src/types/artifact.ts
+    - src/types/index.ts
+    - src/orchestration-plan/artifact-storage.ts
+    - src/orchestration-plan/artifact-storage.test.ts
+    - src/orchestration-plan/index.ts
+    - docs/development-backlog.md
 ```
 
 ### P2-009: Workflow snapshot/hash guard
