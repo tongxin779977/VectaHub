@@ -1346,7 +1346,7 @@ done_criteria:
   - 安全关键错误不允许只降级为人工主观判断
 completion:
   verified_at: 2026-05-31T22:58
-  commit: 1c66282
+  commit: cb173c9
   verification_results:
     - npm run typecheck: pass (0 errors)
     - npm run lint: pass (0 errors, 0 warnings)
