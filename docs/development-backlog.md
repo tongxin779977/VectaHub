@@ -1202,7 +1202,7 @@ done_criteria:
   - plan/draft 回复说明下一步是 review、confirm、execute 或 verify
 completion:
   verified_at: 2026-05-31T13:48
-  commit: pending
+  commit: 9c0eaac
   verification_results:
     - npm run typecheck: pass
     - npm run lint: pass (0 errors, 0 warnings)
