@@ -752,7 +752,7 @@ done_criteria:
   - 缺少项目文件时保守返回 unknown/empty，而不是猜测
 completion:
   verified_at: 2026-06-01T00:03
-  commit: pending
+  commit: 0074ebe
   verification_results:
     - npm run typecheck: pass (0 errors)
     - npm run lint: pass (0 errors, 0 warnings)
