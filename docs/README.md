@@ -31,6 +31,7 @@ VectaHub 当前应被理解为一个**单用户、本地优先的 NL Workflow Or
 - [能力明细](./capabilities-reference.md)
 - [开发者指南](./development.md)
 - [开发队列](./development-backlog.md)
+- [开发队列详情](./backlog/)
 - [测试指南](./testing.md)
 - [核心合同](./contracts/)
 - [标准体系](./standards/)
@@ -56,7 +57,8 @@ VectaHub 当前应被理解为一个**单用户、本地优先的 NL Workflow Or
 | [capabilities-reference.md](./capabilities-reference.md) | 当前功能细节、边界和状态说明。 |
 | [usage.md](./usage.md) | 面向操作者的命令使用手册。 |
 | [architecture.md](./architecture.md) | 当前系统结构和仓库重点。 |
-| [development-backlog.md](./development-backlog.md) | NL Workflow Orchestrator 未开发能力的自动化开发队列。 |
+| [development-backlog.md](./development-backlog.md) | NL Workflow Orchestrator 开发队列入口和任务索引。 |
+| [backlog/](./backlog/) | 拆分后的开发队列协议、任务文件、自动化提示词和跨项目模板。 |
 | [contracts/](./contracts/) | 合同入口索引，指向 `docs/contracts/` 下的权威规格。 |
 | [standards/](./standards/) | 可复用标准体系，包含评分、智能化、文档治理和验证门禁。 |
 
@@ -106,6 +108,7 @@ VectaHub 当前应被理解为一个**单用户、本地优先的 NL Workflow Or
 
 - [开发者指南](./development.md)
 - [开发队列](./development-backlog.md)
+- [开发队列详情](./backlog/)
 - [测试指南](./testing.md)
 - [发布指南](./release.md)
 - [Agent 操作规范](./agent-operating-guide.md)
