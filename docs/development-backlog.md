@@ -720,7 +720,13 @@ review_findings:
 ```yaml
 id: P1-001
 priority: P1
-status: needs-fix
+status: in-progress:2026-06-01T00:02
+lock:
+  owner: solo-agent
+  run_id: 86c0c3bd0796
+  acquired_at: 2026-06-01T00:02
+  expires_at: 2026-06-01T00:32
+  previous_status: needs-fix
 depends_on:
   - P0-004
 evidence:

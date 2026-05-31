@@ -120,4 +120,51 @@ describe('buildNLRequestEnvelope', () => {
     expect(envelope.sessionId).toBe('session-123');
     expect(envelope.contextId).toBe('context-456');
   });
+
+  it('handles empty input without guessing', () => {
+    const envelope = buildNLRequestEnvelope({
+      source: 'run',
+      mode: 'dry-run',
+      dryRun: true,
+      json: true,
+      cwd: '/test/path',
+      userInput: '',
+    });
+
+    expect(envelope.userInput).toBe('');
+    expect(envelope.normalizedInput).toBeDefined();
+    expect(envelope.normalizedInput!.cleanText).toBe('');
+    expect(envelope.normalizedInput!.tokens).toEqual([]);
+    expect(envelope.cwd).toBe('/test/path');
+  });
+
+  it('handles file input source', () => {
+    const envelope = buildNLRequestEnvelope({
+      source: 'document',
+      mode: 'execute',
+      dryRun: false,
+      json: false,
+      cwd: '/workspace',
+      userInput: 'read config.yaml',
+    });
+
+    expect(envelope.source).toBe('document');
+    expect(envelope.cwd).toBe('/workspace');
+    expect(envelope.normalizedInput).toBeDefined();
+    expect(envelope.normalizedInput!.cleanText).toBe('read config.yaml');
+  });
+
+  it('cwd comes from environment not from userInput', () => {
+    const envelope = buildNLRequestEnvelope({
+      source: 'run',
+      mode: 'execute',
+      dryRun: false,
+      json: false,
+      cwd: '/actual/cwd',
+      userInput: 'run in /some/other/path',
+    });
+
+    expect(envelope.cwd).toBe('/actual/cwd');
+    expect(envelope.userInput).toBe('run in /some/other/path');
+  });
 });
