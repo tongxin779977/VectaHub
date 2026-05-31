@@ -930,7 +930,7 @@ done_criteria:
   - 安全关键失败直接 fail
 completion:
   verified_at: 2026-05-31T12:07
-  commit: pending
+  commit: 3c1974f
   verification_results:
     - npm run typecheck: pass
     - npm run lint: pass
@@ -944,7 +944,7 @@ completion:
     - scripts/test-semantic-output.sh
 review_findings:
   reviewed_at: 2026-05-31T10:54
-  status: resolved_by_commit:pending
+  status: resolved_by_commit:3c1974f
   findings:
     - severity: P1
       location: docs/development-backlog.md:846
