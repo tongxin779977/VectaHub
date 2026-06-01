@@ -1,5 +1,4 @@
 import * as fs from "fs";
-import * as path from "path";
 import { execSync } from "child_process";
 import { VerificationEvidence, DirtyFileCheckResult } from "../types/index.js";
 

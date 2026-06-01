@@ -1,9 +1,7 @@
 import { BacklogItem, TaskSelectionResult } from "../types/index.js";
 import {
   getAllBacklogItems,
-  isTaskDone,
   isTaskInProgress,
-  isTaskLocked,
   hasUnresolvedReviewFindings,
   areDependenciesMet,
   getPriorityOrder,

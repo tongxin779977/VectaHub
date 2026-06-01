@@ -2,7 +2,6 @@ import * as fs from "fs";
 import * as path from "path";
 import { execSync } from "child_process";
 import { Claim } from "../types/index.js";
-import { getISO8601Timestamp } from "./parser.js";
 
 export function getClaimDir(): string {
   const gitPath = execSync("git rev-parse --git-path vectahub-backlog-claims", {

@@ -1,18 +1,11 @@
-import { BacklogItem, Lock, Completion, ReviewFindings } from "../types/index.js";
+import { BacklogItem } from "../types/index.js";
 import {
   parseBacklogItem,
   writeBacklogItem,
   getItemFilePath,
   getTimestamp,
-  getISO8601Timestamp,
-  getAllBacklogItems,
-  isTaskInProgress,
-  isTaskDone,
 } from "./parser.js";
-import { createAtomicClaim, deleteClaim, getClaim } from "./claim.js";
-import { selectNextTask, dryRunSelection } from "./selector.js";
-import { validateStatusTransition, validateTaskConsistency } from "./validator.js";
-import { runVerificationCommands, generateVerificationEvidence } from "./reporter.js";
+import { createAtomicClaim, deleteClaim } from "./claim.js";
 
 export interface RunnerOptions {
   itemsDir: string;
@@ -38,9 +31,6 @@ export function startTask(
   const previousStatus = item.status;
   const timestamp = getTimestamp();
   item.status = `in-progress:${timestamp}`;
-  
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + 60 * 60 * 1000);
   
   item.lock = {
     owner: owner,
@@ -71,8 +61,6 @@ export function completeTask(
     console.error(`Cannot complete task ${taskId}: invalid lock or run_id mismatch`);
     return null;
   }
-  
-  const previousStatus = item.status;
   
   item.status = "done";
   item.completion = {
@@ -105,8 +93,6 @@ export function failTask(
     console.error(`Cannot fail task ${taskId}: invalid lock or run_id mismatch`);
     return null;
   }
-  
-  const previousStatus = item.lock.previous_status;
   
   if (isBlocked) {
     item.status = "blocked";

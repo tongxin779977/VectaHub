@@ -2,7 +2,6 @@ import { Command } from "commander";
 import * as path from "path";
 import {
   dryRunSelection,
-  parseBacklogItem,
   getAllBacklogItems,
   validateTaskConsistency,
   checkDirtyFiles,

@@ -29,6 +29,7 @@ export default [
       "src/cli*.ts",
       "src/commands/**/*.ts",
       "src/setup/**/*.ts",
+      "src/backlog/**/*.ts",
       "src/agent-runtime/registry.ts",
       "src/cli-tools/command-rules/engine.ts",
       "src/cli-tools/registry.ts",
@@ -69,6 +70,8 @@ export default [
       "src/sandbox/memory-monitor.ts",
       "src/skills/ai-modules/agent-delegate/agent-loop.ts",
       "src/types/diagnostic.ts",
+      "src/types/backlog.ts",
+      "src/backlog/**/*.ts",
       "src/utils/lazy-loader.ts",
       "src/utils/shell-tokenizer.ts",
       "src/utils/worker-pool.ts"
