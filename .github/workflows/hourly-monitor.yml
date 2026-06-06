@@ -1,0 +1,137 @@
+name: Hourly Security & Actions Monitor
+
+on:
+  schedule:
+    - cron: '0 * * * *' # 每小时整点执行
+  workflow_dispatch: # 允许手动触发
+
+permissions:
+  contents: read
+  security-events: write
+  issues: write
+
+jobs:
+  security-monitor:
+    name: Check Security Vulnerabilities & Actions
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check npm audit
+        id: npm-audit
+        run: |
+          echo "## NPM Security Audit" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if npm audit --audit-level=moderate --json > audit-results.json; then
+            echo "✅ No security vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
+            echo "vulnerable=false" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Found vulnerabilities!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+            cat audit-results.json >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "vulnerable=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check Dependabot alerts
+        id: dependabot
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: alerts } = await github.rest.dependabot.listAlertsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100
+            });
+
+            console.log(`Found ${alerts.length} open Dependabot alerts`);
+            
+            let summary = '\n## Dependabot Alerts\n';
+            if (alerts.length === 0) {
+              summary += '✅ No open Dependabot alerts!';
+            } else {
+              summary += '⚠️ Open Dependabot alerts:\n\n';
+              for (const alert of alerts.slice(0, 20)) {
+                summary += `- [${alert.security_advisory.summary}](${alert.html_url}) (${alert.security_advisory.severity})\n`;
+              }
+              if (alerts.length > 20) {
+                summary += `... and ${alerts.length - 20} more\n`;
+              }
+            }
+            
+            await core.summary.addRaw(summary).write();
+            core.setOutput('alertCount', alerts.length);
+
+      - name: Check recent workflow runs
+        id: workflow-status
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: runs } = await github.rest.actions.listWorkflowRunsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 20,
+              status: 'completed'
+            });
+
+            const failedRuns = runs.filter(r => r.conclusion === 'failure');
+            
+            let summary = '\n## Recent Workflow Runs\n';
+            summary += `Total recent runs: ${runs.workflow_runs.length}\n`;
+            summary += `Failed runs: ${failedRuns.length}\n\n`;
+            
+            if (failedRuns.length > 0) {
+              summary += '⚠️ Failed workflows:\n';
+              for (const run of failedRuns.slice(0, 5)) {
+                summary += `- [${run.name}](${run.html_url}) - ${new Date(run.created_at).toLocaleString()}\n`;
+              }
+            }
+            
+            await core.summary.addRaw(summary).write();
+            core.setOutput('failedRuns', failedRuns.length);
+
+      - name: Create Issue if problems found
+        if: steps.npm-audit.outputs.vulnerable == 'true' || steps.dependabot.outputs.alertCount > 0 || steps.workflow-status.outputs.failedRuns > 0
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = '🔔 Security & Workflow Alert: Action Required';
+            
+            const body = `## Hourly Security & Workflow Monitor Report\n\n` +
+              `- NPM Audit Vulnerabilities: ${steps.npm-audit.outputs.vulnerable == 'true' ? '⚠️ Found' : '✅ Clear'}\n` +
+              `- Dependabot Alerts: ${steps.dependabot.outputs.alertCount} open\n` +
+              `- Failed Workflows: ${steps.workflow-status.outputs.failedRuns}\n\n` +
+              `---\n` +
+              `This issue was automatically created by the hourly monitoring workflow.`;
+            
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['security', 'automated']
+            });
+
+  keep-alive:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Keep workflow alive
+        uses: gautamkrishnar/keepalive-workflow@v2
