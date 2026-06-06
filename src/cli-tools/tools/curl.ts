@@ -17,7 +17,13 @@ export const curlTool: CliTool = {
     },
   ],
   relatedTools: ['git', 'npm', 'docker'],
-  dangerousCommands: [],
+  dangerousCommands: [
+    '--upload-file',
+    '--insecure',
+    '--proxy',
+    '--config',
+    '--data-binary',
+  ],
   commands: {
     get: {
       name: 'get',
@@ -69,6 +75,24 @@ export const curlTool: CliTool = {
         { name: '-O', alias: '--remote-name', description: 'Write output to a file named like the remote file', type: 'boolean' },
         { name: '-o', alias: '--output', description: 'Write output to file', type: 'string' },
       ],
+    },
+    '--upload-file': {
+      name: '--upload-file',
+      description: 'Upload a file (dangerous)',
+      usage: 'curl --upload-file <file> <URL>',
+      examples: ['curl --upload-file local.txt https://example.com/upload'],
+      dangerous: true,
+      dangerLevel: 'high',
+      requiresConfirmation: true,
+    },
+    '--insecure': {
+      name: '--insecure',
+      description: 'Allow insecure SSL connections (dangerous)',
+      usage: 'curl --insecure <URL>',
+      examples: ['curl --insecure https://self-signed.example.com'],
+      dangerous: true,
+      dangerLevel: 'medium',
+      requiresConfirmation: true,
     },
   },
 };

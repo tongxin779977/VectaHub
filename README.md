@@ -2,7 +2,7 @@
 
 > 一个小马拉大车的 CLI，擅长文档驱动自动化、结构化执行和 Agent 编排。
 
-[![Version](https://img.shields.io/badge/version-1.0.13-blue)]()
+[![Version](https://img.shields.io/badge/version-1.0.14-blue)]()
 [![Node.js](https://img.shields.io/badge/node-%3E%3D21.0.0-brightgreen)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue)]()
 

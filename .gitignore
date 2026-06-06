@@ -92,3 +92,4 @@ coverage/
 .trae
 
 .aider*
+*.vsix
