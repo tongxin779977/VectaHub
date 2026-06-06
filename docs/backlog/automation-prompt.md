@@ -18,6 +18,10 @@
 - 每轮最多处理一个 backlog item。
 - 只修改本轮 selected item 范围内允许的文件。
 - 通过后更新对应 docs/backlog/items/<TASK_ID>.md 的 completion，移除 lock，释放 atomic claim，并只提交本轮相关文件。
+- completion.commit 必须使用 `git rev-parse <commit>` 得到的完整 40 位 commit hash；不得使用短 hash、HEAD、pending、空值或手写猜测值。
+- 写入 completion.commit 前必须执行 `git cat-file -e <full-hash>^{commit}` 并确认通过；如果该命令失败，不得把 item 标记为 done。
+- completion.verification_results 必须覆盖该 item 的 verification 列表中每一条命令；缺失、失败、跳过、只检查 modified files 或使用非标准别名时，不得标记为 done。
+- 标记 done 前必须复核该 item 不存在 review_findings.status=needs-fix、重复 completion block、残留 lock 或依赖未完成。
 - 未通过时更新该 item 为 needs-fix 或 blocked，记录失败证据，移除 lock，释放 atomic claim，不得提交。
 
 输出格式：
