@@ -3,14 +3,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockInfo = vi.fn();
 const mockError = vi.fn();
 
-vi.mock('../utils/logger.js', () => ({
-  createConsoleLogger: vi.fn(() => ({
-    info: mockInfo,
-    error: mockError,
-    debug: vi.fn(),
-  })),
-}));
-
 vi.mock('../execution/archiver.js', () => ({
   createArchiver: vi.fn(() => ({
     archiveBefore: vi.fn(() => Promise.resolve({
@@ -26,7 +18,22 @@ vi.mock('../execution/archiver.js', () => ({
   })),
 }));
 
-const { archiveCmd } = await import('./archive.js');
+function createMockContext() {
+  return {
+    audit: {
+      getHelper: () => ({ log: vi.fn(), cliOutput: vi.fn(), securityAlert: vi.fn(), securityAction: vi.fn() }),
+      getLogger: () => ({ getSessionId: () => 'test-session' }),
+    },
+    environment: {} as never,
+    config: {} as never,
+    logger: {
+      getLogger: () => ({ info: mockInfo, error: mockError, debug: vi.fn(), warn: vi.fn() }),
+      setMuted: vi.fn(),
+    },
+  };
+}
+
+const { createArchiveCmd } = await import('./archive.js');
 
 describe('archive command', () => {
   beforeEach(() => {
@@ -35,29 +42,28 @@ describe('archive command', () => {
   });
 
   it('should show usage when no options provided', async () => {
-    await archiveCmd.parseAsync(['node', 'test']);
+    await createArchiveCmd(createMockContext() as never).parseAsync(['node', 'test']);
     expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('Usage'));
   });
 
   it('should show no archives when none exist', async () => {
-    await archiveCmd.parseAsync(['node', 'test', '--list']);
+    await createArchiveCmd(createMockContext() as never).parseAsync(['node', 'test', '--list']);
     expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('No archives'));
   });
 
   it('should accept --before option', async () => {
-    await archiveCmd.parseAsync(['node', 'test', '--before', '2026-06-01']);
+    await createArchiveCmd(createMockContext() as never).parseAsync(['node', 'test', '--before', '2026-06-01']);
     expect(mockInfo).toHaveBeenCalled();
   });
 
   it('should handle invalid date format', async () => {
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
-    await archiveCmd.parseAsync(['node', 'test', '--before', 'not-a-date']);
-    expect(exitSpy).toHaveBeenCalledWith(1);
-    exitSpy.mockRestore();
+    await expect(
+      createArchiveCmd(createMockContext() as never).parseAsync(['node', 'test', '--before', 'not-a-date'])
+    ).rejects.toThrow();
   });
 
   it('should delete archive without error', async () => {
-    await archiveCmd.parseAsync(['node', 'test', '--delete', 'nonexistent']);
+    await createArchiveCmd(createMockContext() as never).parseAsync(['node', 'test', '--delete', 'nonexistent']);
     expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('deleted'));
   });
 });

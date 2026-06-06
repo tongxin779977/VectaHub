@@ -6,10 +6,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import pino from 'pino';
 import { TraceCore, createTraceCore, withTrace } from './trace-core.js';
 import { AsyncLogWriter, createAsyncLogWriter } from './async-writer.js';
 
 const TEST_LOG_DIR = path.join(process.cwd(), 'test-logs-trace-core');
+const TEST_LOGGER = pino({ level: 'silent' });
 
 describe('TraceCore', () => {
   let writer: AsyncLogWriter;
@@ -22,8 +24,8 @@ describe('TraceCore', () => {
     writer = createAsyncLogWriter(TEST_LOG_DIR, {
       bufferSize: 100,
       flushIntervalMs: 100,
-    });
-    traceCore = createTraceCore(writer);
+    }, { logger: TEST_LOGGER });
+    traceCore = createTraceCore(writer, { logger: TEST_LOGGER });
   });
 
   afterEach(async () => {

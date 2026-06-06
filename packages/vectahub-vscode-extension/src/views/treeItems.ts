@@ -18,7 +18,7 @@ export class TaskTreeItem extends VectaHubTreeItem {
 
   constructor(
     label: string,
-    command: vscode.Command,
+    command: vscode.Command | undefined,
     icon: string = 'play',
     public readonly source?: string,
     description?: string,
@@ -37,8 +37,13 @@ export class TaskTreeItem extends VectaHubTreeItem {
 }
 
 export class CategoryTreeItem extends VectaHubTreeItem {
-  constructor(label: string, children: VectaHubTreeItem[]) {
-    super(label, vscode.TreeItemCollapsibleState.Expanded);
+  constructor(label: string, children: VectaHubTreeItem[], options?: { collapsed?: boolean; contextValue?: string }) {
+    super(
+      label,
+      options?.collapsed ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.Expanded,
+      undefined,
+      options?.contextValue ?? 'category'
+    );
     this.children = children;
   }
   public children: VectaHubTreeItem[];

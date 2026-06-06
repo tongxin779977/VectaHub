@@ -330,15 +330,15 @@ describe('CLI Tool Registry', () => {
 
     registry.register(tool);
 
-    // @ts-ignore Testing with undefined keyword
+    // @ts-expect-error Testing with undefined keyword
     expect(registry.searchTools(undefined)).toEqual([]);
-    // @ts-ignore Testing with null keyword
+    // @ts-expect-error Testing with null keyword
     expect(registry.searchTools(null)).toEqual([]);
     expect(registry.searchTools('')).toEqual([]);
 
-    // @ts-ignore Testing with undefined keyword
+    // @ts-expect-error Testing with undefined keyword
     expect(registry.searchCommands(undefined)).toEqual([]);
-    // @ts-ignore Testing with null keyword
+    // @ts-expect-error Testing with null keyword
     expect(registry.searchCommands(null)).toEqual([]);
     expect(registry.searchCommands('')).toEqual([]);
   });

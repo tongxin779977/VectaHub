@@ -1,19 +1,14 @@
 export type GoalAction =
-  | 'repair'
-  | 'analyze'
-  | 'run'
-  | 'create'
-  | 'delete'
-  | 'search'
-  | 'explain'
-  | 'unknown';
+  | 'repair' | 'analyze' | 'run' | 'create' | 'delete'
+  | 'search' | 'explain' | 'unknown'
+  | 'modify' | 'debug' | 'test' | 'deploy' | 'document'
+  | 'failure' | 'build' | 'git';
 
 export type GoalScope =
-  | 'all'
-  | 'selected'
-  | 'current'
-  | 'latest'
-  | 'unknown';
+  | 'all' | 'selected' | 'current' | 'latest' | 'unknown'
+  | 'project' | 'service' | 'module' | 'function' | 'test'
+  | 'deployment' | 'dependency' | 'config'
+  | 'ui' | 'database' | 'security';
 
 export interface NormalizedInput {
   rawText: string;
@@ -39,6 +34,7 @@ export interface ParsedGoal {
   evidence: NormalizedInput['entities'];
   confidence: number;
   needsClarification: boolean;
+  negationDetected?: boolean;
 }
 
 export interface ProjectContext {
@@ -47,6 +43,7 @@ export interface ProjectContext {
   packageScripts?: string[];
   gitRemote?: string;
   ciProvider?: 'github-actions' | 'unknown';
+  rawInput?: string;
 }
 
 export const CAPABILITY_AUTO_ROUTE_THRESHOLD = 0.7;

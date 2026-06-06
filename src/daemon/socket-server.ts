@@ -1,14 +1,14 @@
 import { createServer, createConnection, type Server, type Socket } from 'net';
-import { existsSync, unlinkSync } from 'fs';
+import { unlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
-import { createCoordinator, adaptAllTemplates } from '../nl/core/index.js';
-import { INTENT_TEMPLATES } from '../nl/templates/index.js';
 import { createSandboxManager, type SandboxManager } from '../sandbox/sandbox.js';
 import type { SandboxMode } from '../types/index.js';
-import { audit, getCurrentSessionId, AuditEventType } from '../utils/audit.js';
-import { createSkillExecutor } from '../skills/executor.js';
+import { AuditEventType, type AuditHelper } from '../infrastructure/audit/index.js';
+import { processInput } from '../nl/orchestrator.js';
+import type { LLMConfig } from '../nl/llm.js';
+import type pino from 'pino';
 
 export interface Task {
   id: string;
@@ -25,21 +25,41 @@ export interface SocketServerConfig {
   sandboxMode?: SandboxMode;
 }
 
+export interface SocketServerDeps {
+  auditHelper: AuditHelper;
+  logger: Pick<pino.Logger, 'error'>;
+  getSessionId: () => string;
+  llmConfigProvider?: () => LLMConfig | null | undefined;
+}
+
 const DEFAULT_CONFIG: SocketServerConfig = {
   socketPath: join(tmpdir(), 'vectahub.sock'),
   sandboxMode: 'RELAXED',
 };
 
+const VALID_SANDBOX_MODES: ReadonlySet<SandboxMode> = new Set(['STRICT', 'RELAXED', 'CONSENSUS']);
+
 export class SocketServer {
   private server: Server | null = null;
   private config: SocketServerConfig;
+  private readonly auditHelper: AuditHelper;
+  private readonly logger: Pick<pino.Logger, 'error'>;
+  private readonly getSessionId: () => string;
+  private readonly llmConfigProvider: () => LLMConfig | null | undefined;
   private sandbox: SandboxManager;
   private tasks: Map<string, Task> = new Map();
-  private executor = createSkillExecutor();
+  private socketBuffers: WeakMap<Socket, string> = new WeakMap();
 
-  constructor(config: SocketServerConfig = {}) {
+  constructor(config: SocketServerConfig = {}, deps: SocketServerDeps) {
     this.config = { ...DEFAULT_CONFIG, ...config };
-    this.sandbox = createSandboxManager({ mode: this.config.sandboxMode! });
+    this.auditHelper = deps.auditHelper;
+    this.logger = deps.logger;
+    this.getSessionId = deps.getSessionId;
+    this.llmConfigProvider = deps.llmConfigProvider ?? (() => undefined);
+    this.sandbox = createSandboxManager(
+      { mode: this.config.sandboxMode! },
+      { audit: this.auditHelper }
+    );
   }
 
   private get socketPath(): string {
@@ -47,41 +67,32 @@ export class SocketServer {
   }
 
   private async executeTask(input: string): Promise<string> {
-    const coordinator = createCoordinator(adaptAllTemplates(INTENT_TEMPLATES));
-    const matchResult = coordinator.match(input);
-    const sessionId = getCurrentSessionId();
+    const sessionId = this.getSessionId();
 
-    const intentLines: string[] = [];
-    for (const intent of matchResult.intents) {
-      audit.intentMatch(intent.intent, intent.confidence, intent.params as Record<string, unknown>, sessionId);
-      intentLines.push(`Intent: ${intent.intent} (confidence: ${intent.confidence.toFixed(2)})`);
-    }
-
-    const multiIntentHeader = matchResult.isMultiIntent
-      ? `Multi-Intent Detected (${matchResult.intents.length} intents)\n${'─'.repeat(40)}\n`
-      : '';
-
-    // Delegate to Skill system via Executor
-    // Note: Here we'd ideally lookup a specific skill based on the intent.
-    // For now, we provide a unified execution bridge.
     try {
-      // In a real implementation, we would map matchResult.intents[0].intent to a specific Skill object
-      // For RP-10, we've removed the hardcoded Git logic.
-      if (matchResult.intents.length > 0) {
-        return `${multiIntentHeader}${intentLines.join('\n')}\nExecution delegated to Skill System.`;
-      }
-    } catch (err) {
-      throw new Error(`Execution failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
+      const result = await processInput(input, this.llmConfigProvider() ?? undefined, this.auditHelper, this.logger);
+      this.auditHelper.intentMatch(result.intent ?? 'UNKNOWN', result.confidence, result.params as Record<string, unknown> ?? {}, sessionId);
 
-    return `${multiIntentHeader}${intentLines.join('\n')}\nNo specific execution path found.`;
+      const tasks = result.taskList?.tasks ?? [];
+      if (tasks.length === 0) {
+        const warnings = result.taskList?.warnings?.filter(Boolean) ?? [];
+        const reason = warnings[0] ?? result.metadata.fallbackReason ?? 'No executable plan generated';
+        return `No executable plan: ${reason}`;
+      }
+
+      const intentLine = `Intent: ${result.intent ?? 'UNKNOWN'} (confidence: ${result.confidence.toFixed(2)})`;
+      return `${intentLine}\nExecution delegated to Skill System.`;
+    } catch (err) {
+      this.auditHelper.intentMatch('UNKNOWN', 0, {}, sessionId);
+      return `No match: ${err instanceof Error ? err.message : String(err)}`;
+    }
   }
 
   private async processTask(task: Task): Promise<void> {
-    const sessionId = getCurrentSessionId();
+    const sessionId = this.getSessionId();
     task.status = 'running';
 
-    audit.log({
+    this.auditHelper.log({
       event: AuditEventType.WORKFLOW_START,
       timestamp: new Date().toISOString(),
       sessionId,
@@ -99,13 +110,13 @@ export class SocketServer {
       task.status = 'completed';
       task.completedAt = Date.now();
 
-      audit.workflowEnd(task.id, 'COMPLETED', Date.now() - startTime, sessionId);
+      this.auditHelper.workflowEnd(task.id, 'COMPLETED', Date.now() - startTime, sessionId);
     } catch (error) {
       task.status = 'failed';
       task.error = error instanceof Error ? error.message : String(error);
       task.completedAt = Date.now();
 
-      audit.log({
+      this.auditHelper.log({
         event: AuditEventType.WORKFLOW_END,
         timestamp: new Date().toISOString(),
         sessionId,
@@ -121,19 +132,30 @@ export class SocketServer {
   }
 
   private handleSocketData(socket: Socket, data: Buffer): void {
-    const messageStr = data.toString().trim();
-    if (!messageStr) return;
+    const incomingData = data.toString();
+    const pendingBuffer = this.socketBuffers.get(socket) ?? '';
+    const mergedBuffer = pendingBuffer + incomingData;
+    const frames = mergedBuffer.split('\n');
+    const incompleteFrame = frames.pop() ?? '';
 
-    try {
-      const message = JSON.parse(messageStr);
-      this.handleMessage(socket, message);
-    } catch (err) {
-      socket.write(JSON.stringify({ type: 'error', message: 'Invalid JSON' }) + '\n');
+    this.socketBuffers.set(socket, incompleteFrame);
+
+    for (const frame of frames) {
+      const messageStr = frame.trim();
+      if (!messageStr) {
+        continue;
+      }
+      try {
+        const message = JSON.parse(messageStr);
+        void this.handleMessage(socket, message);
+      } catch {
+        socket.write(JSON.stringify({ type: 'error', message: 'Invalid JSON' }) + '\n');
+      }
     }
   }
 
   private async handleMessage(socket: Socket, message: Record<string, unknown>): Promise<void> {
-    const sessionId = getCurrentSessionId();
+    const sessionId = this.getSessionId();
 
     switch (message.type) {
       case 'submit': {
@@ -145,7 +167,7 @@ export class SocketServer {
         };
         this.tasks.set(task.id, task);
 
-        audit.cliCommand('daemon submit', [String(message.input)], sessionId);
+        this.auditHelper.cliCommand('daemon submit', [String(message.input)], sessionId);
 
         socket.write(JSON.stringify({ type: 'submitted', taskId: task.id }) + '\n');
         setImmediate(() => this.processTask(task));
@@ -172,11 +194,16 @@ export class SocketServer {
         break;
       }
       case 'setMode': {
-        const mode = message.mode as SandboxMode;
+        const mode = String(message.mode ?? '');
+        if (!VALID_SANDBOX_MODES.has(mode as SandboxMode)) {
+          socket.write(JSON.stringify({ type: 'error', message: 'Invalid mode. Use: STRICT | RELAXED | CONSENSUS' }) + '\n');
+          break;
+        }
+        const validatedMode = mode as SandboxMode;
         const oldMode = this.sandbox.getConfig().mode;
-        this.sandbox.setMode(mode);
-        audit.configChange('Sandbox', 'mode', oldMode, mode, sessionId);
-        socket.write(JSON.stringify({ type: 'modeChanged', mode }) + '\n');
+        this.sandbox.setMode(validatedMode);
+        this.auditHelper.configChange('Sandbox', 'mode', oldMode, validatedMode, sessionId);
+        socket.write(JSON.stringify({ type: 'modeChanged', mode: validatedMode }) + '\n');
         break;
       }
       default:
@@ -186,9 +213,9 @@ export class SocketServer {
 
   async start(): Promise<void> {
     const auditResult = await this.sandbox.getStatusSummary();
-    const sessionId = getCurrentSessionId();
+    const sessionId = this.getSessionId();
     
-    audit.log({
+    this.auditHelper.log({
       event: AuditEventType.ENV_AUDIT,
       timestamp: new Date().toISOString(),
       sessionId,
@@ -198,14 +225,12 @@ export class SocketServer {
       success: true,
     });
 
-    if (existsSync(this.socketPath)) {
-      unlinkSync(this.socketPath);
-    }
+    try { unlinkSync(this.socketPath); } catch { /* ignore if not exists */ }
 
     this.server = createServer((socket) => {
       socket.on('data', (data) => this.handleSocketData(socket, data));
       socket.on('error', (err) => {
-        console.error('Socket error:', err);
+        this.logger.error({ error: err }, 'Socket error');
       });
     });
 
@@ -220,9 +245,7 @@ export class SocketServer {
       await new Promise<void>((resolve) => this.server!.close(() => resolve()));
       this.server = null;
     }
-    if (existsSync(this.socketPath)) {
-      unlinkSync(this.socketPath);
-    }
+    try { unlinkSync(this.socketPath); } catch { /* ignore if not exists */ }
   }
 
   getSocketPath(): string {
@@ -236,4 +259,3 @@ export async function createClientConnection(socketPath: string): Promise<Socket
     socket.on('error', reject);
   });
 }
-

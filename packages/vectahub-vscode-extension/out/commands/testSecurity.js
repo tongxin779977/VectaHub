@@ -68,13 +68,17 @@ function registerTestSecurityCommand(context) {
             }
             return;
         }
+        const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!cwd) {
+            vscode.window.showWarningMessage('未打开工作区，安全检测将在默认目录下执行');
+        }
         (0, output_js_1.logToOutput)(`[testSecurity] 正在进行安全测试，命令: "${command}"`);
         vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
             title: "VectaHub: 正在进行安全检测...",
             cancellable: true
         }, async (progress, token) => {
-            const result = await (0, adapter_js_1.runCli)(['security', 'test', '--json', command], { token, timeout: SECURITY_TEST_TIMEOUT });
+            const result = await (0, adapter_js_1.runCli)(['security', 'test', '--json', command], { token, timeout: SECURITY_TEST_TIMEOUT, cwd });
             if (!result.ok) {
                 if (result.error?.code === 'CANCELLED') {
                     (0, output_js_1.logToOutput)('[testSecurity] 安全检测已取消');

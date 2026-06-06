@@ -1,6 +1,7 @@
 import { createInterface } from 'readline';
-import { createConfigDir, initConfigFile, configureLLMProvider } from './first-run-wizard.js';
+import { createConfigDir, initConfigFile, configureLLMProvider, closeRl as closeSetupRl } from './first-run-wizard.js';
 import { scanCLITools, updateCLIToolConfig } from './cli-scanner.js';
+import { type InfrastructureContext } from '../infrastructure/context.js';
 
 export type InstallationPhase = 'critical' | 'secondary' | 'tertiary';
 
@@ -28,6 +29,11 @@ export interface InstallationSummary {
   overallSuccess: boolean;
 }
 
+export interface InstallerOutput {
+  log(message: string): void;
+  warn(message: string): void;
+}
+
 const PHASE_LABELS: Record<InstallationPhase, string> = {
   critical: '核心配置',
   secondary: '外部工具',
@@ -37,6 +43,7 @@ const PHASE_LABELS: Record<InstallationPhase, string> = {
 interface InstallerOptions {
   askRetry?: (stepName: string) => Promise<boolean>;
   maxRetries?: number;
+  output?: InstallerOutput;
 }
 
 export interface Installer {
@@ -48,6 +55,11 @@ export function createPriorityInstaller(
   steps: InstallationStep[],
   options?: InstallerOptions,
 ): Installer {
+  const output = options?.output ?? console;
+  const cleanup = (): void => {
+    closeSetupRl();
+  };
+
   return {
     steps,
     run: async (): Promise<InstallationSummary> => {
@@ -70,108 +82,112 @@ export function createPriorityInstaller(
       let blocked = false;
       let secondaryFailed = false;
 
-      // Execute critical phase
-      for (const step of criticalSteps) {
-        const label = PHASE_LABELS.critical;
-        const maxRetries = options?.maxRetries ?? 3;
-        let retryCount = 0;
-        let success = false;
-        let lastResult: StepResult | null = null;
+      try {
+        // Execute critical phase
+        for (const step of criticalSteps) {
+          const label = PHASE_LABELS.critical;
+          const maxRetries = options?.maxRetries ?? 3;
+          let retryCount = 0;
+          let success = false;
+          let lastResult: StepResult | null = null;
 
-        console.log(`🔧 [${label}] 正在: ${step.name}`);
+          output.log(`🔧 [${label}] 正在: ${step.name}`);
 
-        while (retryCount <= maxRetries) {
-          const result = await step.execute();
-          lastResult = result;
+          while (retryCount <= maxRetries) {
+            const result = await step.execute();
+            lastResult = result;
 
-          if (result.success) {
-            success = true;
-            break;
+            if (result.success) {
+              success = true;
+              break;
+            }
+
+            const isRetryable = step.retryable !== false;
+            if (!isRetryable || !options?.askRetry || retryCount >= maxRetries) {
+              break;
+            }
+
+            retryCount++;
+            const shouldRetry = await options.askRetry(step.name);
+            if (!shouldRetry) {
+              break;
+            }
+
+            output.log(`🔄 [${label}] 重试 ${retryCount}/${maxRetries}: ${step.name}`);
           }
 
-          const isRetryable = step.retryable !== false;
-          if (!isRetryable || !options?.askRetry || retryCount >= maxRetries) {
-            break;
-          }
-
-          retryCount++;
-          const shouldRetry = await options.askRetry(step.name);
-          if (!shouldRetry) {
-            break;
-          }
-
-          console.log(`🔄 [${label}] 重试 ${retryCount}/${maxRetries}: ${step.name}`);
-        }
-
-        if (success) {
-          console.log(`✅ [${label}] 完成: ${step.name}`);
-          phases.critical.succeeded++;
-        } else {
-          const reason = lastResult?.reason || 'unknown error';
-          console.log(`❌ [${label}] 失败: ${step.name} — ${reason}`);
-          phases.critical.failed++;
-          blocked = true;
-          break;
-        }
-      }
-
-      // Log critical phase summary
-      const criticalLabel = PHASE_LABELS.critical;
-      console.log(
-        `📋 [${criticalLabel}] 结果: ${phases.critical.succeeded}/${phases.critical.total} 成功`,
-      );
-
-      // Execute secondary phase if not blocked
-      if (!blocked) {
-        for (const step of secondarySteps) {
-          const label = PHASE_LABELS.secondary;
-          console.log(`🔧 [${label}] 正在: ${step.name}`);
-
-          const result = await step.execute();
-
-          if (result.success) {
-            console.log(`✅ [${label}] 完成: ${step.name}`);
-            phases.secondary.succeeded++;
+          if (success) {
+            output.log(`✅ [${label}] 完成: ${step.name}`);
+            phases.critical.succeeded++;
           } else {
-            const reason = result.reason || 'unknown error';
-            console.log(`❌ [${label}] 失败: ${step.name} — ${reason}`);
-            phases.secondary.failed++;
-            secondaryFailed = true;
-            // Continue to next step (tolerate failures)
+            const reason = lastResult?.reason || 'unknown error';
+            output.log(`❌ [${label}] 失败: ${step.name} — ${reason}`);
+            phases.critical.failed++;
+            blocked = true;
+            break;
           }
         }
 
-        // Log secondary phase summary
-        const secondaryLabel = PHASE_LABELS.secondary;
-        console.log(
-          `📋 [${secondaryLabel}] 结果: ${phases.secondary.succeeded}/${phases.secondary.total} 成功`,
+        // Log critical phase summary
+        const criticalLabel = PHASE_LABELS.critical;
+        output.log(
+          `📋 [${criticalLabel}] 结果: ${phases.critical.succeeded}/${phases.critical.total} 成功`,
         );
-      }
 
-      // Execute tertiary phase if not blocked
-      if (!blocked) {
-        for (const step of tertiarySteps) {
-          const label = PHASE_LABELS.tertiary;
-          console.log(`🔧 [${label}] 正在: ${step.name}`);
+        // Execute secondary phase if not blocked
+        if (!blocked) {
+          for (const step of secondarySteps) {
+            const label = PHASE_LABELS.secondary;
+            output.log(`🔧 [${label}] 正在: ${step.name}`);
 
-          const result = await step.execute();
+            const result = await step.execute();
 
-          if (result.success) {
-            console.log(`✅ [${label}] 完成: ${step.name}`);
-            phases.tertiary.succeeded++;
-          } else {
-            const reason = result.reason || 'unknown error';
-            console.warn(`⚠️ [${label}] 步骤失败: ${step.name} — ${reason}`);
-            phases.tertiary.failed++;
-            // Continue to next step (silent failures)
+            if (result.success) {
+              output.log(`✅ [${label}] 完成: ${step.name}`);
+              phases.secondary.succeeded++;
+            } else {
+              const reason = result.reason || 'unknown error';
+              output.log(`❌ [${label}] 失败: ${step.name} — ${reason}`);
+              phases.secondary.failed++;
+              secondaryFailed = true;
+              // Continue to next step (tolerate failures)
+            }
           }
+
+          // Log secondary phase summary
+          const secondaryLabel = PHASE_LABELS.secondary;
+          output.log(
+            `📋 [${secondaryLabel}] 结果: ${phases.secondary.succeeded}/${phases.secondary.total} 成功`,
+          );
         }
 
-        // Log tertiary phase summary
-        const tertiaryLabel = PHASE_LABELS.tertiary;
-        console.log(
-          `📋 [${tertiaryLabel}] 结果: ${phases.tertiary.succeeded}/${phases.tertiary.total} 成功`,
-        );
+        // Execute tertiary phase if not blocked
+        if (!blocked) {
+          for (const step of tertiarySteps) {
+            const label = PHASE_LABELS.tertiary;
+            output.log(`🔧 [${label}] 正在: ${step.name}`);
+
+            const result = await step.execute();
+
+            if (result.success) {
+              output.log(`✅ [${label}] 完成: ${step.name}`);
+              phases.tertiary.succeeded++;
+            } else {
+              const reason = result.reason || 'unknown error';
+              output.warn(`⚠️ [${label}] 步骤失败: ${step.name} — ${reason}`);
+              phases.tertiary.failed++;
+              // Continue to next step (silent failures)
+            }
+          }
+
+          // Log tertiary phase summary
+          const tertiaryLabel = PHASE_LABELS.tertiary;
+          output.log(
+            `📋 [${tertiaryLabel}] 结果: ${phases.tertiary.succeeded}/${phases.tertiary.total} 成功`,
+          );
+        }
+      } finally {
+        cleanup();
       }
 
       // Determine overall success
@@ -188,17 +204,34 @@ export function createPriorityInstaller(
   };
 }
 
-export function createDefaultInstaller(): Installer | null {
+export function createDefaultInstaller(context: InfrastructureContext): Installer | null {
+  const installerLogger = context.logger.getLogger('setup-installer');
+  const firstRunWizardDeps = {
+    environment: context.environment,
+    logger: context.logger.getLogger('setup'),
+    output: {
+      log: (message: string) => {
+        installerLogger.info(message);
+      },
+    },
+  };
+
   const steps: InstallationStep[] = [
     // Critical: core setup
-    { id: 'create-config-dir', name: '创建配置目录', priority: 'critical', execute: createConfigDir },
-    { id: 'init-config-file', name: '初始化配置文件', priority: 'critical', execute: initConfigFile },
-    { id: 'configure-llm', name: '配置 LLM 提供商', priority: 'critical', execute: configureLLMProvider, retryable: true },
+    { id: 'create-config-dir', name: '创建配置目录', priority: 'critical', execute: () => createConfigDir(firstRunWizardDeps) },
+    { id: 'init-config-file', name: '初始化配置文件', priority: 'critical', execute: () => initConfigFile(firstRunWizardDeps) },
+    { id: 'configure-llm', name: '配置 LLM 提供商', priority: 'critical', execute: () => configureLLMProvider(firstRunWizardDeps), retryable: true },
 
     // Secondary: external tools
     { id: 'scan-cli-tools', name: '扫描外部 CLI 工具', priority: 'secondary', execute: async () => {
-      const tools = await scanCLITools();
-      updateCLIToolConfig(tools);
+      const tools = await scanCLITools(context, {
+        log: (message: string) => {
+          installerLogger.info(message);
+        },
+      });
+      updateCLIToolConfig(tools, {
+        environment: context.environment,
+      });
       return { success: true }; // always succeeds - partial results are OK
     }},
 
@@ -210,6 +243,14 @@ export function createDefaultInstaller(): Installer | null {
   ];
 
   return createPriorityInstaller(steps, {
+    output: {
+      log: (message: string) => {
+        installerLogger.info(message);
+      },
+      warn: (message: string) => {
+        installerLogger.warn(message);
+      },
+    },
     askRetry: async (stepName: string): Promise<boolean> => {
       const rl = createInterface({ input: process.stdin, output: process.stdout });
       return new Promise((resolve) => {

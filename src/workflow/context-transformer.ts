@@ -1,21 +1,33 @@
 import type { ExecutionContext, StepOutput } from './context-manager.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 
 export interface ContextTransformerOptions {
   preserveTimestamps?: boolean;
   serializeDates?: boolean;
   deepClone?: boolean;
+  environment?: IEnvironmentService;
+}
+
+interface SerializedStepOutput {
+  result?: unknown;
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number;
+  timestamp?: string | Date;
+  metadata?: unknown;
 }
 
 export class ContextTransformer {
-  private options: Required<ContextTransformerOptions>;
+  private options: { preserveTimestamps: boolean; serializeDates: boolean; deepClone: boolean };
+  private environment?: IEnvironmentService;
 
   constructor(options: ContextTransformerOptions = {}) {
     this.options = {
-      preserveTimestamps: true,
-      serializeDates: true,
-      deepClone: true,
-      ...options,
+      preserveTimestamps: options.preserveTimestamps ?? true,
+      serializeDates: options.serializeDates ?? true,
+      deepClone: options.deepClone ?? true,
     };
+    this.environment = options.environment;
   }
 
   transform(
@@ -83,7 +95,7 @@ export class ContextTransformer {
     }
 
     const stepOutputs = new Map<string, StepOutput>();
-    const rawStepOutputs = data.stepOutputs as Record<string, any> || {};
+    const rawStepOutputs = data.stepOutputs as Record<string, SerializedStepOutput> || {};
     for (const [stepId, outputData] of Object.entries(rawStepOutputs)) {
       stepOutputs.set(stepId, {
         stepId,
@@ -103,7 +115,7 @@ export class ContextTransformer {
       variables,
       stepOutputs,
       env: this.deserializeEnv(data.env as Record<string, string | undefined> || {}),
-      cwd: data.cwd as string || process.cwd(),
+      cwd: data.cwd as string || this.environment?.getCwd() || '',
       startTime: this.parseDate(data.startTime),
     };
   }
@@ -214,7 +226,8 @@ export class ContextTransformer {
 
   private deserializeEnv(env: Record<string, string | undefined>): Record<string, string> {
     const result: Record<string, string> = {};
-    for (const [key, value] of Object.entries(process.env)) {
+    const baseEnv = this.environment?.getAllEnv() ?? {};
+    for (const [key, value] of Object.entries(baseEnv)) {
       if (value !== undefined) {
         result[key] = value;
       }

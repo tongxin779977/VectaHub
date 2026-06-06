@@ -3,13 +3,15 @@
  * Async Log Writer - Implements buffering and async flush mechanism
  */
 
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import { existsSync, mkdirSync, appendFileSync } from 'node:fs';
-import { createConsoleLogger } from '../../utils/logger.js';
+import type { Logger } from '../logger/index.js';
 import type { TraceSpan, AsyncWriteConfig } from './types.js';
+import { VectaHubError, ErrorType } from '../errors/index.js';
 
-const logger = createConsoleLogger('async-log-writer');
+export interface AsyncLogWriterDeps {
+  logger: Logger;
+}
 
 /** 默认配置 */
 const DEFAULT_CONFIG: AsyncWriteConfig = {
@@ -34,14 +36,25 @@ export class AsyncLogWriter {
   private static activeWriters: Set<AsyncLogWriter> = new Set();
   private config: AsyncWriteConfig;
   private logDir: string;
+  private logger: Logger;
   private queue: WriteQueueItem[] = [];
   private isFlushing = false;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private isDestroyed = false;
+  private isPaused = false;
 
-  constructor(logDir: string, config?: Partial<AsyncWriteConfig>) {
+  constructor(
+    logDir: string,
+    config: Partial<AsyncWriteConfig> | undefined,
+    deps: AsyncLogWriterDeps
+  ) {
+    if (!deps.logger) {
+      throw new VectaHubError('AsyncLogWriter requires a logger dependency', ErrorType.CONFIGURATION);
+    }
+
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.logDir = logDir;
+    this.logger = deps.logger;
     this.ensureDirectory();
     this.startFlushTimer();
     AsyncLogWriter.activeWriters.add(this);
@@ -51,6 +64,19 @@ export class AsyncLogWriter {
   static async flushAll(): Promise<void> {
     const promises = Array.from(AsyncLogWriter.activeWriters).map(writer => writer.flush());
     await Promise.all(promises);
+  }
+
+  /** 暂停所有活跃的写入器（用于日志轮转等操作） */
+  static async pauseAll(): Promise<void> {
+    const promises = Array.from(AsyncLogWriter.activeWriters).map(writer => writer.pause());
+    await Promise.all(promises);
+  }
+
+  /** 恢复所有活跃的写入器 */
+  static resumeAll(): void {
+    for (const writer of AsyncLogWriter.activeWriters) {
+      writer.resume();
+    }
   }
 
   /** 确保日志目录存在 */
@@ -73,15 +99,42 @@ export class AsyncLogWriter {
     }
     this.flushTimer = setInterval(() => {
       this.flush().catch((err) => {
-        logger.error('定时刷盘失败:', err);
+        this.logger.error('定时刷盘失败:', err);
       });
     }, this.config.flushIntervalMs);
+  }
+
+  /**
+   * 暂停写入器 - flush 已缓冲数据并阻止后续刷盘，直到 resume()
+   * 用于日志轮转等需要独占文件的场景
+   */
+  async pause(): Promise<void> {
+    if (this.isPaused) {
+      return;
+    }
+
+    // 先刷盘当前缓冲区，确保所有数据写入磁盘
+    // 必须在设置 isPaused 之前完成，因为 flush() 会在 isPaused=true 时直接返回
+    await this.flush();
+
+    // 刷盘完成后再设置暂停标志，阻止后续的定时刷盘和缓冲区满触发刷盘
+    this.isPaused = true;
+  }
+
+  /**
+   * 恢复写入器 - 允许正常刷盘
+   */
+  resume(): void {
+    if (!this.isPaused) {
+      return;
+    }
+    this.isPaused = false;
   }
 
   /** 写入单条日志 */
   async write(data: TraceSpan): Promise<void> {
     if (this.isDestroyed) {
-      throw new Error('写入器已销毁');
+      throw new VectaHubError('写入器已销毁', ErrorType.RUNTIME);
     }
 
     if (!this.config.enabled) {
@@ -91,16 +144,19 @@ export class AsyncLogWriter {
     return new Promise((resolve, reject) => {
       // 检查队列长度
       if (this.queue.length >= this.config.maxQueueLength) {
-        logger.warn('日志队列已满，丢弃最旧的日志');
-        this.queue.shift();
+        this.logger.warn('日志队列已满，丢弃最旧的日志');
+        const discarded = this.queue.shift();
+        if (discarded) {
+          discarded.reject(new Error('日志队列已满，该条日志被丢弃'));
+        }
       }
 
       this.queue.push({ data, resolve, reject });
 
-      // 如果缓冲区已满，立即刷盘
-      if (this.queue.length >= this.config.bufferSize) {
+      // 暂停时不触发刷盘，等待 resume 后由定时器或手动触发
+      if (!this.isPaused && this.queue.length >= this.config.bufferSize) {
         this.flush().catch((err) => {
-          logger.error('缓冲区满刷盘失败:', err);
+          this.logger.error('缓冲区满刷盘失败:', err);
         });
       }
     });
@@ -114,14 +170,15 @@ export class AsyncLogWriter {
 
   /** 刷盘操作 */
   async flush(): Promise<void> {
-    if (this.isFlushing || this.queue.length === 0 || this.isDestroyed) {
+    if (this.isPaused || this.isFlushing || this.queue.length === 0 || this.isDestroyed) {
       return;
     }
 
     this.isFlushing = true;
+    let itemsToFlush: WriteQueueItem[] = [];
 
     try {
-      const itemsToFlush = [...this.queue];
+      itemsToFlush = [...this.queue];
       this.queue = [];
 
       const logFile = this.getLogFilePath();
@@ -136,14 +193,12 @@ export class AsyncLogWriter {
       itemsToFlush.forEach((item) => item.resolve());
     } catch (error) {
       const err = error as Error;
-      logger.error('刷盘失败: ' + err.message);
-      
-      // 将失败的数据重新放回队列头部
-      const failedItems = this.queue;
-      this.queue = [...failedItems, ...this.queue];
-      
-      // 通知所有等待的写入操作失败
-      failedItems.forEach((item) => item.reject(err));
+      this.logger.error('刷盘失败: ' + err.message);
+
+      // 将失败的数据重新放回队列头部，保证不丢当前批次
+      this.queue = [...itemsToFlush, ...this.queue];
+
+      throw err;
     } finally {
       this.isFlushing = false;
     }
@@ -159,21 +214,20 @@ export class AsyncLogWriter {
     queueLength: number;
     isFlushing: boolean;
     isDestroyed: boolean;
+    isPaused: boolean;
     bufferSize: number;
   } {
     return {
       queueLength: this.queue.length,
       isFlushing: this.isFlushing,
       isDestroyed: this.isDestroyed,
+      isPaused: this.isPaused,
       bufferSize: this.config.bufferSize,
     };
   }
 
   /** 销毁写入器 */
   async destroy(): Promise<void> {
-    this.isDestroyed = true;
-    AsyncLogWriter.activeWriters.delete(this);
-    
     if (this.flushTimer) {
       clearInterval(this.flushTimer);
       this.flushTimer = null;
@@ -181,6 +235,9 @@ export class AsyncLogWriter {
 
     // 刷盘剩余数据
     await this.flush();
+
+    this.isDestroyed = true;
+    AsyncLogWriter.activeWriters.delete(this);
   }
 }
 
@@ -190,7 +247,8 @@ export class AsyncLogWriter {
  */
 export function createAsyncLogWriter(
   logDir: string,
-  config?: Partial<AsyncWriteConfig>
+  config: Partial<AsyncWriteConfig> | undefined,
+  deps: AsyncLogWriterDeps
 ): AsyncLogWriter {
-  return new AsyncLogWriter(logDir, config);
+  return new AsyncLogWriter(logDir, config, deps);
 }

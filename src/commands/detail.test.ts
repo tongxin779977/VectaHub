@@ -3,14 +3,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockInfo = vi.fn();
 const mockError = vi.fn();
 
-vi.mock('../utils/logger.js', () => ({
-  createConsoleLogger: vi.fn(() => ({
-    info: mockInfo,
-    error: mockError,
-    debug: vi.fn(),
-  })),
-}));
-
 vi.mock('../execution/record-manager.js', () => ({
   createRecordManager: vi.fn(() => ({
     get: vi.fn((id: string) => {
@@ -39,7 +31,22 @@ vi.mock('../execution/record-manager.js', () => ({
   })),
 }));
 
-const { detailCmd } = await import('./detail.js');
+function createMockContext() {
+  return {
+    audit: {
+      getHelper: () => ({ log: vi.fn(), cliOutput: vi.fn(), securityAlert: vi.fn(), securityAction: vi.fn() }),
+      getLogger: () => ({ getSessionId: () => 'test-session' }),
+    },
+    environment: {} as never,
+    config: {} as never,
+    logger: {
+      getLogger: () => ({ info: mockInfo, error: mockError, debug: vi.fn(), warn: vi.fn() }),
+      setMuted: vi.fn(),
+    },
+  };
+}
+
+const { createDetailCmd } = await import('./detail.js');
 
 describe('detail command', () => {
   beforeEach(() => {
@@ -48,25 +55,25 @@ describe('detail command', () => {
   });
 
   it('should show not found for non-existent execution', async () => {
-    await detailCmd.parseAsync(['node', 'test', 'exec_missing']);
+    await createDetailCmd(createMockContext() as never).parseAsync(['node', 'test', 'exec_missing']);
     expect(mockError).toHaveBeenCalledWith(expect.stringContaining('not found'));
   });
 
   it('should show execution details for existing execution', async () => {
-    await detailCmd.parseAsync(['node', 'test', 'exec_found']);
+    await createDetailCmd(createMockContext() as never).parseAsync(['node', 'test', 'exec_found']);
     expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('Execution Details'));
     expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('test-workflow'));
     expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('COMPLETED'));
   });
 
   it('should show specific step details with --step option', async () => {
-    await detailCmd.parseAsync(['node', 'test', 'exec_found', '--step', '0']);
+    await createDetailCmd(createMockContext() as never).parseAsync(['node', 'test', 'exec_found', '--step', '0']);
     expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('echo hello'));
     expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('Status'));
   });
 
   it('should show error for out-of-range step index', async () => {
-    await detailCmd.parseAsync(['node', 'test', 'exec_found', '-s', '99']);
+    await createDetailCmd(createMockContext() as never).parseAsync(['node', 'test', 'exec_found', '-s', '99']);
     expect(mockError).toHaveBeenCalledWith(expect.stringContaining('out of range'));
   });
 });

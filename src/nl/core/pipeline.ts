@@ -1,99 +1,145 @@
-import type { SkillRegistry } from '../../skills/registry.js';
-import type { SkillExecutor } from '../../skills/executor.js';
 import type { NLProcessor, NLContext, NLResult } from './types.js';
-import type { SkillContext } from '../../skills/types.js';
-import type { IntentName } from '../../types/index.js';
+import type { IntentName, Step } from '../../types/index.js';
+import type { ILLMClient } from '../interfaces.js';
+import type { AuditHelper } from '../../infrastructure/audit/index.js';
+import type pino from 'pino';
 import YAML from 'yaml';
-import { createConsoleLogger } from '../../utils/logger.js';
+import { splitPosixArgs } from '../../utils/shell.js';
 import { LLMClient, createLLMConfig } from '../llm.js';
-import { buildToolsFromTemplates, convertToolCallToSteps } from '../tool-calling.js';
+import { buildAllTools, convertToolCallToSteps } from '../tool-calling.js';
+import { createSemanticDetector } from '../../sandbox/semantic-detector.js';
+import { parseGoal } from './goal-parser.js';
+import { getAgentRegistry } from '../../agent-runtime/registry.js';
+import { getLogger } from '../../infrastructure/logger/index.js';
 
-const logger = createConsoleLogger('nl-pipeline');
+const moduleLogger = getLogger('nl-pipeline');
+
+const SAFE_SHELL_COMMANDS = new Set(['pwd', 'ls', 'echo']);
+
+const DIALOG_DEFAULT_REPLIES: Record<string, string> = {
+  DIALOG_GREETING: '你好！我是 VectaHub，你的智能工作流助手。有什么我可以帮你的吗？',
+};
+
+function tryDeterministicShellCommand(
+  input: string,
+  semanticDetector: ReturnType<typeof createSemanticDetector>
+): NLResult | null {
+  const parts = splitPosixArgs(input);
+  if (parts.length === 0) return null;
+  const cmd = parts[0];
+  if (!SAFE_SHELL_COMMANDS.has(cmd)) return null;
+  const args = parts.slice(1);
+
+  const fullCommand = [cmd, ...args].join(' ');
+  const dangerResult = semanticDetector.scan(input, fullCommand);
+  if (dangerResult.severity === 'critical' || dangerResult.severity === 'high') {
+    throw new Error(`Semantic Guardrails: ${dangerResult.reason ?? 'dangerous command detected'}`);
+  }
+
+  const step: Step = {
+    id: 'step_shell',
+    type: 'exec',
+    cli: cmd,
+    args,
+  };
+
+  const workflowYAML = YAML.stringify({ steps: [step] });
+  return {
+    success: true,
+    intent: 'RUN_SCRIPT' as IntentName,
+    confidence: 1.0,
+    workflowYAML,
+    params: {},
+    metadata: { path: 'direct-query' },
+    taskList: createTaskListFromWorkflow(workflowYAML, input),
+  };
+}
 
 export interface NLProcessorOptions {
   useLLM?: boolean;
 }
 
-interface SkillResult<T = unknown> {
-  success: boolean;
-  data?: T;
-  confidence?: number;
-  error?: string;
-  metadata?: Record<string, unknown>;
+/**
+ * NL 处理器依赖注入接口
+ * 用于支持自定义替换各个组件，提高可测试性
+ */
+export interface NLProcessorDeps {
+  llmConfig?: ReturnType<typeof createLLMConfig> | null;
+  semanticDetector?: ReturnType<typeof createSemanticDetector>;
+  llmClient?: ILLMClient;
+  auditHelper?: AuditHelper;
+  logger: Pick<pino.Logger, 'error'>;
 }
 
-export function createNLProcessor(
-  skillRegistry: SkillRegistry,
-  keywordFallback: NLProcessor,
-  deps: {
-    executor?: SkillExecutor;
-    confidenceThreshold?: number;
-    llmConfig?: ReturnType<typeof createLLMConfig>;
-  } = {}
-): NLProcessor {
-  const executor = deps.executor;
-  const threshold = deps.confidenceThreshold ?? 0.7;
-  const llmConfig = deps.llmConfig;
+export function createNLProcessor(deps: NLProcessorDeps): NLProcessor {
+  const llmConfig = deps.llmConfig ?? null;
+  const semanticDetector = deps.semanticDetector ?? createSemanticDetector();
+  const logger = deps.logger;
+
+  if (!llmConfig) {
+    throw new Error('LLM configuration is required. Keyword fallback has been removed.');
+  }
+
+  const resolvedLLMConfig = llmConfig;
+  const llmClient: ILLMClient = deps.llmClient ?? (() => {
+    if (!deps.auditHelper) {
+      throw new Error('auditHelper is required when llmClient is not provided in NLProcessorDeps');
+    }
+    return new LLMClient(resolvedLLMConfig, { auditHelper: deps.auditHelper });
+  })();
 
   async function parse(context: NLContext): Promise<NLResult> {
-    const input = typeof context.input === 'string' ? context.input : '';
+    const input = typeof context.input === 'string' ? context.input.trim() : '';
 
-    if (!context.options?.useLLM) {
-      const keywordResult = await keywordFallback.parse(context);
-      return {
-        success: keywordResult.success,
-        intent: keywordResult.intent as NLResult['intent'],
-        confidence: keywordResult.confidence,
-        taskList: keywordResult.taskList,
-        metadata: {
-          path: 'keyword-only',
-          usedSkills: [],
-          fallbackReason: 'LLM disabled',
-        },
-      };
+    if (!input) {
+      throw new Error('Empty input: NL pipeline requires a non-empty string input');
+    }
+    const injectionResult = semanticDetector.detectInjection(input);
+    if (injectionResult.detected) {
+      throw new Error(`Semantic Guardrails: ${injectionResult.reason}`);
     }
 
-    // 1. Try LLM Tool Calling
-    if (llmConfig) {
+    const shellResult = tryDeterministicShellCommand(input, semanticDetector);
+    if (shellResult) {
+      return shellResult;
+    }
+
+    const goal = parseGoal(input);
+    let domains: string[] | undefined = goal.domains;
+
+    if (domains.length === 0) {
+      // 检查是否为纯闲聊。如果满足以下所有条件，则判定为纯闲聊，执行工具剪枝：
+      // 1. 无识别出的动作 (action === 'unknown')
+      // 2. 无任何实体提取 (如文件、路径、URL等)
+      // 3. 不包含任何已注册 Agent 的名字/ID
+      const hasEntities = Object.values(goal.evidence).some(arr => Array.isArray(arr) && arr.length > 0);
+      let containsAgentName = false;
       try {
-        const llmResult = await executeLLMToolCalling(input, llmConfig);
-        if (llmResult) return llmResult;
-      } catch (err) {
-        logger.debug(`LLM Tool Calling failed: ${err}`);
+        const registry = getAgentRegistry();
+        if (registry) {
+          const agentIds = registry.getAllDescriptors().map(d => d.id.toLowerCase());
+          const lowerInput = input.toLowerCase();
+          containsAgentName = agentIds.some(id => lowerInput.includes(id));
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        moduleLogger.debug({ error: message }, 'Agent name check failed');
+        containsAgentName = false;
+      }
+
+      if (goal.action === 'unknown' && !hasEntities && !containsAgentName) {
+        domains = [];
+      } else {
+        domains = undefined;
       }
     }
 
-    const skillContext: SkillContext = {
-      userInput: context.input,
-      sessionId: context.sessionId,
-    };
-
-    if (executor) {
-      const pipelineResult = await executePipelineSkill(
-        skillRegistry, executor, context, skillContext, threshold
-      );
-      if (pipelineResult) return pipelineResult;
-
-      const individualResult = await executeIndividualSkills(
-        skillRegistry, executor, context, skillContext, threshold
-      );
-      if (individualResult) return individualResult;
+    try {
+      return await executeLLMToolCalling(input, llmClient, domains);
+    } catch (err) {
+      logger.error(`LLM Tool Calling failed: ${err}`);
+      throw err;
     }
-
-    const keywordResult = await keywordFallback.parse(context);
-    return {
-      success: keywordResult.success,
-      intent: keywordResult.intent,
-      confidence: keywordResult.confidence,
-      taskList: keywordResult.taskList,
-      metadata: {
-        path: 'keyword-fallback',
-        usedSkills: [],
-        fallbackReason: executor
-          ? 'LLM failed, keyword confidence below threshold'
-          : 'No executor available',
-      },
-    };
   }
 
   return { parse };
@@ -101,320 +147,365 @@ export function createNLProcessor(
 
 async function executeLLMToolCalling(
   input: string,
-  llmConfig: ReturnType<typeof createLLMConfig>
-): Promise<NLResult | null> {
-  if (!llmConfig) return null;
-  const llmClient = new LLMClient(llmConfig);
-  const tools = buildToolsFromTemplates();
+  llmClient: ILLMClient,
+  domains?: string[]
+): Promise<NLResult> {
+  const tools = buildAllTools(domains);
   
   const llmResponse = await llmClient.complete('nl-processor-tool-calling', input, {}, { tools, toolChoice: 'auto' });
   
   if (llmResponse.tool_calls && llmResponse.tool_calls.length > 0) {
     const toolCall = llmResponse.tool_calls[0];
-    const parsed = convertToolCallToSteps(toolCall);
-    
-    if (parsed) {
-      const workflowSteps = parsed.steps.map(s => ({
-        ...s,
-        type: s.type || 'exec',
-        cli: s.cli || 'echo',
-        args: s.args || [],
-      }));
 
-      const workflowYAML = YAML.stringify({ steps: workflowSteps });
+    let parsed: { intent: string; params: Record<string, unknown>; steps: Step[] };
+    try {
+      parsed = convertToolCallToSteps(toolCall);
+    } catch (toolCallError) {
+      const errorMessage = toolCallError instanceof Error ? toolCallError.message : String(toolCallError);
+      if (llmResponse.reply) {
+        return {
+          success: true,
+          intent: (llmResponse.intent || toolCall.function.name) as IntentName,
+          confidence: llmResponse.confidence || 0.8,
+          reply: sanitizeReply(llmResponse.reply),
+          metadata: {
+            path: 'dialog',
+            fallbackReason: `tool_call failed: ${errorMessage}`,
+          },
+        };
+      }
+      if (errorMessage.includes('Missing required parameters')) {
+        return {
+          success: true,
+          intent: 'UNKNOWN' as IntentName,
+          confidence: 0.3,
+          reply: '收到，但缺少必要参数，无法执行。请提供更具体的信息后重试。',
+          metadata: {
+            path: 'dialog',
+            fallbackReason: `tool_call failed: ${errorMessage}`,
+          },
+        };
+      }
+      throw toolCallError;
+    }
+
+    if (parsed.steps.length === 0) {
+      const reply = llmResponse.reply
+        ? sanitizeReply(llmResponse.reply)
+        : (DIALOG_DEFAULT_REPLIES[parsed.intent] ?? undefined);
       return {
         success: true,
         intent: parsed.intent as IntentName,
-        confidence: llmResponse.confidence || 1.0,
+        confidence: llmResponse.confidence || 0.8,
+        reply,
+        metadata: {
+          path: 'dialog',
+        },
+      };
+    }
+
+    for (let i = 0; i < parsed.steps.length; i++) {
+      validateWorkflowStep(parsed.steps[i], `steps[${i}]`);
+    }
+    const workflowSteps = parsed.steps;
+
+    const workflowYAML = YAML.stringify({ steps: workflowSteps });
+    return {
+      success: true,
+      intent: parsed.intent as IntentName,
+      confidence: llmResponse.confidence || 1.0,
+      workflowYAML,
+      params: parsed.params,
+      metadata: {
+        path: 'llm-tool-calling',
+        usedSkills: [],
+      },
+      taskList: createTaskListFromWorkflow(workflowYAML, input),
+    };
+  }
+
+  if (llmResponse.intent !== 'UNKNOWN') {
+    const steps = llmResponse.workflow?.steps || [];
+    if (steps.length > 0) {
+      // 校验 LLM 直接返回的 workflow steps，包括嵌套 body
+      for (let i = 0; i < steps.length; i++) {
+        validateWorkflowStep(steps[i] as unknown as MinimalStep, `steps[${i}]`);
+      }
+      const workflowYAML = YAML.stringify({ steps });
+      return {
+        success: true,
+        intent: llmResponse.intent as IntentName,
+        confidence: llmResponse.confidence || 0.8,
         workflowYAML,
-        params: parsed.params,
+        reply: llmResponse.reply ? sanitizeReply(llmResponse.reply) : undefined,
         metadata: {
           path: 'llm-tool-calling',
           usedSkills: [],
         },
         taskList: createTaskListFromWorkflow(workflowYAML, input),
       };
+    } else if (llmResponse.reply) {
+      return {
+        success: true,
+        intent: llmResponse.intent as IntentName,
+        confidence: llmResponse.confidence || 0.8,
+        reply: sanitizeReply(llmResponse.reply),
+        metadata: {
+          path: 'dialog',
+        },
+      };
+    } else if (llmResponse.workflow) {
+      throw new Error('Workflow must contain at least one step');
+    } else if (DIALOG_DEFAULT_REPLIES[llmResponse.intent]) {
+      return {
+        success: true,
+        intent: llmResponse.intent as IntentName,
+        confidence: llmResponse.confidence || 0.8,
+        reply: DIALOG_DEFAULT_REPLIES[llmResponse.intent],
+        metadata: {
+          path: 'dialog',
+        },
+      };
     }
-  } else if (llmResponse.intent !== 'UNKNOWN') {
-    // If LLM recognized intent but no tool call, we might want to return it but keep fallback open.
-    // For now, let's treat it as a result if it has a workflow
-    if (llmResponse.workflow?.steps) {
-       const steps = llmResponse.workflow.steps as any[];
-       const workflowYAML = YAML.stringify({ steps });
-       return {
-         success: true,
-         intent: llmResponse.intent as IntentName,
-         confidence: llmResponse.confidence || 0.8,
-         workflowYAML,
-         metadata: {
-           path: 'llm-tool-calling',
-           usedSkills: [],
-         },
-         taskList: createTaskListFromWorkflow(workflowYAML, input),
-       };
-    }
   }
 
-  return null;
-}
-
-
-async function executePipelineSkill(
-  registry: SkillRegistry,
-  executor: SkillExecutor,
-  context: NLContext,
-  skillContext: SkillContext,
-  threshold: number
-): Promise<NLResult | null> {
-  const pipelineSkill = registry.get('vectahub.pipeline');
-  if (!pipelineSkill) return null;
-
-  try {
-    const result = await executor.execute(
-      pipelineSkill,
-      context.input,
-      skillContext
-    );
-
-    if (result.success && result.data) {
-      if ((result.confidence ?? 0) < threshold) {
-        return null;
-      }
-      return buildSkillResult(result, [pipelineSkill.id], context.input);
-    }
-  } catch {
-    // ignore
-  }
-
-  return null;
-}
-
-async function executeIndividualSkills(
-  registry: SkillRegistry,
-  executor: SkillExecutor,
-  context: NLContext,
-  skillContext: SkillContext,
-  threshold: number
-): Promise<NLResult | null> {
-  const intentSkill = registry.get('vectahub.intent');
-  const workflowSkill = registry.get('vectahub.workflow');
-
-  if (!intentSkill || !workflowSkill) return null;
-
-  const usedSkills: string[] = [];
-  let lastIntent: string | undefined;
-  let lastConfidence = 0;
-  let intentResult: Record<string, unknown> | undefined;
-
-  usedSkills.push(intentSkill.id);
-  const intentInputContext: SkillContext = {
-    userInput: context.input,
-    sessionId: context.sessionId,
-  };
-
-  const intentResultData = await executor.execute(intentSkill, context.input, intentInputContext);
-
-  if (!intentResultData.success) {
-    logger.debug('Intent skill failed, falling back');
-    return null;
-  }
-
-  lastConfidence = intentResultData.confidence;
-  
-  if (intentResultData.data && typeof intentResultData.data === 'object') {
-    intentResult = intentResultData.data as Record<string, unknown>;
-    lastIntent = intentResult.intent as string;
-  }
-
-  if (lastConfidence < threshold) {
-    logger.debug(`Intent confidence ${lastConfidence} below threshold ${threshold}`);
-    return null;
-  }
-
-  usedSkills.push(workflowSkill.id);
-  const workflowInputContext: SkillContext = {
-    userInput: context.input,
-    sessionId: context.sessionId,
-  };
-
-  const workflowInput = {
-    intent: lastIntent || 'WORKFLOW_GENERATE',
-    params: intentResult?.params || {},
-    commands: [],
-    userInput: context.input,
-  };
-
-  const workflowResult = await executor.execute(workflowSkill, workflowInput, workflowInputContext);
-
-  if (!workflowResult.success) {
-    logger.debug('Workflow skill failed');
+  if (llmResponse.reply) {
     return {
       success: true,
-      intent: lastIntent as NLResult['intent'],
-      confidence: lastConfidence,
+      intent: llmResponse.intent as IntentName,
+      confidence: llmResponse.confidence || 0.8,
+      reply: sanitizeReply(llmResponse.reply),
       metadata: {
-        path: 'skill-individual',
-        usedSkills,
+        path: 'dialog',
       },
     };
   }
 
-  if (workflowResult.data && typeof workflowResult.data === 'object') {
-    const data = workflowResult.data as Record<string, unknown>;
-    if ('workflowYAML' in data) {
-      return buildSkillResult(
-        { success: true, data: workflowResult.data, confidence: workflowResult.confidence },
-        usedSkills,
-        context.input
-      );
-    }
-  }
-
-  return {
-    success: true,
-    intent: lastIntent as NLResult['intent'],
-    confidence: lastConfidence,
-    metadata: {
-      path: 'skill-individual',
-      usedSkills,
-    },
-  };
+  throw new Error('LLM failed to generate a result: no tool calls, workflow or reply produced');
 }
 
-function buildSkillResult(
-  result: SkillResult<unknown>,
-  usedSkills: string[],
-  userInput: string
-): NLResult {
-  const data = result.data as Record<string, unknown> | undefined;
+/** 最小 step 合同：只要有 type 可选、cli 可选、body 可选即可递归校验 */
+interface MinimalStep {
+  type?: string;
+  cli?: string;
+  body?: MinimalStep[];
+}
 
-  let workflowYAML: string | undefined;
-  let taskList: NLResult['taskList'];
-  if (data?.workflowYAML && typeof data.workflowYAML === 'string') {
-    workflowYAML = data.workflowYAML;
-    taskList = createTaskListFromWorkflow(data.workflowYAML, userInput);
+function validateWorkflowStep(step: MinimalStep, path: string): void {
+  if (!step.type) {
+    throw new Error(`LLM step missing required field "type" at ${path}: ${JSON.stringify(step)}`);
   }
+  if (step.type === 'exec' && !step.cli) {
+    throw new Error(`LLM exec step missing required field "cli" at ${path}: ${JSON.stringify(step)}`);
+  }
+  // 递归校验嵌套 body
+  if (Array.isArray(step.body)) {
+    for (let i = 0; i < step.body.length; i++) {
+      validateWorkflowStep(step.body[i], `${path}.body[${i}]`);
+    }
+  }
+}
 
-  const intent = data?.intent as NLResult['intent'];
-  const confidence = typeof data?.confidence === 'number' 
-    ? data.confidence 
-    : (result.confidence ?? 0);
+function sanitizeReply(reply: string): string {
+  const trimmed = reply.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+    return reply;
+  }
+  if (trimmed === '{}' || trimmed === '[]' || trimmed === '{' || trimmed === '[') {
+    return '收到，但未生成有效回复。请重试或换个方式提问。';
+  }
+  const jsonStr = extractLeadingJSON(trimmed);
+  if (!jsonStr) return reply;
+  const tail = trimmed.slice(jsonStr.length).trim();
+  try {
+    const parsed: Record<string, unknown> = JSON.parse(jsonStr);
+    const sanitized = sanitizeParsedJSON(parsed);
+    if (sanitized) {
+      return tail ? `${sanitized}\n\n${tail}` : sanitized;
+    }
+    return reply;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    moduleLogger.debug({ error: message, input: trimmed.slice(0, 100) }, 'LLM reply JSON parse failed');
+    if (/^\{[a-zA-Z_]+\}$/.test(trimmed) || /^\{[a-zA-Z_]+:\s*.+\}$/.test(trimmed)) {
+      return '收到，但未生成有效回复。请重试或换个方式提问。';
+    }
+    return reply;
+  }
+}
 
-  return {
-    success: true,
-    intent,
-    workflowYAML,
-    confidence,
-    taskList,
-    metadata: {
-      path: 'skill-pipeline',
-      usedSkills,
-    },
-  };
+function sanitizeParsedJSON(obj: Record<string, unknown>): string | null {
+  if (typeof obj.reply === 'string') return sanitizeSingleValue(obj.reply);
+  if (typeof obj.response === 'string') return sanitizeSingleValue(obj.response);
+  if (typeof obj.answer === 'string') return sanitizeSingleValue(obj.answer);
+  if (typeof obj.message === 'string') return sanitizeSingleValue(obj.message);
+  if (typeof obj.content === 'string' && obj.content.length > 0) return obj.content;
+  const result = extractTextParts(obj);
+  if (result.length > 0) return result.join('\n\n');
+  const allStrings = collectAllStrings(obj);
+  if (allStrings.length > 0) return allStrings.join('\n');
+  const values = Object.values(obj);
+  if (values.length === 1) {
+    const v = values[0];
+    if (typeof v === 'string') return v;
+    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+    if (Array.isArray(v) && v.length === 0) return '[]';
+  }
+  if (values.length === 0) return '{}';
+  return null;
+}
+
+function sanitizeSingleValue(val: string): string {
+  const trimmed = val.trim();
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    const innerJson = extractLeadingJSON(trimmed);
+    if (innerJson) {
+      try {
+        const innerParsed: Record<string, unknown> = JSON.parse(innerJson);
+        return sanitizeParsedJSON(innerParsed) || trimmed;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        moduleLogger.debug({ error: message }, 'Inner JSON sanitize fallback');
+      }
+    }
+  }
+  return val;
+}
+
+function extractLeadingJSON(text: string): string | null {
+  if (!text.startsWith('{') && !text.startsWith('[')) return null;
+  const openBracket = text[0];
+  const closeBracket = openBracket === '{' ? '}' : ']';
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) { escape = false; continue; }
+    if (ch === '\\') { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === openBracket) depth++;
+    if (ch === closeBracket) { depth--; if (depth === 0) return text.slice(0, i + 1); }
+  }
+  return null;
+}
+
+function extractTextParts(obj: Record<string, unknown>, prefix?: string): string[] {
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(obj)) {
+    const label = prefix ? `${prefix}.${key}` : key;
+    if (typeof value === 'string' && value.length > 0) {
+      parts.push(`**${label}**: ${value}`);
+    } else if (typeof value === 'number' || typeof value === 'boolean') {
+      parts.push(`**${label}**: ${String(value)}`);
+    } else if (Array.isArray(value)) {
+      if (value.length === 0) continue;
+      const strItems = value.filter((v): v is string => typeof v === 'string');
+      if (strItems.length > 0) {
+        parts.push(`**${label}**:\n${strItems.map((item, i) => `${i + 1}. ${item}`).join('\n')}`);
+      } else {
+        const objItems = value.filter((v): v is Record<string, unknown> => typeof v === 'object' && v !== null);
+        for (const item of objItems) {
+          parts.push(...extractTextParts(item, label));
+        }
+      }
+    } else if (typeof value === 'object' && value !== null) {
+      parts.push(...extractTextParts(value as Record<string, unknown>, label));
+    }
+  }
+  return parts;
+}
+
+function collectAllStrings(obj: Record<string, unknown>): string[] {
+  const strings: string[] = [];
+  for (const value of Object.values(obj)) {
+    if (typeof value === 'string' && value.trim()) {
+      strings.push(value);
+    } else if (Array.isArray(value)) {
+      for (const item of value) {
+        if (typeof item === 'string' && item.trim()) {
+          strings.push(item);
+        } else if (typeof item === 'object' && item !== null) {
+          strings.push(...collectAllStrings(item as Record<string, unknown>));
+        }
+      }
+    } else if (typeof value === 'object' && value !== null) {
+      strings.push(...collectAllStrings(value as Record<string, unknown>));
+    }
+  }
+  return strings;
 }
 
 function createTaskListFromWorkflow(workflowYAML: string, userInput: string): NLResult['taskList'] {
-  try {
-    let workflow: {
+  let workflow: {
+    name?: string;
+    description?: string;
+    steps?: Array<{
+      id?: string;
       name?: string;
-      description?: string;
-      steps?: Array<{
-        id?: string;
-        name?: string;
-        type?: string;
-        cli?: string;
-        exec?: string;
-        command?: string;
-        args?: string[];
-      }>;
-    };
+      type?: string;
+      cli?: string;
+      exec?: string;
+      command?: string;
+      args?: string[];
+    }>;
+  };
 
-    try {
-      const documents = YAML.parseAllDocuments(workflowYAML);
-      if (documents.length > 0) {
-        workflow = documents[0].toJSON() as typeof workflow;
-      } else {
-        workflow = YAML.parse(workflowYAML) as typeof workflow;
-      }
-    } catch {
+  try {
+    const documents = YAML.parseAllDocuments(workflowYAML);
+    if (documents.length > 0) {
+      workflow = documents[0].toJSON() as typeof workflow;
+    } else {
       workflow = YAML.parse(workflowYAML) as typeof workflow;
     }
-
-    const tasks = workflow.steps
-      ? workflow.steps
-          .map((step, index) => {
-            const commandText = step.cli ?? step.exec ?? step.command;
-            if (!commandText) return null;
-
-            const [cli, ...splitArgs] = commandText.split(/\s+/).filter(Boolean);
-            const args = step.args ?? splitArgs;
-
-            return {
-              id: step.id || `task_${index + 1}`,
-              type: 'QUERY_EXEC' as const,
-              description: step.id || step.name || `Step ${index + 1}`,
-              status: 'PENDING' as const,
-              commands: [{
-                cli,
-                args,
-              }],
-              dependencies: [],
-            };
-          })
-          .filter((task): task is NonNullable<typeof task> => task !== null)
-      : [];
-
-    if (tasks.length === 0) {
-      return {
-        version: '1.0',
-        generatedAt: new Date().toISOString(),
-        originalInput: userInput,
-        intent: 'WORKFLOW_GENERATE' as IntentName,
-        confidence: 1.0,
-        entities: { FILE_PATH: [], CLI_TOOL: [], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: [], HOST: [], PORT: [], OWNER: [], MODE: [], FILE1: [], FILE2: [] },
-        tasks: [
-          {
-            id: 'task_1',
-            type: 'QUERY_EXEC' as const,
-            description: userInput,
-            status: 'PENDING' as const,
-            commands: [{ cli: 'echo', args: ['Workflow generated from YAML'] }],
-            dependencies: [],
-          }
-        ],
-        warnings: [],
-      };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof Error) {
+      throw new Error(`Invalid workflow YAML: ${message}`, { cause: error });
     }
-
-    return {
-      version: '1.0',
-      generatedAt: new Date().toISOString(),
-      originalInput: userInput,
-      intent: 'WORKFLOW_GENERATE' as IntentName,
-      confidence: 1.0,
-      entities: { FILE_PATH: [], CLI_TOOL: [], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: [], HOST: [], PORT: [], OWNER: [], MODE: [], FILE1: [], FILE2: [] },
-      tasks,
-      warnings: [],
-    };
-  } catch {
-    return {
-      version: '1.0',
-      generatedAt: new Date().toISOString(),
-      originalInput: userInput,
-      intent: 'WORKFLOW_GENERATE' as IntentName,
-      confidence: 1.0,
-      entities: { FILE_PATH: [], CLI_TOOL: [], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: [], HOST: [], PORT: [], OWNER: [], MODE: [], FILE1: [], FILE2: [] },
-      tasks: [
-        {
-          id: 'task_1',
-          type: 'QUERY_EXEC' as const,
-          description: userInput,
-          status: 'PENDING' as const,
-          commands: [{ cli: 'echo', args: ['Workflow generated from YAML'] }],
-          dependencies: [],
-        }
-      ],
-      warnings: [],
-    };
+    throw error;
   }
+
+  if (!workflow || !Array.isArray(workflow.steps) || workflow.steps.length === 0) {
+    throw new Error('Workflow must contain at least one step');
+  }
+
+  const tasks = workflow.steps
+    .map((step, index) => {
+      const commandText = step.cli ?? step.exec ?? step.command;
+      if (!commandText) return null;
+
+      const [cli, ...splitArgs] = splitPosixArgs(commandText);
+      if (!cli) return null;
+      const args = step.args ?? splitArgs;
+
+      return {
+        id: step.id || `task_${index + 1}`,
+        type: 'QUERY_EXEC' as const,
+        description: step.id || step.name || `Step ${index + 1}`,
+        status: 'PENDING' as const,
+        commands: [{
+          cli,
+          args,
+        }],
+        dependencies: [],
+      };
+    })
+    .filter((task): task is NonNullable<typeof task> => task !== null);
+
+  if (tasks.length === 0) {
+    throw new Error('Workflow contains no executable command steps');
+  }
+
+  return {
+    version: '1.0',
+    generatedAt: new Date().toISOString(),
+    originalInput: userInput,
+    intent: 'WORKFLOW_GENERATE' as IntentName,
+    confidence: 1.0,
+    entities: { FILE_PATH: [], CLI_TOOL: [], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: [], HOST: [], PORT: [], OWNER: [], MODE: [], FILE1: [], FILE2: [] },
+    tasks,
+    warnings: [],
+  };
 }

@@ -4,7 +4,18 @@ import { DaemonMessage, DaemonResponse, DaemonState, DaemonStatus, DaemonConfig,
 
 export interface DaemonOptions {
   config?: Partial<DaemonConfig>;
+  output?: DaemonOutput;
 }
+
+export interface DaemonOutput {
+  error(message: string): void;
+}
+
+const defaultDaemonOutput: DaemonOutput = {
+  error: (message: string) => {
+    process.stderr.write(`${message}\n`);
+  },
+};
 
 export interface Daemon {
   start(): Promise<void>;
@@ -15,12 +26,13 @@ export interface Daemon {
 
 export function createDaemon(options: DaemonOptions = {}): Daemon {
   const config = { ...DEFAULT_DAEMON_CONFIG, ...options.config };
+  const output = options.output ?? defaultDaemonOutput;
   
   let state: DaemonState = DaemonState.STOPPED;
   let server: NetServer | null = null;
   let startTime: number | null = null;
   let processedTasks = 0;
-  let activeSessionsCount = 0;
+  const activeSessionsCount = 0;
   const taskQueue: Array<{ message: DaemonMessage; socket: Socket }> = [];
   let isProcessing = false;
 
@@ -62,13 +74,15 @@ export function createDaemon(options: DaemonOptions = {}): Daemon {
           response.data = getStatus();
           break;
 
-        case 'execute':
+        case 'execute': {
           // Simple execution logic without complex session management for now
           // In the future, this could be where AI tools are actually held open
+          const payload = message.payload as { input?: string } | undefined;
           response.success = true;
-          response.data = { message: 'Task executed', input: (message.payload as any)?.input };
+          response.data = { message: 'Task executed', input: payload?.input };
           processedTasks++;
           break;
+        }
 
         case 'shutdown':
           response.success = true;
@@ -109,9 +123,11 @@ export function createDaemon(options: DaemonOptions = {}): Daemon {
           try {
             const message = JSON.parse(line) as DaemonMessage;
             taskQueue.push({ message, socket });
-            processQueue().catch(console.error);
+            processQueue().catch((error) => {
+              output.error(error instanceof Error ? error.message : String(error));
+            });
           } catch {
-            // Ignore parse errors
+            continue;
           }
         }
       }
@@ -142,6 +158,7 @@ export function createDaemon(options: DaemonOptions = {}): Daemon {
             try {
               unlinkSync(config.socketPath);
             } catch {
+              // 忽略删除旧 socket 的失败，继续停止流程
             }
           }
           setState(DaemonState.STOPPED);
@@ -168,6 +185,7 @@ export function createDaemon(options: DaemonOptions = {}): Daemon {
         try {
           unlinkSync(config.socketPath);
         } catch {
+          // 忽略启动前清理旧 socket 的失败，后续 listen 会给出真实错误
         }
       }
 

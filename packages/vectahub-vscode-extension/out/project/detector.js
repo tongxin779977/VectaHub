@@ -36,7 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.detectProjectTasks = detectProjectTasks;
 const vscode = __importStar(require("vscode"));
 const path = __importStar(require("path"));
-const fs = __importStar(require("fs"));
+const promises_1 = require("node:fs/promises");
 const packageManager_js_1 = require("./packageManager.js");
 const packageScripts_js_1 = require("./packageScripts.js");
 async function detectProjectTasks() {
@@ -54,16 +54,17 @@ async function detectProjectTasks() {
     const tasks = [];
     const packageJsonPath = path.join(workspaceFolder, 'package.json');
     let pkg;
-    if (fs.existsSync(packageJsonPath)) {
-        try {
-            pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
-        }
-        catch {
-            // ignore
-        }
+    try {
+        await (0, promises_1.access)(packageJsonPath);
+        const content = await (0, promises_1.readFile)(packageJsonPath, 'utf-8');
+        pkg = JSON.parse(content);
+    }
+    catch {
+        // ignore
     }
     const pm = (0, packageManager_js_1.detectPackageManager)(workspaceFolder);
-    if (fs.existsSync(path.join(workspaceFolder, '.git'))) {
+    try {
+        await (0, promises_1.access)(path.join(workspaceFolder, '.git'));
         tasks.push({
             id: 'git-status',
             kind: 'git-status',
@@ -72,6 +73,9 @@ async function detectProjectTasks() {
             available: true,
             command: { cli: 'git', args: ['status'] }
         });
+    }
+    catch {
+        // .git not found, skip git tasks
     }
     const pkgTasks = (0, packageScripts_js_1.detectPackageTasks)(workspaceFolder, pm, pkg);
     tasks.push(...pkgTasks);

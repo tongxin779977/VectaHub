@@ -1,4 +1,6 @@
-import { audit } from '../infrastructure/audit/index.js';
+import type { AuditHelper } from '../infrastructure/audit/index.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
+import { createEnvironmentService } from '../infrastructure/environment/index.js';
 import type { ExpressionData } from './expression-engine.js';
 import { LifecycleManager } from '../utils/lifecycle-manager.js';
 
@@ -6,6 +8,7 @@ export interface ExecutionContext {
   workflowId: string;
   executionId: string;
   sessionId: string;
+  auditEnabled?: boolean;
   variables: Map<string, unknown>;
   stepOutputs: Map<string, StepOutput>;
   env: Record<string, string>;
@@ -21,7 +24,9 @@ export interface StepOutput {
   stderr?: string;
   exitCode?: number;
   timestamp: Date;
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown> & {
+    outputVar?: string;
+  };
 }
 
 export interface ContextVariable {
@@ -36,23 +41,35 @@ export interface ExecutorContext {
   variables: Record<string, string[]>;
   previousOutputs: Record<string, string[]>;
   executionId?: string;
+  expressionData?: ExpressionData;
 }
 
 export class ContextManager {
   private lifecycle: LifecycleManager<ExecutionContext>;
   private maxStepOutputs: number = 1000;
+  private auditHelper?: AuditHelper;
+  private environment: IEnvironmentService;
 
-  constructor(options?: { maxContexts?: number; contextTtl?: number; maxStepOutputs?: number }) {
+  constructor(options?: { maxContexts?: number; contextTtl?: number; maxStepOutputs?: number; audit?: AuditHelper; environment?: IEnvironmentService }) {
     if (options?.maxStepOutputs) this.maxStepOutputs = options.maxStepOutputs;
+    this.auditHelper = options?.audit;
+    this.environment = options?.environment ?? createEnvironmentService();
     
     this.lifecycle = new LifecycleManager<ExecutionContext>({
       ttl: options?.contextTtl ?? 3600000,
       maxCount: options?.maxContexts ?? 100,
       cleanupInterval: 60000,
       onEvicted: (executionId, context) => {
-        audit.securityAction('CONTEXT', executionId, 'DELETED', context.sessionId);
+        if (context.auditEnabled !== false && this.auditHelper) {
+          this.auditHelper.securityAction('CONTEXT', executionId, 'DELETED', context.sessionId);
+        }
       },
     });
+  }
+
+  setAuditHelper(auditHelper: AuditHelper): this {
+    this.auditHelper = auditHelper;
+    return this;
   }
 
   createContext(
@@ -60,22 +77,26 @@ export class ContextManager {
     executionId: string,
     sessionId: string,
     initialVars: Record<string, unknown> = {},
-    cwd: string = process.cwd()
+    cwd: string = this.environment.getCwd(),
+    options?: { auditEnabled?: boolean }
   ): ExecutionContext {
     const context: ExecutionContext = {
       workflowId,
       executionId,
       sessionId,
+      auditEnabled: options?.auditEnabled ?? true,
       variables: new Map(Object.entries(initialVars)),
       stepOutputs: new Map(),
-      env: { ...process.env } as Record<string, string>,
+      env: { ...this.environment.getAllEnv() } as Record<string, string>,
       cwd,
       startTime: new Date(),
     };
 
     this.lifecycle.set(executionId, context);
 
-    audit.securityAction('CONTEXT', executionId, 'CREATED', sessionId);
+    if (context.auditEnabled !== false && this.auditHelper) {
+      this.auditHelper.securityAction('CONTEXT', executionId, 'CREATED', sessionId);
+    }
 
     return context;
   }
@@ -91,14 +112,19 @@ export class ContextManager {
       return { steps: {}, env: {}, vars: {}, config: {} };
     }
 
-    const steps: Record<string, any> = {};
+    const steps: ExpressionData['steps'] = {};
     for (const [stepId, output] of context.stepOutputs) {
-      steps[stepId] = {
+      const stepData = {
         output: output.result,
         stdout: output.stdout,
         stderr: output.stderr,
         exitCode: output.exitCode
       };
+      steps[stepId] = stepData;
+      const outputVar = output.metadata?.outputVar;
+      if (outputVar && !steps[outputVar]) {
+        steps[outputVar] = stepData;
+      }
     }
 
     const vars: Record<string, unknown> = {};
@@ -167,7 +193,7 @@ export class ContextManager {
     executionId: string,
     stepId: string,
     result: unknown,
-    metadata?: { stdout?: string; stderr?: string; exitCode?: number }
+    metadata?: { stdout?: string; stderr?: string; exitCode?: number; outputVar?: string }
   ): void {
     const context = this.lifecycle.get(executionId);
     if (!context) {
@@ -297,10 +323,11 @@ export class ContextManager {
       workflowId: data.workflowId as string,
       executionId: data.executionId as string,
       sessionId: data.sessionId as string,
+      auditEnabled: data.auditEnabled !== false,
       variables: new Map(Object.entries(data.variables as Record<string, unknown> || {})),
       stepOutputs: new Map(),
-      env: process.env as Record<string, string>,
-      cwd: data.cwd as string || process.cwd(),
+      env: this.environment.getAllEnv() as Record<string, string>,
+      cwd: data.cwd as string || this.environment.getCwd(),
       startTime: new Date(data.startTime as string || Date.now()),
     };
 
@@ -350,24 +377,32 @@ export class ContextManager {
     const previousOutputs: Record<string, string[]> = {};
     for (const [stepId, output] of context.stepOutputs) {
       const result = output.result;
+      let normalizedOutput: string[] = [];
       if (Array.isArray(result)) {
-        previousOutputs[stepId] = result.map(String);
+        normalizedOutput = result.map(String);
       } else if (result !== undefined && result !== null) {
-        previousOutputs[stepId] = [String(result)];
-      } else {
-        previousOutputs[stepId] = [];
+        normalizedOutput = [String(result)];
       }
       if (output.stdout) {
-        previousOutputs[stepId] = output.stdout.split('\n').filter(Boolean);
+        normalizedOutput = output.stdout.split('\n').filter(Boolean);
+      }
+      previousOutputs[stepId] = normalizedOutput;
+      if (output.metadata?.outputVar) {
+        previousOutputs[output.metadata.outputVar] = normalizedOutput;
       }
     }
 
-    return { variables, previousOutputs, executionId };
+    return {
+      variables,
+      previousOutputs,
+      executionId,
+      expressionData: this.getExpressionData(executionId),
+    };
   }
 }
 
 export const contextManager = new ContextManager();
 
-export function createContextManager(): ContextManager {
-  return new ContextManager();
+export function createContextManager(options?: ConstructorParameters<typeof ContextManager>[0]): ContextManager {
+  return new ContextManager(options);
 }

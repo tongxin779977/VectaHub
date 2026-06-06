@@ -39,12 +39,44 @@ const adapter_js_1 = require("../cli/adapter.js");
 const readiness_js_1 = require("../cli/readiness.js");
 const taskHistory_js_1 = require("../project/taskHistory.js");
 const output_js_1 = require("../ui/output.js");
+async function readQueueWithRetry(tasksProvider, context) {
+    const first = tasksProvider.readDiagnosticQueue();
+    if (!first.error)
+        return first;
+    const retry = await vscode.window.showWarningMessage(`队列读取失败 (${context}): ${first.error}`, '重试');
+    if (retry !== '重试')
+        return first;
+    const second = tasksProvider.readDiagnosticQueue();
+    if (!second.error)
+        return second;
+    (0, output_js_1.logToOutput)(`[processAllQueue] 重试后队列仍读取失败: ${second.error}`, 'warn');
+    const cliReady = await (0, readiness_js_1.waitForCliReady)();
+    if (cliReady) {
+        try {
+            const analysisResult = await (0, adapter_js_1.runCli)(['run', '--json', `诊断为什么诊断队列文件无法读取，错误信息: ${second.error}`], { timeout: 60000 });
+            if (analysisResult.ok && analysisResult.stdout) {
+                vscode.window.showErrorMessage(`队列读取失败 (${context}): ${second.error}`, '查看分析').then(choice => {
+                    if (choice === '查看分析') {
+                        (0, output_js_1.logToOutput)(`[LLM 诊断] ${analysisResult.stdout}`);
+                        vscode.commands.executeCommand('workbench.action.output.toggleOutput');
+                    }
+                });
+                return second;
+            }
+        }
+        catch (err) {
+            (0, output_js_1.logToOutput)(`[processAllQueue] LLM 诊断失败: ${err}`, 'warn');
+        }
+    }
+    vscode.window.showErrorMessage(`队列读取失败 (${context}): ${second.error}，请检查队列文件或重启 VSCode。`);
+    return second;
+}
 function registerProcessAllQueueCommand(context, tasksProvider) {
-    const disposable = vscode.commands.registerCommand('vectahubTasks.processAllQueue', async () => {
+    const processAllDisposable = vscode.commands.registerCommand('vectahubTasks.processAllQueue', async () => {
         const ready = await (0, readiness_js_1.waitForCliReady)();
         if (!ready)
             return;
-        const beforeQueue = tasksProvider.readDiagnosticQueue();
+        const beforeQueue = await readQueueWithRetry(tasksProvider, '读取队列');
         const pendingCount = beforeQueue.tasks.filter(t => t.status === 'pending').length;
         const processingCount = beforeQueue.tasks.filter(t => t.status === 'processing').length;
         if (pendingCount === 0) {
@@ -69,7 +101,7 @@ function registerProcessAllQueueCommand(context, tasksProvider) {
             title: `VectaHub 正在进行批量诊断修复 (${pendingCount} 个任务)...`,
             cancellable: true
         }, async (progress, token) => {
-            const result = await (0, adapter_js_1.runCli)(['run', '-f', 'sys:process-diagnostic-queue', '--mode', 'relaxed', '--json'], { token });
+            const result = await (0, adapter_js_1.runCli)(['run', '-f', 'sys:process-diagnostic-queue', '--mode', 'relaxed', '--json'], { token, timeout: 300000 });
             tasksProvider.refresh();
             if (!result.ok) {
                 const endedAt = new Date();
@@ -105,7 +137,10 @@ function registerProcessAllQueueCommand(context, tasksProvider) {
                 }
                 return;
             }
-            const afterQueue = tasksProvider.readDiagnosticQueue();
+            const afterQueue = await readQueueWithRetry(tasksProvider, '处理后统计');
+            if (afterQueue.error) {
+                (0, output_js_1.logToOutput)(`[processAllQueue] 处理后队列读取失败: ${afterQueue.error}`, 'warn');
+            }
             const workflowData = result.data;
             let completedNow;
             let failedCount;
@@ -165,6 +200,54 @@ function registerProcessAllQueueCommand(context, tasksProvider) {
             }
         });
     });
-    context.subscriptions.push(disposable);
+    context.subscriptions.push(processAllDisposable);
+    const removeTaskDisposable = vscode.commands.registerCommand('vectahubTasks.removeQueueTask', async (taskId) => {
+        const ready = await (0, readiness_js_1.waitForCliReady)();
+        if (!ready)
+            return;
+        const confirm = await vscode.window.showWarningMessage(`确定要删除任务 ${taskId} 吗？此操作不可撤销。`, { modal: true }, '删除');
+        if (confirm !== '删除')
+            return;
+        (0, output_js_1.logToOutput)(`[removeQueueTask] 删除任务: ${taskId}`);
+        const result = await (0, adapter_js_1.runCli)(['queue', 'remove', taskId, '--json']);
+        if (result.ok) {
+            tasksProvider.refresh();
+            (0, output_js_1.logToOutput)(`[removeQueueTask] 任务 ${taskId} 删除成功`);
+            vscode.window.showInformationMessage(`✅ 任务 ${taskId} 已删除`);
+        }
+        else {
+            const errMsg = result.error?.message || '未知错误';
+            (0, output_js_1.logToOutput)(`[removeQueueTask] 删除任务失败: ${errMsg}`, 'error');
+            vscode.window.showErrorMessage(`❌ 删除失败: ${errMsg}`);
+        }
+    });
+    context.subscriptions.push(removeTaskDisposable);
+    const clearQueueDisposable = vscode.commands.registerCommand('vectahubTasks.clearQueue', async () => {
+        const ready = await (0, readiness_js_1.waitForCliReady)();
+        if (!ready)
+            return;
+        const queue = await readQueueWithRetry(tasksProvider, '清空队列');
+        const taskCount = queue.tasks.length;
+        if (taskCount === 0) {
+            vscode.window.showInformationMessage('📋 队列为空，无需清空');
+            return;
+        }
+        const confirm = await vscode.window.showWarningMessage(`确定要清空队列吗？这将删除所有 ${taskCount} 个任务，此操作不可撤销。`, { modal: true }, '清空队列');
+        if (confirm !== '清空队列')
+            return;
+        (0, output_js_1.logToOutput)(`[clearQueue] 清空队列: ${taskCount} 个任务`);
+        const result = await (0, adapter_js_1.runCli)(['queue', 'clear', '--json', '--force']);
+        if (result.ok) {
+            tasksProvider.refresh();
+            (0, output_js_1.logToOutput)('[clearQueue] 队列清空成功');
+            vscode.window.showInformationMessage('✅ 队列已清空');
+        }
+        else {
+            const errMsg = result.error?.message || '未知错误';
+            (0, output_js_1.logToOutput)(`[clearQueue] 清空队列失败: ${errMsg}`, 'error');
+            vscode.window.showErrorMessage(`❌ 清空失败: ${errMsg}`);
+        }
+    });
+    context.subscriptions.push(clearQueueDisposable);
 }
 //# sourceMappingURL=processAllQueue.js.map

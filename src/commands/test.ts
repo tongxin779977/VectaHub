@@ -1,7 +1,27 @@
 import { Command } from 'commander';
-import { existsSync } from 'fs';
-import { join } from 'path';
-import { spawn } from 'child_process';
+import { format } from 'node:util';
+import type { InfrastructureContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
+
+interface TestCommandOutput {
+  log(message?: unknown, ...optionalParams: unknown[]): void;
+  error(message?: unknown, ...optionalParams: unknown[]): void;
+}
+
+function createTestCommandOutput(): TestCommandOutput {
+  const writeLine = (stream: NodeJS.WriteStream, message?: unknown, optionalParams: unknown[] = []): void => {
+    stream.write(`${format(message, ...optionalParams)}\n`);
+  };
+
+  return {
+    log(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stdout, message, optionalParams);
+    },
+    error(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stderr, message, optionalParams);
+    },
+  };
+}
 
 const moduleMap: Record<string, string[]> = {
   cli: ['src/cli.test.ts'],
@@ -14,37 +34,45 @@ const moduleMap: Record<string, string[]> = {
   all: ['src/**/*.test.ts'],
 };
 
-export const test = new Command('test')
-  .description('Run module unit tests')
-  .argument('[module-name]', 'Specific module to test', 'all')
-  .option('--coverage', 'Show test coverage report')
-  .action(async (moduleName: string, options: { coverage?: boolean }) => {
-    console.log(`\n🧪 Running ${moduleName === 'all' ? 'all' : moduleName} module tests...\n`);
+/**
+ * 创建测试命令
+ * @param context - 基础设施上下文
+ * @returns Commander 命令实例
+ */
+export function createTestCmd(context: InfrastructureContext): Command {
+  const cliOutput = createTestCommandOutput();
 
-    const patterns = moduleMap[moduleName];
-    if (!patterns) {
-      console.error(`❌ Module "${moduleName}" not found.`);
-      console.error('Available modules:', Object.keys(moduleMap).join(', '));
-      process.exit(1);
-    }
+  return new Command('test')
+    .description('Run module unit tests')
+    .argument('[module-name]', 'Specific module to test', 'all')
+    .option('--coverage', 'Show test coverage report')
+    .action(async (moduleName: string, options: { coverage?: boolean }) => {
+      cliOutput.log(`\n🧪 Running ${moduleName === 'all' ? 'all' : moduleName} module tests...\n`);
 
-    const args = ['vitest', 'run'];
-    if (options.coverage) {
-      args.push('--coverage');
-    }
-    args.push(...patterns);
-
-    const child = spawn('npx', args, {
-      cwd: process.cwd(),
-      stdio: 'inherit',
-    });
-
-    child.on('close', (code) => {
-      if (code === 0) {
-        console.log('\n✅ All tests passed');
-      } else {
-        console.error(`\n❌ Tests failed with exit code ${code}`);
-        process.exit(code || 1);
+      const patterns = moduleMap[moduleName];
+      if (!patterns) {
+        cliOutput.error(`❌ Module "${moduleName}" not found.`);
+        cliOutput.error('Available modules:', Object.keys(moduleMap).join(', '));
+        throw new VectaHubError(`Module "${moduleName}" not found.`, ErrorType.RUNTIME);
       }
+
+      const args = ['vitest', 'run'];
+      if (options.coverage) {
+        args.push('--coverage');
+      }
+      args.push(...patterns);
+
+      const child = context.environment.spawn('npx', args, {
+        cwd: context.environment.getCwd(),
+        stdio: 'inherit',
+      });
+
+      child.on('close', (code: number | null) => {
+        if (code === 0) {
+          cliOutput.log('\n✅ All tests passed');
+        } else {
+          throw new VectaHubError(`Tests failed with exit code ${code}`, ErrorType.RUNTIME);
+        }
+      });
     });
-  });
+}

@@ -1,0 +1,904 @@
+# Agent Worker Contract Spec
+
+> Document Status: Current Implementation / Migration Contract
+> Authority: Owns `AgentTaskContract`, prompt input boundaries, document excerpt limits, file scopes, and validation command derivation.
+> Traceability: See `./implementation-traceability.md` for Agent runtime and LLM Context Pack gaps.
+> Related: [文档处理架构设计](../design/document-processing-architecture.md)
+
+## 1. 任务目标
+
+将文档任务执行中的 Agent 从“读取整份文档并自由发挥”收敛为“执行边界清楚的小任务”。
+
+P2 的核心目标：
+
+- 每个 Agent 任务都有结构化输入合同。
+- Agent 只收到必要文档片段，不默认吃完整大文档。
+- 每个任务有明确允许修改范围、禁止修改范围和验证命令。
+- 批量并发前必须通过边界检查。
+- 边界推导失败时降级为串行，不阻塞执行。
+- 保持低内存、低 IO、低 prompt 体积。
+
+## 2. 当前基线
+
+当前实现状态：
+
+- P0 Trace v1 已完成，插件和 CLI 可通过 trace 关联。
+- P1 文档任务状态机已完成，任务运行记录可以持久化。
+- `parse-doc` 只提取 `id` 和 `label`。
+- `parse-doc` 还没有稳定输出 source map、任务候选合同和 chunk coverage。
+- `run-task` 已接入 `AgentTaskContract`，JSON 输出只包含合同摘要。
+- CLI 和插件已通过 `@vectahub/doc-task-contract-core` 共享合同纯函数。
+- 插件批量执行前已做轻量边界预检。
+- 边界未知或文件重叠时，插件会自动降级串行。
+
+P2 不重写 LLM 解析器，不引入数据库，不引入 worktree 隔离。
+
+## 2.1 实施状态
+
+已完成：
+
+- 阶段 1：合同类型和纯函数。
+- 阶段 2：CLI `run-task` 接入。
+- 阶段 3：插件批量边界检查。
+- 阶段 4：合同预览和 lint hardening。
+- A1/A2：共享纯函数单一事实源收敛，公开 JSON 协议不变。
+
+仍需后续 hardening：
+
+- 增加真实批量执行的端到端测试。
+- 为运行态配置 digest 提供更完整的 authoritative 来源。
+- 为文档解析补 source map、parse coverage 和 richer task candidate。
+- 为 `AgentTaskContract` 补 `schemaVersion`、`contractVersion`、`sourceRanges` 和 `sourceDocumentHash`。
+- 将权限确认收敛为统一 `PermissionDecision` 合同。
+
+## 2.2 Agent CLI Runtime Model
+
+Agent CLI support must converge to a single runtime model.
+
+This runtime model extends the existing doc-task contract path. It must not create a parallel Agent truth source outside the registry-backed execution flow.
+
+The intended model is:
+
+- one dynamic Agent registry as the runtime source of truth
+- one generic invocation renderer driven by registry data
+- one execution-mode contract shared by CLI and plugin
+
+Runtime Agent records must define at least:
+
+- identity
+- command entry
+- prompt transport
+- cwd transport
+- non-interactive flags
+- preflight rules
+- runtime bootstrap policy
+- execution mode
+- approval mediation policy
+- capability hints
+- constraints for LLM selection
+- validation status
+
+Execution mode must be one of:
+
+- `native_headless`
+- `mediated_interactive`
+- `manual_only`
+
+The registry may be seeded from built-in defaults during migration, but seeded defaults are not a second runtime truth source.
+
+The LLM-facing view of this runtime model must be derived from the registry. LLM prompt templates must not hard-code separate Agent capability tables, static known-agent lists, or CLI invocation rules.
+
+The derived `Agent Runtime Catalog` should be safe to inject into LLM context and should include only compact fields needed for routing, such as `id`, `displayName`, `executionMode`, `ready`, `capabilities`, `constraints`, `issues`, and `llmSummary`.
+
+## 3. In Scope
+
+- 新增 Agent 任务输入合同类型。
+- 新增 `ParsedTaskCandidate`、`SourceRange` 和文档来源字段的目标合同。
+- 新增统一 Agent runtime registry 与 registry record 类型。
+- 新增 Agent CLI onboarding / reprobe 合同。
+- 新增 generic invocation renderer。
+- 新增 execution mode 与 approval mediation 合同。
+- 新增文档片段提取函数。
+- 新增文件边界归一化和校验函数。
+- 新增验证命令推导规则。
+- `run-task` prompt 接入 AgentTaskContract。
+- 文档任务运行记录保存合同摘要。
+- 批量任务并发前做边界检查。
+- 插件执行前展示任务边界摘要。
+- 补充类型、纯函数、run-task 和插件逻辑测试。
+
+## 4. Out of Scope
+
+- 不做 worktree 隔离。
+- 不做自动代码审查。
+- 不做完整 P3 验证闭环执行。
+- 不做 UI 时间线。
+- 不改变 `run-task --json` 现有字段语义。
+- 不要求 `parse-doc` 第一阶段一次性输出完整深度语义理解。
+- 不要求所有 Agent CLI 原生支持 JSON 输出。
+- 不要求所有 Agent CLI 原生支持 headless 执行。
+- 不要求 LLM 一次性准确推导所有文件边界。
+- 不读取整仓文件树。
+- 不把完整文档内容保存到 task run record。
+
+## 5. 合同结构
+
+### 5.1 Source Map 合同
+
+文档任务必须逐步从“只有 id/label”升级为可追溯来源的任务候选。目标 source map：
+
+```ts
+export interface SourceRange {
+  path: string;
+  startLine: number;
+  endLine: number;
+  startOffset: number;
+  endOffset: number;
+  headingPath?: string[];
+  page?: number;
+}
+```
+
+Source map 的用途：
+
+- 让用户确认任务来源。
+- 让 `run-task` 生成更可靠的 `docExcerpt`。
+- 让 trace 能从文档行号追到 Agent、验证和恢复。
+- 让文档变更后可以准确判断旧 run record 是否失效。
+
+当前实现边界：
+
+- `parse-doc` 尚未稳定输出 `SourceRange`。
+- `deriveDocExcerpt` 已能按 `taskId` / `label` 回扫文档，但这不是 source map 的替代品。
+
+### 5.2 ParsedTaskCandidate 目标合同
+
+`parse-doc` 的目标输出不应只停留在 `DocTask[]`。它应兼容旧 `id/label`，同时提供 richer task candidate：
+
+```ts
+export interface ParsedTaskCandidate {
+  schemaVersion: '1.0';
+  id: string;
+  label: string;
+  status?: 'pending' | 'partial' | 'existing' | 'paused' | 'unknown';
+  goal?: string;
+  problem?: string;
+  acceptanceCriteria: string[];
+  suggestedFiles: string[];
+  forbiddenFiles: string[];
+  validationHints: string[];
+  dependencies: string[];
+  riskHints: string[];
+  extractionConfidence: 'low' | 'medium' | 'high';
+  boundaryConfidence: 'none' | 'low' | 'medium' | 'high';
+  executionConfidence: 'low' | 'medium' | 'high';
+  source: {
+    parser: 'roadmap-table' | 'llm' | 'regex-fallback';
+    ranges: SourceRange[];
+    evidenceText: string;
+  };
+  warnings: string[];
+}
+```
+
+三类置信度语义：
+
+- `extractionConfidence`：任务是否被正确从文档中识别。
+- `boundaryConfidence`：文件范围、禁止范围、验证提示是否可靠。
+- `executionConfidence`：任务是否适合交给 Agent CLI 或 workflow 执行。
+
+### 5.3 AgentTaskContract 类型定义
+
+建议放在：
+
+```text
+src/types/doc-task.ts
+```
+
+```ts
+export interface AgentTaskContract {
+  schemaVersion: '1.0';
+  contractVersion: 1;
+  taskId: string;
+  label: string;
+  instructionHash: string;
+  docPath?: string;
+  docExcerpt?: string;
+  sourceRanges?: SourceRange[];
+  sourceDocumentHash?: string;
+  allowedFiles: string[];
+  forbiddenFiles: string[];
+  validationCommands: string[];
+  timeoutMs: number;
+  executionMode: 'serial' | 'parallel-eligible' | 'isolated-required';
+  boundaryConfidence: 'none' | 'low' | 'medium' | 'high';
+  notes?: string[];
+}
+```
+
+当前实现边界：
+
+- `instructionHash` 已是运行记录和恢复的重要事实源。
+- `schemaVersion`、`contractVersion`、`sourceRanges`、`sourceDocumentHash` 是目标 hardening 字段，不能写成当前已完整实现。
+
+### 5.4 边界合同
+
+```ts
+export interface AgentTaskBoundary {
+  allowedFiles: string[];
+  forbiddenFiles: string[];
+  validationCommands: string[];
+  boundaryConfidence: 'none' | 'low' | 'medium' | 'high';
+  parallelEligible: boolean;
+  reason?: string;
+}
+```
+
+### 5.5 并发判定结果
+
+```ts
+export interface AgentTaskConcurrencyDecision {
+  mode: 'serial' | 'parallel';
+  reason: string;
+  groups: string[][];
+}
+```
+
+### 5.6 权限确认合同
+
+文档任务涉及执行前确认、验证前确认和执行后确认。目标上应统一为 `PermissionDecision`：
+
+```ts
+export interface PermissionDecision {
+  schemaVersion: '1.0';
+  phase: 'preflight' | 'verification' | 'post_execution';
+  riskLevel: 'safe' | 'low' | 'medium' | 'high' | 'critical';
+  reason: string;
+  affectedFiles: string[];
+  canContinue: boolean;
+  requiresDiffReview: boolean;
+}
+```
+
+语义要求：
+
+- `preflight` 发生在 Agent spawn 前，不能已有仓库副作用。
+- `verification` 发生在验证命令执行前，必须按验证命令风险处理。
+- `post_execution` 发生在 `gitChanges` 已存在后，必须要求用户先看 diff。
+- 多 Agent workflow 中，每个 Agent step 都必须独立生成权限决策。
+
+### 5.7 任务指纹 (Instruction Hash)
+
+为了精确检测需求变更，每个合同必须包含 `instructionHash`。
+
+**计算公式**：
+`Hash = SHA-256(taskId + label + docExcerpt + toolName + normalizedAllowedFiles + normalizedForbiddenFiles + globalConfigDigest)`
+
+**执行契约 (Mandates)**：
+1.  **因子完整性**：计算 Hash 时必须包含上述所有维度。
+2.  **全局配置敏感性**：`globalConfigDigest` 必须包含当前 LLM Provider 的核心参数（如 Model, Temperature）。
+3.  **比对阶段的因子对称性 (Critical)**：插件在解析阶段比对历史记录时，**必须先执行边界预推导 (Pre-derivation)**，获取当前的 `allowedFiles` 和 `forbiddenFiles`。
+4.  **历史数据失效**：如果旧记录缺失关键 Hash 因子，必须强制将其标记为失效（回滚至 ready），不得使用残缺因子进行降级比对。
+
+当前实现边界：
+- run record 持久化时，CLI 返回的 `agentTaskContract.instructionHash` 是真相源。
+- `run-task --contract-preview` / `--dry-run` 在 registry-backed Agent 渲染路径上，应直接使用 Agent runtime definition 产出最终 `instructionHash`，而不是依赖临时猜测。
+- `run-task --contract-preview` / `--dry-run` 在非 Agent fallback 路径上，如本地存在可解析的 Provider/Model/Temperature 元数据，也可直接产出 `instructionHash`，但该哈希不能替代 registry-backed runtime hash。
+- 插件侧不得用 guessed `globalConfigDigest`、文档头部片段或 `docContent.slice(0, 8000)` 生成权威 hash。
+- 如果预览阶段无法从本地配置或环境变量解析出 authoritative `globalConfigDigest`，则预览哈希仍不能替代运行态 authoritative hash。
+- 在插件无法获得与 CLI 等价的 authoritative `globalConfigDigest` 时，恢复 hash guard 应保守阻断，状态刷新应跳过 drift reset，避免误判。
+- 共享纯函数已经落地；完整闭环仍依赖后续更完整的运行态 authoritative digest 来源。
+
+## 6. 数据边界
+
+允许进入 AgentTaskContract：
+
+- `taskId`
+- `label`
+- `docPath`
+- `docExcerpt`
+- `sourceRanges`
+- `sourceDocumentHash`
+- `allowedFiles`
+- `forbiddenFiles`
+- `validationCommands`
+- `timeoutMs`
+- `boundaryConfidence`
+
+禁止进入 AgentTaskContract：
+
+- API key。
+- token。
+- 完整 env。
+- 完整 stdout/stderr。
+- 完整 trace。
+- 完整 git diff。
+- 超大文档全文。
+- 未脱敏的 source evidence 原文大段落。
+
+长度限制：
+
+```text
+docExcerpt: <= 8000 chars
+allowedFiles: <= 100 items
+forbiddenFiles: <= 100 items
+validationCommands: <= 10 items
+notes: <= 20 items
+single validation command: <= 300 chars
+serialized contract target: <= 16KB
+Agent prompt contract section: <= 12000 chars
+```
+
+超过限制必须截断，并在 `notes` 中记录。
+
+## 7. 文档片段提取策略
+
+### 7.1 目标
+
+Agent 不应默认读取整份文档。系统应尽量根据 `taskId` 提取任务附近片段。
+
+### 7.2 规则
+输入：
+```ts
+deriveDocExcerpt(input: {
+  docPath: string; // 必须使用路径，禁止直接传递大字符串
+  taskId: string;
+  label: string;
+  maxChars?: number;
+}): Promise<{ excerpt: string; truncated: boolean; strategy: string }>
+```
+
+**执行要求**：
+- **禁止全量读取 (No Full Read)**：严禁使用 `fsp.readFile` 将整个大文档读入内存。
+- **流式扫描 (Streaming Scan)**：必须使用流式读取或基于偏移量的随机访问。
+- **内存保护**：即使文档大小为 500MB，该函数的常驻内存增加不应超过 5MB。
+
+优先级：
+
+1. 找到包含 `taskId` 的标题，截取该标题到下一个同级或更高级标题。
+2. 找到包含 `taskId` 的行，截取前后窗口。
+3. 找到包含 `label` 关键词的行，截取前后窗口。
+4. 取文档开头作为 fallback。
+
+默认：
+
+```text
+maxChars = 8000
+window before = 2000
+window after = 6000
+```
+
+不得：
+
+- 为了提取片段读取仓库其他文件。
+- 把片段写入 task run record。
+- 在插件常驻内存中长期保存完整文档。
+
+## 8. 文件边界推导
+
+### 8.1 第一版边界来源
+
+P2 第一版不要求 LLM 准确推导文件范围，先用确定性规则：
+
+- 从文档片段中识别反引号路径。
+- 从文档片段中识别 `src/...`、`packages/...`、`docs/...` 等路径。
+- 从 task label 中识别明显模块名。
+- 如果无法推导，`allowedFiles=[]`，`boundaryConfidence='none'`。
+
+### 8.2 路径归一化
+
+```ts
+normalizeAgentTaskFiles(input: {
+  files: string[];
+  projectRoot: string;
+}): string[]
+```
+
+要求：
+
+- 只保留相对项目根目录的路径。
+- 去重。
+- 移除空字符串。
+- 移除 `..` 越界路径。
+- 移除绝对路径中的用户 home 前缀，只保留项目相对路径。
+- 最多保留 100 个。
+
+### 8.3 禁止修改范围
+
+默认 forbidden：
+
+```text
+.env
+.env.*
+**/*.pem
+**/*.key
+**/node_modules/**
+**/.git/**
+```
+
+项目已有安全规则优先，P2 不重复实现危险命令系统。
+
+## 9. 验证命令推导
+
+### 9.1 第一版规则
+
+```ts
+deriveValidationCommands(input: {
+  allowedFiles: string[];
+  taskLabel: string;
+  packageScripts?: string[];
+}): string[]
+```
+
+规则：
+
+- 如果涉及 `src/**/*.test.ts`，优先运行对应测试。
+- 如果涉及 `src/**`，优先匹配项目真实脚本名，顺序为 `typecheck` -> `type-check` -> `check-types` -> `check:type`。
+- 如果涉及 `packages/vectahub-vscode-extension/src/**`，加入 `npm run compile -w packages/vectahub-vscode-extension`。
+- 如果无法推导，仍按上述顺序选择默认类型检查命令；都不存在时才回退为 `npm run typecheck`。
+- 最多 10 条。
+
+P2 只生成验证命令，不自动执行。自动执行属于 P3。
+
+## 10. 并发边界检查
+
+### 10.1 判定原则
+
+```text
+unknown boundary -> serial
+overlapping allowedFiles -> serial
+forbiddenFiles touched -> serial
+isolated-required -> serial
+all high/medium confidence and no overlap -> parallel
+```
+
+### 10.2 纯函数
+
+```ts
+decideAgentTaskConcurrency(contracts: AgentTaskContract[]): AgentTaskConcurrencyDecision
+```
+
+输出：
+
+- `serial`：保持现有串行或 maxConcurrent=1。
+- `parallel`：允许按不重叠 group 执行。
+
+P2 不实现 worktree 隔离。没有隔离时，即使允许 parallel，也要限制最大并发不超过现有配置。
+
+## 11. `run-task` 接入要求
+
+修改：
+
+```text
+src/commands/run-task.ts
+```
+
+### 11.1 新增步骤
+
+在生成 Agent 命令前：
+
+```text
+load ParsedTaskCandidate when available
+fallback to docPath + taskId + label when richer task candidate is unavailable
+derive doc excerpt with source map when possible
+derive file boundary
+derive validation commands
+build versioned AgentTaskContract
+```
+
+优先级：
+
+1. 使用 confirmed task contract。
+2. 使用 `ParsedTaskCandidate`。
+3. 使用旧参数 `taskId` / `label` / `docPath` 回扫文档。
+
+第三种是兼容路径，不应成为长期主路径。
+
+### 11.2 Prompt 合同
+
+默认 prompt 中必须包含：
+
+```text
+任务编号
+任务描述
+合同版本
+参考文档路径
+文档来源行号
+文档片段
+允许修改范围
+禁止修改范围
+建议验证命令
+执行要求
+```
+
+LLM/Agent prompt 的主输入必须是 `AgentTaskContract`。`docPath` 只能作为补充引用，不能替代 `docExcerpt`、文件边界和验证命令。
+
+当 VectaHub 需要让 LLM 参与任务语义生成时，必须同时注入受限的 `LLM Context Pack`：
+
+```text
+registeredAgentCliContext
+vectaHubCapabilityContext
+taskContractSummary
+safetyPolicySummary
+fallbackAndOnboardingRules
+```
+
+这些上下文只用于帮助 LLM 理解已注册 Agent、VectaHub 命令能力和当前任务边界。LLM 不得用这些上下文生成已注册 Agent 的最终 argv，也不得覆盖 registry-backed renderer、mediated runner、approval broker 或 recovery 合同。
+
+执行要求：
+
+```text
+- 只围绕当前任务改动。
+- 优先修改 allowedFiles。
+- 不要修改 forbiddenFiles。
+- 如果必须越界修改，先在输出中说明原因。
+- 完成后运行或说明 validationCommands。
+```
+
+低可信度边界要求：
+
+```text
+- 当 boundaryConfidence 为 none 或 low 时，只允许最小改动。
+- 如果无法在 allowedFiles 内完成，输出阻塞说明并停止。
+- 不要通过读取整份文档或扩大文件范围来弥补合同缺口。
+```
+
+禁止事项：
+
+```text
+- 不把完整文档作为默认 prompt。
+- 不把完整 stdout/stderr、trace、git diff 或 env 注入 prompt。
+- 不把 raw --help 全量输出注入常规任务 prompt。
+- 不让 LLM 根据 Agent 自述文本判断最终成功。
+```
+
+### 11.3 JSON 输出兼容
+
+`run-task --json` 不改变已有字段语义。
+
+可以新增可选字段：
+
+```ts
+agentTaskContract?: {
+  schemaVersion?: string;
+  contractVersion?: number;
+  boundaryConfidence: string;
+  allowedFiles: string[];
+  forbiddenFiles: string[];
+  validationCommands: string[];
+  sourceRangeCount?: number;
+  sourceDocumentHash?: string;
+}
+```
+
+但不得把完整 `docExcerpt` 输出到 JSON。
+
+## 11.4 Trace 关联
+
+文档任务执行应逐步补齐三类 trace：
+
+```text
+docParseTraceId
+contractTraceId
+workflowRunTraceId
+```
+
+要求：
+
+- `docParseTraceId` 记录文档解析、chunk coverage、fallback 和提取任务数量。
+- `contractTraceId` 记录 `AgentTaskContract` 如何由文档片段、文件边界和验证命令推导。
+- `workflowRunTraceId` 记录多 Agent workflow 中每个 step 的 parent/child 关系。
+- run record 和 recovery record 不保存完整 trace，只保存可查询引用。
+
+## 12. 插件接入要求
+
+修改：
+
+```text
+packages/vectahub-vscode-extension/src/commands/runDocTasks.ts
+packages/vectahub-vscode-extension/src/project/docTaskRunStore.ts
+packages/vectahub-vscode-extension/src/views/tasksView.ts
+```
+
+### 12.1 运行记录
+
+`DocTaskRunRecord` 可新增摘要字段：
+
+```ts
+agentTaskContract?: {
+  boundaryConfidence: string;
+  allowedFileCount: number;
+  forbiddenFileCount: number;
+  validationCommandCount: number;
+  executionMode: string;
+}
+```
+
+不得保存完整 `docExcerpt`。
+
+### 12.2 批量执行
+
+批量执行前：
+
+- 尝试为每个任务获取 contract summary。
+- 如果边界未知，保持串行。
+- 如果边界重叠，保持串行。
+- 如果可并发，允许使用配置并发。
+
+第一版如果无法在插件端预生成完整 contract，可以先由 CLI `run-task --dry-run --json` 或未来 contract preview 命令提供。P2 可以先实现 CLI 侧合同，插件并发检查作为阶段 3。
+
+## 13. 性能与内存预算
+
+硬性预算：
+
+```text
+deriveDocExcerpt for 50KB doc: < 10ms
+deriveDocExcerpt memory overhead: O(excerpt size)
+normalize files 100 items: < 2ms
+concurrency decision 100 tasks: < 20ms
+AgentTaskContract serialized: <= 16KB
+run-task prompt contract section: <= 12000 chars
+```
+
+禁止：
+
+- 为每个任务重复读取大文档超过一次。
+- 把完整文档复制到每个 task record。
+- 扫描整个仓库文件树。
+- 在插件 tree refresh 时生成合同。
+
+建议：
+
+- 单次批量执行共享 docContent。
+- 只在执行前生成 contract。
+- 只保存 contract summary。
+
+## 14. 安全与隐私边界
+
+- `allowedFiles` 和 `forbiddenFiles` 必须经过路径归一化。
+- 出现 `..` 越界路径必须丢弃。
+- Agent prompt 不包含 secrets。
+- 不将完整 env 传给 Agent。
+- forbidden 默认包含敏感文件。
+- 如果 Agent 输出建议修改 forbidden 文件，任务状态后续应进入 `needs_confirmation`，P2 只记录，不自动阻断。
+
+## 15. 文件修改清单
+
+### 阶段 1：纯类型与函数
+
+新增：
+
+```text
+src/commands/agent-task-contract.ts
+src/commands/agent-task-contract.test.ts
+```
+
+修改：
+
+```text
+src/types/doc-task.ts
+```
+
+### 阶段 2：`run-task` 接入
+
+修改：
+
+```text
+src/commands/run-task.ts
+src/commands/run-task.test.ts
+```
+
+### 阶段 3：插件批量并发检查
+
+修改：
+
+```text
+packages/vectahub-vscode-extension/src/commands/runDocTasks.ts
+packages/vectahub-vscode-extension/src/project/docTaskRunStore.ts
+packages/vectahub-vscode-extension/src/views/tasksView.ts
+```
+
+### 阶段 4：文档和 hardening
+
+修改：
+
+```text
+docs/contracts/agent-worker-contract.md
+docs/agent-execution.md
+docs/roadmap.md
+```
+
+## 16. 实施顺序
+
+### 阶段 1：合同类型和纯函数
+
+实现：
+
+- `AgentTaskContract`
+- `AgentTaskBoundary`
+- `deriveDocExcerpt`
+- `normalizeAgentTaskFiles`
+- `deriveValidationCommands`
+- `decideAgentTaskConcurrency`
+
+测试：
+
+- 标题片段提取。
+- taskId window fallback。
+- label window fallback。
+- head fallback。
+- 路径去重、越界过滤、数量限制。
+- validation command 推导。
+- concurrency serial/parallel 判定。
+
+完成标准：
+
+- 无 IO，除测试 fixture 外不读文件。
+- 无第三方依赖。
+- 性能预算可通过简单测试验证。
+
+### 阶段 2：CLI `run-task` 接入
+
+实现：
+
+- 从 `docPath` 读取文档一次。
+- 构造 `AgentTaskContract`。
+- 默认 prompt 使用 contract。
+- JSON 结果增加 contract summary。
+- trace span 记录 contract summary，不记录 docExcerpt。
+
+完成标准：
+
+- `run-task --json` 兼容旧字段。
+- 没有 docPath 时仍可执行。
+- docPath 不存在时走现有错误路径或分类为 config。
+- 测试覆盖 contract summary。
+
+### 阶段 3：插件批量边界检查
+
+实现：
+
+- 批量执行前根据 contract summary 判断是否保持串行。
+- 边界未知降级串行。
+- 重叠文件降级串行。
+- UI 输出降级原因。
+
+完成标准：
+
+- 默认仍安全串行。
+- 只有明确不重叠时才并发。
+- 不读取完整文档多次。
+
+## 17. 测试计划
+
+必须运行：
+
+```text
+npm test -- src/commands/agent-task-contract.test.ts --run
+npm test -- src/commands/run-task.test.ts --run
+npm run typecheck
+npm run compile -w packages/vectahub-vscode-extension
+```
+
+插件阶段额外运行：
+
+```text
+npx vitest run test/docTaskStateMachine.test.ts test/docTaskRunStore.test.ts test/docTaskRunHelpers.test.ts
+```
+
+## 18. 完成定义
+
+P2 完成必须满足：
+
+- Agent 执行前有结构化任务合同。
+- Agent prompt 不再只依赖整份文档。
+- 文档片段有明确长度上限。
+- 文件边界有归一化和安全过滤。
+- 验证命令可推导但不自动执行。
+- 并发前有边界检查。
+- 边界未知时降级串行。
+- 不保存完整 docExcerpt 到持久化记录。
+- 测试通过。
+- 文档更新执行结果和 commit hash。
+
+## 19. Hardening TODO
+
+P2 后续可做：
+
+- 让 `parse-doc` 提取任务时同步输出建议文件范围。
+- 已增加 `vectahub run-task --contract-preview --json`。
+- 接入 worktree 隔离并发。
+- 用真实 git diff 校验 Agent 是否越界修改。
+- 越界修改自动进入 `needs_confirmation`。
+
+## 20. Lint Warning 分析
+
+已处理的插件 warning：
+
+- `src/cli/adapter.ts` 中未使用的 `globalContext`：会让 `ExtensionContext` 被模块级变量长期引用。它不在热路径上，几乎不影响速度，但属于不必要的常驻引用，清理后更利于内存边界。
+- `src/project/diagnostic-bridge.ts` 中未使用的 `mkdir` import：运行影响可以忽略，只是无意义模块绑定。清理后 lint 保持干净，减少后续 CI 噪音。
+
+处理后：
+
+```text
+npm run lint -w packages/vectahub-vscode-extension
+0 warning / 0 error
+```
+
+## 21. 执行期优化问题根因分析
+
+当前执行过程中仍会出现性能、内存、响应速度优化空间，根因不是单点代码慢，而是执行链路中存在重复处理和共享状态写入。
+
+### 21.1 根因一：同一文档被重复扫描
+
+现象：
+
+- 插件批量预检读取文档一次，但合同提取阶段会按任务逐个扫描同一份文档。
+- CLI 执行每个任务时，如果传入 `--doc`，又会在每个子进程里重新读取和提取文档片段。
+
+影响：
+
+- 批量任务越多，预检阶段越接近 `O(taskCount * docSize)`。
+- 文档越大，插件响应越容易出现短暂卡顿。
+- 每个 Agent 执行前都有重复 IO 和字符串扫描。
+
+处理顺序：
+
+1. 插件端先建立文档 heading 索引，一次扫描，多任务复用。
+2. 后续让插件执行阶段复用 `run-task --contract-preview --json` 或显式合同输入，避免 CLI 子进程重复读文档。
+
+### 21.2 根因二：任务启动链路仍包含 LLM 命令生成
+
+现象：
+
+- 迁移前，`run-task` 在部分执行路径会加载 LLM 配置、发现工具 help、调用 LLM 生成 Agent 命令。
+- 即使 Agent CLI 的调用格式固定，也可能被旧路径带入这条链路。
+- 这会让 LLM 既承担“理解任务语义”，又承担“猜调用协议”，职责边界不清。
+
+影响：
+
+- 首个响应时间受 LLM 调用影响。
+- 批量任务会把这个开销放大到每个任务。
+
+处理顺序：
+
+1. 将已注册 Agent CLI 收敛到 registry-backed generic renderer 或 mediated runner。
+2. registry-backed 命中时跳过 LLM 命令生成，只保留安全检查、trace 和后续执行治理。
+3. LLM 只消费 `LLM Context Pack`，用于 intent、Agent 选择、能力选择、任务语义生成和 onboarding 辅助。
+4. 未注册 Agent 的 help/LLM 辅助只能进入 onboarding inference，不能直接成为最终执行协议。
+
+### 21.3 根因三：并发写运行记录会竞争 latest 状态
+
+现象：
+
+- 每个任务运行状态更新都会 append JSONL，并重写 `latest.json`。
+- 并发任务可能同时写同一个 `latest.json.tmp`。
+
+影响：
+
+- 并发下存在写入竞争风险。
+- 小任务多时，latest 重写 IO 会变多。
+
+处理顺序：
+
+1. 先给 run store 增加进程内写队列，保证同一 store 实例内写入串行。
+2. 后续再评估 latest 写入 debounce 或 batch flush。
+
+### 21.4 本轮优化边界
+
+本轮先处理：
+
+- 插件合同预检文档索引复用。已完成：`docTaskDocIndex` 一次扫描文档 heading，批量任务复用索引提取片段。
+- run store 写队列串行化。已完成：同一 store 实例内 `startRun/updateRun/startBatch/updateBatch` 写入串行执行，`latest.json` 临时文件使用唯一名。
+
+本轮暂不处理：
+
+- Agent CLI 确定性模板。
+- LLM Context Pack 注入。
+- 合同跨进程完整复用。
+- worktree 隔离。
+
+原因：
+
+- 这三项会改变执行协议或并发隔离模型，需要单独设计和回归。
+- 先处理本地重复扫描和写入竞争，可以直接降低插件响应风险和并发 IO 风险。

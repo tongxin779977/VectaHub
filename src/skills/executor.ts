@@ -1,82 +1,125 @@
-
-import { Skill, SkillContext, SkillResult, CompositeSkill } from './types.js';
+import { Skill, SkillContext, SkillResult, CompositeSkill, SkillSandboxConfig } from './types.js';
 
 type LoggerType = { debug: (...args: unknown[]) => void; warn: (...args: unknown[]) => void; info?: (...args: unknown[]) => void; error?: (...args: unknown[]) => void };
 
-let logger: LoggerType | null = null;
-let loggerInitialized = false;
-
-const nullLogger: LoggerType = {
-  debug: () => {},
-  warn: () => {},
-  info: () => {},
-  error: () => {}
-};
-
-async function initLogger(): Promise<void> {
-  if (loggerInitialized) return;
-  loggerInitialized = true;
-  
-  try {
-    const mod = await import('../utils/logger.js');
-    const createLogger = (mod as Record<string, unknown>).createConsoleLogger as (prefix?: string) => LoggerType;
-    if (createLogger) {
-      logger = createLogger('skills');
-    }
-  } catch {
-    // 测试环境或日志模块不可用时使用 null logger
-    logger = nullLogger;
-  }
-}
-
-function getLogger(): LoggerType {
-  return logger || nullLogger;
-}
-
+/**
+ * Options for creating a SkillExecutor
+ * @property maxRetries - Maximum number of retry attempts (default: 3)
+ * @property timeout - Execution timeout in milliseconds (default: 120000)
+ * @property logger - Logger instance for debug and warning messages
+ * @property sandbox - Optional sandbox configuration for isolated execution
+ */
 export interface SkillExecutorOptions {
   maxRetries?: number;
   timeout?: number;
+  logger: LoggerType;
+  sandbox?: Partial<SkillSandboxConfig>;
 }
 
-export class SkillExecutor {
-  private options: SkillExecutorOptions;
+interface ResolvedSkillExecutorOptions {
+  maxRetries: number;
+  timeout: number;
+}
 
-  constructor(options: SkillExecutorOptions = {}) {
+/**
+ * Execution metrics for tracking skill performance
+ * @property totalExecutions - Total number of executions
+ * @property successfulExecutions - Number of successful executions
+ * @property failedExecutions - Number of failed executions
+ * @property averageExecutionTime - Average execution time in milliseconds
+ * @property sandboxedExecutions - Number of sandboxed executions
+ */
+export interface ExecutionMetrics {
+  totalExecutions: number;
+  successfulExecutions: number;
+  failedExecutions: number;
+  averageExecutionTime: number;
+  sandboxedExecutions: number;
+}
+
+/**
+ * SkillExecutor handles the execution of skills with retry logic, timeout, and sandboxing
+ * Provides both single skill and composite skill execution capabilities
+ */
+export class SkillExecutor {
+  private options: ResolvedSkillExecutorOptions;
+  private readonly logger: LoggerType;
+  private readonly sandboxConfig: SkillSandboxConfig;
+  private metrics: ExecutionMetrics = {
+    totalExecutions: 0,
+    successfulExecutions: 0,
+    failedExecutions: 0,
+    averageExecutionTime: 0,
+    sandboxedExecutions: 0
+  };
+
+  /**
+   * Creates a new SkillExecutor instance
+   * @param options - Configuration options for the executor
+   */
+  constructor(options: SkillExecutorOptions) {
     this.options = {
       maxRetries: options.maxRetries ?? 3,
       timeout: options.timeout ?? 120000
     };
-    // 在构造函数中初始化日志
-    initLogger().catch(() => {});
+    this.logger = options.logger;
+    this.sandboxConfig = {
+      enabled: options.sandbox?.enabled ?? false,
+      timeout: options.sandbox?.timeout ?? this.options.timeout,
+      memoryLimit: options.sandbox?.memoryLimit ?? 512 * 1024 * 1024,
+      allowedModules: options.sandbox?.allowedModules ?? [],
+      blockedModules: options.sandbox?.blockedModules ?? ['child_process', 'fs', 'net']
+    };
   }
 
+  /**
+   * Executes a skill with retry logic and optional sandboxing
+   * @template TInput - The input type
+   * @template TOutput - The output type
+   * @param skill - The skill to execute
+   * @param input - The input data
+   * @param context - The execution context
+   * @returns Promise resolving to the skill result
+   */
   async execute<TInput = unknown, TOutput = unknown>(
     skill: Skill<TInput, TOutput>,
     input: TInput,
     context: SkillContext
   ): Promise<SkillResult<TOutput>> {
+    const startTime = Date.now();
     let retries = 0;
     let lastError: Error | null = null;
 
+    this.metrics.totalExecutions++;
+
     while (retries <= this.options.maxRetries!) {
       try {
-        getLogger().debug(`Executing skill: ${skill.name} (v${skill.version})`);
+        this.logger.debug(`Executing skill: ${skill.name} (v${skill.version})`);
 
         const timeoutPromise = new Promise<never>((_, reject) => {
           setTimeout(() => reject(new Error(`Skill execution timeout after ${this.options.timeout}ms`)), this.options.timeout);
         });
 
-        const result = await Promise.race([
-          skill.execute(input, context),
-          timeoutPromise
-        ]);
+        let result: SkillResult<TOutput>;
 
-        getLogger().debug(`Skill ${skill.name} executed successfully: ${result.success}, confidence: ${result.confidence}`);
+        if (this.sandboxConfig.enabled) {
+          result = await this.executeInSandbox(skill, input, context, timeoutPromise);
+          this.metrics.sandboxedExecutions++;
+        } else {
+          result = await Promise.race([
+            skill.execute(input, context),
+            timeoutPromise
+          ]);
+        }
+
+        const executionTime = Date.now() - startTime;
+        this.updateMetrics(executionTime, true);
+
+        this.logger.debug(`Skill ${skill.name} executed successfully: ${result.success}, confidence: ${result.confidence}`);
         return result;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        getLogger().warn(`Skill ${skill.name} failed (retry ${retries + 1}/${this.options.maxRetries}):`, lastError.message);
-        console.error(`[DEBUG] Skill ${skill.name} failed with error:`, lastError.message);
+        this.logger.warn(`Skill ${skill.name} failed (retry ${retries + 1}/${this.options.maxRetries}):`, lastError.message);
         retries++;
 
         if (retries <= this.options.maxRetries!) {
@@ -85,6 +128,9 @@ export class SkillExecutor {
       }
     }
 
+    const executionTime = Date.now() - startTime;
+    this.updateMetrics(executionTime, false);
+
     return {
       success: false,
       error: `Skill ${skill.name} failed after ${this.options.maxRetries} retries: ${lastError?.message}`,
@@ -92,6 +138,15 @@ export class SkillExecutor {
     };
   }
 
+  /**
+   * Executes a composite skill using its defined strategy
+   * @template TInput - The input type
+   * @template TOutput - The output type
+   * @param compositeSkill - The composite skill to execute
+   * @param input - The input data
+   * @param context - The execution context
+   * @returns Promise resolving to the skill result
+   */
   async executeComposite<TInput = unknown, TOutput = unknown>(
     compositeSkill: CompositeSkill,
     input: TInput,
@@ -113,6 +168,83 @@ export class SkillExecutor {
     }
   }
 
+  /**
+   * Gets the current execution metrics
+   * @returns ExecutionMetrics object
+   */
+  getMetrics(): ExecutionMetrics {
+    return { ...this.metrics };
+  }
+
+  /**
+   * Resets the execution metrics
+   */
+  resetMetrics(): void {
+    this.metrics = {
+      totalExecutions: 0,
+      successfulExecutions: 0,
+      failedExecutions: 0,
+      averageExecutionTime: 0,
+      sandboxedExecutions: 0
+    };
+  }
+
+  /**
+   * Executes a skill in a sandboxed environment
+   * @template TInput - The input type
+   * @template TOutput - The output type
+   * @param skill - The skill to execute
+   * @param input - The input data
+   * @param context - The execution context
+   * @param timeoutPromise - Timeout promise for execution
+   * @returns Promise resolving to the skill result
+   * @private
+   */
+  private async executeInSandbox<TInput = unknown, TOutput = unknown>(
+    skill: Skill<TInput, TOutput>,
+    input: TInput,
+    context: SkillContext,
+    timeoutPromise: Promise<never>
+  ): Promise<SkillResult<TOutput>> {
+    const originalProcess = globalThis.process;
+    const originalRequire = (globalThis as Record<string, unknown>).require;
+
+    try {
+      if (this.sandboxConfig.blockedModules.length > 0) {
+        const blockedModules = this.sandboxConfig.blockedModules;
+        (globalThis as Record<string, unknown>).require = (module: string) => {
+          if (blockedModules.includes(module)) {
+            throw new Error(`Module '${module}' is blocked in sandbox mode`);
+          }
+          if (originalRequire) {
+            return (originalRequire as (m: string) => unknown)(module);
+          }
+          throw new Error(`Cannot require module '${module}': require is not available`);
+        };
+      }
+
+      const result = await Promise.race([
+        skill.execute(input, context),
+        timeoutPromise
+      ]);
+
+      return result;
+    } finally {
+      (globalThis as Record<string, unknown>).require = originalRequire;
+      globalThis.process = originalProcess;
+    }
+  }
+
+  /**
+   * Executes skills sequentially
+   * @template TInput - The input type
+   * @template TOutput - The output type
+   * @param compositeSkill - The composite skill
+   * @param input - The input data
+   * @param context - The execution context
+   * @returns Promise resolving to the skill result
+   * @private
+   */
   private async executeSequential<TInput = unknown, TOutput = unknown>(
     compositeSkill: CompositeSkill,
     input: TInput,
@@ -146,6 +278,16 @@ export class SkillExecutor {
     };
   }
 
+  /**
+   * Executes skills in parallel
+   * @template TInput - The input type
+   * @template TOutput - The output type
+   * @param compositeSkill - The composite skill
+   * @param input - The input data
+   * @param context - The execution context
+   * @returns Promise resolving to the skill result
+   * @private
+   */
   private async executeParallel<TInput = unknown, TOutput = unknown>(
     compositeSkill: CompositeSkill,
     input: TInput,
@@ -194,6 +336,16 @@ export class SkillExecutor {
     };
   }
 
+  /**
+   * Executes skills conditionally (first matching skill)
+   * @template TInput - The input type
+   * @template TOutput - The output type
+   * @param compositeSkill - The composite skill
+   * @param input - The input data
+   * @param context - The execution context
+   * @returns Promise resolving to the skill result
+   * @private
+   */
   private async executeConditional<TInput = unknown, TOutput = unknown>(
     compositeSkill: CompositeSkill,
     input: TInput,
@@ -211,7 +363,7 @@ export class SkillExecutor {
           return result as SkillResult<TOutput>;
         }
       } catch {
-        getLogger().debug(`Conditional skill ${skill.id} failed, trying next`);
+        this.logger.debug(`Conditional skill ${skill.id} failed, trying next`);
       }
     }
 
@@ -221,8 +373,30 @@ export class SkillExecutor {
       confidence: 0,
     };
   }
+
+  /**
+   * Updates execution metrics
+   * @param executionTime - The execution time in milliseconds
+   * @param success - Whether the execution was successful
+   * @private
+   */
+  private updateMetrics(executionTime: number, success: boolean): void {
+    if (success) {
+      this.metrics.successfulExecutions++;
+    } else {
+      this.metrics.failedExecutions++;
+    }
+
+    const totalTime = this.metrics.averageExecutionTime * (this.metrics.totalExecutions - 1) + executionTime;
+    this.metrics.averageExecutionTime = totalTime / this.metrics.totalExecutions;
+  }
 }
 
-export function createSkillExecutor(options?: SkillExecutorOptions): SkillExecutor {
+/**
+ * Creates a new SkillExecutor instance
+ * @param options - Configuration options for the executor
+ * @returns A new SkillExecutor
+ */
+export function createSkillExecutor(options: SkillExecutorOptions): SkillExecutor {
   return new SkillExecutor(options);
 }

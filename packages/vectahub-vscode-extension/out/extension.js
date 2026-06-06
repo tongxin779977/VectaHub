@@ -1,8 +1,42 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getGlobalCliPath = getGlobalCliPath;
 exports.activate = activate;
 exports.deactivate = deactivate;
+const vscode = __importStar(require("vscode"));
 const discovery_js_1 = require("./cli/discovery.js");
 const statusBar_js_1 = require("./ui/statusBar.js");
 const installCli_js_1 = require("./commands/installCli.js");
@@ -26,11 +60,15 @@ const previewProjectTask_js_1 = require("./commands/previewProjectTask.js");
 const runProjectTask_js_1 = require("./commands/runProjectTask.js");
 const listPackageScripts_js_1 = require("./commands/listPackageScripts.js");
 const fetchGhErrors_js_1 = require("./commands/fetchGhErrors.js");
+const diagnostic_bridge_js_1 = require("./project/diagnostic-bridge.js");
 const processAllQueue_js_1 = require("./commands/processAllQueue.js");
-const runCheckPipeline_js_1 = require("./commands/runCheckPipeline.js");
-const runDevPipeline_js_1 = require("./commands/runDevPipeline.js");
+const configLlm_js_1 = require("./commands/configLlm.js");
+const runVerifyAll_js_1 = require("./commands/runVerifyAll.js");
+const syncAndFixCi_js_1 = require("./commands/syncAndFixCi.js");
 const startDevServer_js_1 = require("./commands/startDevServer.js");
 const stopRunningTask_js_1 = require("./commands/stopRunningTask.js");
+const runDocTasks_js_1 = require("./commands/runDocTasks.js");
+const recoverDocTask_js_1 = require("./commands/recoverDocTask.js");
 function getGlobalCliPath() {
     return (0, readiness_js_1.getResolvedCliPath)();
 }
@@ -43,6 +81,7 @@ async function activate(context) {
     (0, advancedView_js_1.registerAdvancedView)(context);
     (0, installCli_js_1.registerInstallCliCommand)(context);
     (0, doctor_js_1.registerDoctorCommand)(context);
+    (0, configLlm_js_1.registerConfigLlmCommand)(context);
     (0, previewIntent_js_1.registerPreviewIntentCommand)(context);
     (0, runIntent_js_1.registerRunIntentCommand)(context);
     (0, runCommonTask_js_1.registerRunCommonTaskCommand)(context);
@@ -57,10 +96,22 @@ async function activate(context) {
     (0, listPackageScripts_js_1.registerListPackageScriptsCommand)(context);
     (0, fetchGhErrors_js_1.registerFetchGhErrorsCommand)(context, tasksProvider);
     (0, processAllQueue_js_1.registerProcessAllQueueCommand)(context, tasksProvider);
-    (0, runCheckPipeline_js_1.registerRunCheckPipelineCommand)(context, tasksProvider);
-    (0, runDevPipeline_js_1.registerRunDevPipelineCommand)(context, tasksProvider);
+    (0, runVerifyAll_js_1.registerRunVerifyAllCommand)(context, tasksProvider);
+    (0, syncAndFixCi_js_1.registerSyncAndFixCiCommand)(context, tasksProvider);
     (0, startDevServer_js_1.registerStartDevServerCommand)(context, tasksProvider);
     (0, stopRunningTask_js_1.registerStopRunningTaskCommand)(context, tasksProvider);
+    (0, runDocTasks_js_1.registerDocTaskCommands)(context, tasksProvider);
+    (0, recoverDocTask_js_1.registerRecoverDocTaskCommand)(context, tasksProvider);
+    context.subscriptions.push(vscode.commands.registerCommand('vectahub.getDiagnostics', (args) => {
+        const all = (0, diagnostic_bridge_js_1.collectAllDiagnostics)();
+        const filtered = (0, diagnostic_bridge_js_1.filterDiagnostics)(all, args?.file, args?.severity);
+        return filtered;
+    }));
+    diagnosticBridge = new diagnostic_bridge_js_1.DiagnosticBridge();
+    diagnosticBridge.start()
+        .then(port => (0, output_js_1.logToOutput)(`Diagnostic bridge started on port ${port}`))
+        .catch(err => (0, output_js_1.logToOutput)(`Diagnostic bridge failed: ${err}`, 'error'));
+    context.subscriptions.push({ dispose: () => diagnosticBridge?.dispose() });
     context.subscriptions.push(outputChannel);
     const cliDetector = async () => {
         const result = await (0, discovery_js_1.discoverCli)();
@@ -77,7 +128,7 @@ async function activate(context) {
         if (state === 'ready') {
             (0, statusBar_js_1.updateStatusBar)('Ready');
             (0, output_js_1.logToOutput)('Running initial VectaHub doctor...');
-            const doctorResult = await (0, adapter_js_1.runCli)(['doctor', '--json']);
+            const doctorResult = await (0, adapter_js_1.runCli)(['doctor', '--json'], { timeout: 30000 });
             if (doctorResult.ok) {
                 (0, output_js_1.logToOutput)('VectaHub doctor passed.');
             }
@@ -98,8 +149,10 @@ async function activate(context) {
 }
 const process_manager_js_1 = require("./cli/process-manager.js");
 const longRunningTaskManager_js_1 = require("./cli/longRunningTaskManager.js");
+let diagnosticBridge;
 function deactivate() {
     longRunningTaskManager_js_1.LongRunningTaskManager.getInstance().stopAll();
-    process_manager_js_1.ProcessManager.getInstance().killAll();
+    process_manager_js_1.ProcessManager.getInstance().dispose();
+    diagnosticBridge?.dispose();
 }
 //# sourceMappingURL=extension.js.map

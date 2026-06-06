@@ -1,11 +1,18 @@
 import { promises as fs } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { getVectaHubHome, getVectaHubPath } from '../../utils/paths.js';
+import { getVectaHubHome, getVectaHubPath } from '../../infrastructure/paths/index.js';
 import type { ToolInfo, CommandInfo, KnowledgeBaseData } from '../types/command.js';
+import { getLogger } from '../../infrastructure/logger/index.js';
+import type { Logger } from '../../infrastructure/logger/index.js';
 
 const KB_VERSION = '1.0.0';
-const KB_DIR = getVectaHubHome();
-const KB_PATH = getVectaHubPath('commands.json');
+
+function getKnowledgeBaseDir(): string {
+  return getVectaHubHome();
+}
+
+function getKnowledgeBasePath(): string {
+  return getVectaHubPath('commands.json');
+}
 
 export interface KnowledgeBase {
   load(): Promise<void>;
@@ -16,34 +23,43 @@ export interface KnowledgeBase {
   getAllTools(): ToolInfo[];
 }
 
-export function createKnowledgeBase(): KnowledgeBase {
-  return new KnowledgeBaseImpl();
+export function createKnowledgeBase(logger?: Logger): KnowledgeBase {
+  return new KnowledgeBaseImpl(logger);
 }
 
 class KnowledgeBaseImpl implements KnowledgeBase {
   private tools: ToolInfo[] = [];
+  private logger: Logger;
+
+  constructor(logger?: Logger) {
+    this.logger = logger ?? getLogger('knowledge-base');
+  }
 
   async load(): Promise<void> {
+    const knowledgeBasePath = getKnowledgeBasePath();
     try {
-      if (await this.exists(KB_PATH)) {
-        const content = await fs.readFile(KB_PATH, 'utf-8');
+      if (await this.exists(knowledgeBasePath)) {
+        const content = await fs.readFile(knowledgeBasePath, 'utf-8');
         const data: KnowledgeBaseData = JSON.parse(content);
         this.tools = data.tools || [];
       } else {
         await this.init();
       }
-    } catch {
+    } catch (error) {
+      this.logger.warn(`Failed to load knowledge base, initializing empty: ${error instanceof Error ? error.message : String(error)}`);
       await this.init();
     }
   }
 
   async save(): Promise<void> {
-    await fs.mkdir(KB_DIR, { recursive: true });
+    const knowledgeBaseDir = getKnowledgeBaseDir();
+    const knowledgeBasePath = getKnowledgeBasePath();
+    await fs.mkdir(knowledgeBaseDir, { recursive: true });
     const data: KnowledgeBaseData = {
       version: KB_VERSION,
       tools: this.tools
     };
-    await fs.writeFile(KB_PATH, JSON.stringify(data, null, 2));
+    await fs.writeFile(knowledgeBasePath, JSON.stringify(data, null, 2));
   }
 
   addTool(tool: ToolInfo): void {

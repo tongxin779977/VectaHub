@@ -1,10 +1,18 @@
-export type AlertLevel = 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL';
+/**
+ * 告警系统
+ * AlertLevel 和 AlertEvent 从 infrastructure/trace-audit/types.ts 统一导出
+ */
 
+// 从统一类型定义导入并重新导出 AlertLevel
+import type { AlertLevel } from '../infrastructure/trace-audit/types.js';
+export type { AlertLevel };
+
+// 重新定义 AlertEvent（因为包含 timestamp: Date）
 export interface AlertEvent {
   level: AlertLevel;
   message: string;
   timestamp: Date;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export type AlertHandler = (event: AlertEvent) => void;
@@ -12,7 +20,7 @@ export type AlertHandler = (event: AlertEvent) => void;
 export interface AlertSystem {
   addListener(level: AlertLevel, handler: AlertHandler): void;
   removeListener(level: AlertLevel, handler: AlertHandler): void;
-  emit(level: AlertLevel, message: string, metadata?: Record<string, any>): void;
+  emit(level: AlertLevel, message: string, metadata?: Record<string, unknown>): void;
   getHistory(level?: AlertLevel, limit?: number): AlertEvent[];
 }
 
@@ -34,7 +42,7 @@ export function createAlertSystem(maxHistory: number = 1000): AlertSystem {
     }
   }
 
-  function emit(level: AlertLevel, message: string, metadata?: Record<string, any>): void {
+  function emit(level: AlertLevel, message: string, metadata?: Record<string, unknown>): void {
     const event: AlertEvent = {
       level,
       message,

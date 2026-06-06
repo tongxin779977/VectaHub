@@ -32,4 +32,27 @@ describe('Goal Parser Domain Conflict Rules', () => {
     const goal = parseGoal('运行测试');
     expect(goal.domains).not.toContain('github-actions');
   });
+
+  it('should route "分析最新失败的 action" to github-actions', () => {
+    const goal = parseGoal('分析最新失败的 action');
+    expect(goal.domains).toContain('github-actions');
+    expect(goal.action).toBe('analyze');
+    expect(goal.scope).toBe('latest');
+  });
+
+  it('should route "运行测试" to testing domain', () => {
+    const goal = parseGoal('运行测试');
+    expect(goal.domains).toContain('testing');
+    expect(goal.action).toBe('run');
+  });
+
+  it('should detect scope for Chinese input "把 CI 全部修绿"', () => {
+    const goal = parseGoal('把 CI 全部修绿');
+    expect(goal.scope).toBe('all');
+  });
+
+  it('should detect scope for Chinese input "分析最新失败的 action"', () => {
+    const goal = parseGoal('分析最新失败的 action');
+    expect(goal.scope).toBe('latest');
+  });
 });

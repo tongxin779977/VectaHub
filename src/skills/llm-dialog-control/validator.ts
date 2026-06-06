@@ -1,12 +1,9 @@
 import YAML from 'yaml';
 import type { OutputFormat, ValidationResult } from './types.js';
-import { createConsoleLogger } from '../../utils/logger.js';
-
-const logger = createConsoleLogger('yaml-validator');
 
 export function validateOutput(
   output: string,
-  format: OutputFormat
+  format: OutputFormat,
 ): ValidationResult {
   const cleaned = output.trim();
   
@@ -37,7 +34,7 @@ function validateJSON(output: string): ValidationResult {
   try {
     JSON.parse(output);
     return { valid: true };
-  } catch (error) {
+  } catch {
     let cleaned = output.trim();
     
     if (cleaned.startsWith('```json')) {
@@ -69,10 +66,7 @@ function validateYAML(output: string): ValidationResult {
   try {
     YAML.parse(cleaned);
     return { valid: true };
-  } catch (error) {
-    logger.debug(`First parse failed, trying to clean markdown...`);
-    logger.debug(`Original length: ${output.length}, Cleaned length: ${cleaned.length}`);
-    
+  } catch {
     if (cleaned.startsWith('```yaml')) {
       cleaned = cleaned.substring(7).trim();
     } else if (cleaned.startsWith('```')) {
@@ -83,21 +77,16 @@ function validateYAML(output: string): ValidationResult {
       cleaned = cleaned.substring(0, cleaned.length - 3).trim();
     }
     
-    logger.debug(`After markdown removal: ${cleaned.length} chars`);
-    
     try {
       YAML.parse(cleaned);
       return { valid: true };
     } catch (secondError) {
       const errorMsg = secondError instanceof Error ? secondError.message : String(secondError);
-      logger.debug(`Second parse also failed: ${errorMsg}`);
       
       if (errorMsg.includes('multiple documents')) {
-        logger.debug(`Multiple documents detected, extracting first document...`);
         const parts = cleaned.split(/^---$/m);
         if (parts.length > 1) {
           cleaned = parts[0].trim();
-          logger.debug(`First document length: ${cleaned.length}`);
           try {
             YAML.parse(cleaned);
             return { valid: true };
@@ -120,7 +109,7 @@ function validateText(output: string, format: OutputFormat): ValidationResult {
   return { valid: true };
 }
 
-export function extractCleanOutput(output: string, format: OutputFormat): string {
+export function extractCleanOutput(output: string, _format: OutputFormat): string {
   let cleaned = output.trim();
   
   if (cleaned.startsWith('```json') || cleaned.startsWith('```yaml') || cleaned.startsWith('```')) {

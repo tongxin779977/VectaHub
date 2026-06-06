@@ -2,8 +2,7 @@
   "name": "vectahub-vscode-extension",
   "displayName": "VectaHub 任务助手",
   "description": "为 VectaHub CLI 提供自然语言工作流 UI 界面",
-  "version": "1.1.7",
-
+  "version": "1.0.13",
   "publisher": "vectahub",
   "license": "MIT",
   "repository": {
@@ -61,13 +60,13 @@
         "icon": "$(refresh)"
       },
       {
-        "command": "vectahubTasks.runCheckPipeline",
-        "title": "VectaHub: 一键检查全部",
+        "command": "vectahubTasks.runVerifyAll",
+        "title": "VectaHub: 一键验证全部",
         "category": "VectaHub"
       },
       {
-        "command": "vectahubTasks.runDevPipeline",
-        "title": "VectaHub: 运行开发任务链",
+        "command": "vectahubTasks.syncAndFixCi",
+        "title": "VectaHub: 同步并修复",
         "category": "VectaHub"
       },
       {
@@ -80,6 +79,54 @@
         "title": "VectaHub: 停止运行中的任务",
         "category": "VectaHub",
         "icon": "$(stop)"
+      },
+      {
+        "command": "vectahubTasks.selectDocFile",
+        "title": "VectaHub: 选择文档文件",
+        "category": "VectaHub",
+        "icon": "$(file-add)"
+      },
+      {
+        "command": "vectahubTasks.parseDocTasks",
+        "title": "VectaHub: 解析文档任务",
+        "category": "VectaHub",
+        "icon": "$(lightbulb)"
+      },
+      {
+        "command": "vectahubTasks.selectAgentCli",
+        "title": "VectaHub: 选择 Agent CLI",
+        "category": "VectaHub",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "vectahubTasks.runDocTask",
+        "title": "VectaHub: 执行文档任务",
+        "category": "VectaHub",
+        "icon": "$(play)"
+      },
+      {
+        "command": "vectahubTasks.removeQueueTask",
+        "title": "VectaHub: 删除队列任务",
+        "category": "VectaHub",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "vectahubTasks.clearQueue",
+        "title": "VectaHub: 清空队列",
+        "category": "VectaHub",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "vectahubTasks.configLlm",
+        "title": "VectaHub: 配置 LLM",
+        "category": "VectaHub",
+        "icon": "$(hubot)"
+      },
+      {
+        "command": "vectahubTasks.runAllDocTasks",
+        "title": "VectaHub: 一键启动全部任务",
+        "category": "VectaHub",
+        "icon": "$(run-all)"
       }
     ],
     "menus": {
@@ -94,6 +141,16 @@
         {
           "command": "vectahubTasks.stopRunningTask",
           "when": "viewItem == longRunningTask-running",
+          "group": "inline@1"
+        },
+        {
+          "command": "vectahubTasks.removeQueueTask",
+          "when": "viewItem == queueTask",
+          "group": "inline@1"
+        },
+        {
+          "command": "vectahubTasks.clearQueue",
+          "when": "viewItem == queueCategory",
           "group": "inline@1"
         }
       ]
@@ -125,26 +182,37 @@
           "type": "boolean",
           "default": true,
           "description": "插件激活后是否自动检测 CLI"
+        },
+        "vectahubTasks.maxConcurrentTasks": {
+          "type": "number",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "批量执行文档任务时的最大并发数（1-10，默认串行以减少代码修改冲突）"
         }
       }
     }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
+    "compile": "tsc -p ./ && node ./scripts/prepare-doc-task-contract-core-runtime.cjs",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
     "test": "vitest run",
+    "test:e2e": "npm run compile && node ./scripts/run-e2e.cjs",
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
+    "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.0.0",
     "typescript": "^5.6.0",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.5",
+    "vsce": "^2.15.0"
   }
 }

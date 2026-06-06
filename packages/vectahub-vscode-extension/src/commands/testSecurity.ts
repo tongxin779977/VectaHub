@@ -43,6 +43,11 @@ export function registerTestSecurityCommand(context: vscode.ExtensionContext) {
       return;
     }
 
+    const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!cwd) {
+      vscode.window.showWarningMessage('未打开工作区，安全检测将在默认目录下执行');
+    }
+
     logToOutput(`[testSecurity] 正在进行安全测试，命令: "${command}"`);
 
     vscode.window.withProgress({
@@ -52,7 +57,7 @@ export function registerTestSecurityCommand(context: vscode.ExtensionContext) {
     }, async (progress, token) => {
       const result = await runCli<SecurityResult>(
         ['security', 'test', '--json', command],
-        { token, timeout: SECURITY_TEST_TIMEOUT }
+        { token, timeout: SECURITY_TEST_TIMEOUT, cwd }
       );
 
       if (!result.ok) {

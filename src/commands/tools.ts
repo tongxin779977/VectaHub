@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { format } from 'node:util';
 import {
   getCliToolRegistry,
   getAllKnownTools,
@@ -9,11 +10,52 @@ import {
   saveConfig,
 } from '../cli-tools/index.js';
 import { npmTool } from '../cli-tools/tools/npm.js';
+import type { CliCommand, CliTool } from '../cli-tools/types.js';
+import type { SecurityTemplate, CommandRule, CommandRuleResult } from '../cli-tools/command-rules/types.js';
+import type { KnownTool } from '../cli-tools/discovery/types.js';
+import { loadConfig as loadSetupConfig } from '../setup/first-run-wizard.js';
+import { scanSingleTool, syncCLIToolPermissionState } from '../setup/cli-scanner.js';
+import { getBuiltInAgentDescriptors } from './agent-cli-adapter.js';
+import { type InfrastructureContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
-export const toolsCmd = new Command('tools')
-  .description('CLI tools management commands');
+const SECURITY_TEMPLATES: SecurityTemplate[] = ['default', 'strict', 'relaxed'];
 
-function formatToolList(tools: any[]): string {
+interface ToolsCommandOutput {
+  log(message?: unknown, ...optionalParams: unknown[]): void;
+  warn(message?: unknown, ...optionalParams: unknown[]): void;
+  error(message?: unknown, ...optionalParams: unknown[]): void;
+  json(payload: unknown, options?: { space?: number }): void;
+}
+
+function createToolsCommandOutput(): ToolsCommandOutput {
+  const writeLine = (stream: NodeJS.WriteStream, message?: unknown, optionalParams: unknown[] = []): void => {
+    stream.write(`${format(message, ...optionalParams)}\n`);
+  };
+
+  return {
+    log(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stdout, message, optionalParams);
+    },
+    warn(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stderr, message, optionalParams);
+    },
+    error(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stderr, message, optionalParams);
+    },
+    json(payload: unknown, options?: { space?: number }): void {
+      process.stdout.write(`${JSON.stringify(payload, null, options?.space ?? 2)}\n`);
+    },
+  };
+}
+
+function normalizeSecurityTemplate(template: string): SecurityTemplate {
+  return SECURITY_TEMPLATES.includes(template as SecurityTemplate)
+    ? template as SecurityTemplate
+    : 'default';
+}
+
+function formatToolList(tools: CliTool[]): string {
   if (tools.length === 0) {
     return '\n⚠️  No CLI tools registered.\n';
   }
@@ -32,7 +74,7 @@ function formatToolList(tools: any[]): string {
   return lines.join('\n');
 }
 
-function formatToolInfo(tool: any): string {
+function formatToolInfo(tool: CliTool): string {
   const lines = [
     `\n📦 ${tool.name}`,
     '─'.repeat(80),
@@ -52,21 +94,20 @@ function formatToolInfo(tool: any): string {
   return lines.join('\n');
 }
 
-function formatToolCommands(tool: any): string {
+function formatToolCommands(tool: CliTool): string {
   const lines = [`\n📋 ${tool.name} Commands:`, '─'.repeat(80)];
 
   const commands = Object.values(tool.commands);
-  for (const cmd of commands) {
-    const cmdObj = cmd as any;
-    const dangerTag = cmdObj.dangerous ? ' ⚠️' : '';
-    lines.push(`${cmdObj.name.padEnd(25)} ${cmdObj.description}${dangerTag}`);
+  for (const command of commands) {
+    const dangerTag = command.dangerous ? ' ⚠️' : '';
+    lines.push(`${command.name.padEnd(25)} ${command.description}${dangerTag}`);
   }
   lines.push('');
 
   return lines.join('\n');
 }
 
-function formatCommandDetail(tool: any, cmd: any): string {
+function formatCommandDetail(tool: CliTool, cmd: CliCommand): string {
   const lines = [
     `\n📋 ${tool.name} ${cmd.name}`,
     '─'.repeat(80),
@@ -102,7 +143,7 @@ function formatCommandDetail(tool: any, cmd: any): string {
   return lines.join('\n');
 }
 
-function formatTestResult(toolName: string, command: string, isDangerous: boolean, cmd?: any): string {
+function formatTestResult(toolName: string, command: string, isDangerous: boolean, cmd?: CliCommand): string {
   if (isDangerous) {
     const lines = [
       `\n❌ DANGEROUS: "${command}" is marked as dangerous`,
@@ -117,33 +158,7 @@ function formatTestResult(toolName: string, command: string, isDangerous: boolea
   }
 }
 
-function formatScanResult(result: any): string {
-  const lines = [
-    '\n✅ 扫描完成！',
-    `\n发现了 ${result.discoveredTools.length} 个工具（共扫描 ${result.totalScanned} 个）`,
-  ];
-
-  if (result.discoveredTools.length > 0) {
-    lines.push('\n📦 发现的工具：');
-    lines.push('─'.repeat(80));
-    for (const tool of result.discoveredTools) {
-      lines.push(`${tool.knownTool.name.padEnd(20)} v${tool.version}`);
-      lines.push(`  ${tool.knownTool.description}`);
-    }
-  }
-
-  if (result.failedChecks.length > 0) {
-    lines.push('\n⚠️  检测失败的工具：');
-    for (const fail of result.failedChecks) {
-      lines.push(`  - ${fail.name}: ${fail.reason}`);
-    }
-  }
-  lines.push('');
-
-  return lines.join('\n');
-}
-
-function formatKnownTools(tools: any[]): string {
+function formatKnownTools(tools: KnownTool[]): string {
   const lines = [`\n📚 已知工具库（共 ${tools.length} 个）：`, '─'.repeat(80)];
 
   for (const tool of tools) {
@@ -156,7 +171,7 @@ function formatKnownTools(tools: any[]): string {
   return lines.join('\n');
 }
 
-function formatRuleList(template: string, rules: any[]): string {
+function formatRuleList(template: SecurityTemplate, rules: CommandRule[]): string {
   const lines = [
     `\n🔒 安全规则模板: ${template.toUpperCase()}`,
     '─'.repeat(80),
@@ -179,7 +194,7 @@ function formatRuleList(template: string, rules: any[]): string {
   return lines.join('\n');
 }
 
-function formatEvalResult(args: string[], template: string, result: any): string {
+function formatEvalResult(args: string[], template: SecurityTemplate, result: CommandRuleResult): string {
   const lines = [
     `\n📋 命令: ${args.join(' ')}`,
     `模板: ${template.toUpperCase()}`,
@@ -210,7 +225,10 @@ function formatCategoryList(categories: string[]): string {
   return lines.join('\n');
 }
 
-function formatSearchResults(tools: any[], commands: any[]): string {
+function formatSearchResults(
+  tools: CliTool[],
+  commands: Array<{ tool: CliTool; command: CliCommand }>
+): string {
   const lines = ['\n🔍 搜索结果：', '─'.repeat(80)];
 
   if (tools.length > 0) {
@@ -249,7 +267,7 @@ function formatSearchResults(tools: any[], commands: any[]): string {
   return lines.join('\n');
 }
 
-function formatCategoryTools(category: string, tools: any[]): string {
+function formatCategoryTools(category: string, tools: CliTool[]): string {
   const lines = [
     `\n📁 分类：${category}`,
     '─'.repeat(80),
@@ -271,16 +289,26 @@ function formatCategoryTools(category: string, tools: any[]): string {
   return lines.join('\n');
 }
 
-toolsCmd
+/**
+ * 创建工具命令
+ * @param context - 基础设施上下文
+ * @returns Commander 命令实例
+ */
+export function createToolsCmd(context: InfrastructureContext): Command {
+  const cliOutput = createToolsCommandOutput();
+  const toolsCmd = new Command('tools')
+    .description('CLI tools management commands');
+
+  toolsCmd
   .command('list')
   .description('List all registered CLI tools')
   .option('--json', 'Output results in JSON format')
-  .action((options) => {
+  .action((options: { json?: boolean }) => {
     const registry = getCliToolRegistry();
     const tools = registry.getAllTools();
 
     if (options.json) {
-      console.log(JSON.stringify({
+      cliOutput.json({
         ok: true,
         tools: tools.map(t => ({
           name: t.name,
@@ -288,10 +316,84 @@ toolsCmd
           commandCount: Object.keys(t.commands).length,
           dangerousCount: t.dangerousCommands?.length || 0
         }))
-      }, null, 2));
+      });
     } else {
-      console.log(formatToolList(tools));
+      cliOutput.log(formatToolList(tools));
     }
+  });
+
+toolsCmd
+  .command('agents')
+  .description('List AI Agent CLIs with installation status')
+  .option('--json', 'Output results in JSON format')
+  .option('--sync-config', 'Sync detected permission state back into VectaHub config')
+  .action(async (options: { json?: boolean; syncConfig?: boolean }) => {
+    const appConfig = loadSetupConfig({ environment: context.environment });
+    const externalCli = appConfig.external_cli || {};
+    const knownNames = getBuiltInAgentDescriptors().map((descriptor) => descriptor.id);
+    const names = Array.from(new Set([...knownNames, ...Object.keys(externalCli)]));
+
+    const detectedTools = await Promise.all(names.map(async (name) => {
+      const detected = await scanSingleTool(name, context);
+      return { name, detected };
+    }));
+
+    if (options.syncConfig) {
+      syncCLIToolPermissionState(
+        detectedTools
+          .map(item => item.detected)
+          .filter((item): item is NonNullable<typeof item> => item !== null),
+        { environment: context.environment },
+      );
+    }
+
+    const agents = detectedTools.map(({ name, detected }) => {
+      const cfg = externalCli[name] || { enabled: true, has_permission: true };
+      return detected ? {
+        name,
+        installed: detected.installed,
+        version: detected.version,
+        configured_enabled: cfg.enabled,
+        has_permission: cfg.has_permission,
+        invocable: detected.invocable,
+        ready: detected.ready,
+      } : {
+        name,
+        installed: false,
+        version: undefined,
+        configured_enabled: cfg.enabled,
+        has_permission: cfg.has_permission,
+        invocable: false,
+        ready: false,
+      };
+    });
+
+    if (options.json) {
+      cliOutput.json({ ok: true, agents });
+      return;
+    }
+
+    if (agents.length === 0) {
+      cliOutput.log('\n⚠️  No AI Agent CLIs configured.\n');
+      return;
+    }
+
+    const lines = ['\n🤖 AI Agent CLIs:', '─'.repeat(80)];
+    for (const agent of agents) {
+      const isAvailable = agent.installed && agent.configured_enabled && agent.has_permission && agent.invocable && agent.ready;
+      const statusIcon = isAvailable ? '✅' : (agent.installed ? '⚠️' : '❌');
+      const versionStr = agent.version ? ` (${agent.version})` : '';
+      const reasons: string[] = [];
+      if (!agent.installed) reasons.push('not installed');
+      if (agent.installed && !agent.configured_enabled) reasons.push('disabled');
+      if (agent.installed && !agent.has_permission) reasons.push('no permission');
+      if (agent.installed && agent.has_permission && !agent.invocable) reasons.push('not invocable');
+      if (agent.installed && agent.has_permission && agent.invocable && !agent.ready) reasons.push('not ready');
+      const statusStr = reasons.length > 0 ? ` [${reasons.join(', ')}]` : ' [available]';
+      lines.push(`${statusIcon} ${agent.name.padEnd(15)}${versionStr}${statusStr}`);
+    }
+    lines.push('');
+    cliOutput.log(lines.join('\n'));
   });
 
 toolsCmd
@@ -302,12 +404,12 @@ toolsCmd
     const tool = registry.getTool(toolName);
 
     if (!tool) {
-      console.error(`❌ Tool not found: ${toolName}`);
-      console.error('Available tools:', registry.getAllTools().map(t => t.name).join(', '));
-      process.exit(1);
+      cliOutput.error(`❌ Tool not found: ${toolName}`);
+      cliOutput.error('Available tools:', registry.getAllTools().map(t => t.name).join(', '));
+      throw new VectaHubError(`Tool not found: ${toolName}`, ErrorType.RUNTIME);
     }
 
-    console.log(formatToolInfo(tool));
+    cliOutput.log(formatToolInfo(tool));
   });
 
 toolsCmd
@@ -318,11 +420,11 @@ toolsCmd
     const tool = registry.getTool(toolName);
 
     if (!tool) {
-      console.error(`❌ Tool not found: ${toolName}`);
-      process.exit(1);
+      cliOutput.error(`❌ Tool not found: ${toolName}`);
+      throw new VectaHubError(`Tool not found: ${toolName}`, ErrorType.RUNTIME);
     }
 
-    console.log(formatToolCommands(tool));
+    cliOutput.log(formatToolCommands(tool));
   });
 
 toolsCmd
@@ -333,18 +435,18 @@ toolsCmd
     const tool = registry.getTool(toolName);
 
     if (!tool) {
-      console.error(`❌ Tool not found: ${toolName}`);
-      process.exit(1);
+      cliOutput.error(`❌ Tool not found: ${toolName}`);
+      throw new VectaHubError(`Tool not found: ${toolName}`, ErrorType.RUNTIME);
     }
 
     const cmd = registry.getCommandInfo(toolName, commandName);
     if (!cmd) {
-      console.error(`❌ Command not found: ${commandName}`);
-      console.error('Available commands:', Object.keys(tool.commands).join(', '));
-      process.exit(1);
+      cliOutput.error(`❌ Command not found: ${commandName}`);
+      cliOutput.error('Available commands:', Object.keys(tool.commands).join(', '));
+      throw new VectaHubError(`Command not found: ${commandName}`, ErrorType.RUNTIME);
     }
 
-    console.log(formatCommandDetail(tool, cmd));
+    cliOutput.log(formatCommandDetail(tool, cmd));
   });
 
 toolsCmd
@@ -355,14 +457,14 @@ toolsCmd
 
     const tool = registry.getTool(toolName);
     if (!tool) {
-      console.error(`❌ Tool not found: ${toolName}`);
-      process.exit(1);
+      cliOutput.error(`❌ Tool not found: ${toolName}`);
+      throw new VectaHubError(`Tool not found: ${toolName}`, ErrorType.RUNTIME);
     }
 
     const isDangerous = registry.isCommandDangerous(toolName, command);
     const cmd = registry.getCommandInfo(toolName, command);
 
-    console.log(formatTestResult(toolName, command, isDangerous, cmd));
+    cliOutput.log(formatTestResult(toolName, command, isDangerous, cmd));
   });
 
 toolsCmd
@@ -370,7 +472,7 @@ toolsCmd
   .description('List all known tools that can be registered')
   .action(() => {
     const tools = getAllKnownTools();
-    console.log(formatKnownTools(tools));
+    cliOutput.log(formatKnownTools(tools));
   });
 
 toolsCmd
@@ -378,49 +480,48 @@ toolsCmd
   .description('Register a known tool (or all known tools with "all")')
   .action(async (toolName: string) => {
     const registry = getCliToolRegistry();
-    const config = await loadConfig();
+    const config = await loadConfig(context.config);
 
     if (toolName === 'all') {
-      console.log('\n🚀 注册所有已知工具...');
+      cliOutput.log('\n🚀 注册所有已知工具...');
       let registeredCount = 0;
-      const allTools = getAllKnownTools();
 
       // 已经有 git 和 npm 工具定义了
       // 这里可以完善更多工具定义
-      console.log('   跳过：完整的工具定义需要逐个实现');
-      console.log('   当前已注册: git');
+      cliOutput.log('   跳过：完整的工具定义需要逐个实现');
+      cliOutput.log('   当前已注册: git');
 
       // 注册 npm 工具
       if (!registry.getTool('npm')) {
         registry.register(npmTool);
         config.registeredTools.push('npm');
         registeredCount++;
-        console.log('   ✅ 已注册 npm');
+        cliOutput.log('   ✅ 已注册 npm');
       }
 
-      await saveConfig(config);
-      console.log('\n   总计新注册: ' + registeredCount + ' 个工具\n');
+      await saveConfig(config, context.config);
+      cliOutput.log('\n   总计新注册: ' + registeredCount + ' 个工具\n');
     } else {
       const known = getKnownTool(toolName);
       if (!known) {
-        console.error('\n❌ 未知工具:', toolName);
-        console.log('使用 tools known 查看所有可用工具\n');
-        process.exit(1);
+        cliOutput.error('\n❌ 未知工具:', toolName);
+        cliOutput.log('使用 tools known 查看所有可用工具\n');
+        throw new VectaHubError(`Unknown tool: ${toolName}`, ErrorType.RUNTIME);
       }
 
       if (registry.getTool(toolName)) {
-        console.log('\n⚠️  工具已注册:', toolName);
-        process.exit(1);
+        cliOutput.log('\n⚠️  工具已注册:', toolName);
+        throw new VectaHubError(`Tool already registered: ${toolName}`, ErrorType.RUNTIME);
       }
 
       if (toolName === 'npm') {
         registry.register(npmTool);
         config.registeredTools.push('npm');
-        await saveConfig(config);
-        console.log('\n✅ 成功注册:', toolName);
+        await saveConfig(config, context.config);
+        cliOutput.log('\n✅ 成功注册:', toolName);
       } else {
-        console.log('\n⚠️  工具定义尚未完全实现:', toolName);
-        console.log('这是 09 设计文档中的架构，完整实现需要逐个编写工具定义\n');
+        cliOutput.log('\n⚠️  工具定义尚未完全实现:', toolName);
+        cliOutput.log('这是 09 设计文档中的架构，完整实现需要逐个编写工具定义\n');
       }
     }
   });
@@ -429,24 +530,26 @@ toolsCmd
   .command('rules')
   .description('Show command rule engine status and default rules')
   .option('-t, --template <template>', 'Security template to use: default | strict | relaxed', 'default')
-  .action(async (options) => {
-    const rules = getSecurityTemplate(options.template as any);
+  .action(async (options: { template: string }) => {
+    const template = normalizeSecurityTemplate(options.template);
+    const rules = getSecurityTemplate(template);
 
-    console.log(formatRuleList(options.template, rules));
+    cliOutput.log(formatRuleList(template, rules));
   });
 
 toolsCmd
   .command('eval <command...>')
   .description('Evaluate a command against the rule engine')
   .option('-t, --template <template>', 'Security template to use: default | strict | relaxed', 'default')
-  .action(async (args: string[], options) => {
+  .action(async (args: string[], options: { template: string }) => {
     const command = args[0] || '';
     const cmdArgs = args.slice(1);
-    const rules = getSecurityTemplate(options.template as any);
+    const template = normalizeSecurityTemplate(options.template);
+    const rules = getSecurityTemplate(template);
     const engine = new CommandRuleEngine(rules);
-    const result = engine.evaluate(command, cmdArgs, process.cwd());
+    const result = engine.evaluate(command, cmdArgs, context.environment.getCwd());
 
-    console.log(formatEvalResult(args, options.template, result));
+    cliOutput.log(formatEvalResult(args, template, result));
   });
 
 toolsCmd
@@ -457,7 +560,7 @@ toolsCmd
     const tools = registry.searchTools(keyword);
     const commands = registry.searchCommands(keyword);
 
-    console.log(formatSearchResults(tools, commands));
+    cliOutput.log(formatSearchResults(tools, commands));
   });
 
 toolsCmd
@@ -467,7 +570,7 @@ toolsCmd
     const registry = getCliToolRegistry();
     const categories = registry.getAllCategories();
 
-    console.log(formatCategoryList(categories));
+    cliOutput.log(formatCategoryList(categories));
   });
 
 toolsCmd
@@ -477,5 +580,8 @@ toolsCmd
     const registry = getCliToolRegistry();
     const tools = registry.getToolsByCategory(categoryName);
 
-    console.log(formatCategoryTools(categoryName, tools));
+    cliOutput.log(formatCategoryTools(categoryName, tools));
   });
+
+  return toolsCmd;
+}

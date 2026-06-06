@@ -1,4 +1,3 @@
-import type { Workflow } from '../types/index.js';
 import type { ExecutionRecord } from '../types/index.js';
 import type { WorkflowEngine, ExecuteOptions } from '../workflow/engine.js';
 import type { RecordManager } from './record-manager.js';
@@ -19,6 +18,15 @@ export interface ResumeOptions {
   mode?: 'strict' | 'relaxed' | 'consensus';
 }
 
+/**
+ * Creates a lifecycle manager that coordinates rerun and resume operations.
+ *
+ * Delegates to the workflow engine for actual execution while managing
+ * execution record lookup and failure-point detection.
+ *
+ * @param options - Engine and record manager dependencies
+ * @returns A {@link LifecycleManager} instance
+ */
 export function createLifecycleManager(options: {
   engine: WorkflowEngine;
   recordManager: RecordManager;
@@ -35,11 +43,6 @@ export function createLifecycleManager(options: {
       const workflow = await engine.getWorkflow(previousRecord.workflowId);
       if (!workflow) {
         throw new Error(`Workflow ${previousRecord.workflowId} not found`);
-      }
-
-      const workflowObj = { ...workflow } as unknown as Workflow;
-      if (rerunOptions?.mode) {
-        workflowObj.mode = rerunOptions.mode;
       }
 
       return engine.execute(workflow, {

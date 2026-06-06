@@ -1,15 +1,16 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { createCoordinator, adaptAllTemplates } from '../nl/core/index.js';
-import { INTENT_TEMPLATES } from '../nl/templates/index.js';
 import { createLLMConfig, createLLMEnhancedParser } from '../nl/llm.js';
 import { createWorkflowEngine } from '../workflow/engine.js';
 import { createStorage } from '../workflow/storage.js';
 import { createScheduleManager } from '../workflow/scheduler.js';
-import { audit, getCurrentSessionId, AuditEventType, queryAuditLogs } from '../utils/audit.js';
-import { getVectaHubPath } from '../utils/paths.js';
-import type { Workflow, Step } from '../types/index.js';
+import { AuditEventType, type AuditHelper, type AuditLogger } from '../infrastructure/audit/index.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
+import { getVectaHubPath } from '../infrastructure/paths/index.js';
+import type { Step } from '../types/index.js';
+import type { LLMWorkflowStepInline } from '../nl/llm.js';
+import type pino from 'pino';
 
 function getWorkflowsDir(): string {
   return getVectaHubPath('workflows');
@@ -21,21 +22,123 @@ interface APIResponse {
   error?: string;
 }
 
+interface APIServerDeps {
+  audit: AuditHelper;
+  auditLogger: Pick<AuditLogger, 'getSessionId' | 'query'>;
+  environment: IEnvironmentService;
+  logger: pino.Logger;
+}
+
+interface APIExecutionSummary {
+  status: string;
+  steps: unknown[];
+  warnings?: string[];
+}
+
+function mapLLMWorkflowStep(step: LLMWorkflowStepInline, index: number): Step {
+  return {
+    id: `step_${index + 1}`,
+    type: step.type,
+    cli: step.cli,
+    args: step.args || [],
+    condition: step.condition,
+    items: step.items,
+    body: Array.isArray(step.body)
+      ? step.body.map((childStep, childIndex) => mapLLMWorkflowStep(childStep, childIndex))
+      : undefined,
+  };
+}
+
+function mapLLMWorkflowSteps(steps: LLMWorkflowStepInline[]): Step[] {
+  return steps.map((step, index) => mapLLMWorkflowStep(step, index));
+}
+
+function toExecutionSummary(result: { status: string; steps: unknown[]; warnings?: string[] }): APIExecutionSummary {
+  return {
+    status: result.status,
+    steps: result.steps,
+    warnings: result.warnings,
+  };
+}
+
+export class RequestBodyParseError extends Error {
+  readonly statusCode = 400;
+  constructor(message = 'Invalid JSON in request body') {
+    super(message);
+    this.name = 'RequestBodyParseError';
+  }
+}
+
+export class BodyTooLargeError extends Error {
+  readonly statusCode = 413;
+  constructor(message = 'Request body too large') {
+    super(message);
+    this.name = 'BodyTooLargeError';
+  }
+}
+
+const MAX_BODY_SIZE_BYTES = 1024 * 1024; // 1MB 默认限制
+
 function jsonResponse(res: ServerResponse, statusCode: number, body: APIResponse): void {
   res.writeHead(statusCode, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(body));
 }
 
 async function parseRequestBody(req: IncomingMessage): Promise<Record<string, unknown>> {
-  return new Promise((resolve) => {
+  // Content-Length 快速路径：提前拒绝超限请求
+  const contentLength = req.headers['content-length'];
+  if (contentLength !== undefined) {
+    const cl = Number(contentLength);
+    if (!Number.isFinite(cl) || cl < 0) {
+      throw new RequestBodyParseError('Invalid Content-Length header');
+    }
+    if (cl > MAX_BODY_SIZE_BYTES) {
+      throw new BodyTooLargeError(
+        `Request body too large: ${cl} bytes exceeds limit of ${MAX_BODY_SIZE_BYTES} bytes`
+      );
+    }
+  }
+
+  return new Promise((resolve, reject) => {
     let body = '';
-    req.on('data', (chunk) => { body += chunk; });
-    req.on('end', () => {
-      try {
-        resolve(JSON.parse(body));
-      } catch {
-        resolve({});
+    let totalBytes = 0;
+    let rejected = false;
+
+    req.on('data', (chunk: Buffer) => {
+      if (rejected) return;
+      totalBytes += chunk.length;
+      if (totalBytes > MAX_BODY_SIZE_BYTES) {
+        rejected = true;
+        req.destroy();
+        reject(new BodyTooLargeError(
+          `Request body too large: exceeds limit of ${MAX_BODY_SIZE_BYTES} bytes`
+        ));
+        return;
       }
+      body += chunk.toString();
+    });
+
+    req.on('end', () => {
+      if (rejected) return;
+
+      if (!body.trim()) {
+        resolve({});
+        return;
+      }
+      try {
+        const parsed: unknown = JSON.parse(body);
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+          reject(new RequestBodyParseError('Request body must be a JSON object'));
+          return;
+        }
+        resolve(parsed as Record<string, unknown>);
+      } catch {
+        reject(new RequestBodyParseError());
+      }
+    });
+
+    req.on('error', (err) => {
+      if (!rejected) reject(err);
     });
   });
 }
@@ -53,36 +156,39 @@ function listWorkflows(): { id: string; name: string; steps: unknown[] }[] {
     });
 }
 
-export function createAPIServer(port = 3000): ReturnType<typeof createServer> {
-  const engine = createWorkflowEngine();
-  const scheduler = createScheduleManager({ engine });
-  scheduler.start();
+export async function createAPIServer(
+  port = 3000,
+  deps: APIServerDeps
+): Promise<ReturnType<typeof createServer>> {
+  const engine = createWorkflowEngine({ audit: deps.audit, environment: deps.environment, logger: deps.logger });
+  const scheduler = createScheduleManager({ engine, audit: deps.audit, environment: deps.environment });
+  await scheduler.start();
 
   const server = createServer(async (req, res) => {
-    const sessionId = getCurrentSessionId();
+    const sessionId = deps.auditLogger.getSessionId();
     const url = new URL(req.url || '/', `http://localhost:${port}`);
     const method = req.method || 'GET';
 
-    audit.cliCommand(`${method} ${url.pathname}`, [], sessionId);
+    deps.audit.cliCommand(`${method} ${url.pathname}`, [], sessionId);
 
     try {
       if (method === 'GET' && url.pathname === '/api/workflows') {
         const workflows = listWorkflows();
         jsonResponse(res, 200, { success: true, data: workflows });
       } else if (method === 'GET' && url.pathname === '/api/executions') {
-        const storage = createStorage();
+        const storage = createStorage({ environment: deps.environment, logger: deps.logger });
         const executions = await storage.list();
         jsonResponse(res, 200, { success: true, data: executions });
       } else if (method === 'GET' && url.pathname === '/api/audit') {
         const limit = parseInt(url.searchParams.get('limit') || '100', 10);
-        const logs = queryAuditLogs({ limit });
+        const logs = deps.auditLogger.query({ limit });
         jsonResponse(res, 200, { success: true, data: logs });
       } else if (method === 'POST' && url.pathname === '/api/workflows') {
         const body = await parseRequestBody(req);
         const input = (body.input as string) || '';
         const workflowFile = (body.workflowFile as string);
 
-        let executionResult: { status: string; steps: unknown[]; warnings?: string[] } = {
+        let executionResult: APIExecutionSummary = {
           status: 'PENDING',
           steps: [],
           warnings: [],
@@ -91,59 +197,36 @@ export function createAPIServer(port = 3000): ReturnType<typeof createServer> {
         if (workflowFile && existsSync(workflowFile)) {
           const content = readFileSync(workflowFile, 'utf-8');
           const workflow = JSON.parse(content);
-          const result = await engine.execute(workflow);
-          executionResult = { status: result.status, steps: result.steps, warnings: result.warnings };
+          const result = await engine.execute(workflow, { sessionId });
+          executionResult = toExecutionSummary(result);
         } else {
           const llmConfig = createLLMConfig();
-          let executionResult: { status: string; steps: unknown[]; warnings?: string[] };
 
-          if (workflowFile && existsSync(workflowFile)) {
-            const content = readFileSync(workflowFile, 'utf-8');
-            const workflow = JSON.parse(content) as Workflow;
-            const result = await engine.execute(workflow);
-            executionResult = { status: result.status, steps: result.steps, warnings: result.warnings };
-          } else {
-            if (llmConfig) {
-              const llmParser = createLLMEnhancedParser(llmConfig);
-              const llmResult = await llmParser.parse(input);
-              
-              if (llmResult.confidence >= 0.7 && llmResult.workflow?.steps?.length > 0) {
-                const steps = llmResult.workflow.steps.map((s, i) => ({
-                  id: s.cli ? `step_${i + 1}` : `step_${i + 1}`,
-                  type: s.type,
-                  cli: s.cli,
-                  args: s.args || [],
-                  site: (s as any).site,
-                  command: (s as any).command,
-                  condition: (s as any).condition,
-                  items: (s as any).items,
-                  body: (s as any).body,
-                })) as Step[];
-                const workflow = await engine.createWorkflow(llmResult.workflow.name || input, steps);
-                const result = await engine.execute(workflow);
-                executionResult = { status: result.status, steps: result.steps, warnings: result.warnings };
-              } else {
-                const coordinator = createCoordinator(adaptAllTemplates(INTENT_TEMPLATES));
-                const result = coordinator.match(input);
-                const status = result.intents[0]?.intent !== 'UNKNOWN' ? 'SUCCESS' : 'NEEDS_CLARIFICATION';
-                executionResult = { status, steps: [], warnings: result.isMultiIntent ? [`Multi-intent: ${result.intents.map(i => i.intent).join(', ')}`] : ['Low confidence, no workflow generated'] };
-              }
+          if (llmConfig) {
+            const llmParser = createLLMEnhancedParser(llmConfig, { auditHelper: deps.audit });
+            const llmResult = await llmParser.parse(input);
+            const llmWorkflow = llmResult.workflow;
+
+            if (llmResult.confidence >= 0.7 && llmWorkflow && llmWorkflow.steps.length > 0) {
+              const steps = mapLLMWorkflowSteps(llmWorkflow.steps);
+              const workflow = await engine.createWorkflow(llmWorkflow.name || input, steps);
+              const result = await engine.execute(workflow, { sessionId });
+              executionResult = toExecutionSummary(result);
             } else {
-              const coordinator = createCoordinator(adaptAllTemplates(INTENT_TEMPLATES));
-              const result = coordinator.match(input);
-              const status = result.intents[0]?.intent !== 'UNKNOWN' ? 'SUCCESS' : 'NEEDS_CLARIFICATION';
-              executionResult = { status, steps: [], warnings: result.isMultiIntent ? [`Multi-intent: ${result.intents.map(i => i.intent).join(', ')}`] : ['LLM not configured'] };
+              executionResult = { status: 'NEEDS_CLARIFICATION', steps: [], warnings: ['Low confidence, no workflow generated'] };
             }
+          } else {
+            executionResult = { status: 'NEEDS_CLARIFICATION', steps: [], warnings: ['LLM not configured'] };
           }
         }
 
-        audit.workflowEnd('api', executionResult.status as AuditEventType, 0, sessionId);
+        deps.audit.workflowEnd('api', executionResult.status as AuditEventType, 0, sessionId);
         jsonResponse(res, 200, { success: true, data: executionResult });
       } else if (method === 'POST' && url.pathname === '/api/ai-delegate') {
         const body = await parseRequestBody(req);
         const input = (body.input as string) || '';
 
-        audit.workflowStart('ai-delegate', input, sessionId);
+        deps.audit.workflowStart('ai-delegate', input, sessionId);
 
         const llmConfig = createLLMConfig();
         if (!llmConfig) {
@@ -151,10 +234,11 @@ export function createAPIServer(port = 3000): ReturnType<typeof createServer> {
           return;
         }
 
-        const llmParser = createLLMEnhancedParser(llmConfig);
+        const llmParser = createLLMEnhancedParser(llmConfig, { auditHelper: deps.audit });
         const llmResult = await llmParser.parse(input);
+        const llmWorkflow = llmResult.workflow;
 
-        audit.intentMatch(llmResult.intent, llmResult.confidence, llmResult.params, sessionId);
+        deps.audit.intentMatch(llmResult.intent, llmResult.confidence, llmResult.params, sessionId);
 
         if (llmResult.confidence < 0.5) {
           jsonResponse(res, 400, {
@@ -165,22 +249,12 @@ export function createAPIServer(port = 3000): ReturnType<typeof createServer> {
           return;
         }
 
-        if (llmResult.workflow?.steps?.length > 0) {
-          const steps = llmResult.workflow.steps.map((s, i) => ({
-            id: `step_${i + 1}`,
-            type: s.type,
-            cli: s.cli,
-            args: s.args || [],
-            site: (s as any).site,
-            command: (s as any).command,
-            condition: (s as any).condition,
-            items: (s as any).items,
-            body: (s as any).body,
-          })) as Step[];
-          const workflow = await engine.createWorkflow(llmResult.workflow.name || input, steps);
-          const result = await engine.execute(workflow);
+        if (llmWorkflow && llmWorkflow.steps.length > 0) {
+          const steps = mapLLMWorkflowSteps(llmWorkflow.steps);
+          const workflow = await engine.createWorkflow(llmWorkflow.name || input, steps);
+          const result = await engine.execute(workflow, { sessionId });
 
-          audit.workflowEnd('ai-delegate', result.status as AuditEventType, result.duration || 0, sessionId);
+          deps.audit.workflowEnd('ai-delegate', result.status as AuditEventType, result.duration || 0, sessionId);
 
           jsonResponse(res, 200, {
             success: true,
@@ -203,7 +277,10 @@ export function createAPIServer(port = 3000): ReturnType<typeof createServer> {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      audit.log({
+      const statusCode = (err instanceof RequestBodyParseError)
+        ? 400
+        : (err instanceof BodyTooLargeError) ? 413 : 500;
+      deps.audit.log({
         event: AuditEventType.WORKFLOW_END,
         timestamp: new Date().toISOString(),
         sessionId,
@@ -213,7 +290,7 @@ export function createAPIServer(port = 3000): ReturnType<typeof createServer> {
         success: false,
         error: message,
       });
-      jsonResponse(res, 500, { success: false, error: message });
+      jsonResponse(res, statusCode, { success: false, error: message });
     }
   });
 

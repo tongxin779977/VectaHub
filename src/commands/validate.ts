@@ -1,6 +1,26 @@
 import { Command } from 'commander';
-import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { format } from 'node:util';
+import type { InfrastructureContext } from '../infrastructure/context.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
+
+interface ValidateCommandOutput {
+  log(message?: unknown, ...optionalParams: unknown[]): void;
+}
+
+function createValidateCommandOutput(): ValidateCommandOutput {
+  const formatMessage = (message?: unknown, optionalParams: unknown[] = []): string => {
+    if (message === undefined && optionalParams.length === 0) {
+      return '';
+    }
+    return format(message, ...optionalParams);
+  };
+
+  return {
+    log(message?: unknown, ...optionalParams: unknown[]): void {
+      process.stdout.write(`${formatMessage(message, optionalParams)}\n`);
+    },
+  };
+}
 
 interface ValidationResult {
   module: string;
@@ -54,12 +74,12 @@ const MODULE_CONTRACTS: ModuleContract[] = [
   },
 ];
 
-function extractMethods(filePath: string): string[] {
-  if (!existsSync(filePath)) {
+function extractMethods(env: InfrastructureContext['environment'], filePath: string): string[] {
+  if (!env.exists(filePath)) {
     return [];
   }
 
-  const content = readFileSync(filePath, 'utf-8');
+  const content = env.readFile(filePath);
   const methods: string[] = [];
 
   const interfaceMethodMatches = content.matchAll(/export\s+interface\s+\w+\s*\{([^}]+)\}/g);
@@ -95,11 +115,11 @@ function extractMethods(filePath: string): string[] {
   return methods;
 }
 
-function validateModule(contract: ModuleContract): ValidationResult {
-  const filePath = join(process.cwd(), contract.file);
+function validateModule(env: InfrastructureContext['environment'], contract: ModuleContract): ValidationResult {
+  const filePath = env.resolvePath(contract.file);
   const details: string[] = [];
 
-  if (!existsSync(join(process.cwd(), 'src'))) {
+  if (!env.exists(env.resolvePath('src'))) {
     return {
       module: contract.name,
       status: 'warning',
@@ -107,7 +127,7 @@ function validateModule(contract: ModuleContract): ValidationResult {
     };
   }
 
-  if (!existsSync(filePath)) {
+  if (!env.exists(filePath)) {
     return {
       module: contract.name,
       status: 'warning',
@@ -115,7 +135,7 @@ function validateModule(contract: ModuleContract): ValidationResult {
     };
   }
 
-  const methods = extractMethods(filePath);
+  const methods = extractMethods(env, filePath);
   const missingMethods: string[] = [];
 
   for (const required of contract.requiredMethods) {
@@ -186,20 +206,29 @@ function formatValidationResults(results: ValidationResult[]): string {
   return lines.join('\n');
 }
 
-export const validate = new Command('validate')
-  .description('Validate module interface contracts')
-  .action(async () => {
-    const results: ValidationResult[] = [];
+/**
+ * 创建验证命令
+ * @param context - 基础设施上下文
+ * @returns Commander 命令实例
+ */
+export function createValidateCmd(context: InfrastructureContext): Command {
+  const output = createValidateCommandOutput();
 
-    for (const contract of MODULE_CONTRACTS) {
-      const result = validateModule(contract);
-      results.push(result);
-    }
+  return new Command('validate')
+    .description('Validate module interface contracts')
+    .action(async () => {
+      const results: ValidationResult[] = [];
 
-    console.log(formatValidationResults(results));
+      for (const contract of MODULE_CONTRACTS) {
+        const result = validateModule(context.environment, contract);
+        results.push(result);
+      }
 
-    const failCount = results.filter(r => r.status === 'fail').length;
-    if (failCount > 0) {
-      process.exit(1);
-    }
-  });
+      output.log(formatValidationResults(results));
+
+      const failCount = results.filter(r => r.status === 'fail').length;
+      if (failCount > 0) {
+        throw new VectaHubError('Validation FAILED - some modules have missing methods', ErrorType.RUNTIME);
+      }
+    });
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { VectaHubError, ErrorType, classifyError, formatErrorMessage } from './index.js';
+import { VectaHubError, ErrorType, classifyError, formatErrorMessage, toJSONError } from './index.js';
 
 describe('VectaHubError', () => {
   it('should create error with message and type', () => {
@@ -92,5 +92,39 @@ describe('formatErrorMessage', () => {
     const msg = formatErrorMessage(new Error('oops'));
     expect(msg).not.toContain('[');
     expect(msg).toContain('oops');
+  });
+});
+
+describe('toJSONError', () => {
+  it('should exclude stack trace by default when includeStack is false or omitted', () => {
+    const cause = new Error('root cause');
+    const err = new VectaHubError('wrapped error', ErrorType.RUNTIME, cause);
+    const result = toJSONError(err);
+    
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('RUNTIME');
+    expect(result.error.details).toBeUndefined();
+  });
+
+  it('should include stack trace when includeStack is true', () => {
+    const cause = new Error('root cause');
+    const err = new VectaHubError('wrapped error', ErrorType.RUNTIME, cause);
+    const result = toJSONError(err, true);
+    
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('RUNTIME');
+    expect(result.error.details).toBeDefined();
+    expect((result.error.details as { stack: string }).stack).toContain('Error: root cause');
+  });
+
+  it('should preserve non-Error cause regardless of includeStack', () => {
+    const cause = { customInfo: 'some detail' };
+    const err = new VectaHubError('wrapped error', ErrorType.RUNTIME, cause);
+    
+    const result1 = toJSONError(err, false);
+    expect(result1.error.details).toEqual(cause);
+    
+    const result2 = toJSONError(err, true);
+    expect(result2.error.details).toEqual(cause);
   });
 });

@@ -1,84 +1,136 @@
 # VectaHub 文档
 
-> 最后更新: 2026-05-08
+VectaHub 当前应被理解为一个**单用户、本地优先的 NL Workflow Orchestrator**，重点在自然语言编排、文档任务执行、结构化 workflow、安全治理、可扩展 Agent CLI 注册和恢复能力。
 
-本文档目录只保留三类内容:
+这套文档围绕“当前真实能力面”组织：根目录负责读者入口，`contracts/` 负责字段级约束，`standards/` 负责可复用治理规则，`design/` 负责当前主线设计，`ui/` 负责 VS Code 和 UI 交互。
 
-1. 当前可用功能
-2. 开发者参考
-3. VectaHub 2.0 Go 迁移设计
+## 从这里开始
 
-历史报告、归档计划和过期状态文档已从 `docs/` 中移除，避免与当前功能说明混淆。
+如果你想用最短路径理解这个项目，建议按下面顺序阅读：
 
-## 当前可用功能
+1. [仓库首页 README](../README.md)
+2. [NL Workflow Orchestrator 产品入口](./nl-workflow-orchestrator.md)
+3. [能力地图](./capabilities.md)
+4. [能力明细](./capabilities-reference.md)
+5. [CLI 使用手册](./usage.md)
+6. [架构总览](./architecture.md)
 
-面向使用者，描述当前 TypeScript CLI 项目的实际使用方式。
+## 按读者类型阅读
 
-| 文档 | 说明 |
+### 面向 CLI 用户
+
+- [CLI 使用手册](./usage.md)
+- [配置手册](./configuration.md)
+- [Workflow 规格](./workflow-spec.md)
+- [排障手册](./troubleshooting.md)
+
+### 面向维护者
+
+- [NL Workflow Orchestrator 产品入口](./nl-workflow-orchestrator.md)
+- [架构总览](./architecture.md)
+- [能力明细](./capabilities-reference.md)
+- [开发者指南](./development.md)
+- [开发队列](./development-backlog.md)
+- [开发队列详情](./backlog/)
+- [测试指南](./testing.md)
+- [核心合同](./contracts/)
+- [标准体系](./standards/)
+
+### 面向文档任务和 Agent 执行链路
+
+- [NL Workflow Orchestrator 产品设计](./design/nl-workflow-orchestrator-product-design.md)
+- [Hybrid AI NL Engine 设计](./design/hybrid-ai-nl-engine.md)
+- [Agent 执行系统](./agent-execution.md)
+- [Run-Task 执行合同](./contracts/run-task-execution-contract.md)
+- [Agent Worker 合同](./contracts/agent-worker-contract.md)
+- [编排计划合同](./contracts/orchestration-plan.md)
+- [Workflow Draft 合同](./contracts/workflow-draft.md)
+- [恢复闭环](./contracts/recovery-loop.md)
+- [验证闭环](./contracts/verification-loop.md)
+
+## 核心文档
+
+| 文档 | 角色 |
 |------|------|
-| [快速开始](./current/getting-started.md) | 3 分钟上手 VectaHub |
-| [常见问题](./current/faq.md) | 安装、配置、使用、安全和排障说明 |
-| [CLI 命令](./current/cli-commands.md) | 当前 CLI 命令清单 |
-| [用户场景](./current/user-scenarios.md) | VectaHub 1.0.0 的常见使用场景 |
-| [全量模拟用户验收测试](./current/full-user-acceptance-test.md) | CLI、VS Code 插件和联动路径的端到端验收步骤 |
-| [已知问题](./current/BUGS.md) | 当前待修复问题与修复建议 |
+| [nl-workflow-orchestrator.md](./nl-workflow-orchestrator.md) | NL Workflow Orchestrator 产品定位入口。 |
+| [capabilities.md](./capabilities.md) | 面向产品和读者的能力地图。 |
+| [capabilities-reference.md](./capabilities-reference.md) | 当前功能细节、边界和状态说明。 |
+| [usage.md](./usage.md) | 面向操作者的命令使用手册。 |
+| [architecture.md](./architecture.md) | 当前系统结构和仓库重点。 |
+| [development-backlog.md](./development-backlog.md) | NL Workflow Orchestrator 开发队列入口和任务索引。 |
+| [backlog/](./backlog/) | 拆分后的开发队列协议、任务文件、自动化提示词和跨项目模板。 |
+| [contracts/](./contracts/) | 合同入口索引，指向 `docs/contracts/` 下的权威规格。 |
+| [standards/](./standards/) | 可复用标准体系，包含评分、智能化、文档治理和验证门禁。 |
 
-## 开发者参考
+## 当前能力重心
 
-面向维护者和实现者，描述当前 TypeScript 实现的主要模块、接口和设计约束。
+当前产品形态建议按下面优先级理解：
 
-| 文档 | 说明 |
+1. 自然语言编排和 workflow draft
+2. 文档处理和文档任务执行
+3. 工作流执行
+4. 安全、trace、验证与恢复
+5. 可扩展 Agent CLI 注册
+6. 编排、委托与任务拆解
+7. 基础交互式 CLI 回复
+8. 本地服务与集成层
+
+## 当前文档规则
+
+- 面向用户的说明，应该先从能力讲起，而不是从迁移理论讲起。
+- contracts 仍然重要，但不应该成为新读者看到的第一批文档。
+- 一个功能可能只存在于代码里、只存在于 contracts 里，或者两边都有，文档里必须写清楚。
+- `Current Implementation`、`Partial Implementation`、`Target Design` 不能混写。
+
+## 文档区域职责
+
+| 区域 | 职责 |
 |------|------|
-| [系统架构](./developer/architecture.md) | 当前 TypeScript 项目的整体架构 |
-| [沙箱设计](./developer/sandbox.md) | 沙箱隔离、执行模式和命令规则 |
-| [NL 意图识别架构](./developer/nl-architecture.md) | 自然语言意图识别和 fallback 流程 |
-| [工作流引擎设计](./developer/workflow-engine.md) | 工作流执行、状态机、Executor 和存储 |
+| [standards/](./standards/) | 可复用标准体系：质量评分、智能化原则、文档治理、验证门禁。 |
+| [contracts/](./contracts/) | 权威合同规格：CLI、run-task、trace、recovery、security、workflow、storage、performance 等字段级规则。 |
+| [design/](./design/) | 目标设计、迁移设计和架构方案，不承载最终字段级合同。 |
+| [ui/](./ui/) | VS Code 和 UI 交互流程说明。 |
+| 根级文档 | 入口、用户手册、架构总览、能力地图、开发、测试、发布和排障。 |
 
-## VectaHub 2.0 Go 迁移设计
 
-面向未来版本。这里的内容是 Go 重构目标，不代表当前 TypeScript 1.0 全部已经实现。
 
-| 文档 | 说明 |
-|------|------|
-| [系统架构设计](./v2/system-architecture.md) | Go 重构总体架构、模块边界和迁移原则 |
-| [功能点开发文档](./v2/feature-development.md) | 1.x 能力迁移目标和 2.0 新增能力 |
-| [API 接口设计](./v2/api-interface.md) | CLI JSON、REST、gRPC 和插件 API 设计 |
-| [数据模型设计](./v2/data-model.md) | 1.x 数据兼容、核心模型和存储策略 |
-| [LLM-Native 优化方案](./v2/llm-native-optimization.md) | LLM 解析、表达式和诊断能力演进 |
-| [VS Code 插件任务](./v2/vscode-extension-tasks.md) | VS Code 插件 MVP 实施任务 |
-| [跨项目效率任务](./v2/cross-project-productivity.md) | 项目任务识别、预览和执行设计 |
+## 次级参考区域
 
-## 阅读路径
+### 产品和执行参考
 
-新用户:
+- [NL Workflow Orchestrator 产品入口](./nl-workflow-orchestrator.md)
+- [Agent 执行系统](./agent-execution.md)
+- [Workflow 规格](./workflow-spec.md)
+- [配置手册](./configuration.md)
+- [排障手册](./troubleshooting.md)
 
-1. [快速开始](./current/getting-started.md)
-2. [用户场景](./current/user-scenarios.md)
-3. [常见问题](./current/faq.md)
+### 维护参考
 
-维护者:
+- [开发者指南](./development.md)
+- [开发队列](./development-backlog.md)
+- [开发队列详情](./backlog/)
+- [测试指南](./testing.md)
+- [发布指南](./release.md)
+- [Agent 操作规范](./agent-operating-guide.md)
 
-1. [系统架构](./developer/architecture.md)
-2. [工作流引擎设计](./developer/workflow-engine.md)
-3. [沙箱设计](./developer/sandbox.md)
-4. [已知问题](./current/BUGS.md)
+### 设计与迁移参考
 
-2.0 设计与迁移:
+#### 架构设计
 
-1. [系统架构设计](./v2/system-architecture.md)
-2. [功能点开发文档](./v2/feature-development.md)
-3. [API 接口设计](./v2/api-interface.md)
-4. [数据模型设计](./v2/data-model.md)
+- [design/](./design/)
+- [NL Workflow Orchestrator 产品设计](./design/nl-workflow-orchestrator-product-design.md)
+- [Hybrid AI NL Engine 设计](./design/hybrid-ai-nl-engine.md)
+- [模块范围整理建议](./design/module-scope-cleanup.md)
+- [Agent CLI 注册与 Runtime 架构设计](./design/agent-cli-runtime-architecture.md)
+- [编排、委托与任务拆解架构设计](./design/orchestration-and-delegation-architecture.md)
+- [安全、Trace、执行记录与恢复架构设计](./design/safety-trace-recovery-architecture.md)
+- [工作流引擎架构设计](./design/workflow-engine-architecture.md)
+- [文档处理架构设计](./design/document-processing-architecture.md)
 
-## 当前状态说明
+#### 规格与参考
 
-当前仓库是 TypeScript + Node.js + Commander.js + Vitest 项目，包版本以根目录 `package.json` 为准。
-
-最近一次本地验证中，根项目类型检查可通过；扩展包 lint 仍存在待修复问题。因此文档不声明“全部校验通过”。发布前应重新执行:
-
-```bash
-npm run typecheck
-npm run test:run
-npm run build
-npm run lint -w packages/vectahub-vscode-extension
-```
+- [contracts/](./contracts/)
+- [编排计划合同](./contracts/orchestration-plan.md)
+- [Workflow Draft 合同](./contracts/workflow-draft.md)
+- [standards/](./standards/)
+- [语义验收标准](./standards/semantic-acceptance.md)

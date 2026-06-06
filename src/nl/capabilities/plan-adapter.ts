@@ -1,5 +1,5 @@
 import type { ExecutionPlan, ExecutionPlanStep } from './types.js';
-import type { Step, StepType } from '../../types/workflow.js';
+import type { Step } from '../../types/workflow.js';
 import type { TaskList, IntentName } from '../../types/nl.js';
 
 function planStepToStep(planStep: ExecutionPlanStep): Step | null {
@@ -13,6 +13,7 @@ function planStepToStep(planStep: ExecutionPlanStep): Step | null {
       type: 'exec',
       cli: planStep.command.cli,
       args: planStep.command.args,
+      outputVar: planStep.outputVar,
     };
   }
 
@@ -22,6 +23,7 @@ function planStepToStep(planStep: ExecutionPlanStep): Step | null {
       type: 'exec',
       cli: 'vectahub',
       args: ['run', '--file', planStep.workflowFile],
+      outputVar: planStep.outputVar,
     };
   }
 
@@ -79,6 +81,7 @@ export function executionPlanToTaskList(plan: ExecutionPlan): TaskList {
       commands: steps.map(s => ({
         cli: s.cli || 'echo',
         args: s.args || [],
+        outputVar: s.outputVar,
       })),
       dependencies: [],
     }],

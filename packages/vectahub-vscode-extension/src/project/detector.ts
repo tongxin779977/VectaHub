@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import * as fs from 'fs';
+import { readFile, access } from 'node:fs/promises';
 import { ProjectTask } from './taskModel.js';
 import { detectPackageManager } from './packageManager.js';
 import { detectPackageTasks, PackageJson } from './packageScripts.js';
@@ -25,17 +25,18 @@ export async function detectProjectTasks(): Promise<ProjectTask[]> {
   
   const packageJsonPath = path.join(workspaceFolder, 'package.json');
   let pkg: PackageJson | undefined;
-  if (fs.existsSync(packageJsonPath)) {
-    try {
-      pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
-    } catch {
-      // ignore
-    }
+  try {
+    await access(packageJsonPath);
+    const content = await readFile(packageJsonPath, 'utf-8');
+    pkg = JSON.parse(content);
+  } catch {
+    // ignore
   }
 
   const pm = detectPackageManager(workspaceFolder);
 
-  if (fs.existsSync(path.join(workspaceFolder, '.git'))) {
+  try {
+    await access(path.join(workspaceFolder, '.git'));
     tasks.push({
       id: 'git-status',
       kind: 'git-status',
@@ -44,6 +45,8 @@ export async function detectProjectTasks(): Promise<ProjectTask[]> {
       available: true,
       command: { cli: 'git', args: ['status'] }
     });
+  } catch {
+    // .git not found, skip git tasks
   }
 
   const pkgTasks = detectPackageTasks(workspaceFolder, pm, pkg);

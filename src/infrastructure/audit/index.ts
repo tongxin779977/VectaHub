@@ -1,9 +1,16 @@
-import { mkdirSync, existsSync, appendFileSync, readFileSync, readdirSync } from 'fs';
-import { join } from 'path';
+import { mkdirSync, existsSync, appendFileSync, readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { VectaHubError, ErrorType } from '../errors/index.js';
 import { redactSensitiveData } from '../../utils/sensitive-data.js';
-import { getVectaHubPath } from '../../utils/paths.js';
+import { getVectaHubPath } from '../paths/index.js';
+import { getLogger } from '../logger/index.js';
 
+// 导出 AuditService
+export { AuditService } from './service.js';
+
+/**
+ * @deprecated 使用 InfrastructureContext.audit 或 new AuditLogger() 构造函数代替，支持依赖注入
+ */
 let auditInstance: AuditLogger | null = null;
 
 export enum AuditEventType {
@@ -39,6 +46,11 @@ export interface AuditEvent {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * Ensure a directory exists, creating it recursively if necessary.
+ * @param dir - The directory path to ensure exists.
+ * @throws {VectaHubError} When directory creation fails.
+ */
 function ensureDir(dir: string): void {
   try {
     if (!existsSync(dir)) {
@@ -53,24 +65,42 @@ function ensureDir(dir: string): void {
   }
 }
 
+/**
+ * Get the audit log file path for a specific date.
+ * @param baseDir - The base directory for audit logs.
+ * @param date - The date to generate the file path for (defaults to current date).
+ * @returns The full path to the audit log file.
+ */
 function getAuditFilePath(baseDir: string, date: Date = new Date()): string {
   const dateStr = date.toISOString().split('T')[0];
   return join(baseDir, `${dateStr}.jsonl`);
 }
 
+/**
+ * Check if audit logging is disabled via environment variable.
+ * @returns True if audit logging is disabled.
+ */
 function isAuditDisabled(): boolean {
   return process.env.VECTAHUB_AUDIT_DISABLED === '1';
 }
 
-class AuditLogger {
+/**
+ * 审计日志记录器
+ * 支持依赖注入：通过 new AuditLogger(sessionId, baseDir) 创建独立实例
+ */
+export class AuditLogger {
   private sessionId: string;
   private baseDir: string;
   private filePath: string;
+  private readonly onError: (error: Error) => void;
 
-  constructor(sessionId?: string, baseDir?: string) {
+  constructor(sessionId?: string, baseDir?: string, options?: { onError?: (error: Error) => void }) {
     this.sessionId = sessionId || generateSessionId();
     this.baseDir = baseDir ?? getVectaHubPath('logs', 'audit');
     this.filePath = getAuditFilePath(this.baseDir);
+    this.onError = options?.onError ?? ((error) => {
+      throw error;
+    });
     if (!isAuditDisabled()) {
       ensureDir(this.baseDir);
     }
@@ -91,7 +121,8 @@ class AuditLogger {
       const line = JSON.stringify(sanitizedEvent) + '\n';
       appendFileSync(this.filePath, line, 'utf-8');
     } catch (error) {
-      console.warn('Failed to write audit log:', (error as Error).message);
+      const err = error as Error;
+      this.onError(err);
     }
   }
 
@@ -132,7 +163,9 @@ class AuditLogger {
           if (command && event.action !== command) continue;
           results.push(event);
           if (results.length >= limit) break;
-        } catch {
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          getLogger('audit').debug({ error: message }, 'Skipping malformed JSONL line in audit log');
           continue;
         }
       }
@@ -168,7 +201,7 @@ class AuditLogger {
   }
 }
 
-function generateSessionId(): string {
+export function generateSessionId(): string {
   return `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 }
 
@@ -177,6 +210,9 @@ export function initAuditLogger(sessionId?: string, baseDir?: string): AuditLogg
   return auditInstance;
 }
 
+/**
+ * @deprecated 使用 new AuditLogger() 构造函数代替，支持依赖注入
+ */
 export function getAuditInstance(): AuditLogger {
   if (!auditInstance) {
     auditInstance = initAuditLogger();
@@ -199,164 +235,265 @@ export function getCurrentSessionId(): string {
   return getAuditInstance().getSessionId();
 }
 
-export const audit = {
-  log(event: AuditEvent): void {
-    getAuditInstance().write(event);
-  },
+/**
+ * 审计便捷方法接口
+ * 定义 audit 对象的完整类型，便于依赖注入和测试替换
+ */
+export interface AuditHelper {
+  log(event: AuditEvent): void;
+  cliCommand(cmd: string, args: string[], sessionId: string): void;
+  cliOutput(cmd: string, output: string, sessionId: string): void;
+  workflowStart(workflowId: string, intent: string, sessionId: string, metadata?: Record<string, unknown>): void;
+  workflowEnd(workflowId: string, status: string, duration: number, sessionId: string): void;
+  workflowStep(stepId: string, cli: string, args: string[], sessionId: string, metadata?: Record<string, unknown>): void;
+  securityAlert(ruleId: string, command: string, severity: string, sessionId: string): void;
+  securityAction(action: string, target: string, result: string, sessionId: string): void;
+  configChange(module: string, key: string, oldVal: unknown, newVal: unknown, sessionId: string): void;
+  intentMatch(intent: string, confidence: number, params: Record<string, unknown>, sessionId: string, metadata?: Record<string, unknown>): void;
+  executorResult(stepId: string, cli: string, exitCode: number, duration: number, sessionId: string, metadata?: Record<string, unknown>): void;
+  fileOperation(operation: string, path: string, sessionId: string, success: boolean, error?: string): void;
+  sandboxDetect(command: string, isDangerous: boolean, severity: string, sessionId: string): void;
+}
 
-  cliCommand(cmd: string, args: string[], sessionId: string): void {
-    this.log({
-      event: AuditEventType.CLI_COMMAND,
-      timestamp: new Date().toISOString(),
-      sessionId,
-      module: 'CLI',
-      action: cmd,
-      input: args,
-      success: true,
-    });
-  },
+export function createNoopAuditHelper(): AuditHelper {
+  return {
+    log(): void {},
+    cliCommand(): void {},
+    cliOutput(): void {},
+    workflowStart(): void {},
+    workflowEnd(): void {},
+    workflowStep(): void {},
+    securityAlert(): void {},
+    securityAction(): void {},
+    configChange(): void {},
+    intentMatch(): void {},
+    executorResult(): void {},
+    fileOperation(): void {},
+    sandboxDetect(): void {},
+  };
+}
 
-  cliOutput(cmd: string, output: string, sessionId: string): void {
-    this.log({
-      event: AuditEventType.CLI_OUTPUT,
-      timestamp: new Date().toISOString(),
-      sessionId,
-      module: 'CLI',
-      action: cmd,
-      output: output.substring(0, 1000),
-      success: true,
-    });
-  },
+/**
+ * 创建审计便捷方法集
+ * 接受 AuditLogger 实例注入，返回与全局 audit 对象相同接口的便捷方法
+ * @param logger - AuditLogger 实例
+ */
+export function createAuditHelper(logger: AuditLogger): AuditHelper {
+  return {
+    log(event: AuditEvent): void {
+      logger.write(event);
+    },
 
-  workflowStart(workflowId: string, intent: string, sessionId: string, metadata?: Record<string, unknown>): void {
-    this.log({
-      event: AuditEventType.WORKFLOW_START,
-      timestamp: new Date().toISOString(),
-      sessionId,
-      module: 'Workflow',
-      action: 'start',
-      input: { workflowId, intent },
-      success: true,
-      metadata,
-    });
-  },
+    cliCommand(cmd: string, args: string[], sessionId: string): void {
+      this.log({
+        event: AuditEventType.CLI_COMMAND,
+        timestamp: new Date().toISOString(),
+        sessionId,
+        module: 'CLI',
+        action: cmd,
+        input: args,
+        success: true,
+      });
+    },
 
-  workflowEnd(workflowId: string, status: string, duration: number, sessionId: string): void {
-    this.log({
-      event: AuditEventType.WORKFLOW_END,
-      timestamp: new Date().toISOString(),
-      sessionId,
-      module: 'Workflow',
-      action: 'end',
-      input: { workflowId },
-      output: { status },
-      duration,
-      success: status === 'COMPLETED',
-    });
-  },
+    cliOutput(cmd: string, output: string, sessionId: string): void {
+      this.log({
+        event: AuditEventType.CLI_OUTPUT,
+        timestamp: new Date().toISOString(),
+        sessionId,
+        module: 'CLI',
+        action: cmd,
+        output: output.substring(0, 1000),
+        success: true,
+      });
+    },
 
-  workflowStep(stepId: string, cli: string, args: string[], sessionId: string, metadata?: Record<string, unknown>): void {
-    this.log({
-      event: AuditEventType.WORKFLOW_STEP,
-      timestamp: new Date().toISOString(),
-      sessionId,
-      module: 'Executor',
-      action: 'step_execute',
-      input: { stepId, cli, args },
-      success: true,
-      metadata,
-    });
-  },
+    workflowStart(workflowId: string, intent: string, sessionId: string, metadata?: Record<string, unknown>): void {
+      this.log({
+        event: AuditEventType.WORKFLOW_START,
+        timestamp: new Date().toISOString(),
+        sessionId,
+        module: 'Workflow',
+        action: 'start',
+        input: { workflowId, intent },
+        success: true,
+        metadata,
+      });
+    },
 
-  securityAlert(ruleId: string, command: string, severity: string, sessionId: string): void {
-    this.log({
-      event: AuditEventType.SECURITY_ALERT,
-      timestamp: new Date().toISOString(),
-      sessionId,
-      module: 'Security',
-      action: 'dangerous_command_detected',
-      input: { ruleId, command, severity },
-      success: true,
-      metadata: { severity },
-    });
-  },
+    workflowEnd(workflowId: string, status: string, duration: number, sessionId: string): void {
+      this.log({
+        event: AuditEventType.WORKFLOW_END,
+        timestamp: new Date().toISOString(),
+        sessionId,
+        module: 'Workflow',
+        action: 'end',
+        input: { workflowId },
+        output: { status },
+        duration,
+        success: status === 'COMPLETED',
+      });
+    },
 
-  securityAction(action: string, target: string, result: string, sessionId: string): void {
-    this.log({
-      event: AuditEventType.SECURITY_ACTION,
-      timestamp: new Date().toISOString(),
-      sessionId,
-      module: 'Security',
-      action,
-      input: { target },
-      output: { result },
-      success: result === 'BLOCKED' || result === 'ALLOWED',
-    });
-  },
+    workflowStep(stepId: string, cli: string, args: string[], sessionId: string, metadata?: Record<string, unknown>): void {
+      this.log({
+        event: AuditEventType.WORKFLOW_STEP,
+        timestamp: new Date().toISOString(),
+        sessionId,
+        module: 'Executor',
+        action: 'step_execute',
+        input: { stepId, cli, args },
+        success: true,
+        metadata,
+      });
+    },
 
-  configChange(module: string, key: string, oldVal: unknown, newVal: unknown, sessionId: string): void {
-    this.log({
-      event: AuditEventType.CONFIG_CHANGE,
-      timestamp: new Date().toISOString(),
-      sessionId,
-      module,
-      action: 'config_update',
-      input: { key, oldVal, newVal },
-      success: true,
-    });
-  },
+    securityAlert(ruleId: string, command: string, severity: string, sessionId: string): void {
+      this.log({
+        event: AuditEventType.SECURITY_ALERT,
+        timestamp: new Date().toISOString(),
+        sessionId,
+        module: 'Security',
+        action: 'dangerous_command_detected',
+        input: { ruleId, command, severity },
+        success: true,
+        metadata: { severity },
+      });
+    },
 
-  intentMatch(intent: string, confidence: number, params: Record<string, unknown>, sessionId: string, metadata?: Record<string, unknown>): void {
-    this.log({
-      event: AuditEventType.INTENT_MATCH,
-      timestamp: new Date().toISOString(),
-      sessionId,
-      module: 'NLP',
-      action: 'intent_matched',
-      input: { intent, confidence },
-      output: params,
-      success: confidence >= 0.7,
-      metadata,
-    });
-  },
+    securityAction(action: string, target: string, result: string, sessionId: string): void {
+      this.log({
+        event: AuditEventType.SECURITY_ACTION,
+        timestamp: new Date().toISOString(),
+        sessionId,
+        module: 'Security',
+        action,
+        input: { target },
+        output: { result },
+        success: result === 'BLOCKED' || result === 'ALLOWED',
+      });
+    },
 
-  executorResult(stepId: string, cli: string, exitCode: number, duration: number, sessionId: string, metadata?: Record<string, unknown>): void {
-    this.log({
-      event: AuditEventType.EXECUTOR_RESULT,
-      timestamp: new Date().toISOString(),
-      sessionId,
-      module: 'Executor',
-      action: 'step_complete',
-      input: { stepId, cli },
-      output: { exitCode },
-      duration,
-      success: exitCode === 0,
-      metadata,
-    });
-  },
+    configChange(module: string, key: string, oldVal: unknown, newVal: unknown, sessionId: string): void {
+      this.log({
+        event: AuditEventType.CONFIG_CHANGE,
+        timestamp: new Date().toISOString(),
+        sessionId,
+        module,
+        action: 'config_update',
+        input: { key, oldVal, newVal },
+        success: true,
+      });
+    },
 
-  fileOperation(operation: string, path: string, sessionId: string, success: boolean, error?: string): void {
-    this.log({
-      event: AuditEventType.FILE_OPERATION,
-      timestamp: new Date().toISOString(),
-      sessionId,
-      module: 'Filesystem',
-      action: operation,
-      input: { path },
-      success,
-      error,
-    });
-  },
+    intentMatch(intent: string, confidence: number, params: Record<string, unknown>, sessionId: string, metadata?: Record<string, unknown>): void {
+      this.log({
+        event: AuditEventType.INTENT_MATCH,
+        timestamp: new Date().toISOString(),
+        sessionId,
+        module: 'NLP',
+        action: 'intent_matched',
+        input: { intent, confidence },
+        output: params,
+        success: confidence >= 0.7,
+        metadata,
+      });
+    },
 
-  sandboxDetect(command: string, isDangerous: boolean, severity: string, sessionId: string): void {
-    this.log({
-      event: AuditEventType.SANDBOX_DETECT,
-      timestamp: new Date().toISOString(),
-      sessionId,
-      module: 'Sandbox',
-      action: 'detection',
-      input: { command, isDangerous, severity },
-      success: !isDangerous,
-    });
-  },
-};
+    executorResult(stepId: string, cli: string, exitCode: number, duration: number, sessionId: string, metadata?: Record<string, unknown>): void {
+      this.log({
+        event: AuditEventType.EXECUTOR_RESULT,
+        timestamp: new Date().toISOString(),
+        sessionId,
+        module: 'Executor',
+        action: 'step_complete',
+        input: { stepId, cli },
+        output: { exitCode },
+        duration,
+        success: exitCode === 0,
+        metadata,
+      });
+    },
+
+    fileOperation(operation: string, path: string, sessionId: string, success: boolean, error?: string): void {
+      this.log({
+        event: AuditEventType.FILE_OPERATION,
+        timestamp: new Date().toISOString(),
+        sessionId,
+        module: 'Filesystem',
+        action: operation,
+        input: { path },
+        success,
+        error,
+      });
+    },
+
+    sandboxDetect(command: string, isDangerous: boolean, severity: string, sessionId: string): void {
+      this.log({
+        event: AuditEventType.SANDBOX_DETECT,
+        timestamp: new Date().toISOString(),
+        sessionId,
+        module: 'Sandbox',
+        action: 'detection',
+        input: { command, isDangerous, severity },
+        success: !isDangerous,
+      });
+    },
+  };
+}
+
+/**
+ * 兼容桥接层：历史全局 audit 对象仍通过全局 AuditLogger 转发。
+ * @deprecated 推荐使用 createAuditHelper(logger) 注入 AuditLogger 实例
+ */
+export function createCompatAuditHelper(): AuditHelper {
+  const resolveHelper = (): AuditHelper => createAuditHelper(getAuditInstance());
+
+  return {
+    log(event: AuditEvent): void {
+      resolveHelper().log(event);
+    },
+    cliCommand(cmd: string, args: string[], sessionId: string): void {
+      resolveHelper().cliCommand(cmd, args, sessionId);
+    },
+    cliOutput(cmd: string, output: string, sessionId: string): void {
+      resolveHelper().cliOutput(cmd, output, sessionId);
+    },
+    workflowStart(workflowId: string, input: string, sessionId: string): void {
+      resolveHelper().workflowStart(workflowId, input, sessionId);
+    },
+    workflowEnd(workflowId: string, status: string, duration: number, sessionId: string): void {
+      resolveHelper().workflowEnd(workflowId, status, duration, sessionId);
+    },
+    workflowStep(stepId: string, cli: string, args: string[], sessionId: string, metadata?: Record<string, unknown>): void {
+      resolveHelper().workflowStep(stepId, cli, args, sessionId, metadata);
+    },
+    securityAlert(ruleId: string, command: string, severity: string, sessionId: string): void {
+      resolveHelper().securityAlert(ruleId, command, severity, sessionId);
+    },
+    securityAction(action: string, target: string, result: string, sessionId: string): void {
+      resolveHelper().securityAction(action, target, result, sessionId);
+    },
+    configChange(module: string, key: string, oldValue: unknown, newValue: unknown, sessionId: string): void {
+      resolveHelper().configChange(module, key, oldValue, newValue, sessionId);
+    },
+    intentMatch(intent: string, confidence: number, params: Record<string, unknown>, sessionId: string): void {
+      resolveHelper().intentMatch(intent, confidence, params, sessionId);
+    },
+    executorResult(stepId: string, cli: string, exitCode: number, duration: number, sessionId: string, metadata?: Record<string, unknown>): void {
+      resolveHelper().executorResult(stepId, cli, exitCode, duration, sessionId, metadata);
+    },
+    fileOperation(operation: string, path: string, sessionId: string, success: boolean, error?: string): void {
+      resolveHelper().fileOperation(operation, path, sessionId, success, error);
+    },
+    sandboxDetect(command: string, isDangerous: boolean, severity: string, sessionId: string): void {
+      resolveHelper().sandboxDetect(command, isDangerous, severity, sessionId);
+    },
+  };
+}
+
+/**
+ * 全局审计便捷方法对象（向后兼容）
+ * @deprecated 推荐使用 createAuditHelper(logger) 注入 AuditLogger 实例
+ */
+export const audit: AuditHelper = createCompatAuditHelper();

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ProjectTask } from '../project/taskModel.js';
 import { LongRunningTaskManager } from '../cli/longRunningTaskManager.js';
 import { TasksViewProvider } from '../views/tasksView.js';
+import { getActiveWorkspaceFolder } from '../cli/adapter.js';
 
 export function registerStartDevServerCommand(context: vscode.ExtensionContext, tasksProvider: TasksViewProvider) {
   const lrt = LongRunningTaskManager.getInstance();
@@ -48,5 +49,5 @@ export function registerStartDevServerCommand(context: vscode.ExtensionContext, 
 }
 
 function getCwd(): string | undefined {
-  return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  return getActiveWorkspaceFolder();
 }

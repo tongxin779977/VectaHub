@@ -27,6 +27,76 @@ describe('SkillRegistry', () => {
     registry = createSkillRegistry();
   });
 
+  describe('findSkillsBySemantic', () => {
+    it('should find skills by tag matching', async () => {
+      registry.register(createMockSkill('git-skill', {
+        tags: ['git', 'version-control'],
+        description: 'Git operations',
+      }));
+      registry.register(createMockSkill('npm-skill', {
+        tags: ['npm', 'package'],
+        description: 'NPM package management',
+      }));
+
+      const results = await registry.findSkillsBySemantic('fix git commit');
+      expect(results.length).toBeGreaterThan(0);
+      expect(results[0].skill.id).toBe('git-skill');
+    });
+
+    it('should find skills by keyword matching', async () => {
+      registry.register(createMockSkill('test-skill', {
+        tags: ['testing'],
+        description: 'Run and manage tests',
+      }));
+      registry.register(createMockSkill('deploy-skill', {
+        tags: ['deployment'],
+        description: 'Deploy applications',
+      }));
+
+      const results = await registry.findSkillsBySemantic('run tests for my project');
+      expect(results.length).toBeGreaterThan(0);
+      expect(results[0].skill.id).toBe('test-skill');
+    });
+
+    it('should use LLM scorer when provided', async () => {
+      registry.register(createMockSkill('a', { tags: ['alpha'], description: 'Alpha skill' }));
+      registry.register(createMockSkill('b', { tags: ['beta'], description: 'Beta skill' }));
+
+      const scorer = async (_input: string, skill: Skill) => {
+        return skill.id === 'b' ? 0.9 : 0.1;
+      };
+
+      const results = await registry.findSkillsBySemantic('some input', { scorer });
+      expect(results.length).toBeGreaterThan(0);
+      expect(results[0].skill.id).toBe('b');
+    });
+
+    it('should respect threshold and limit', async () => {
+      for (let i = 0; i < 10; i++) {
+        registry.register(createMockSkill(`skill-${i}`, {
+          tags: ['common'],
+          description: `Skill ${i}`,
+        }));
+      }
+
+      const results = await registry.findSkillsBySemantic('unrelated input xyz', {
+        threshold: 0.99,
+      });
+      expect(results.length).toBe(0);
+    });
+
+    it('should skip disabled skills', async () => {
+      registry.register(createMockSkill('enabled', { tags: ['git'] }));
+      registry.register(createMockSkill('disabled', { tags: ['git'] }));
+      registry.setMetadata('disabled', { enabled: false });
+
+      const results = await registry.findSkillsBySemantic('git push');
+      const ids = results.map(r => r.skill.id);
+      expect(ids).toContain('enabled');
+      expect(ids).not.toContain('disabled');
+    });
+  });
+
   describe('register and get', () => {
     it('should register and retrieve a skill', () => {
       const skill = createMockSkill('test-1');

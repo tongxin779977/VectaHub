@@ -1,10 +1,2 @@
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-
-export function getVectaHubHome(): string {
-  return process.env.VECTAHUB_HOME || join(homedir(), '.vectahub');
-}
-
-export function getVectaHubPath(...segments: string[]): string {
-  return join(getVectaHubHome(), ...segments);
-}
+/** @deprecated 建议迁移至 infrastructure/paths 中的显式依赖 facade */
+export * from '../infrastructure/paths/index.js';

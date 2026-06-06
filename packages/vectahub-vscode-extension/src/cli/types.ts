@@ -16,4 +16,9 @@ export interface CliOptions {
   env?: Record<string, string>;
   timeout?: number;
   token?: import('vscode').CancellationToken;
+  traceContext?: {
+    traceId: string;
+    parentSpanId?: string;
+    source?: 'cli' | 'vscode';
+  };
 }

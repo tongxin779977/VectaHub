@@ -1,12 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createIntentMatcher, type LegacyIntentPattern } from './intent-matcher.js';
-import { audit } from '../utils/audit.js';
+import type { AuditHelper } from '../infrastructure/audit/index.js';
 
-vi.mock('../utils/audit.js', () => ({
-  audit: {
-    intentMatch: vi.fn(),
-  },
-}));
+const intentMatchMock = vi.fn();
+
+const mockAuditHelper: AuditHelper = {
+  log: vi.fn(),
+  cliCommand: vi.fn(),
+  cliOutput: vi.fn(),
+  workflowStart: vi.fn(),
+  workflowEnd: vi.fn(),
+  workflowStep: vi.fn(),
+  securityAlert: vi.fn(),
+  securityAction: vi.fn(),
+  configChange: vi.fn(),
+  intentMatch: intentMatchMock,
+  executorResult: vi.fn(),
+  fileOperation: vi.fn(),
+  sandboxDetect: vi.fn(),
+};
+
+beforeEach(() => {
+  intentMatchMock.mockReset();
+});
 
 describe('Intent Matcher', () => {
   const patterns: LegacyIntentPattern[] = [
@@ -20,7 +36,7 @@ describe('Intent Matcher', () => {
   let matcher: ReturnType<typeof createIntentMatcher>;
 
   beforeEach(() => {
-    matcher = createIntentMatcher(patterns);
+    matcher = createIntentMatcher(patterns, mockAuditHelper);
   });
 
   describe('match', () => {
@@ -97,7 +113,7 @@ describe('Intent Matcher', () => {
 
     it('records audit log when sessionId provided', () => {
       matcher.match('查找文件', 'session-123');
-      expect(audit.intentMatch).toHaveBeenCalledWith(
+      expect(intentMatchMock).toHaveBeenCalledWith(
         expect.any(String),
         expect.any(Number),
         expect.any(Object),
@@ -180,7 +196,7 @@ describe('Intent Matcher', () => {
         weight: 0.2,
       };
 
-      const matcherMulti = createIntentMatcher([pattern]);
+      const matcherMulti = createIntentMatcher([pattern], mockAuditHelper);
 
       const oneMatch = matcherMulti.match('keyword1 only');
       const twoMatches = matcherMulti.match('keyword1 and keyword2');

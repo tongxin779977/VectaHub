@@ -1,4 +1,4 @@
-import type { AIModule, AIModuleContext, AIModuleResult } from '../types.js';
+import type { AIModule } from '../types.js';
 
 export interface CliPlugin extends AIModule<string, CliPluginResult> {
   cliCommand: string;
@@ -25,4 +25,14 @@ export interface CliPluginCapabilities {
   supportedActions: string[];
   outputFormats: string[];
   requiresAuth: boolean;
+}
+
+export interface CreateCliPluginOptions {
+  id: string;
+  name: string;
+  version?: string;
+  cliCommand: string;
+  versionCommand?: string;
+  delegateTo: string;
+  capabilities: CliPluginCapabilities;
 }

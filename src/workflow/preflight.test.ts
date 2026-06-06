@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createExecutor } from './executor.js';
 import { getCliToolRegistry } from '../cli-tools/index.js';
+import { createNoopAuditHelper } from '../infrastructure/audit/index.js';
+import { createEnvironmentService } from '../infrastructure/environment/index.js';
 import * as cp from 'child_process';
+
+const environment = createEnvironmentService();
 
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal() as any;
@@ -23,7 +27,7 @@ describe('Workflow Pre-flight Checks', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    executor = createExecutor();
+    executor = createExecutor({ audit: createNoopAuditHelper(), environment });
     (getCliToolRegistry as any).mockReturnValue(mockRegistry);
   });
 

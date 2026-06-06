@@ -16,6 +16,23 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { createInterface } from 'readline';
 
+const wizardDeps = {
+  environment: {
+    exists: (path: string) => existsSync(path),
+    ensureDir: (path: string) => mkdirSync(path, { recursive: true }),
+    readFile: (path: string) => readFileSync(path, 'utf-8'),
+    writeFile: (path: string, content: string) => writeFileSync(path, content, 'utf-8'),
+    getPath: (...segments: string[]) => join('/mock-home/.vectahub', ...segments),
+    getEnv: (_name: string) => undefined,
+  },
+  logger: {
+    error: vi.fn(),
+  },
+  output: {
+    log: vi.fn(),
+  },
+};
+
 // Mock fs module
 vi.mock('fs', () => ({
   existsSync: vi.fn(),
@@ -40,6 +57,12 @@ vi.mock('../utils/logger.js', () => ({
     error: vi.fn(),
     debug: vi.fn(),
   })),
+  getLogger: vi.fn(() => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  })),
 }));
 
 describe('first-run-wizard', () => {
@@ -59,7 +82,7 @@ describe('first-run-wizard', () => {
       vi.mocked(existsSync).mockReturnValue(false);
       vi.mocked(mkdirSync).mockReturnValue(undefined as unknown as string);
 
-      const result = await createConfigDir();
+      const result = await createConfigDir(wizardDeps);
 
       expect(result.success).toBe(true);
       expect(mkdirSync).toHaveBeenCalledWith(
@@ -71,7 +94,7 @@ describe('first-run-wizard', () => {
     it('should return success when directory already exists', async () => {
       vi.mocked(existsSync).mockReturnValue(true);
 
-      const result = await createConfigDir();
+      const result = await createConfigDir(wizardDeps);
 
       expect(result.success).toBe(true);
       expect(mkdirSync).not.toHaveBeenCalled();
@@ -83,7 +106,7 @@ describe('first-run-wizard', () => {
         throw new Error('EACCES: permission denied');
       });
 
-      const result = await createConfigDir();
+      const result = await createConfigDir(wizardDeps);
 
       expect(result.success).toBe(false);
       expect(result.reason).toContain('permission denied');
@@ -94,7 +117,7 @@ describe('first-run-wizard', () => {
     it('should create new config file when none exists', async () => {
       vi.mocked(existsSync).mockReturnValue(false);
 
-      const result = await initConfigFile();
+      const result = await initConfigFile(wizardDeps);
 
       expect(result.success).toBe(true);
       expect(writeFileSync).toHaveBeenCalledWith(
@@ -107,7 +130,7 @@ describe('first-run-wizard', () => {
     it('should return success without overwriting when config already exists', async () => {
       vi.mocked(existsSync).mockReturnValue(true);
 
-      const result = await initConfigFile();
+      const result = await initConfigFile(wizardDeps);
 
       expect(result.success).toBe(true);
       expect(writeFileSync).not.toHaveBeenCalled();
@@ -119,7 +142,7 @@ describe('first-run-wizard', () => {
         throw new Error('ENOSPC: no space left on device');
       });
 
-      const result = await initConfigFile();
+      const result = await initConfigFile(wizardDeps);
 
       expect(result.success).toBe(false);
       expect(result.reason).toContain('no space left');
@@ -134,7 +157,7 @@ describe('first-run-wizard', () => {
     it('should return a Promise<StepResult>', async () => {
       // configureLLMProvider is interactive (requires readline),
       // so we just verify its return type signature
-      const result = configureLLMProvider();
+      const result = configureLLMProvider(wizardDeps);
       expect(result).toBeInstanceOf(Promise);
       // Don't await — it would hang waiting for readline input
     });
@@ -146,7 +169,7 @@ describe('first-run-wizard', () => {
       } as any);
       vi.mocked(existsSync).mockReturnValue(false);
 
-      const result = await configureLLMProvider();
+      const result = await configureLLMProvider(wizardDeps);
       expect(result.success).toBe(true);
     });
 
@@ -157,7 +180,7 @@ describe('first-run-wizard', () => {
       } as any);
       vi.mocked(existsSync).mockReturnValue(false);
 
-      const result = await configureLLMProvider();
+      const result = await configureLLMProvider(wizardDeps);
       expect(result.success).toBe(true);
     });
 
@@ -168,7 +191,7 @@ describe('first-run-wizard', () => {
       } as any);
       vi.mocked(existsSync).mockReturnValue(false);
 
-      await configureLLMProvider();
+      await configureLLMProvider(wizardDeps);
       // saveConfig should NOT be called with first_run_completed = true
       // since the step should not mark installation as complete
       const saveCalls = vi.mocked(writeFileSync).mock.calls;
@@ -187,7 +210,7 @@ describe('first-run-wizard', () => {
 
     it('should return a Promise', () => {
       // Just verify the return is a Promise; don't await (interactive)
-      const result = runFirstRunWizard();
+      const result = runFirstRunWizard(wizardDeps);
       expect(result).toBeInstanceOf(Promise);
     });
 
@@ -204,7 +227,7 @@ describe('first-run-wizard', () => {
         close: vi.fn(),
       } as any);
 
-      const result = await runFirstRunWizard();
+      const result = await runFirstRunWizard(wizardDeps);
 
       // runFirstRunWizard should set first_run_completed=true itself
       const saveCalls = vi.mocked(writeFileSync).mock.calls;

@@ -1,7 +1,14 @@
 import { join } from 'node:path';
-import { mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, readdir, rm } from 'node:fs/promises';
 import type { ExecutionRecord, ExecutionFilter, ExecutionSearchResult, ExecutionMetadata } from './types.js';
-import { getVectaHubPath } from '../utils/paths.js';
+import { getVectaHubPath } from '../infrastructure/paths/index.js';
+import { parseStartedAt, toDatePartitionKey } from './utils.js';
+
+interface LoggerLike {
+  warn(message: string): void;
+}
+
+const noopLogger: LoggerLike = { warn() {} };
 
 export interface RecordManager {
   save(record: ExecutionRecord): Promise<void>;
@@ -18,16 +25,21 @@ function getDayFile(baseDir: string, dateStr: string): string {
   return join(baseDir, `${dateStr}.jsonl`);
 }
 
-function parseStartedAt(record: ExecutionRecord): string {
-  const raw = record.startedAt;
-  const startedAtStr = typeof raw === 'object' && raw !== null && 'toISOString' in raw
-    ? (raw as Date).toISOString()
-    : String(raw);
-  return startedAtStr;
-}
+const DEFAULT_LIST_LIMIT = 50;
 
-export function createRecordManager(baseDir?: string): RecordManager {
+/**
+ * Creates a record manager backed by JSONL files on the filesystem.
+ *
+ * Records are partitioned by date into `YYYYMMDD.jsonl` files.
+ * Supports listing, filtering, searching, and metadata retrieval.
+ *
+ * @param baseDir - Base directory for record storage. Defaults to `<VectaHub>/executions`.
+ * @param deps - Optional dependencies. Pass `{ logger }` to receive warnings for malformed lines.
+ * @returns A {@link RecordManager} instance
+ */
+export function createRecordManager(baseDir?: string, deps?: { logger?: LoggerLike }): RecordManager {
   const dir = baseDir || getVectaHubPath('executions');
+  const logger = deps?.logger ?? noopLogger;
 
   async function ensureDir(): Promise<void> {
     await mkdir(dir, { recursive: true });
@@ -54,21 +66,14 @@ export function createRecordManager(baseDir?: string): RecordManager {
       for (const line of lines) {
         try {
           const record = JSON.parse(line) as ExecutionRecord;
-          
-          // Runtime type guard and transformation
-          if (record.startedAt) {
-            (record as any).startedAt = new Date(record.startedAt);
-          }
-          if ((record as any).endedAt) {
-            (record as any).endedAt = new Date((record as any).endedAt);
-          }
 
           if (!options.filter || options.filter(record)) {
             records.push(record);
             if (records.length >= targetLimit) break;
           }
-        } catch {
-          // skip malformed lines
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          logger.warn(`Skipping malformed JSONL line in ${file}: ${message}`);
         }
       }
     }
@@ -79,18 +84,16 @@ export function createRecordManager(baseDir?: string): RecordManager {
   return {
     async save(record: ExecutionRecord): Promise<void> {
       await ensureDir();
-      const raw = record.startedAt;
-      const startedAtStr = typeof raw === 'object' && raw !== null && 'toISOString' in raw
-        ? (raw as Date).toISOString()
-        : (typeof raw === 'string' ? raw : new Date().toISOString());
-      
-      const dateStr = startedAtStr.slice(0, 10).replace(/-/g, '');
+      const startedAtStr = parseStartedAt(record);
+      const dateStr = toDatePartitionKey(startedAtStr);
       const filePath = getDayFile(dir, dateStr);
       const line = JSON.stringify(record) + '\n';
       try {
         const existing = await readFile(filePath, 'utf-8');
         await writeFile(filePath, existing + line, 'utf-8');
-      } catch {
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn(`Append write failed for ${filePath}, falling back to overwrite: ${message}`);
         await writeFile(filePath, line, 'utf-8');
       }
     },
@@ -106,7 +109,7 @@ export function createRecordManager(baseDir?: string): RecordManager {
 
     async list(filter?: ExecutionFilter): Promise<ExecutionRecord[]> {
       const offset = filter?.offset || 0;
-      const limit = filter?.limit || 50;
+      const limit = filter?.limit || DEFAULT_LIST_LIMIT;
       
       const records = await readRecords({
         limit: offset + limit,
@@ -141,15 +144,7 @@ export function createRecordManager(baseDir?: string): RecordManager {
       // Rewrite all files
       const grouped = new Map<string, ExecutionRecord[]>();
       for (const r of allRecords) {
-        const raw = r.startedAt;
-        const startedAtStr = typeof raw === 'object' && raw !== null && 'toISOString' in raw
-          ? (raw as Date).toISOString()
-          : (typeof raw === 'string' ? raw : 'unknown');
-        
-        const dateStr = startedAtStr !== 'unknown'
-          ? startedAtStr.slice(0, 10).replace(/-/g, '')
-          : 'unknown';
-          
+        const dateStr = toDatePartitionKey(parseStartedAt(r));
         if (!grouped.has(dateStr)) grouped.set(dateStr, []);
         grouped.get(dateStr)!.push(r);
       }
@@ -159,8 +154,7 @@ export function createRecordManager(baseDir?: string): RecordManager {
       const jsonlFiles = files.filter((f) => f.endsWith('.jsonl'));
 
       for (const file of jsonlFiles) {
-        const { unlink } = await import('node:fs/promises');
-        await unlink(join(dir, file));
+        await rm(join(dir, file), { force: true });
       }
 
       for (const [dateStr, recs] of grouped) {

@@ -3,10 +3,15 @@ import type { PromptRegistry } from '../nl/prompt/types.js';
 import type { LLMDialogControlSkill } from './llm-dialog-control/index.js';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { createConsoleLogger } from '../utils/logger.js';
+import type pino from 'pino';
 
-const logger = createConsoleLogger('workflow-skill');
-
+/**
+ * Input for workflow generation skill
+ * @property intent - The recognized intent
+ * @property params - Parameters extracted from user input
+ * @property commands - Array of CLI commands to include
+ * @property userInput - The original user input
+ */
 export interface WorkflowSkillInput {
   intent: string;
   params: Record<string, unknown>;
@@ -14,18 +19,32 @@ export interface WorkflowSkillInput {
   userInput: string;
 }
 
+/**
+ * Output from workflow generation skill
+ * @property workflowYAML - The generated workflow YAML string
+ */
 export interface WorkflowSkillOutput {
   workflowYAML: string;
 }
 
+/**
+ * Extracts a file path from user input
+ * @param input - The user input string
+ * @returns Promise resolving to the file path or null if not found
+ */
 async function extractFilePath(input: string): Promise<string | null> {
-  const match = input.match(/\/Users\/[^\/\s]+\/[^\/\s]+(?:[^\s]*\/docs[^\s]*\.md)|\/[^\s]*\.md/);
+  const match = input.match(/\/Users\/[^/\s]+\/[^/\s]+(?:[^\s]*\/docs[^\s]*\.md)|\/[^\s]*\.md/);
   if (match) {
     return match[0];
   }
   return null;
 }
 
+/**
+ * Reads documentation content from a file
+ * @param filePath - The path to the documentation file
+ * @returns Promise resolving to the file content or null if not found
+ */
 async function readDocContent(filePath: string): Promise<string | null> {
   if (!existsSync(filePath)) {
     return null;
@@ -38,9 +57,18 @@ async function readDocContent(filePath: string): Promise<string | null> {
   }
 }
 
+/**
+ * Creates a Workflow Generation skill
+ * Uses LLM to generate VectaHub workflow YAML from user input
+ * @param promptRegistry - Registry for building prompts
+ * @param llmDialogSkill - LLM dialog control skill for generating responses
+ * @param logger - Optional logger for debug output
+ * @returns Skill instance for workflow generation
+ */
 export function createWorkflowSkill(
   promptRegistry: PromptRegistry,
-  llmDialogSkill: LLMDialogControlSkill
+  llmDialogSkill: LLMDialogControlSkill,
+  logger: Pick<pino.Logger, 'debug'> = { debug: () => {} },
 ): Skill<WorkflowSkillInput, WorkflowSkillOutput> {
   return {
     id: 'vectahub.workflow',
@@ -49,11 +77,22 @@ export function createWorkflowSkill(
     description: '生成完整的 VectaHub 工作流 YAML',
     tags: ['workflow', 'yaml', 'generation'],
 
-    async canHandle(context: SkillContext): Promise<boolean> {
+    /**
+     * Checks if this skill can handle the given context
+     * @param _context - The skill context
+     * @returns Always returns true
+     */
+    async canHandle(_context: SkillContext): Promise<boolean> {
       return true;
     },
 
-    async execute(input: WorkflowSkillInput, context: SkillContext): Promise<SkillResult<WorkflowSkillOutput>> {
+    /**
+     * Executes workflow generation
+     * @param input - The workflow skill input
+     * @param _context - The skill context
+     * @returns Promise resolving to SkillResult with WorkflowSkillOutput
+     */
+    async execute(input: WorkflowSkillInput, _context: SkillContext): Promise<SkillResult<WorkflowSkillOutput>> {
       try {
         const filePath = await extractFilePath(input.userInput);
         let docContent = '';
@@ -83,7 +122,7 @@ export function createWorkflowSkill(
           };
         }
 
-        const isValid = validateWorkflowYAML(result.output);
+        const isValid = validateWorkflowYAML(result.output, logger);
 
         if (!isValid) {
           const fallbackYAML = createFallbackWorkflow(input);
@@ -100,7 +139,7 @@ export function createWorkflowSkill(
           data: { workflowYAML: result.output },
           confidence: 0.85
         };
-      } catch (error) {
+      } catch {
         const fallbackYAML = createFallbackWorkflow(input);
         return {
           success: true,
@@ -113,7 +152,13 @@ export function createWorkflowSkill(
   };
 }
 
-function validateWorkflowYAML(yaml: string): boolean {
+/**
+ * Validates workflow YAML content
+ * @param yaml - The YAML string to validate
+ * @param logger - Logger for debug output
+ * @returns True if YAML is valid
+ */
+function validateWorkflowYAML(yaml: string, logger: Pick<pino.Logger, 'debug'>): boolean {
   if (!yaml || yaml.trim().length === 0) {
     logger.debug(`Validation failed: empty YAML`);
     return false;
@@ -136,6 +181,11 @@ function validateWorkflowYAML(yaml: string): boolean {
   return isValid;
 }
 
+/**
+ * Creates a fallback workflow YAML
+ * @param input - The workflow skill input
+ * @returns Fallback YAML string
+ */
 function createFallbackWorkflow(input: WorkflowSkillInput): string {
   let yaml = 'version: "1.0"\n';
   yaml += `name: "Generated Workflow"\n`;

@@ -17,7 +17,25 @@ export type IntentName =
   | 'FILE_DIFF'
   | 'DOCKER_BUILD'
   | 'DIALOG_GREETING'
-  | 'UNKNOWN';
+  | 'UNKNOWN'
+  | 'workflow_generate'
+  | 'workflow_run'
+  | 'doctor'
+  | 'self_healing'
+  | 'file_find'
+  | 'file_read'
+  | 'file_edit'
+  | 'git_push'
+  | 'git_pull'
+  | 'git_commit'
+  | 'git_merge'
+  | 'git_branch'
+  | 'ci_diagnose'
+  | 'ci_rerun'
+  | 'tool_discover'
+  | 'tool_run'
+  | 'session_list'
+  | 'session_inspect';
 
 export interface IntentMatch {
   intent: IntentName;
@@ -55,7 +73,7 @@ export interface Task {
   type: TaskType;
   description: string;
   status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
-  commands: { cli: string; args: string[] }[];
+  commands: { cli: string; args: string[]; outputVar?: string }[];
   dependencies: string[];
   estimatedDuration?: number;
 }
@@ -79,4 +97,25 @@ export interface ParseResult {
   candidates?: { intent: IntentName; description: string }[];
   confidenceLevel: ConfidenceLevel;
   originalInput: string;
+}
+
+export type NLRequestSource = 'run' | 'chat' | 'document' | 'manual';
+export type NLRequestMode = 'dry-run' | 'execute';
+
+export interface NLRequestEnvelope {
+  schemaVersion: '1.0';
+  requestId: string;
+  source: NLRequestSource;
+  mode: NLRequestMode;
+  dryRun: boolean;
+  json: boolean;
+  language?: string;
+  cwd: string;
+  userInput: string;
+  normalizedInput?: import('../nl/core/goal-types.js').NormalizedInput;
+  sessionId?: string;
+  contextId?: string;
+  metadata: {
+    createdAt: string;
+  };
 }

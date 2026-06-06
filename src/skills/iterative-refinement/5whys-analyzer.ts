@@ -3,7 +3,6 @@ import type {
   WhyQuestion,
   RootCause,
   RootCauseCategory,
-  AnalysisStatus,
 } from './types.js';
 
 interface ErrorPattern {

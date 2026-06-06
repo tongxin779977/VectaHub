@@ -1,3 +1,5 @@
+import type { IntentName, TaskList, Workflow } from '../types/index.js';
+
 export type KeywordTier = 'core' | 'important' | 'generic';
 
 export interface WeightedKeyword {
@@ -65,3 +67,39 @@ export const TIER_WEIGHTS: Record<KeywordTier, number> = {
   important: 0.8,
   generic: 0.5,
 };
+
+export interface NLResult {
+  success: boolean;
+  intent?: IntentName;
+  confidence: number;
+  taskList?: TaskList;
+  workflowYAML?: string;
+  workflow?: Workflow;
+  reply?: string;
+  params?: Record<string, unknown>;
+  metadata: {
+    path: 'category-router' | 'llm-tool-calling' | 'no-match' | 'direct-query' | 'dialog';
+    usedSkills?: string[];
+    fallbackReason?: string;
+    multiIntent?: MultiIntentResult;
+    requiresLLM?: boolean;
+  };
+}
+
+export interface NLContext {
+  input: string;
+  sessionId?: string;
+  options?: {
+    useLLM?: boolean;
+  };
+}
+
+export interface CoreIntentMatch {
+  intent: IntentName;
+  confidence: number;
+  params?: Record<string, unknown>;
+}
+
+export interface NLProcessor {
+  parse(context: NLContext): Promise<NLResult>;
+}

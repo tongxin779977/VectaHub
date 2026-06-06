@@ -41,12 +41,18 @@ function createMockCompositeSkill(
 }
 
 const mockContext: SkillContext = { userInput: 'test' };
+const logger = {
+  debug: vi.fn(),
+  warn: vi.fn(),
+  info: vi.fn(),
+  error: vi.fn(),
+};
 
 describe('SkillExecutor', () => {
   let executor: ReturnType<typeof createSkillExecutor>;
 
   beforeEach(() => {
-    executor = createSkillExecutor({ maxRetries: 2, timeout: 5000 });
+    executor = createSkillExecutor({ maxRetries: 2, timeout: 5000, logger });
   });
 
   describe('execute (single skill)', () => {

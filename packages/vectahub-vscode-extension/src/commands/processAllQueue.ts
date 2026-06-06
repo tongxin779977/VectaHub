@@ -13,12 +13,58 @@ interface WorkflowResult {
   error?: { code?: string; message?: string };
 }
 
+async function readQueueWithRetry(
+  tasksProvider: TasksViewProvider,
+  context: string
+): Promise<{ tasks: { status: string; id: string }[]; error?: string }> {
+  const first = tasksProvider.readDiagnosticQueue();
+  if (!first.error) return first;
+
+  const retry = await vscode.window.showWarningMessage(
+    `队列读取失败 (${context}): ${first.error}`,
+    '重试'
+  );
+  if (retry !== '重试') return first;
+
+  const second = tasksProvider.readDiagnosticQueue();
+  if (!second.error) return second;
+
+  logToOutput(`[processAllQueue] 重试后队列仍读取失败: ${second.error}`, 'warn');
+
+  const cliReady = await waitForCliReady();
+  if (cliReady) {
+    try {
+      const analysisResult = await runCli(
+        ['run', '--json', `诊断为什么诊断队列文件无法读取，错误信息: ${second.error}`],
+        { timeout: 60000 }
+      );
+      if (analysisResult.ok && analysisResult.stdout) {
+        vscode.window.showErrorMessage(
+          `队列读取失败 (${context}): ${second.error}`,
+          '查看分析'
+        ).then(choice => {
+          if (choice === '查看分析') {
+            logToOutput(`[LLM 诊断] ${analysisResult.stdout}`);
+            vscode.commands.executeCommand('workbench.action.output.toggleOutput');
+          }
+        });
+        return second;
+      }
+    } catch (err) {
+      logToOutput(`[processAllQueue] LLM 诊断失败: ${err}`, 'warn');
+    }
+  }
+
+  vscode.window.showErrorMessage(`队列读取失败 (${context}): ${second.error}，请检查队列文件或重启 VSCode。`);
+  return second;
+}
+
 export function registerProcessAllQueueCommand(context: vscode.ExtensionContext, tasksProvider: TasksViewProvider) {
-  const disposable = vscode.commands.registerCommand('vectahubTasks.processAllQueue', async () => {
+  const processAllDisposable = vscode.commands.registerCommand('vectahubTasks.processAllQueue', async () => {
     const ready = await waitForCliReady();
     if (!ready) return;
 
-    const beforeQueue = tasksProvider.readDiagnosticQueue();
+    const beforeQueue = await readQueueWithRetry(tasksProvider, '读取队列');
     const pendingCount = beforeQueue.tasks.filter(t => t.status === 'pending').length;
     const processingCount = beforeQueue.tasks.filter(t => t.status === 'processing').length;
 
@@ -53,7 +99,7 @@ export function registerProcessAllQueueCommand(context: vscode.ExtensionContext,
     }, async (progress, token) => {
       const result = await runCli<WorkflowResult>(
         ['run', '-f', 'sys:process-diagnostic-queue', '--mode', 'relaxed', '--json'],
-        { token }
+        { token, timeout: 300000 }
       );
 
       tasksProvider.refresh();
@@ -93,7 +139,10 @@ export function registerProcessAllQueueCommand(context: vscode.ExtensionContext,
         return;
       }
 
-      const afterQueue = tasksProvider.readDiagnosticQueue();
+      const afterQueue = await readQueueWithRetry(tasksProvider, '处理后统计');
+      if (afterQueue.error) {
+        logToOutput(`[processAllQueue] 处理后队列读取失败: ${afterQueue.error}`, 'warn');
+      }
       const workflowData = result.data as WorkflowResult | undefined;
       
       let completedNow: number;
@@ -157,5 +206,73 @@ export function registerProcessAllQueueCommand(context: vscode.ExtensionContext,
       }
     });
   });
-  context.subscriptions.push(disposable);
+  context.subscriptions.push(processAllDisposable);
+
+  const removeTaskDisposable = vscode.commands.registerCommand('vectahubTasks.removeQueueTask', async (taskId: string) => {
+    const ready = await waitForCliReady();
+    if (!ready) return;
+
+    const confirm = await vscode.window.showWarningMessage(
+      `确定要删除任务 ${taskId} 吗？此操作不可撤销。`,
+      { modal: true },
+      '删除'
+    );
+
+    if (confirm !== '删除') return;
+
+    logToOutput(`[removeQueueTask] 删除任务: ${taskId}`);
+
+    const result = await runCli(
+      ['queue', 'remove', taskId, '--json']
+    );
+
+    if (result.ok) {
+      tasksProvider.refresh();
+      logToOutput(`[removeQueueTask] 任务 ${taskId} 删除成功`);
+      vscode.window.showInformationMessage(`✅ 任务 ${taskId} 已删除`);
+    } else {
+      const errMsg = result.error?.message || '未知错误';
+      logToOutput(`[removeQueueTask] 删除任务失败: ${errMsg}`, 'error');
+      vscode.window.showErrorMessage(`❌ 删除失败: ${errMsg}`);
+    }
+  });
+  context.subscriptions.push(removeTaskDisposable);
+
+  const clearQueueDisposable = vscode.commands.registerCommand('vectahubTasks.clearQueue', async () => {
+    const ready = await waitForCliReady();
+    if (!ready) return;
+
+    const queue = await readQueueWithRetry(tasksProvider, '清空队列');
+    const taskCount = queue.tasks.length;
+
+    if (taskCount === 0) {
+      vscode.window.showInformationMessage('📋 队列为空，无需清空');
+      return;
+    }
+
+    const confirm = await vscode.window.showWarningMessage(
+      `确定要清空队列吗？这将删除所有 ${taskCount} 个任务，此操作不可撤销。`,
+      { modal: true },
+      '清空队列'
+    );
+
+    if (confirm !== '清空队列') return;
+
+    logToOutput(`[clearQueue] 清空队列: ${taskCount} 个任务`);
+
+    const result = await runCli(
+      ['queue', 'clear', '--json', '--force']
+    );
+
+    if (result.ok) {
+      tasksProvider.refresh();
+      logToOutput('[clearQueue] 队列清空成功');
+      vscode.window.showInformationMessage('✅ 队列已清空');
+    } else {
+      const errMsg = result.error?.message || '未知错误';
+      logToOutput(`[clearQueue] 清空队列失败: ${errMsg}`, 'error');
+      vscode.window.showErrorMessage(`❌ 清空失败: ${errMsg}`);
+    }
+  });
+  context.subscriptions.push(clearQueueDisposable);
 }

@@ -3,10 +3,9 @@
  * Anomaly Detection and Alert System - Detects abnormal traces and triggers alerts
  */
 
-import { createConsoleLogger } from '../../utils/logger.js';
+import type { Logger } from '../logger/index.js';
 import type {
   TraceSpan,
-  ExecutionTrace,
   AlertRule,
   AlertEvent,
   AlertLevel,
@@ -14,8 +13,16 @@ import type {
   TraceId,
   SpanId,
 } from './types.js';
+import { VectaHubError, ErrorType } from '../errors/index.js';
 
-const logger = createConsoleLogger('alert-system');
+export interface AlertSystemDeps {
+  logger: Logger;
+  output?: AlertSystemOutput;
+}
+
+export interface AlertSystemOutput {
+  log(message: string): void;
+}
 
 /** 默认告警规则 */
 const DEFAULT_ALERT_RULES: AlertRule[] = [
@@ -51,6 +58,14 @@ const DEFAULT_ALERT_RULES: AlertRule[] = [
 /** 告警回调函数类型 */
 type AlertCallback = (alert: AlertEvent) => void;
 
+function createDefaultAlertOutput(): AlertSystemOutput {
+  return {
+    log: (message: string) => {
+      process.stdout.write(`${message}\n`);
+    },
+  };
+}
+
 /**
  * 异常检测和告警系统类
  * Anomaly Detection and Alert System Class
@@ -61,9 +76,17 @@ export class AlertSystem {
   private callbacks: AlertCallback[] = [];
   private errorWindow: Map<string, number[]> = new Map();
   private windowSizeMs: number = 300000; // 5 分钟窗口
+  private logger: Logger;
+  private output: AlertSystemOutput;
 
-  constructor(rules?: AlertRule[]) {
+  constructor(rules: AlertRule[] | undefined, deps: AlertSystemDeps) {
+    if (!deps.logger) {
+      throw new VectaHubError('AlertSystem requires a logger dependency', ErrorType.CONFIGURATION);
+    }
+
     const defaultRules = rules ?? DEFAULT_ALERT_RULES;
+    this.logger = deps.logger;
+    this.output = deps.output ?? createDefaultAlertOutput();
     for (const rule of defaultRules) {
       this.rules.set(rule.id, rule);
     }
@@ -77,7 +100,7 @@ export class AlertSystem {
   /** 添加告警规则 */
   addRule(rule: AlertRule): void {
     this.rules.set(rule.id, rule);
-    logger.info(`添加告警规则: ${rule.name}`);
+    this.logger.info(`添加告警规则: ${rule.name}`);
   }
 
   /** 删除告警规则 */
@@ -249,7 +272,7 @@ export class AlertSystem {
       try {
         callback(alert);
       } catch (error) {
-        logger.error(`告警回调执行失败: ${(error as Error).message}`);
+        this.logger.error(`告警回调执行失败: ${(error as Error).message}`);
       }
     }
 
@@ -261,7 +284,7 @@ export class AlertSystem {
       }
     }
 
-    logger.warn(`[告警] ${alert.level}: ${alert.message}`);
+    this.logger.warn(`[告警] ${alert.level}: ${alert.message}`);
   }
 
   /** 发送通知 */
@@ -285,19 +308,21 @@ export class AlertSystem {
   /** 控制台通知 */
   private sendConsoleNotification(alert: AlertEvent): void {
     const levelColors: Record<AlertLevel, string> = {
-      INFO: '\x1b[36m',
-      WARNING: '\x1b[33m',
-      CRITICAL: '\x1b[31m',
+      DEBUG: '\x1b[90m',    // 灰色
+      INFO: '\x1b[36m',     // 青色
+      WARNING: '\x1b[33m',   // 黄色
+      ERROR: '\x1b[35m',    // 紫色
+      CRITICAL: '\x1b[31m', // 红色
     };
     const reset = '\x1b[0m';
     const color = levelColors[alert.level] || '';
-    console.log(`${color}[${alert.level}] ${alert.message}${reset}`);
+    this.output.log(`${color}[${alert.level}] ${alert.message}${reset}`);
   }
 
   /** 文件通知 */
   private sendFileNotification(alert: AlertEvent): void {
     // 实际实现中会写入告警日志文件
-    logger.info(`告警已记录到文件: ${alert.message}`);
+    this.logger.info(`告警已记录到文件: ${alert.message}`);
   }
 
   /** Webhook 通知 */
@@ -305,14 +330,14 @@ export class AlertSystem {
     const rule = this.rules.get(alert.ruleId);
     if (rule?.webhookUrl) {
       // 实际实现中会发送 HTTP 请求
-      logger.info(`Webhook 通知已发送: ${rule.webhookUrl}`);
+      this.logger.info(`Webhook 通知已发送: ${rule.webhookUrl}`);
     }
   }
 
   /** 邮件通知 */
   private sendEmailNotification(alert: AlertEvent): void {
     // 实际实现中会发送邮件
-    logger.info(`邮件通知已发送: ${alert.message}`);
+    this.logger.info(`邮件通知已发送: ${alert.message}`);
   }
 
   /** 解决告警 */
@@ -386,6 +411,6 @@ export class AlertSystem {
  * 创建告警系统工厂函数
  * Create Alert System Factory Function
  */
-export function createAlertSystem(rules?: AlertRule[]): AlertSystem {
-  return new AlertSystem(rules);
+export function createAlertSystem(rules: AlertRule[] | undefined, deps: AlertSystemDeps): AlertSystem {
+  return new AlertSystem(rules, deps);
 }

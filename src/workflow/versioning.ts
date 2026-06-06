@@ -1,5 +1,4 @@
-import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'fs';
-import { join } from 'path';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 
 export interface WorkflowVersion {
   version: number;
@@ -8,56 +7,56 @@ export interface WorkflowVersion {
   createdAt: Date;
 }
 
-function getVersionsDir(baseDir: string, workflowId: string): string {
-  return join(baseDir, workflowId, 'versions');
+function getVersionsDir(environment: IEnvironmentService, baseDir: string, workflowId: string): string {
+  return environment.joinPath(baseDir, workflowId, 'versions');
 }
 
-function getVersionDir(baseDir: string, workflowId: string, version: number): string {
-  return join(getVersionsDir(baseDir, workflowId), String(version));
+function getVersionDir(environment: IEnvironmentService, baseDir: string, workflowId: string, version: number): string {
+  return environment.joinPath(getVersionsDir(environment, baseDir, workflowId), String(version));
 }
 
-function getNextVersion(baseDir: string, workflowId: string): number {
-  const versionsDir = getVersionsDir(baseDir, workflowId);
-  if (!existsSync(versionsDir)) return 1;
-  const entries = readdirSync(versionsDir)
-    .filter(e => existsSync(join(versionsDir, e, 'meta.json')))
+function getNextVersion(environment: IEnvironmentService, baseDir: string, workflowId: string): number {
+  const versionsDir = getVersionsDir(environment, baseDir, workflowId);
+  if (!environment.exists(versionsDir)) return 1;
+  const entries = environment.readDir(versionsDir)
+    .filter(e => environment.exists(environment.joinPath(versionsDir, e, 'meta.json')))
     .map(Number)
     .filter(n => !isNaN(n));
   return entries.length === 0 ? 1 : Math.max(...entries) + 1;
 }
 
 export function saveVersion(
+  environment: IEnvironmentService,
   baseDir: string,
   workflowId: string,
   yamlContent: string,
   message: string
 ): WorkflowVersion {
-  const version = getNextVersion(baseDir, workflowId);
-  const vDir = getVersionDir(baseDir, workflowId, version);
-  mkdirSync(vDir, { recursive: true });
+  const version = getNextVersion(environment, baseDir, workflowId);
+  const vDir = getVersionDir(environment, baseDir, workflowId, version);
+  environment.ensureDir(vDir);
 
-  writeFileSync(join(vDir, 'workflow.yaml'), yamlContent, 'utf-8');
-  writeFileSync(
-    join(vDir, 'meta.json'),
-    JSON.stringify({ version, workflowId, message, createdAt: new Date().toISOString() }),
-    'utf-8'
+  environment.writeFile(environment.joinPath(vDir, 'workflow.yaml'), yamlContent);
+  environment.writeFile(
+    environment.joinPath(vDir, 'meta.json'),
+    JSON.stringify({ version, workflowId, message, createdAt: new Date().toISOString() })
   );
 
   return { version, workflowId, message, createdAt: new Date() };
 }
 
-export function listVersions(baseDir: string, workflowId: string): WorkflowVersion[] {
-  const versionsDir = getVersionsDir(baseDir, workflowId);
-  if (!existsSync(versionsDir)) return [];
+export function listVersions(environment: IEnvironmentService, baseDir: string, workflowId: string): WorkflowVersion[] {
+  const versionsDir = getVersionsDir(environment, baseDir, workflowId);
+  if (!environment.exists(versionsDir)) return [];
 
-  const entries = readdirSync(versionsDir)
-    .filter(e => existsSync(join(versionsDir, e, 'meta.json')))
+  const entries = environment.readDir(versionsDir)
+    .filter(e => environment.exists(environment.joinPath(versionsDir, e, 'meta.json')))
     .map(Number)
     .filter(n => !isNaN(n))
     .sort((a, b) => a - b);
 
   return entries.map(v => {
-    const meta = JSON.parse(readFileSync(join(getVersionDir(baseDir, workflowId, v), 'meta.json'), 'utf-8'));
+    const meta = JSON.parse(environment.readFile(environment.joinPath(getVersionDir(environment, baseDir, workflowId, v), 'meta.json')));
     return {
       version: meta.version,
       workflowId: meta.workflowId,
@@ -67,25 +66,25 @@ export function listVersions(baseDir: string, workflowId: string): WorkflowVersi
   });
 }
 
-export function rollbackVersion(baseDir: string, workflowId: string, version: number): string {
-  const versionsDir = getVersionsDir(baseDir, workflowId);
-  if (!existsSync(versionsDir)) {
+export function rollbackVersion(environment: IEnvironmentService, baseDir: string, workflowId: string, version: number): string {
+  const versionsDir = getVersionsDir(environment, baseDir, workflowId);
+  if (!environment.exists(versionsDir)) {
     throw new Error(`No versions found for workflow ${workflowId}`);
   }
 
   let targetVersion = version;
   if (targetVersion === 0) {
-    const entries = readdirSync(versionsDir)
-      .filter(e => existsSync(join(versionsDir, e, 'meta.json')))
+    const entries = environment.readDir(versionsDir)
+      .filter(e => environment.exists(environment.joinPath(versionsDir, e, 'meta.json')))
       .map(Number)
       .filter(n => !isNaN(n));
     targetVersion = Math.max(...entries);
   }
 
-  const yamlPath = join(getVersionDir(baseDir, workflowId, targetVersion), 'workflow.yaml');
-  if (!existsSync(yamlPath)) {
+  const yamlPath = environment.joinPath(getVersionDir(environment, baseDir, workflowId, targetVersion), 'workflow.yaml');
+  if (!environment.exists(yamlPath)) {
     throw new Error(`Version ${targetVersion} not found for workflow ${workflowId}`);
   }
 
-  return readFileSync(yamlPath, 'utf-8');
+  return environment.readFile(yamlPath);
 }

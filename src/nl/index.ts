@@ -19,3 +19,10 @@ export {
   createCommandExecutor,
   type CommandExecutor
 } from './executor/command-executor.js';
+
+export { WorkflowDetector } from './workflow-detector.js';
+export { WorkflowMatcher } from './workflow-matcher.js';
+export { Translator, TranslationMemory } from './translator.js';
+export { RequestQueue } from './llm-http-client.js';
+export { ConfigHotReloader, getConfigHotReloader } from './llm-config.js';
+export { getCapabilityDiscovery } from './capabilities/capability-discovery.js';

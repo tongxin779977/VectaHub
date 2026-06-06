@@ -7,9 +7,11 @@ vi.mock('../src/ui/output.js', () => ({
 
 import { ProcessManager } from '../src/cli/process-manager.js';
 
-function createFakeChild(opts?: { killed?: boolean; killThrows?: boolean }) {
+let nextPid = 1001;
+
+function createFakeChild(opts?: { killed?: boolean; killThrows?: boolean; pid?: number }) {
   const child = new EventEmitter() as any;
-  child.pid = Math.floor(Math.random() * 10000) + 1;
+  child.pid = opts?.pid ?? nextPid++;
   child.killed = opts?.killed ?? false;
   child.kill = vi.fn((signal?: string) => {
     if (opts?.killThrows) throw new Error('kill failed');
@@ -26,6 +28,8 @@ function createFakeChild(opts?: { killed?: boolean; killThrows?: boolean }) {
 describe('ProcessManager', () => {
   beforeEach(() => {
     (ProcessManager as any).instance = undefined;
+    nextPid = 1001;
+    vi.restoreAllMocks();
   });
 
   describe('getInstance()', () => {
@@ -36,8 +40,8 @@ describe('ProcessManager', () => {
     });
   });
 
-  describe('register() + exit 事件', () => {
-    it('exit 事件触发后进程从 Set 中消失', () => {
+  describe('register() + close 事件', () => {
+    it('close 事件触发后进程从 Set 中消失', () => {
       const pm = ProcessManager.getInstance();
       const child = createFakeChild();
       pm.register(child);
@@ -45,7 +49,7 @@ describe('ProcessManager', () => {
       const activeBefore = (pm as any).activeProcesses as Set<any>;
       expect(activeBefore.size).toBe(1);
 
-      child.emit('exit', 0, null);
+      child.emit('close', 0);
 
       const activeAfter = (pm as any).activeProcesses as Set<any>;
       expect(activeAfter.size).toBe(0);
@@ -67,41 +71,57 @@ describe('ProcessManager', () => {
   });
 
   describe('killAll()', () => {
-    it('对未终止进程发 SIGTERM', () => {
+    it('对未终止进程优先走进程组 SIGTERM', () => {
       const pm = ProcessManager.getInstance();
       const c1 = createFakeChild();
       const c2 = createFakeChild();
       pm.register(c1);
       pm.register(c2);
+      const processKillSpy = vi.spyOn(process, 'kill').mockImplementation(() => true as any);
 
       pm.killAll();
 
-      expect(c1.kill).toHaveBeenCalledWith('SIGTERM');
-      expect(c2.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(processKillSpy).toHaveBeenCalledWith(-c1.pid, 'SIGTERM');
+      expect(processKillSpy).toHaveBeenCalledWith(-c2.pid, 'SIGTERM');
+      expect(c1.kill).not.toHaveBeenCalled();
+      expect(c2.kill).not.toHaveBeenCalled();
     });
 
     it('跳过已 killed 的进程', () => {
       const pm = ProcessManager.getInstance();
-      const alive = createFakeChild({ killed: false });
-      const dead = createFakeChild({ killed: true });
+      const alive = createFakeChild({ killed: false, pid: 2001 });
+      const dead = createFakeChild({ killed: true, pid: 2002 });
       pm.register(alive);
       pm.register(dead);
+      const processKillSpy = vi.spyOn(process, 'kill').mockImplementation(() => true as any);
 
       pm.killAll();
 
-      expect(alive.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(processKillSpy).toHaveBeenCalledWith(-alive.pid, 'SIGTERM');
+      expect(processKillSpy).not.toHaveBeenCalledWith(-dead.pid, 'SIGTERM');
+      expect(alive.kill).not.toHaveBeenCalled();
       expect(dead.kill).not.toHaveBeenCalled();
     });
 
-    it('异常不中断后续进程处理', () => {
+    it('进程组 kill 失败时 fallback 到 child.kill，且不中断后续处理', () => {
       const pm = ProcessManager.getInstance();
-      const throws = createFakeChild({ killThrows: true });
-      const normal = createFakeChild();
-      pm.register(throws);
+      const fallbackTarget = createFakeChild({ killed: false, pid: 3001 });
+      const normal = createFakeChild({ killed: false, pid: 3002 });
+      const processKillSpy = vi.spyOn(process, 'kill').mockImplementation((pid: number) => {
+        if (pid === -3001) {
+          throw new Error('group kill failed');
+        }
+        return true as any;
+      });
+      const fallbackSpy = fallbackTarget.kill as ReturnType<typeof vi.fn>;
+      pm.register(fallbackTarget);
       pm.register(normal);
 
       expect(() => pm.killAll()).not.toThrow();
-      expect(normal.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(processKillSpy).toHaveBeenCalledWith(-3001, 'SIGTERM');
+      expect(processKillSpy).toHaveBeenCalledWith(-3002, 'SIGTERM');
+      expect(fallbackSpy).toHaveBeenCalledWith('SIGTERM');
+      expect(normal.kill).not.toHaveBeenCalled();
     });
 
     it('空集合不报错', () => {

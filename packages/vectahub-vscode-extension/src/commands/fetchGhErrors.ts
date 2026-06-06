@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { TasksViewProvider } from '../views/tasksView.js';
-import { runCli } from '../cli/adapter.js';
+import { runCli, getActiveWorkspaceFolder } from '../cli/adapter.js';
 import { waitForCliReady } from '../cli/readiness.js';
 import { logToOutput } from '../ui/output.js';
 import { QueueSummary } from '../project/diagnosticModel.js';
@@ -32,9 +32,10 @@ export function registerFetchGhErrorsCommand(context: vscode.ExtensionContext, t
       title: "VectaHub: 正在同步 GitHub Actions 错误...",
       cancellable: true
     }, async (progress, token) => {
+      const cwd = getActiveWorkspaceFolder();
       const result = await runCli<WorkflowResult>(
         ['run', '-f', 'sys:fetch-gh-actions-errors', '--json'],
-        { token }
+        { token, cwd, timeout: 120000 }
       );
 
       if (!result.ok) {

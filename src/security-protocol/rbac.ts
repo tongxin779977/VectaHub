@@ -1,8 +1,13 @@
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'fs';
-import { getVectaHubPath, getVectaHubHome } from '../utils/paths.js';
+import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { getVectaHubPath, getVectaHubHome } from '../infrastructure/paths/index.js';
 import { ShellTokenizer } from '../utils/shell-tokenizer.js';
+import { matchBlockedCommand } from './pattern-matcher.js';
 
-const RBAC_FILE = getVectaHubPath('rbac.json');
+interface LoggerLike {
+  warn(message: string, ...args: unknown[]): void;
+}
+
+const noopLogger: LoggerLike = { warn() {} };
 
 export type RoleName = 'developer' | 'ci-runner' | 'admin';
 
@@ -55,103 +60,183 @@ function ensureRbacDir(): void {
   }
 }
 
-function patternToRegex(pattern: string): RegExp {
-  const escaped = pattern
-    .replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
-    .replace(/\\\*/g, '[^\\s]*')
-    .replace(/\\\?/g, '.');
-  
-  return new RegExp(`^(\\S+\\s+)*${escaped}(\\s+.*)?$`);
+function getRbacFile(): string {
+  return getVectaHubPath('rbac.json');
 }
 
-function matchBlockedCommand(command: string, blockedPattern: string): boolean {
-  const normalizedCommand = command.trim().toLowerCase();
-  const normalizedPattern = blockedPattern.trim().toLowerCase();
+const VARIABLE_INJECTION_PATTERNS = [
+  /\$\{?\w+\}?/,
+  /`[^`]+`/,
+  /\$\([^)]+\)/,
+];
 
-  if (normalizedCommand === normalizedPattern) {
-    return true;
+const ALIAS_PATTERNS = [
+  /^alias\s+/i,
+  /^unalias\s+/i,
+];
+
+function detectBypassAttempt(command: string): boolean {
+  for (const pattern of VARIABLE_INJECTION_PATTERNS) {
+    if (pattern.test(command)) return true;
   }
-
-  if (normalizedPattern.includes('*') || normalizedPattern.includes('?')) {
-    const regex = patternToRegex(normalizedPattern);
-    return regex.test(normalizedCommand);
+  for (const pattern of ALIAS_PATTERNS) {
+    if (pattern.test(command.trim())) return true;
   }
+  return false;
+}
 
-  const commandParts = normalizedCommand.split(/\s+/);
-  const patternParts = normalizedPattern.split(/\s+/);
+/**
+ * Split compound commands by shell separators (;, &&, ||, |)
+ * and return individual sub-commands for checking.
+ */
+function splitCompoundCommand(command: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let inSingle = false;
+  let inDouble = false;
 
-  if (patternParts.length > commandParts.length) {
-    return false;
-  }
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i];
 
-  for (let i = 0; i < patternParts.length; i++) {
-    const patternPart = patternParts[i];
-    const commandPart = commandParts[i];
-
-    if (patternPart === '*') {
+    if (inSingle) {
+      current += ch;
+      if (ch === "'") inSingle = false;
+      continue;
+    }
+    if (inDouble) {
+      current += ch;
+      if (ch === '"') inDouble = false;
       continue;
     }
 
-    if (patternPart !== commandPart) {
-      return false;
-    }
-  }
+    if (ch === "'") { inSingle = true; current += ch; continue; }
+    if (ch === '"') { inDouble = true; current += ch; continue; }
 
-  return true;
+    if (ch === ';') {
+      if (current.trim()) parts.push(current.trim());
+      current = '';
+      continue;
+    }
+    if (ch === '&' && command[i + 1] === '&') {
+      if (current.trim()) parts.push(current.trim());
+      current = '';
+      i++;
+      continue;
+    }
+    if (ch === '|' && command[i + 1] === '|') {
+      if (current.trim()) parts.push(current.trim());
+      current = '';
+      i++;
+      continue;
+    }
+    if (ch === '|') {
+      if (current.trim()) parts.push(current.trim());
+      current = '';
+      continue;
+    }
+
+    current += ch;
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts.filter(Boolean);
 }
 
-export function createRBACManager(): RBACManager {
+/**
+ * Creates a Role-Based Access Control manager.
+ * Manages role definitions, permission checks, and configuration persistence.
+ * Supports compound command splitting, bypass detection, and wildcard pattern matching.
+ *
+ * @param deps - Optional dependencies. Pass `{ logger }` to receive warnings on config load failure.
+ * @returns An RBACManager instance with role CRUD and execution permission checks
+ */
+export function createRBACManager(deps?: { logger?: LoggerLike }): RBACManager {
+  const logger = deps?.logger ?? noopLogger;
+
+  /**
+   * Loads role configuration from the RBAC config file.
+   * Falls back to default roles if the file is missing or malformed.
+   */
   function loadConfig(): RoleConfig[] {
+    const rbacFile = getRbacFile();
     ensureRbacDir();
-    if (!existsSync(RBAC_FILE)) {
+    if (!existsSync(rbacFile)) {
       return DEFAULT_ROLES;
     }
     try {
-      const raw = readFileSync(RBAC_FILE, 'utf-8');
+      const raw = readFileSync(rbacFile, 'utf-8');
       return JSON.parse(raw) as RoleConfig[];
-    } catch {
+    } catch (error) {
+      logger.warn('[RBAC] Failed to load config, falling back to defaults', error);
       return DEFAULT_ROLES;
     }
   }
 
+  /**
+   * Persists the given role configuration to disk.
+   *
+   * @param roles - The role configuration array to save
+   */
   function saveConfig(roles: RoleConfig[]): void {
+    const rbacFile = getRbacFile();
     ensureRbacDir();
-    writeFileSync(RBAC_FILE, JSON.stringify(roles, null, 2), 'utf-8');
+    writeFileSync(rbacFile, JSON.stringify(roles, null, 2), 'utf-8');
   }
 
+  /**
+   * Returns the configuration for a specific role.
+   *
+   * @param name - The role name to look up
+   * @returns The role configuration, falling back to defaults if not found
+   */
   function getRole(name: RoleName): RoleConfig {
     const roles = loadConfig();
     const role = roles.find((r) => r.name === name);
     return role || DEFAULT_ROLES.find((r) => r.name === name)!;
   }
 
+  /** Returns all configured roles */
   function getAllRoles(): RoleConfig[] {
     return loadConfig();
   }
 
-  function canExecute(role: RoleName, command: string, tool?: string): boolean {
+  /**
+   * Checks whether a role is permitted to execute a given command.
+   * Performs bypass detection, compound command splitting, blocked command matching,
+   * and allowed tool verification.
+   *
+   * @param role - The role to check permissions for
+   * @param command - The command string to evaluate
+   * @param _tool - Optional tool name (unused, kept for interface compatibility)
+   * @returns true if the command is allowed, false if blocked
+   */
+  function canExecute(role: RoleName, command: string, _tool?: string): boolean {
     const roleConfig = getRole(role);
 
-    // 1. 分解复合命令，确保每一部分都经过校验
-    const subCommands = ShellTokenizer.tokenize(command);
+    if (detectBypassAttempt(command)) {
+      return false;
+    }
 
-    for (const subCmd of subCommands) {
-      const normalizedSubCmd = subCmd.raw.toLowerCase();
+    const compoundParts = splitCompoundCommand(command);
 
-      // 校验黑名单
-      for (const blocked of roleConfig.blocked_commands) {
-        if (matchBlockedCommand(normalizedSubCmd, blocked)) {
-          return false;
+    for (const part of compoundParts) {
+      const subCommands = ShellTokenizer.tokenize(part);
+
+      for (const subCmd of subCommands) {
+        const normalizedSubCmd = subCmd.raw.toLowerCase();
+
+        for (const blocked of roleConfig.blocked_commands) {
+          if (matchBlockedCommand(normalizedSubCmd, blocked)) {
+            return false;
+          }
         }
-      }
 
-      // 校验允许的工具列表
-      if (roleConfig.allowed_tools[0] !== '*') {
-        const cmdCli = subCmd.cli.toLowerCase();
-        const isAllowed = roleConfig.allowed_tools.some(t => t.toLowerCase() === cmdCli);
-        
-        if (!isAllowed) {
-          return false;
+        if (roleConfig.allowed_tools[0] !== '*') {
+          const cmdCli = subCmd.cli.toLowerCase();
+          const isAllowed = roleConfig.allowed_tools.some(t => t.toLowerCase() === cmdCli);
+
+          if (!isAllowed) {
+            return false;
+          }
         }
       }
     }
@@ -159,10 +244,20 @@ export function createRBACManager(): RBACManager {
     return true;
   }
 
+  /**
+   * Returns the maximum timeout (in ms) for a given role.
+   *
+   * @param role - The role name
+   */
   function getMaxTimeout(role: RoleName): number {
     return getRole(role).max_timeout;
   }
 
+  /**
+   * Returns the sandbox mode for a given role.
+   *
+   * @param role - The role name
+   */
   function getSandboxMode(role: RoleName): 'STRICT' | 'RELAXED' | 'CONSENSUS' {
     return getRole(role).sandbox_mode;
   }

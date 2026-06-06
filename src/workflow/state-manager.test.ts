@@ -60,6 +60,8 @@ describe('ExecutionStateManager', () => {
 
     it('should set state to PAUSED and update execution status', () => {
       sm.currentExecution = createMockExecution();
+      sm.setState('RUNNING');
+      sm.setState('PAUSING');
       sm.setState('PAUSED');
       expect(sm.state).toBe('PAUSED');
       expect(sm.currentExecution.status).toBe('PAUSED');
@@ -67,6 +69,7 @@ describe('ExecutionStateManager', () => {
 
     it('should set state to COMPLETED and update execution status', () => {
       sm.currentExecution = createMockExecution();
+      sm.setState('RUNNING');
       sm.setState('COMPLETED');
       expect(sm.state).toBe('COMPLETED');
       expect(sm.currentExecution.status).toBe('COMPLETED');
@@ -74,6 +77,7 @@ describe('ExecutionStateManager', () => {
 
     it('should set state to FAILED and update execution status', () => {
       sm.currentExecution = createMockExecution();
+      sm.setState('RUNNING');
       sm.setState('FAILED');
       expect(sm.state).toBe('FAILED');
       expect(sm.currentExecution.status).toBe('FAILED');
@@ -81,6 +85,7 @@ describe('ExecutionStateManager', () => {
 
     it('should map ABORTING to ABORTED status', () => {
       sm.currentExecution = createMockExecution();
+      sm.setState('RUNNING');
       sm.setState('ABORTING');
       expect(sm.state).toBe('ABORTING');
       expect(sm.currentExecution.status).toBe('ABORTED');
@@ -88,6 +93,8 @@ describe('ExecutionStateManager', () => {
 
     it('should map ABORTED to ABORTED status', () => {
       sm.currentExecution = createMockExecution();
+      sm.setState('RUNNING');
+      sm.setState('ABORTING');
       sm.setState('ABORTED');
       expect(sm.state).toBe('ABORTED');
       expect(sm.currentExecution.status).toBe('ABORTED');
@@ -95,6 +102,18 @@ describe('ExecutionStateManager', () => {
 
     it('should not throw when no current execution', () => {
       expect(() => sm.setState('RUNNING')).not.toThrow();
+      expect(sm.state).toBe('RUNNING');
+    });
+
+    it('should throw on illegal transition', () => {
+      expect(() => sm.setState('PAUSED')).toThrow('Invalid execution state transition');
+    });
+
+    it('should allow starting a new execution from terminal state', () => {
+      sm.currentExecution = createMockExecution();
+      sm.setState('RUNNING');
+      sm.setState('COMPLETED');
+      sm.setState('RUNNING');
       expect(sm.state).toBe('RUNNING');
     });
   });

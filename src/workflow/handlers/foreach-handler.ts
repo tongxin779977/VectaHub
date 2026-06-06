@@ -1,6 +1,9 @@
 import type { Step } from '../../types/index.js';
 import type { StepHandler, ExecutorOptions, ExecutionContext, ExecuteStepFn, ExecutionResult } from './types.js';
 import { interpolateString, interpolateStep } from '../interpolation.js';
+import { getLogger } from '../../infrastructure/logger/index.js';
+
+const moduleLogger = getLogger('foreach-handler');
 
 export const handleForEach: StepHandler = async (
   step: Step,
@@ -18,7 +21,9 @@ export const handleForEach: StepHandler = async (
     try {
       parsedItems = JSON.parse(trimmed);
       if (!Array.isArray(parsedItems)) parsedItems = null;
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      moduleLogger.debug({ error: message, input: trimmed.slice(0, 100) }, 'for_each items JSON parse failed');
       parsedItems = null;
     }
   }

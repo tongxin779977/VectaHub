@@ -5,6 +5,7 @@ import {
   detectCycles,
   getReadyNodes,
   updateDependency,
+  validateDependencies,
 } from './dag.js';
 
 interface TestNode {
@@ -57,14 +58,12 @@ describe('dag', () => {
       expect(graph.inDegree.get('c')).toBe(2);
     });
 
-    it('should ignore non-existent dependencies', () => {
+    it('should throw for non-existent dependencies', () => {
       const nodes: TestNode[] = [
         { id: 'a', dependsOn: ['non-existent'] },
       ];
 
-      const graph = buildDependencyGraph(nodes);
-
-      expect(graph.inDegree.get('a')).toBe(0);
+      expect(() => buildDependencyGraph(nodes)).toThrow('Missing dependency target');
     });
   });
 
@@ -104,16 +103,14 @@ describe('dag', () => {
       expect(() => topologicalSort(nodes, 'strict')).toThrow('Cyclic dependency');
     });
 
-    it('should handle cycles in relaxed mode', () => {
+    it('should detect cycles in relaxed mode', () => {
       const nodes: TestNode[] = [
         { id: 'a', dependsOn: ['c'] },
         { id: 'b', dependsOn: ['a'] },
         { id: 'c', dependsOn: ['b'] },
       ];
 
-      const sorted = topologicalSort(nodes, 'relaxed');
-
-      expect(sorted.length).toBe(0);
+      expect(() => topologicalSort(nodes, 'relaxed')).toThrow('Cyclic dependency');
     });
 
     it('should handle diamond dependencies', () => {
@@ -225,6 +222,34 @@ describe('dag', () => {
 
       expect(newlyReady).toEqual(['b']);
       expect(graph.inDegree.get('c')).toBe(1);
+    });
+  });
+
+  describe('validateDependencies', () => {
+    it('should pass for valid DAG', () => {
+      const nodes: TestNode[] = [
+        { id: 'a' },
+        { id: 'b', dependsOn: ['a'] },
+      ];
+
+      expect(() => validateDependencies(nodes)).not.toThrow();
+    });
+
+    it('should throw when dependency target is missing', () => {
+      const nodes: TestNode[] = [
+        { id: 'a', dependsOn: ['missing'] },
+      ];
+
+      expect(() => validateDependencies(nodes)).toThrow('Missing dependency target');
+    });
+
+    it('should throw when cycle exists', () => {
+      const nodes: TestNode[] = [
+        { id: 'a', dependsOn: ['b'] },
+        { id: 'b', dependsOn: ['a'] },
+      ];
+
+      expect(() => validateDependencies(nodes)).toThrow('Cyclic dependency');
     });
   });
 });

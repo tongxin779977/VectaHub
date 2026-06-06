@@ -91,8 +91,11 @@ describe('BUG-001: JSON mode should not have log pollution', () => {
     expect(stdout).toBeTruthy();
     try {
       JSON.parse(stdout);
-    } catch (e: any) {
-      throw new Error(`stdout should be valid JSON when --json is used. Error: ${e.message}, stdout: ${stdout.substring(0, 200)}`);
+    } catch (e: unknown) {
+      if (e instanceof Error) {
+        throw new Error(`stdout should be valid JSON when --json is used. Error: ${e.message}, stdout: ${stdout.substring(0, 200)}`, { cause: e });
+      }
+      throw e;
     }
   });
 });

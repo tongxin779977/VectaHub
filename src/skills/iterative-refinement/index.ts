@@ -12,10 +12,21 @@ import type {
   RefinementResult,
 } from './types.js';
 
+/**
+ * Creates an Iterative Refinement skill
+ * @param config - Partial retry configuration
+ * @returns IterativeRefinementSkill instance
+ */
 export function createIterativeRefinementSkill(config?: Partial<RetryConfig>) {
   const retryManager = createRetryManager(config);
   const analyzer = createFiveWhysAnalyzer();
 
+  /**
+   * Executes a task with retry and refinement
+   * @param taskFn - The task function to execute
+   * @param options - Execution options including task ID and callbacks
+   * @returns RefinementResult with optional task result
+   */
   async function execute<T>(
     taskFn: () => Promise<T>,
     options?: {
@@ -26,10 +37,21 @@ export function createIterativeRefinementSkill(config?: Partial<RetryConfig>) {
     return retryManager.executeWithRetry(taskFn, options);
   }
 
+  /**
+   * Analyzes an error using the 5 Whys method
+   * @param taskId - The task identifier
+   * @param error - The error message to analyze
+   * @returns Analysis result
+   */
   function analyzeError(taskId: string, error: string) {
     return analyzer.analyze(taskId, error);
   }
 
+  /**
+   * Formats the error analysis for display
+   * @param analysis - The analysis result from analyzeError
+   * @returns Formatted analysis string
+   */
   function formatAnalysis(analysis: ReturnType<typeof analyzeError>) {
     return analyzer.formatAnalysis(analysis);
   }
@@ -45,5 +67,3 @@ export function createIterativeRefinementSkill(config?: Partial<RetryConfig>) {
 export type IterativeRefinementSkill = ReturnType<
   typeof createIterativeRefinementSkill
 >;
-
-export default createIterativeRefinementSkill;

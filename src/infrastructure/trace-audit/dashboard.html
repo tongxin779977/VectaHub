@@ -476,101 +476,56 @@
     </div>
 
     <script>
-        // 模拟数据
-        const mockData = {
+        const EMPTY_DASHBOARD_DATA = {
             metrics: {
-                totalCalls: 1250,
-                successRate: 98.5,
-                avgDuration: 245,
-                p95Duration: 1200,
-                failureCount: 19,
-                activeAlerts: 3
+                totalCalls: 0,
+                successRate: 0,
+                avgDuration: 0,
+                p95Duration: 0,
+                failureCount: 0,
+                activeAlerts: 0
             },
-            traces: [
-                {
-                    traceId: 'trace_001',
-                    moduleName: 'Workflow Engine',
-                    caller: 'CLI',
-                    startTime: '2026-05-06T10:30:00Z',
-                    duration: 150,
-                    status: 'COMPLETED',
-                    error: null
-                },
-                {
-                    traceId: 'trace_002',
-                    moduleName: 'NL Processor',
-                    caller: 'Workflow Engine',
-                    startTime: '2026-05-06T10:31:00Z',
-                    duration: 320,
-                    status: 'COMPLETED',
-                    error: null
-                },
-                {
-                    traceId: 'trace_003',
-                    moduleName: 'Sandbox',
-                    caller: 'Executor',
-                    startTime: '2026-05-06T10:32:00Z',
-                    duration: 5000,
-                    status: 'TIMEOUT',
-                    error: 'Execution timeout after 5000ms'
-                },
-                {
-                    traceId: 'trace_004',
-                    moduleName: 'Security Rules',
-                    caller: 'Sandbox',
-                    startTime: '2026-05-06T10:33:00Z',
-                    duration: 80,
-                    status: 'FAILED',
-                    error: 'Rule validation failed'
-                },
-                {
-                    traceId: 'trace_005',
-                    moduleName: 'Storage',
-                    caller: 'Workflow Engine',
-                    startTime: '2026-05-06T10:34:00Z',
-                    duration: 45,
-                    status: 'COMPLETED',
-                    error: null
-                }
-            ],
-            alerts: [
-                {
-                    id: 'alert_001',
-                    level: 'CRITICAL',
-                    message: '模块 Sandbox 执行超时: 5000ms > 3000ms',
-                    timestamp: '2026-05-06T10:32:05Z'
-                },
-                {
-                    id: 'alert_002',
-                    level: 'WARNING',
-                    message: '模块 Security Rules 状态异常: FAILED',
-                    timestamp: '2026-05-06T10:33:01Z'
-                },
-                {
-                    id: 'alert_003',
-                    level: 'INFO',
-                    message: '模块 NL Processor 执行时长超过阈值: 320ms > 200ms',
-                    timestamp: '2026-05-06T10:31:01Z'
-                }
-            ]
+            traces: [],
+            alerts: []
         };
+
+        function readDashboardData() {
+            const raw = window.__TRACE_DASHBOARD_DATA__;
+            if (!raw || typeof raw !== 'object') {
+                return EMPTY_DASHBOARD_DATA;
+            }
+            return {
+                metrics: {
+                    totalCalls: Number(raw.metrics?.totalCalls ?? 0),
+                    successRate: Number(raw.metrics?.successRate ?? 0),
+                    avgDuration: Number(raw.metrics?.avgDuration ?? 0),
+                    p95Duration: Number(raw.metrics?.p95Duration ?? 0),
+                    failureCount: Number(raw.metrics?.failureCount ?? 0),
+                    activeAlerts: Number(raw.metrics?.activeAlerts ?? 0)
+                },
+                traces: Array.isArray(raw.traces) ? raw.traces : [],
+                alerts: Array.isArray(raw.alerts) ? raw.alerts : []
+            };
+        }
+
+        const dashboardData = readDashboardData();
 
         // 初始化页面
         document.addEventListener('DOMContentLoaded', function() {
             updateMetrics();
-            renderTable(mockData.traces);
-            renderAlerts(mockData.alerts);
+            renderTable(dashboardData.traces);
+            renderAlerts(dashboardData.alerts);
             drawTopology();
         });
 
         // 更新指标
         function updateMetrics() {
-            document.getElementById('total-calls').textContent = mockData.metrics.totalCalls;
-            document.getElementById('success-rate').textContent = mockData.metrics.successRate + '%';
-            document.getElementById('avg-duration').textContent = mockData.metrics.avgDuration + 'ms';
-            document.getElementById('p95-duration').textContent = mockData.metrics.p95Duration + 'ms';
-            document.getElementById('failure-count').textContent = mockData.metrics.failureCount;
-            document.getElementById('active-alerts').textContent = mockData.metrics.activeAlerts;
+            document.getElementById('total-calls').textContent = dashboardData.metrics.totalCalls;
+            document.getElementById('success-rate').textContent = dashboardData.metrics.successRate + '%';
+            document.getElementById('avg-duration').textContent = dashboardData.metrics.avgDuration + 'ms';
+            document.getElementById('p95-duration').textContent = dashboardData.metrics.p95Duration + 'ms';
+            document.getElementById('failure-count').textContent = dashboardData.metrics.failureCount;
+            document.getElementById('active-alerts').textContent = dashboardData.metrics.activeAlerts;
         }
 
         // 渲染表格
@@ -623,31 +578,43 @@
             canvas.width = canvas.offsetWidth;
             canvas.height = canvas.offsetHeight;
 
-            const nodes = [
-                { id: 'CLI', x: 100, y: 200, status: 'COMPLETED' },
-                { id: 'Workflow Engine', x: 300, y: 200, status: 'COMPLETED' },
-                { id: 'NL Processor', x: 500, y: 100, status: 'COMPLETED' },
-                { id: 'Executor', x: 500, y: 200, status: 'COMPLETED' },
-                { id: 'Sandbox', x: 700, y: 200, status: 'TIMEOUT' },
-                { id: 'Security Rules', x: 700, y: 300, status: 'FAILED' },
-                { id: 'Storage', x: 500, y: 300, status: 'COMPLETED' }
-            ];
-
-            const edges = [
-                { source: 'CLI', target: 'Workflow Engine' },
-                { source: 'Workflow Engine', target: 'NL Processor' },
-                { source: 'Workflow Engine', target: 'Executor' },
-                { source: 'Executor', target: 'Sandbox' },
-                { source: 'Sandbox', target: 'Security Rules' },
-                { source: 'Workflow Engine', target: 'Storage' }
-            ];
-
             const statusColors = {
                 COMPLETED: '#28a745',
                 FAILED: '#dc3545',
                 TIMEOUT: '#ffc107',
                 RUNNING: '#17a2b8'
             };
+
+            if (dashboardData.traces.length === 0) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#6c757d';
+                ctx.font = '16px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('暂无链路数据', canvas.width / 2, canvas.height / 2);
+                return;
+            }
+
+            const moduleNames = Array.from(new Set(dashboardData.traces.map(trace => trace.moduleName || 'Unknown')));
+            const nodes = moduleNames.map((moduleName, index) => {
+                const trace = dashboardData.traces.find(item => (item.moduleName || 'Unknown') === moduleName);
+                const columns = Math.max(1, Math.ceil(Math.sqrt(moduleNames.length)));
+                const column = index % columns;
+                const row = Math.floor(index / columns);
+                const horizontalGap = canvas.width / (columns + 1);
+                const verticalGap = canvas.height / (Math.ceil(moduleNames.length / columns) + 1);
+                return {
+                    id: moduleName,
+                    x: horizontalGap * (column + 1),
+                    y: verticalGap * (row + 1),
+                    status: trace?.status || 'RUNNING'
+                };
+            });
+
+            const edges = nodes.slice(1).map((node, index) => ({
+                source: nodes[index].id,
+                target: node.id
+            }));
 
             // 绘制边
             ctx.strokeStyle = '#ddd';
@@ -689,7 +656,7 @@
             const durationMin = document.getElementById('filter-duration-min').value;
             const durationMax = document.getElementById('filter-duration-max').value;
 
-            let filtered = [...mockData.traces];
+            let filtered = [...dashboardData.traces];
 
             if (module) {
                 filtered = filtered.filter(t => t.moduleName.includes(module));
@@ -718,7 +685,7 @@
             document.getElementById('filter-end-time').value = '';
             document.getElementById('filter-duration-min').value = '';
             document.getElementById('filter-duration-max').value = '';
-            renderTable(mockData.traces);
+            renderTable(dashboardData.traces);
         }
 
         // 窗口大小改变时重绘拓扑图

@@ -1,21 +1,30 @@
 
 import type { Skill, SkillContext, SkillResult, CompositeSkill } from './types.js';
 import type { IntentSkillOutput } from './intent-skill.js';
-import type { WorkflowSkillOutput } from './workflow-skill.js';
+import type { WorkflowSkillInput, WorkflowSkillOutput } from './workflow-skill.js';
 
-interface PipelineCommandResult {
-  commands: string[];
-}
-
+/**
+ * Input for the pipeline skill
+ * @property intent - The recognized intent
+ * @property params - Parameters extracted from user input
+ * @property commands - Array of CLI commands to include
+ */
 export interface PipelineSkillInput {
   intent: string;
   params: Record<string, unknown>;
   commands: Array<{ cli: string; args: string[] }>;
 }
 
+/**
+ * Creates an End-to-End Pipeline skill
+ * Combines intent recognition and workflow generation into a sequential pipeline
+ * @param intentSkill - The intent recognition skill
+ * @param workflowSkill - The workflow generation skill
+ * @returns CompositeSkill instance for end-to-end pipeline execution
+ */
 export function createPipelineSkill(
   intentSkill: Skill<string, IntentSkillOutput>,
-  workflowSkill: Skill<any, WorkflowSkillOutput>
+  workflowSkill: Skill<WorkflowSkillInput, WorkflowSkillOutput>
 ): CompositeSkill {
   return {
     id: 'vectahub.pipeline',
@@ -26,10 +35,22 @@ export function createPipelineSkill(
     skills: [intentSkill, workflowSkill],
     strategy: 'sequential',
 
-    async canHandle(context: SkillContext): Promise<boolean> {
+    /**
+     * Checks if this skill can handle the given context
+     * @param _context - The skill context
+     * @returns Always returns true
+     */
+    async canHandle(_context: SkillContext): Promise<boolean> {
       return true;
     },
 
+    /**
+     * Executes the end-to-end pipeline
+     * First recognizes intent, then generates workflow
+     * @param userInput - The user input string
+     * @param context - The skill context
+     * @returns Promise resolving to SkillResult with workflow YAML
+     */
     async execute(userInput: string, context: SkillContext): Promise<SkillResult<{ workflowYAML: string }>> {
       const intentResult = await intentSkill.execute(userInput, context);
       if (!intentResult.success || !intentResult.data) {

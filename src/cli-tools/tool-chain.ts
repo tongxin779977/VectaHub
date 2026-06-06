@@ -1,24 +1,39 @@
-import { spawn } from 'child_process';
+import { spawn } from 'node:child_process';
 import type { ToolStep, ToolChainResult, CliToolRegistry, CliToolResult } from './types.js';
 
 const DEFAULT_TIMEOUT = 60000;
 
+/**
+ * 工具链接口
+ * 支持链式调用的工具执行器
+ */
 export interface ToolChain {
+  /** 添加一个执行步骤 */
   addStep(step: ToolStep): ToolChain;
+  /** 添加多个执行步骤 */
   addSteps(steps: ToolStep[]): ToolChain;
-  setContext(key: string, value: any): ToolChain;
-  getContext(): Record<string, any>;
+  /** 设置上下文 */
+  setContext(key: string, value: unknown): ToolChain;
+  /** 获取上下文 */
+  getContext(): Record<string, unknown>;
+  /** 清空步骤和上下文 */
   clear(): ToolChain;
+  /** 执行工具链 */
   execute(): Promise<ToolChainResult>;
 }
 
+/**
+ * 创建工具链实例
+ * @param registry - CLI 工具注册表
+ * @returns 工具链实例
+ */
 export function createToolChain(registry: CliToolRegistry): ToolChain {
   const steps: ToolStep[] = [];
-  let context: Record<string, any> = {};
+  let context: Record<string, unknown> = {};
 
   async function executeStep(
     step: ToolStep,
-    currentContext: Record<string, any>
+    currentContext: Record<string, unknown>
   ): Promise<CliToolResult> {
     const startTime = Date.now();
     const options = step.options || {};
@@ -103,12 +118,12 @@ export function createToolChain(registry: CliToolRegistry): ToolChain {
       return this;
     },
 
-    setContext(key: string, value: any): ToolChain {
+    setContext(key: string, value: unknown): ToolChain {
       context[key] = value;
       return this;
     },
 
-    getContext(): Record<string, any> {
+    getContext(): Record<string, unknown> {
       return { ...context };
     },
 

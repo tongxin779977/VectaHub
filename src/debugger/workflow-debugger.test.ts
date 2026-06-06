@@ -1,11 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { WorkflowDebugger } from './workflow-debugger.js';
 
+const logger = {
+  info: vi.fn(),
+  warn: vi.fn(),
+};
+
 describe('WorkflowDebugger', () => {
   let debuggerInstance: WorkflowDebugger;
 
   beforeEach(() => {
-    debuggerInstance = new WorkflowDebugger();
+    debuggerInstance = new WorkflowDebugger({ logger });
   });
 
   afterEach(() => {

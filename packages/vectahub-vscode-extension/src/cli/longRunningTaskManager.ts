@@ -4,6 +4,7 @@ import { getCliPath } from '../config/settings.js';
 import { getGlobalCliPath } from '../extension.js';
 import { ProcessManager } from './process-manager.js';
 import { updateStatusBar } from '../ui/statusBar.js';
+import { parseCliPath } from './adapter.js';
 
 interface LongRunningTask {
   id: string;
@@ -58,13 +59,7 @@ export class LongRunningTaskManager {
     }
 
     const cliPath = this.getActualCliPath();
-    let spawnCmd = cliPath;
-    let spawnArgs: string[] = [];
-
-    if (cliPath.startsWith('node ')) {
-      spawnCmd = 'node';
-      spawnArgs = [cliPath.slice(5)];
-    }
+    const { cmd: spawnCmd, extraArgs: spawnArgs } = parseCliPath(cliPath);
 
     const args = [...spawnArgs, ...task.command.args];
 
@@ -155,7 +150,11 @@ export class LongRunningTaskManager {
   }
 
   async restart(task: { id: string; label: string; kind: string; command?: { cli: string; args: string[] } }, cwd?: string): Promise<LongRunningTask> {
-    this.stop(task.id);
+    const entry = this.runningTasks.get(task.id);
+    if (entry) {
+      try { entry.child.kill('SIGTERM'); } catch { /* ignore */ }
+      this.runningTasks.delete(task.id);
+    }
     return this.start(task, cwd);
   }
 

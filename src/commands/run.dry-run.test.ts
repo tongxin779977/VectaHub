@@ -11,9 +11,49 @@ const installerRun = vi.fn(async () => ({
 const createWorkflow = vi.fn();
 const executeWorkflow = vi.fn();
 const loadWorkflowFromFile = vi.fn();
+const orchestrateIntent = vi.fn(async () => ({
+  steps: [
+    {
+      id: 'step_1',
+      description: 'Git status',
+      status: 'PENDING',
+      cli: 'git',
+      args: ['status'],
+      type: 'exec',
+    },
+  ],
+  plan: {
+    id: 'plan_dry',
+    label: 'Git status plan',
+    capabilityId: 'git-workflow',
+    goal: { action: 'analyze', scope: 'project' },
+    steps: [
+      {
+        id: 'step_1',
+        label: 'Git status',
+        type: 'command',
+        command: { cli: 'git', args: ['status'] },
+      },
+    ],
+    userReport: {
+      summaryTemplate: 'Dry run: git status',
+      nextActions: ['Check output'],
+      verificationSteps: ['Verify git status output'],
+    },
+  },
+  intentRecognitionMethod: 'capability',
+  matchedCapability: 'git-workflow',
+  score: 0.9,
+}));
 
 vi.mock('../utils/logger.js', () => ({
   createConsoleLogger: () => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  }),
+  getLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
@@ -63,31 +103,19 @@ vi.mock('../skills/init.js', () => ({
   createSkillSystem: vi.fn(async () => ({ registry: {}, executor: {} })),
 }));
 
-vi.mock('../nl/core/index.js', () => ({
-  adaptAllTemplates: vi.fn(() => []),
-  createNLProcessor: vi.fn(() => ({
-    parse: vi.fn(async () => ({
-      success: true,
-      intent: 'GIT_WORKFLOW',
-      taskList: {
-        intent: 'GIT_WORKFLOW',
-        tasks: [
-          {
-            commands: [{ cli: 'git', args: ['status'] }],
-          },
-        ],
-      },
-    })),
-  })),
-}));
-
-vi.mock('../nl/core/keyword-fallback.js', () => ({
-  createKeywordFallback: vi.fn(() => ({})),
+vi.mock('../nl/orchestrator.js', () => ({
+  orchestrateIntent,
 }));
 
 vi.mock('../nl/templates/index.js', () => ({
   INTENT_TEMPLATES: [],
 }));
+
+async function createTestRunCmd() {
+  const { createRunCmd } = await import('./run.js');
+  const { getDefaultContext } = await import('../infrastructure/context.js');
+  return createRunCmd(getDefaultContext());
+}
 
 describe('run command dry-run first run behavior', () => {
   let exitSpy: { mockRestore: () => void };
@@ -96,6 +124,41 @@ describe('run command dry-run first run behavior', () => {
     installerRun.mockClear();
     createWorkflow.mockClear();
     executeWorkflow.mockClear();
+    orchestrateIntent.mockClear();
+    orchestrateIntent.mockResolvedValue({
+      steps: [
+        {
+          id: 'step_1',
+          description: 'Git status',
+          status: 'PENDING',
+          cli: 'git',
+          args: ['status'],
+          type: 'exec',
+        },
+      ],
+      plan: {
+        id: 'plan_dry',
+        label: 'Git status plan',
+        capabilityId: 'git-workflow',
+        goal: { action: 'analyze', scope: 'project' },
+        steps: [
+          {
+            id: 'step_1',
+            label: 'Git status',
+            type: 'command',
+            command: { cli: 'git', args: ['status'] },
+          },
+        ],
+        userReport: {
+          summaryTemplate: 'Dry run: git status',
+          nextActions: ['Check output'],
+          verificationSteps: ['Verify git status output'],
+        },
+      },
+      intentRecognitionMethod: 'capability',
+      matchedCapability: 'git-workflow',
+      score: 0.9,
+    });
     loadWorkflowFromFile.mockReset();
     exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
   });
@@ -105,14 +168,14 @@ describe('run command dry-run first run behavior', () => {
   });
 
   it('skips first-run installer and execution in dry-run mode', async () => {
-    const { runCmd } = await import('./run.js');
+    const runCmd = await createTestRunCmd();
 
     await runCmd.parseAsync(['node', 'test', '--dry-run', '查看 git 状态']);
 
     expect(installerRun).not.toHaveBeenCalled();
     expect(createWorkflow).not.toHaveBeenCalled();
     expect(executeWorkflow).not.toHaveBeenCalled();
-    expect(process.exit).toHaveBeenCalledWith(0);
+    expect(process.exit).not.toHaveBeenCalled();
   });
 
   it('skips workflow execution when dry-running a workflow file', async () => {
@@ -123,13 +186,241 @@ describe('run command dry-run first run behavior', () => {
       createdAt: new Date(),
     });
 
-    const { runCmd } = await import('./run.js');
+    const runCmd = await createTestRunCmd();
 
     await runCmd.parseAsync(['node', 'test', '--dry-run', '--file', 'workflow.yaml']);
 
     expect(loadWorkflowFromFile).toHaveBeenCalled();
     expect(createWorkflow).not.toHaveBeenCalled();
     expect(executeWorkflow).not.toHaveBeenCalled();
-    expect(process.exit).toHaveBeenCalledWith(0);
+    expect(process.exit).not.toHaveBeenCalled();
+  });
+
+  it('creates an ephemeral workflow by default for natural language execution', async () => {
+    createWorkflow.mockResolvedValue({
+      id: 'wf_ephemeral',
+      name: 'ephemeral workflow',
+      steps: [{ id: 'step_1', type: 'exec', cli: 'git', args: ['status'] }],
+      createdAt: new Date(),
+    });
+    executeWorkflow.mockResolvedValue({
+      executionId: 'exec_1',
+      workflowId: 'wf_ephemeral',
+      workflowName: 'ephemeral workflow',
+      status: 'COMPLETED',
+      mode: 'relaxed',
+      startedAt: new Date(),
+      endedAt: new Date(),
+      duration: 1,
+      steps: [],
+      warnings: [],
+      logs: [],
+    });
+
+    const runCmd = await createTestRunCmd();
+
+    await runCmd.parseAsync(['node', 'test', '查看 git 状态']);
+
+    expect(createWorkflow).toHaveBeenCalledWith(
+      expect.stringMatching(/^intent_/),
+      expect.any(Array),
+      { persist: false }
+    );
+  });
+
+  it('persists workflow only when save flag is provided', async () => {
+    createWorkflow.mockResolvedValue({
+      id: 'wf_saved',
+      name: 'saved workflow',
+      steps: [{ id: 'step_1', type: 'exec', cli: 'git', args: ['status'] }],
+      createdAt: new Date(),
+    });
+    executeWorkflow.mockResolvedValue({
+      executionId: 'exec_2',
+      workflowId: 'wf_saved',
+      workflowName: 'saved workflow',
+      status: 'COMPLETED',
+      mode: 'relaxed',
+      startedAt: new Date(),
+      endedAt: new Date(),
+      duration: 1,
+      steps: [],
+      warnings: [],
+      logs: [],
+    });
+
+    const runCmd = await createTestRunCmd();
+
+    await runCmd.parseAsync(['node', 'test', '--save', '查看 git 状态']);
+
+    expect(createWorkflow).toHaveBeenCalledWith(
+      expect.stringMatching(/^intent_/),
+      expect.any(Array),
+      { persist: true }
+    );
+  });
+
+  it('does not create a workflow for document task edit dispatch', async () => {
+    orchestrateIntent.mockResolvedValue({
+      steps: [
+        {
+          id: 'step_ci_diagnose',
+          description: 'CI diagnose',
+          status: 'PENDING',
+          cli: 'vectahub',
+          args: ['ci', 'diagnose'],
+          type: 'exec',
+        },
+      ],
+      intentRecognitionMethod: 'llm',
+      recognizedIntent: 'ci_diagnose',
+      score: 0.8,
+    });
+
+    const runCmd = await createTestRunCmd();
+
+    await runCmd.parseAsync(['node', 'test', '在 docs/tasks/run-task-kernel-hardening.md 追加 Task RTK-006D']);
+
+    expect(createWorkflow).not.toHaveBeenCalled();
+    expect(executeWorkflow).not.toHaveBeenCalled();
+    expect(process.exit).not.toHaveBeenCalled();
+  });
+
+  it('blocks generated VectaHub commands that are not registered', async () => {
+    orchestrateIntent.mockResolvedValue({
+      steps: [
+        {
+          id: 'step_ci_diagnose',
+          description: 'CI diagnose',
+          status: 'PENDING',
+          cli: 'vectahub',
+          args: ['ci', 'diagnose'],
+          type: 'exec',
+        },
+      ],
+      intentRecognitionMethod: 'llm',
+      recognizedIntent: 'ci_diagnose',
+      score: 0.8,
+    });
+
+    const runCmd = await createTestRunCmd();
+
+    await runCmd.parseAsync(['node', 'test', '诊断 CI 失败']);
+
+    expect(createWorkflow).not.toHaveBeenCalled();
+    expect(executeWorkflow).not.toHaveBeenCalled();
+    expect(process.exit).not.toHaveBeenCalled();
+  });
+
+  it('outputs blocked envelope in dry-run --json for unregistered VectaHub command', async () => {
+    const consoleSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    orchestrateIntent.mockResolvedValue({
+      steps: [
+        {
+          id: 'step_blocked',
+          description: 'Blocked command',
+          status: 'PENDING',
+          cli: 'vectahub',
+          args: ['ci', 'diagnose'],
+          type: 'exec',
+        },
+      ],
+      intentRecognitionMethod: 'llm',
+      recognizedIntent: 'ci_diagnose',
+      score: 0.8,
+    });
+
+    const runCmd = await createTestRunCmd();
+
+    await runCmd.parseAsync(['node', 'test', '--dry-run', '--json', '诊断 CI 失败']);
+
+    const output = consoleSpy.mock.calls.map(c => c[0]).join('');
+    const parsed = JSON.parse(output);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.dryRun).toBe(true);
+    expect(parsed.result.kind).toBe('blocked');
+    expect(createWorkflow).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  it('outputs clarify envelope in dry-run --json for doc-task-edit dispatch', async () => {
+    const consoleSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    orchestrateIntent.mockResolvedValue({
+      steps: [
+        {
+          id: 'step_doc',
+          description: 'Doc task',
+          status: 'PENDING',
+          cli: 'vectahub',
+          args: ['run-task'],
+          type: 'exec',
+        },
+      ],
+      intentRecognitionMethod: 'llm',
+      recognizedIntent: 'doc_task',
+      score: 0.8,
+    });
+
+    const runCmd = await createTestRunCmd();
+
+    await runCmd.parseAsync(['node', 'test', '--dry-run', '--json', '在 docs/tasks/run-task-kernel-hardening.md 追加 Task RTK-006D']);
+
+    const output = consoleSpy.mock.calls.map(c => c[0]).join('');
+    const parsed = JSON.parse(output);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.dryRun).toBe(true);
+    expect(parsed.result.kind).toBe('clarify');
+    expect(createWorkflow).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  it('outputs workflow_draft envelope in dry-run --json for executable steps', async () => {
+    const consoleSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    orchestrateIntent.mockResolvedValue({
+      steps: [
+        {
+          id: 'step_1',
+          description: 'Git status',
+          status: 'PENDING',
+          cli: 'git',
+          args: ['status'],
+          type: 'exec',
+        },
+      ],
+      plan: {
+        id: 'plan_dry',
+        label: 'Git status plan',
+        capabilityId: 'git-workflow',
+        goal: { action: 'analyze', scope: 'project' },
+        steps: [
+          {
+            id: 'step_1',
+            label: 'Git status',
+            type: 'command',
+            command: { cli: 'git', args: ['status'] },
+          },
+        ],
+        userReport: {
+          summaryTemplate: 'Dry run: git status',
+          nextActions: ['Check output'],
+          verificationSteps: ['Verify git status output'],
+        },
+      },
+      intentRecognitionMethod: 'capability',
+      matchedCapability: 'git-workflow',
+      score: 0.9,
+    });
+
+    const runCmd = await createTestRunCmd();
+
+    await runCmd.parseAsync(['node', 'test', '--dry-run', '--json', 'git status']);
+
+    const output = consoleSpy.mock.calls.map(c => c[0]).join('');
+    const parsed = JSON.parse(output);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.dryRun).toBe(true);
+    expect(parsed.result.kind).toBe('plan');
+    expect(createWorkflow).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
   });
 });

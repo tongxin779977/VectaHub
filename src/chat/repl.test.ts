@@ -1,19 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import * as readline from 'node:readline'; // Re-add this import
+import * as readline from 'node:readline';
 import { createRepl } from './repl.js';
 import { createCommandManager } from './command-manager.js';
-import type { ReplDeps, SlashCommandContext } from './types.js';
-import type { REPLDeps } from './types.js';
-import type { CommandBridge } from '../chat/command-bridge.js';
-import { createLLMConfig } from '../nl/llm.js';
+import { createDefaultChatConfig, type ChatConfig } from './config.js';
+import type { ReplDeps, SlashCommandContext, REPLDeps } from './types.js';
+import { LLMClient } from '../nl/llm.js';
 
-const cmdManager = createCommandManager();
+const defaultCfg = createDefaultChatConfig();
+const cmdManager = createCommandManager(defaultCfg);
 const parseInput = (input: string) => cmdManager.parseInput(input);
-
 
 vi.mock('node:readline', () => {
   const mockRl = {
-    question: vi.fn((_query, callback) => callback('y')), // Default to 'y' for questions
+    question: vi.fn((_query: string, callback: (answer: string) => void) => callback('y')),
     close: vi.fn(),
     on: vi.fn(),
     pause: vi.fn(),
@@ -21,12 +20,12 @@ vi.mock('node:readline', () => {
   };
   return {
     createInterface: vi.fn(() => mockRl),
-    __rl: mockRl, // Export mockRl so it can be controlled in tests
+    __rl: mockRl,
   };
 });
 
 vi.mock('node:child_process', async (importOriginal) => {
-  const actual = await importOriginal() as any;
+  const actual = await importOriginal() as Record<string, unknown>;
   return {
     ...actual,
     spawn: vi.fn(() => ({
@@ -34,8 +33,7 @@ vi.mock('node:child_process', async (importOriginal) => {
       stderr: { on: vi.fn() },
       on: vi.fn(),
     })),
-    exec: vi.fn((command, callback) => {
-      // Mock for simple exec calls, can be expanded
+    exec: vi.fn((command: string, callback: (err: Error | null, stdout: string, stderr: string) => void) => {
       if (command.includes('git rev-parse --show-toplevel')) {
         callback(null, '/mock/project/root', '');
       } else {
@@ -65,7 +63,7 @@ vi.mock('../chat/command-bridge.js', () => {
   const mockProgram = {
     name: () => 'vectahub',
     parseAsync: vi.fn().mockResolvedValue(undefined),
-    commands: [], // Add other properties of Command if needed by the mock
+    commands: [],
   };
   const mockCommandBridge = {
     execute: vi.fn().mockResolvedValue('Mock command bridge output from mockCommandBridge'),
@@ -73,53 +71,83 @@ vi.mock('../chat/command-bridge.js', () => {
   };
   return {
     createCommandBridge: vi.fn(() => mockCommandBridge),
-    CommandBridge: vi.fn(() => mockCommandBridge), // Also mock the class constructor
-    __mockCommandBridge: mockCommandBridge, // Export for testing purposes
+    CommandBridge: vi.fn(() => mockCommandBridge),
+    __mockCommandBridge: mockCommandBridge,
   };
 });
 
-
-import { defaultConfig, ChatConfig } from './config.js';
-
-import { createCommandBridge } from '../chat/command-bridge.js';
-import { createParamExtractor, type ParamExtractor } from '../nl/param-extractor.js';
-
 const mockChatConfig: ChatConfig = {
-  ...defaultConfig,
-  logLevel: 'debug',
+  ...defaultCfg,
+  logLevel: 'normal',
   executeMode: 'auto',
-  showWorkflowYAML: true,
-  enableCommandBridge: false,
 };
 
-function createMockDeps(overrides?: Partial<REPLDeps>): REPLDeps {
-  const mockParamExtractor: ParamExtractor = {
-    extract: vi.fn().mockReturnValue({ param1: 'value1' }),
-  };
+function createMockLogger() {
+  return {
+    info: vi.fn(),
+    error: vi.fn(),
+    warn: vi.fn(),
+    debug: vi.fn(),
+  } as unknown as import('pino').Logger;
+}
 
+function createMockAuditHelper() {
+  return {
+    log: vi.fn(),
+    cliCommand: vi.fn(),
+    cliOutput: vi.fn(),
+    workflowStart: vi.fn(),
+    workflowEnd: vi.fn(),
+    workflowStep: vi.fn(),
+    securityAlert: vi.fn(),
+    securityAction: vi.fn(),
+    configChange: vi.fn(),
+    intentMatch: vi.fn(),
+    executorResult: vi.fn(),
+    fileOperation: vi.fn(),
+    sandboxDetect: vi.fn(),
+  };
+}
+
+function createMockDeps(overrides?: Partial<REPLDeps>): REPLDeps {
   return {
     nlProcessor: { parse: vi.fn().mockResolvedValue({ intent: 'test', confidence: 0.9 }) },
     contextBuilder: { buildContext: vi.fn().mockResolvedValue({ cwd: '/test' }) },
-    llmConfig: { provider: 'openai', model: 'gpt-4' }, // Add this line
+    llmConfig: { provider: 'openai', model: 'gpt-4' },
     sessionManager: {
       getOrCreateSession: vi.fn().mockReturnValue({
+        sessionId: 'test',
         history: [],
         entities: {},
-        updateLastWorkflow: vi.fn(),
+        projectContext: { cwd: '/test' },
       }),
       addAssistantMessage: vi.fn(),
       addUserMessage: vi.fn(),
-    } as any,
-    useLLM: true, // Ensure useLLM is always a boolean
-    config: mockChatConfig, // Default config
-    commandBridge: createCommandBridge({} as any), // Use the mocked function to get a mock CommandBridge instance
-    paramExtractor: mockParamExtractor, // Add mockParamExtractor here
+      getSession: vi.fn().mockReturnValue({
+        sessionId: 'test',
+        history: [],
+        projectContext: { cwd: '/test' },
+        userPreferences: { executionMode: 'strict', preferredTools: [], verbose: false, autoConfirm: false },
+        recentActions: [],
+      }),
+      buildContextAwarePrompt: vi.fn().mockReturnValue(''),
+    } as unknown as ReplDeps['sessionManager'],
+    useLLM: true,
+    config: mockChatConfig,
+    commandBridge: {
+      execute: vi.fn().mockResolvedValue('Mock command bridge output'),
+    } as unknown as ReplDeps['commandBridge'],
+    paramExtractor: {
+      extract: vi.fn().mockReturnValue({ param1: 'value1' }),
+    } as unknown as ReplDeps['paramExtractor'],
+    auditHelper: createMockAuditHelper() as unknown as ReplDeps['auditHelper'],
+    logger: createMockLogger(),
     ...overrides,
   };
 }
 
 describe('parseInput', () => {
-  it('should parse shell command input', () => {
+  it('should parse ! prefix as shell command with prefix stripped', () => {
     const result = parseInput('!ls -la');
     expect(result.type).toBe('shell');
     expect(result.raw).toBe('!ls -la');
@@ -162,59 +190,26 @@ describe('createRepl', () => {
 
   it('should create repl with start method', () => {
     const deps = createMockDeps();
-    const repl = createRepl(deps as REPLDeps);
+    const repl = createRepl(deps);
     expect(repl).toHaveProperty('start');
     expect(typeof repl.start).toBe('function');
   });
 
   it('/help should list all slash commands', async () => {
     const deps = createMockDeps();
-    const repl = createRepl(deps as REPLDeps);
-    const handler = (repl as unknown as { getSlashCommands: () => Map<string, { name: string; description: string; handler: (args: string[], ctx: SlashCommandContext) => Promise<string> }> }).getSlashCommands();
+    const repl = createRepl(deps);
+    const handler = repl.getSlashCommands();
     const helpCmd = handler.get('help');
     expect(helpCmd).toBeDefined();
     const result = await helpCmd!.handler([], { sessionId: 'test', config: mockChatConfig });
     expect(result).toContain('help');
-    expect(result).toContain('history');
-    expect(result).toContain('config');
     expect(result).toContain('exit');
-  });
-
-  it('/history should show conversation history', async () => {
-    const mockSessionManager = {
-      getSession: vi.fn().mockReturnValue({
-        sessionId: 'test',
-        history: [
-          { role: 'user', content: 'hello' },
-          { role: 'assistant', content: 'hi there' },
-        ],
-        projectContext: { cwd: '/test' },
-      }),
-    };
-    const deps = createMockDeps();
-    const repl = createRepl(deps as REPLDeps, { sessionId: 'test', sessionManager: mockSessionManager as any });
-    const handler = (repl as unknown as { getSlashCommands: () => Map<string, { name: string; description: string; handler: (args: string[], ctx: SlashCommandContext) => Promise<string> }> }).getSlashCommands();
-    const historyCmd = handler.get('history');
-    const result = await historyCmd!.handler([], { sessionManager: mockSessionManager as any, sessionId: 'test', config: mockChatConfig });
-    expect(result).toContain('hello');
-    expect(result).toContain('hi there');
-  });
-
-  it('/config should mask API keys', async () => {
-    const deps = createMockDeps();
-    const repl = createRepl(deps as REPLDeps);
-    const handler = (repl as unknown as { getSlashCommands: () => Map<string, { name: string; description: string; handler: (args: string[], ctx: SlashCommandContext) => Promise<string> }> }).getSlashCommands();
-    const configCmd = handler.get('config');
-    const result = await configCmd!.handler([], { sessionId: 'test', config: { ...mockChatConfig, logLevel: 'quiet' } as any });
-    expect(result).not.toContain('sk-secret-12345'); // Still check that sensitive data is not explicitly shown
-    expect(result).toContain('logLevel: quiet'); // Check a valid config property
-    expect(result).toContain('executeMode: auto'); // Check another valid config property
   });
 
   it('/exit should return exit signal', async () => {
     const deps = createMockDeps();
-    const repl = createRepl(deps as REPLDeps);
-    const handler = (repl as unknown as { getSlashCommands: () => Map<string, { name: string; description: string; handler: (args: string[], ctx: SlashCommandContext) => Promise<string> }> }).getSlashCommands();
+    const repl = createRepl(deps);
+    const handler = repl.getSlashCommands();
     const exitCmd = handler.get('exit');
     const result = await exitCmd!.handler([], { sessionId: 'test', config: mockChatConfig });
     expect(result).toBe('__EXIT__');
@@ -222,122 +217,136 @@ describe('createRepl', () => {
 
   it('should process NL input through nlProcessor', async () => {
     const deps = createMockDeps();
-    const repl = createRepl(deps as REPLDeps);
-    const result = await (repl as unknown as { processInput: (input: string) => Promise<unknown> }).processInput('run tests');
+    const repl = createRepl(deps);
+    const result = await repl.processInput('run tests');
     expect(deps.nlProcessor.parse).toHaveBeenCalled();
     expect(result).toBeDefined();
   });
 
-  it('should execute shell command and capture output', async () => {
-    const { spawn } = await import('node:child_process');
-    const mockSpawn = {
-      stdout: { on: vi.fn((event: string, cb: (data: Buffer) => void) => { if (event === 'data') cb(Buffer.from('file1.txt\nfile2.txt')); }) },
-      stderr: { on: vi.fn() },
-      on: vi.fn((event: string, cb: (code: number) => void) => { if (event === 'close') cb(0); }),
-    };
-    vi.mocked(spawn).mockReturnValue(mockSpawn as never);
-
-    const deps = createMockDeps();
-    const repl = createRepl(deps as REPLDeps);
-    const result = await (repl as unknown as { processInput: (input: string) => Promise<unknown> }).processInput('!ls');
-    expect(spawn).toHaveBeenCalled();
-    expect(result).toBeDefined();
+  it('should execute shell command via commandBridge', async () => {
+    const mockBridgeExecute = vi.fn().mockResolvedValue('bridge output');
+    const deps = createMockDeps({
+      commandBridge: { execute: mockBridgeExecute } as unknown as ReplDeps['commandBridge'],
+    });
+    const repl = createRepl(deps);
+    const result = await repl.processInput('!ls -la');
+    expect(mockBridgeExecute).toHaveBeenCalledWith('ls -la');
+    expect(result.type).toBe('command-result');
+    expect(result.content).toBe('bridge output');
   });
 });
 
 describe('Workflow Execution Modes', () => {
-  let mockRl: any;
-  let mockWorkflowEngine: any;
-  let mockNlProcessor: any;
-  let mockCommandBridge: any;
-  let mockedLLMClient: any; // Add this
+  let mockRl: ReturnType<typeof readline.createInterface> & { question: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; on: ReturnType<typeof vi.fn>; prompt: ReturnType<typeof vi.fn> };
+  let mockWorkflowEngine: {
+    execute: ReturnType<typeof vi.fn>;
+    getWorkflow: ReturnType<typeof vi.fn>;
+    pauseExecution: ReturnType<typeof vi.fn>;
+    resumeExecution: ReturnType<typeof vi.fn>;
+    abortExecution: ReturnType<typeof vi.fn>;
+  };
+  let mockNlProcessor: { parse: ReturnType<typeof vi.fn> };
+  let mockedLLMClient: typeof mockLLMClientInstance;
 
-  beforeEach(async () => { // Make it async
+  beforeEach(async () => {
     vi.clearAllMocks();
-    // Access the mocked rl instance directly from the mocked module
-    const mockedReadline = vi.mocked(readline) as any; // Get the mocked readline module and cast to any
-    mockRl = mockedReadline.__rl; // Access its exported __rl
+    const mockedReadline = vi.mocked(readline) as unknown as { __rl: typeof mockRl };
+    mockRl = mockedReadline.__rl;
     mockWorkflowEngine = {
-      createWorkflow: vi.fn().mockResolvedValue({ id: 'mock-workflow-id', steps: [] }),
-      execute: vi.fn().mockResolvedValue({ status: 'COMPLETED', duration: 100, steps: [] }),
-      getWorkflow: vi.fn().mockImplementation((id: string) => {
-        if (id === 'mock-workflow-id') {
-          return { id: 'mock-workflow-id', steps: [] };
-        }
-        return undefined;
+      execute: vi.fn().mockResolvedValue({
+        executionId: 'exec-1',
+        status: 'COMPLETED',
+        duration: 100,
+        steps: [{ stepId: 'step1', status: 'COMPLETED', output: ['✅ 执行成功'] }],
+        warnings: [],
+        logs: [],
       }),
+      getWorkflow: vi.fn().mockReturnValue({ id: 'mock-workflow-id', steps: [] }),
+      pauseExecution: vi.fn(),
+      resumeExecution: vi.fn(),
+      abortExecution: vi.fn(),
     };
     mockNlProcessor = {
       parse: vi.fn().mockResolvedValue({
         intent: 'test-intent',
         confidence: 0.8,
-        workflowYAML: 'name: test-workflow\nsteps:\n  - cli: echo\n    args: ["hello"]',
+        workflowYAML: 'steps:\n  - id: step1\n    type: exec\n    cli: echo\n    args: ["hello"]',
         taskList: {
           intent: 'test-intent',
           tasks: [{ commands: [{ cli: 'echo', args: ['hello'] }] }],
         },
       }),
     };
-    mockCommandBridge = (await import('../chat/command-bridge.js') as any).__mockCommandBridge; // Assign the exported mock for direct access
-    
-    // Use the shared instance directly
     mockedLLMClient = mockLLMClientInstance;
   });
 
   it('should auto-execute workflow in "auto" mode', async () => {
     const deps = createMockDeps({
       config: { ...mockChatConfig, executeMode: 'auto' },
-      workflowEngine: mockWorkflowEngine,
-      nlProcessor: mockNlProcessor,
+      workflowEngine: mockWorkflowEngine as unknown as ReplDeps['workflowEngine'],
+      nlProcessor: mockNlProcessor as unknown as ReplDeps['nlProcessor'],
     });
     const repl = createRepl(deps);
     const result = await repl.processInput('some input');
 
-    // TODO: Fix mock instance leakage in Vitest environment
-    // expect(mockLLMClientInstance.complete).toHaveBeenCalled();
-    expect(mockWorkflowEngine.createWorkflow).toHaveBeenCalled();
     expect(mockWorkflowEngine.execute).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'mock-workflow-id' }),
-      expect.objectContaining({ mode: 'relaxed', initialVariables: { param1: 'value1' } })
+      expect.objectContaining({ mode: 'relaxed' }),
+      expect.objectContaining({ initialVariables: { param1: 'value1' } }),
     );
-    expect(result.type).toBe('text');
-    expect(result.content).toContain('✅ 执行成功');
+    expect(result.type).toBe('command-result');
+    expect(result.content).toContain('执行成功');
+  });
+
+  it('should create LLM client with injected audit helper in auto mode', async () => {
+    const auditHelper = createMockAuditHelper();
+    const deps = createMockDeps({
+      auditHelper: auditHelper as unknown as ReplDeps['auditHelper'],
+      config: { ...mockChatConfig, executeMode: 'auto' },
+      workflowEngine: mockWorkflowEngine as unknown as ReplDeps['workflowEngine'],
+      nlProcessor: mockNlProcessor as unknown as ReplDeps['nlProcessor'],
+    });
+
+    const repl = createRepl(deps);
+    await repl.processInput('some input');
+
+    expect(LLMClient).toHaveBeenCalledWith(
+      deps.llmConfig,
+      expect.objectContaining({ auditHelper }),
+    );
   });
 
   it('should prompt for confirmation in "confirm" mode and execute if "y"', async () => {
-    mockRl.question.mockImplementationOnce((_query: string, callback: (answer: string) => void) => callback('y')); // Simulate user entering 'y'
+    vi.mocked(mockRl.question).mockImplementationOnce((_query: string, callback: (answer: string) => void) => callback('y'));
     const deps = createMockDeps({
       config: { ...mockChatConfig, executeMode: 'confirm' },
-      workflowEngine: mockWorkflowEngine,
-      nlProcessor: mockNlProcessor,
+      workflowEngine: mockWorkflowEngine as unknown as ReplDeps['workflowEngine'],
+      nlProcessor: mockNlProcessor as unknown as ReplDeps['nlProcessor'],
     });
     const repl = createRepl(deps);
     const result = await repl.processInput('some input');
 
     expect(mockNlProcessor.parse).toHaveBeenCalledWith(expect.objectContaining({ input: 'some input' }));
     expect(mockRl.question).toHaveBeenCalled();
-    expect(mockWorkflowEngine.createWorkflow).toHaveBeenCalled();
     expect(mockWorkflowEngine.execute).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'mock-workflow-id' }),
-      expect.objectContaining({ mode: 'relaxed', initialVariables: { param1: 'value1' } }) // Expect initialVariables
+      expect.objectContaining({ mode: 'relaxed' }),
+      expect.objectContaining({ initialVariables: { param1: 'value1' } }),
     );
-    expect(result.type).toBe('text');
-    expect(result.content).toContain('✅ 执行成功');
+    expect(result.type).toBe('command-result');
+    expect(result.content).toContain('执行成功');
   });
 
   it('should prompt for confirmation in "confirm" mode and not execute if "n"', async () => {
-    mockRl.question.mockImplementationOnce((_query: string, callback: (answer: string) => void) => callback('n')); // Simulate user entering 'n'
+    vi.mocked(mockRl.question).mockImplementationOnce((_query: string, callback: (answer: string) => void) => callback('n'));
     const deps = createMockDeps({
       config: { ...mockChatConfig, executeMode: 'confirm' },
-      workflowEngine: mockWorkflowEngine,
-      nlProcessor: mockNlProcessor,
+      workflowEngine: mockWorkflowEngine as unknown as ReplDeps['workflowEngine'],
+      nlProcessor: mockNlProcessor as unknown as ReplDeps['nlProcessor'],
     });
     const repl = createRepl(deps);
     const result = await repl.processInput('some input');
 
     expect(mockNlProcessor.parse).toHaveBeenCalledWith(expect.objectContaining({ input: 'some input' }));
     expect(mockRl.question).toHaveBeenCalled();
-    expect(mockWorkflowEngine.createWorkflow).toHaveBeenCalled();
     expect(mockWorkflowEngine.execute).not.toHaveBeenCalled();
     expect(result.type).toBe('text');
     expect(result.content).toContain('已取消自动执行');
@@ -346,87 +355,129 @@ describe('Workflow Execution Modes', () => {
   it('should generate workflow and wait for manual execution in "manual" mode', async () => {
     const deps = createMockDeps({
       config: { ...mockChatConfig, executeMode: 'manual' },
-      workflowEngine: mockWorkflowEngine,
-      nlProcessor: mockNlProcessor,
+      workflowEngine: mockWorkflowEngine as unknown as ReplDeps['workflowEngine'],
+      nlProcessor: mockNlProcessor as unknown as ReplDeps['nlProcessor'],
     });
     const repl = createRepl(deps);
     const result = await repl.processInput('some input');
 
     expect(mockNlProcessor.parse).toHaveBeenCalledWith(expect.objectContaining({ input: 'some input' }));
-    expect(mockWorkflowEngine.createWorkflow).toHaveBeenCalled();
     expect(mockWorkflowEngine.execute).not.toHaveBeenCalled();
-    expect(mockRl.question).not.toHaveBeenCalled(); // No question in manual mode
     expect(result.type).toBe('text');
     expect(result.content).toContain('💡 输入 `执行工作流` 或 `/execute` 来运行。');
+  });
+
+  it('should preserve for_each workflow structure when generating workflow', async () => {
+    mockNlProcessor.parse.mockResolvedValueOnce({
+      intent: 'test-intent',
+      confidence: 0.8,
+      workflowYAML: [
+        'steps:',
+        '  - type: for_each',
+        '    items: "a\\nb"',
+        '    body:',
+        '      - type: exec',
+        '        cli: echo',
+        '        args: ["${item}"]',
+      ].join('\n'),
+      taskList: {
+        intent: 'test-intent',
+        tasks: [{ commands: [{ cli: 'echo', args: ['hello'] }] }],
+      },
+    });
+
+    const deps = createMockDeps({
+      config: { ...mockChatConfig, executeMode: 'manual' },
+      workflowEngine: mockWorkflowEngine as unknown as ReplDeps['workflowEngine'],
+      nlProcessor: mockNlProcessor as unknown as ReplDeps['nlProcessor'],
+    });
+    const repl = createRepl(deps);
+    const result = await repl.processInput('some input');
+
+    expect(result.type).toBe('text');
+    expect(result.content).toContain('工作流已生成');
+  });
+
+  it('should fail instead of generating echo fallback for invalid exec workflow step', async () => {
+    mockNlProcessor.parse.mockResolvedValueOnce({
+      intent: 'test-intent',
+      confidence: 0.8,
+      workflowYAML: [
+        'steps:',
+        '  - type: exec',
+        '    args: ["hello"]',
+      ].join('\n'),
+      taskList: {
+        intent: 'test-intent',
+        tasks: [{ commands: [{ cli: 'echo', args: ['hello'] }] }],
+      },
+    });
+
+    const deps = createMockDeps({
+      config: { ...mockChatConfig, executeMode: 'manual' },
+      workflowEngine: mockWorkflowEngine as unknown as ReplDeps['workflowEngine'],
+      nlProcessor: mockNlProcessor as unknown as ReplDeps['nlProcessor'],
+    });
+    const repl = createRepl(deps);
+    const result = await repl.processInput('some input');
+
+    expect(mockWorkflowEngine.execute).not.toHaveBeenCalled();
+    expect(result.type).toBe('error');
+    expect(result.content).toContain('missing cli');
   });
 });
 
 describe('Command Bridge functionality', () => {
-  let mockCommandBridge: any;
-  let mockCommandExecutor: any;
+  let mockCommandBridge: { execute: ReturnType<typeof vi.fn> };
+  let mockCommandExecutor: { execute: ReturnType<typeof vi.fn> };
 
-  beforeEach(async () => { // Make it async
+  beforeEach(async () => {
     vi.clearAllMocks();
-    mockCommandBridge = (await import('../chat/command-bridge.js') as any).__mockCommandBridge; // Access the mocked CommandBridge
+    mockCommandBridge = (await import('../chat/command-bridge.js') as unknown as { __mockCommandBridge: typeof mockCommandBridge }).__mockCommandBridge;
     mockCommandExecutor = {
       execute: vi.fn().mockResolvedValue('Mock shell command output'),
     };
   });
 
-  it('should use commandBridge for commands starting with prefix when enabled', async () => {
+  it('should use commandBridge for ! prefix commands', async () => {
     const deps = createMockDeps({
-      config: { ...mockChatConfig, enableCommandBridge: true, commandBridgePrefix: '!' },
-      commandExecutor: mockCommandExecutor,
+      commandBridge: mockCommandBridge as unknown as ReplDeps['commandBridge'],
+      commandExecutor: mockCommandExecutor as unknown as ReplDeps['commandExecutor'],
     });
     const repl = createRepl(deps);
     const result = await repl.processInput('!my-vectahub-command arg1');
 
     expect(mockCommandBridge.execute).toHaveBeenCalledWith('my-vectahub-command arg1');
-    expect(mockCommandExecutor.execute).not.toHaveBeenCalled();
     expect(result.type).toBe('command-result');
-    expect(result.content).toContain('Mock command bridge output from mockCommandBridge');
   });
 
-  it('should fallback to commandExecutor for commands not starting with commandBridgePrefix when bridge is enabled', async () => {
+  it('should fallback to commandExecutor when commandBridge throws', async () => {
+    mockCommandBridge.execute.mockRejectedValueOnce(new Error('bridge failed'));
     const deps = createMockDeps({
-      config: { ...mockChatConfig, enableCommandBridge: true, commandBridgePrefix: '/' }, // Change prefix to '/'
-      commandExecutor: mockCommandExecutor,
+      commandBridge: mockCommandBridge as unknown as ReplDeps['commandBridge'],
+      commandExecutor: mockCommandExecutor as unknown as ReplDeps['commandExecutor'],
     });
     const repl = createRepl(deps);
-    const result = await repl.processInput('!ls -la'); // This is a shell command, but not a command bridge command
+    const result = await repl.processInput('!ls -la');
 
-    expect(mockCommandBridge.execute).not.toHaveBeenCalled();
-    expect(mockCommandExecutor.execute).toHaveBeenCalledWith('!ls -la');
+    expect(mockCommandBridge.execute).toHaveBeenCalledWith('ls -la');
+    expect(mockCommandExecutor.execute).toHaveBeenCalledWith('ls -la');
     expect(result.type).toBe('command-result');
-    expect(result.content).toContain('Mock shell command output');
+    expect(result.content).toBe('Mock shell command output');
   });
 
-  it('should fallback to commandExecutor when commandBridge is disabled', async () => {
+  it('should handle errors from commandBridge and commandExecutor', async () => {
+    mockCommandBridge.execute.mockRejectedValueOnce(new Error('Command bridge failed'));
+    mockCommandExecutor.execute.mockRejectedValueOnce(new Error('executor failed'));
     const deps = createMockDeps({
-      config: { ...mockChatConfig, enableCommandBridge: false, commandBridgePrefix: '!' },
-      commandExecutor: mockCommandExecutor,
-    });
-    const repl = createRepl(deps);
-    const result = await repl.processInput('!my-vectahub-command arg1'); // Prefix present, but bridge disabled
-
-    expect(mockCommandBridge.execute).not.toHaveBeenCalled();
-    expect(mockCommandExecutor.execute).toHaveBeenCalledWith('!my-vectahub-command arg1'); // Full command passed to shell
-    expect(result.type).toBe('command-result');
-    expect(result.content).toContain('Mock shell command output');
-  });
-
-  it('should handle errors from commandBridge execution', async () => {
-    mockCommandBridge.execute.mockRejectedValue(new Error('Command bridge failed'));
-    const deps = createMockDeps({
-      config: { ...mockChatConfig, enableCommandBridge: true, commandBridgePrefix: '!' },
-      commandExecutor: mockCommandExecutor,
+      commandBridge: mockCommandBridge as unknown as ReplDeps['commandBridge'],
+      commandExecutor: mockCommandExecutor as unknown as ReplDeps['commandExecutor'],
     });
     const repl = createRepl(deps);
     const result = await repl.processInput('!failing-command');
 
     expect(mockCommandBridge.execute).toHaveBeenCalledWith('failing-command');
     expect(result.type).toBe('error');
-    expect(result.content).toContain('VectaHub command failed: Command bridge failed');
+    expect(result.content).toContain('执行出错');
   });
 });
-

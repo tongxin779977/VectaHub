@@ -1,6 +1,6 @@
 import { createRBACManager } from '../security-protocol/rbac.js';
-import { audit, getCurrentSessionId } from '../utils/audit.js';
-import { getCliToolRegistry } from '../cli-tools/index.js';
+import type { AuditHelper } from '../infrastructure/audit/index.js';
+import { getCliToolRegistry, type CliToolRegistry } from '../cli-tools/index.js';
 import { ShellTokenizer } from '../utils/shell-tokenizer.js';
 import type { ExecutorOptions, CLIResult } from './executor.js';
 import type { Step } from '../types/index.js';
@@ -13,7 +13,12 @@ import type { Step } from '../types/index.js';
  */
 export class PolicyManager {
   private rbac = createRBACManager();
-  private _toolRegistry?: any;
+  private _toolRegistry?: CliToolRegistry;
+  private auditHelper: AuditHelper;
+
+  constructor(auditHelper: AuditHelper) {
+    this.auditHelper = auditHelper;
+  }
 
   private get toolRegistry() {
     if (!this._toolRegistry) {
@@ -30,8 +35,8 @@ export class PolicyManager {
 
     const fullCommand = `${cli} ${args.join(' ')}`;
     if (!this.rbac.canExecute(options.role, fullCommand, cli)) {
-      const sessionId = getCurrentSessionId();
-      audit.securityAction('RBAC_DENIED', fullCommand, `Role ${options.role} blocked command`, sessionId);
+      const sessionId = options.sessionId || 'unknown';
+      this.auditHelper.securityAction('RBAC_DENIED', fullCommand, `Role ${options.role} blocked command`, sessionId);
       return {
         allowed: false,
         error: `Command denied by RBAC: role "${options.role}" cannot execute "${cli}"`,

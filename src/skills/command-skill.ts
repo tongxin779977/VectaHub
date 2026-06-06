@@ -1,14 +1,25 @@
-import type { Skill, SkillContext, SkillResult } from './types.js';
+import type { Skill, SkillContext, SkillResult, SkillVersion, SkillVersionHistory } from './types.js';
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import { join, extname } from 'path';
 import { execSync } from 'child_process';
-import { getVectaHubHome } from '../utils/paths.js';
-import { createCoordinator, type Coordinator } from '../nl/core/coordinator.js';
-import { adaptAllTemplates } from '../nl/core/adapter.js';
-import { INTENT_TEMPLATES } from '../nl/templates/index.js';
-import type { IntentPattern } from '../nl/types.js';
+import { getVectaHubHome } from '../infrastructure/paths/index.js';
 
-const CORE_SKILLS = [
+/**
+ * Definition of a core skill with its keywords
+ * @property name - The skill name
+ * @property description - Description of the skill
+ * @property keywords - Array of keywords for matching
+ */
+interface CoreSkillDefinition {
+  name: string;
+  description: string;
+  keywords: string[];
+}
+
+/**
+ * List of core skills available in the command skill
+ */
+const CORE_SKILLS: CoreSkillDefinition[] = [
   {
     name: 'file-ops',
     description: 'File operations (CRUD, backup, sync)',
@@ -31,36 +42,159 @@ const CORE_SKILLS = [
   },
 ];
 
+/**
+ * Default search paths for file operations
+ */
 const DEFAULT_SEARCH_PATHS = [
   getVectaHubHome(),
   join(getVectaHubHome(), 'Documents'),
   join(getVectaHubHome(), 'Desktop'),
 ];
 
+/**
+ * Maximum number of file search results to return
+ */
 const MAX_RESULTS = 100;
 
-interface FileMatch {
+/**
+ * Represents a matched file with relevance score
+ * @property path - Full path to the file
+ * @property name - File name
+ * @property relevance - Relevance score between 0 and 1
+ * @property snippet - Preview snippet of the file content
+ */
+export interface FileMatch {
   path: string;
   name: string;
   relevance: number;
   snippet: string;
 }
 
+/**
+ * Command Skill interface extending the base Skill with additional methods
+ * @property searchFiles - Searches for files matching a query
+ * @property readFile - Reads a file's content
+ * @property listFiles - Lists files in a directory
+ * @property executeCommand - Executes a shell command
+ * @property getVersionHistory - Gets the version history
+ * @property rollbackToVersion - Rolls back to a specific version
+ * @property getCurrentVersion - Gets the current version
+ */
 export interface CommandSkill extends Skill {
   searchFiles(query: string, paths?: string[]): FileMatch[];
   readFile(path: string): string;
   listFiles(dirPath: string): string[];
   executeCommand(command: string): string;
+  getVersionHistory(): SkillVersionHistory[];
+  rollbackToVersion(version: string): boolean;
+  getCurrentVersion(): SkillVersion;
 }
 
-function createModuleCoordinator(): Coordinator {
-  const patterns: IntentPattern[] = adaptAllTemplates(INTENT_TEMPLATES);
-  return createCoordinator(patterns);
+/**
+ * Result of a core skill detection
+ * @property name - The skill name
+ * @property score - Match score
+ */
+interface CoreSkillMatch {
+  name: string;
+  score: number;
 }
 
-const moduleCoordinator = createModuleCoordinator();
+/**
+ * Intent analysis result
+ * @property type - The intent type
+ * @property command - Extracted command (for execute intent)
+ * @property query - Extracted query (for query intent)
+ * @property confidence - Confidence score
+ * @property needsClarification - Whether clarification is needed
+ * @property clarificationMessage - Message for clarification
+ * @property suggestions - Array of suggestions
+ */
+interface IntentAnalysisResult {
+  type: 'execute' | 'query' | 'clarify' | 'fallback';
+  command?: string;
+  query?: string;
+  confidence: number;
+  needsClarification: boolean;
+  clarificationMessage?: string;
+  suggestions?: string[];
+}
 
+/**
+ * Command execution result
+ * @property output - The command output
+ * @property success - Whether execution succeeded
+ */
+interface CommandExecutionResult {
+  output: string;
+  success: boolean;
+}
+
+/**
+ * Fallback matching result
+ * @property success - Whether matching succeeded
+ * @property data - Optional match data
+ * @property confidence - Optional confidence score
+ */
+interface FallbackMatchResult {
+  success: boolean;
+  data?: { type: string };
+  confidence?: number;
+}
+
+/**
+ * Parses a semantic version string into its components
+ * @param version - The version string to parse (e.g., "2.0.0")
+ * @returns SkillVersion object
+ * @throws Error if version string is invalid
+ */
+function parseVersion(version: string): SkillVersion {
+  const match = version.match(/^(\d+)\.(\d+)\.(\d+)(?:-([^+]+))?(?:\+(.+))?$/);
+  if (!match) {
+    throw new Error(`Invalid version string: ${version}`);
+  }
+  return {
+    major: parseInt(match[1], 10),
+    minor: parseInt(match[2], 10),
+    patch: parseInt(match[3], 10),
+    prerelease: match[4],
+    buildMetadata: match[5]
+  };
+}
+
+/**
+ * Compares two version objects
+ * @param v1 - First version
+ * @param v2 - Second version
+ * @returns Negative if v1 < v2, positive if v1 > v2, 0 if equal
+ */
+function compareVersions(v1: SkillVersion, v2: SkillVersion): number {
+  if (v1.major !== v2.major) return v1.major - v2.major;
+  if (v1.minor !== v2.minor) return v1.minor - v2.minor;
+  if (v1.patch !== v2.patch) return v1.patch - v2.patch;
+  if (v1.prerelease && !v2.prerelease) return -1;
+  if (!v1.prerelease && v2.prerelease) return 1;
+  if (v1.prerelease && v2.prerelease) return v1.prerelease.localeCompare(v2.prerelease);
+  return 0;
+}
+
+/**
+ * Creates a CommandSkill instance that handles file operations, commands, and intent analysis
+ * Provides version management capabilities for skill upgrades and rollbacks
+ * @returns A new CommandSkill instance
+ */
 export function createCommandSkill(): CommandSkill {
+  const versionHistory: SkillVersionHistory[] = [
+    {
+      version: '2.0.0',
+      timestamp: new Date(),
+      changes: 'Initial version with file operations, git commands, code generation, and security scanning',
+      rollbackAvailable: false
+    }
+  ];
+
+  let currentVersion: SkillVersion = parseVersion('2.0.0');
+
   return {
     id: 'vectahub.file-ops',
     name: 'File Operations',
@@ -68,11 +202,22 @@ export function createCommandSkill(): CommandSkill {
     description: 'Core command skill that handles file operations, git commands, code generation, and system commands',
     tags: ['file', 'git', 'command', 'system'],
 
-    async canHandle(): Promise<boolean> {
+    /**
+     * Determines if this skill can handle the given context
+     * @param context - The skill context
+     * @returns Always returns true as this is a fallback skill
+     */
+    async canHandle(_context: SkillContext): Promise<boolean> {
       return true;
     },
 
-    async execute(input: string, context: SkillContext): Promise<SkillResult> {
+    /**
+     * Executes the skill with the given input
+     * @param input - The user input to process
+     * @param _context - The skill context
+     * @returns A promise resolving to a SkillResult
+     */
+    async execute(input: string, _context: SkillContext): Promise<SkillResult> {
       const skills = detectCoreSkills(input);
       const matchedSkills = skills.map(s => s.name);
 
@@ -93,7 +238,7 @@ export function createCommandSkill(): CommandSkill {
 
       if (intent.type === 'execute') {
         try {
-          const result = executeCommand(intent.command!);
+          const result = executeCommandInternal(intent.command!);
           return {
             success: true,
             data: {
@@ -140,6 +285,12 @@ export function createCommandSkill(): CommandSkill {
       };
     },
 
+    /**
+     * Searches for files matching the query in the given paths
+     * @param query - The search query
+     * @param paths - Optional paths to search in (defaults to DEFAULT_SEARCH_PATHS)
+     * @returns Array of FileMatch results
+     */
     searchFiles(query: string, paths: string[] = DEFAULT_SEARCH_PATHS): FileMatch[] {
       const results: FileMatch[] = [];
 
@@ -173,21 +324,81 @@ export function createCommandSkill(): CommandSkill {
         .slice(0, MAX_RESULTS);
     },
 
+    /**
+     * Reads a file's content
+     * @param path - The path to the file
+     * @returns The file content as a string
+     * @throws Error if file cannot be read
+     */
     readFile(path: string): string {
       return readFileSync(path, 'utf-8');
     },
 
+    /**
+     * Lists files in a directory
+     * @param dirPath - The directory path
+     * @returns Array of file names
+     * @throws Error if directory cannot be read
+     */
     listFiles(dirPath: string): string[] {
       return readdirSync(dirPath);
     },
 
+    /**
+     * Executes a shell command
+     * @param command - The command to execute
+     * @returns The command output
+     * @throws Error if command execution fails
+     */
     executeCommand(command: string): string {
-      return executeCommand(command).output;
+      return executeCommandInternal(command).output;
+    },
+
+    /**
+     * Gets the version history of this skill
+     * @returns Array of SkillVersionHistory entries
+     */
+    getVersionHistory(): SkillVersionHistory[] {
+      return [...versionHistory];
+    },
+
+    /**
+     * Rolls back to a specific version
+     * @param version - The version to roll back to
+     * @returns True if rollback was successful, false otherwise
+     */
+    rollbackToVersion(version: string): boolean {
+      const targetVersion = parseVersion(version);
+      const historyEntry = versionHistory.find(h => h.version === version);
+
+      if (!historyEntry || !historyEntry.rollbackAvailable) {
+        return false;
+      }
+
+      if (compareVersions(targetVersion, currentVersion) >= 0) {
+        return false;
+      }
+
+      currentVersion = targetVersion;
+      return true;
+    },
+
+    /**
+     * Gets the current version of this skill
+     * @returns SkillVersion object representing the current version
+     */
+    getCurrentVersion(): SkillVersion {
+      return { ...currentVersion };
     },
   };
 }
 
-function detectCoreSkills(input: string): Array<{ name: string; score: number }> {
+/**
+ * Detects core skills based on input keywords
+ * @param input - The user input
+ * @returns Array of matched skills with scores
+ */
+function detectCoreSkills(input: string): CoreSkillMatch[] {
   const lowerInput = input.toLowerCase();
   return CORE_SKILLS
     .map(skill => ({
@@ -198,15 +409,12 @@ function detectCoreSkills(input: string): Array<{ name: string; score: number }>
     .sort((a, b) => b.score - a.score);
 }
 
-async function analyzeIntent(input: string): Promise<{
-  type: 'execute' | 'query' | 'clarify' | 'fallback';
-  command?: string;
-  query?: string;
-  confidence: number;
-  needsClarification: boolean;
-  clarificationMessage?: string;
-  suggestions?: string[];
-}> {
+/**
+ * Analyzes the user intent from input
+ * @param input - The user input
+ * @returns Intent analysis result
+ */
+async function analyzeIntent(input: string): Promise<IntentAnalysisResult> {
   if (input.includes('run') || input.includes('execute') || input.includes('执行')) {
     return {
       type: 'execute',
@@ -260,6 +468,11 @@ async function analyzeIntent(input: string): Promise<{
   };
 }
 
+/**
+ * Extracts a command from user input
+ * @param input - The user input
+ * @returns The extracted command
+ */
 function extractCommand(input: string): string {
   const commandPatterns = [
     /(?:run|execute|执行)\s+(.+)/i,
@@ -277,6 +490,11 @@ function extractCommand(input: string): string {
   return input;
 }
 
+/**
+ * Extracts a query from user input
+ * @param input - The user input
+ * @returns The extracted query
+ */
 function extractQuery(input: string): string {
   const queryPatterns = [
     /(?:list|find|search|列出|查找)\s+(.+)/i,
@@ -293,6 +511,12 @@ function extractQuery(input: string): string {
   return input;
 }
 
+/**
+ * Calculates relevance score between a query and filename
+ * @param query - The search query
+ * @param filename - The filename to match against
+ * @returns Relevance score between 0 and 1
+ */
 function calculateRelevance(query: string, filename: string): number {
   const lowerQuery = query.toLowerCase();
   const lowerFilename = filename.toLowerCase();
@@ -309,6 +533,12 @@ function calculateRelevance(query: string, filename: string): number {
   return 0;
 }
 
+/**
+ * Reads a snippet from a file
+ * @param filePath - The path to the file
+ * @param maxLines - Maximum number of lines to read (default: 5)
+ * @returns The file snippet or empty string if error
+ */
 function readFileSnippet(filePath: string, maxLines = 5): string {
   try {
     const content = readFileSync(filePath, 'utf-8');
@@ -318,19 +548,37 @@ function readFileSnippet(filePath: string, maxLines = 5): string {
   }
 }
 
-function executeCommand(command: string): { output: string; success: boolean } {
+/**
+ * Executes a command internally (renamed to avoid name conflict with skill method)
+ * @param command - The command to execute
+ * @returns Command execution result
+ */
+function executeCommandInternal(command: string): CommandExecutionResult {
   try {
     const output = execSync(command, { encoding: 'utf-8', timeout: 30000 });
     return { output, success: true };
   } catch (error) {
-    throw new Error(`Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    if (error instanceof Error) {
+      throw new Error(`Command failed: ${error.message}`, { cause: error });
+    }
+    throw error;
   }
 }
 
+/**
+ * Executes a query (placeholder implementation)
+ * @param query - The query to execute
+ * @returns Query result
+ */
 function executeQuery(query: string): unknown {
   return { query, results: [] };
 }
 
+/**
+ * Generates helpful suggestions for the user
+ * @param _input - The user input
+ * @returns Array of suggestion strings
+ */
 function generateSuggestions(_input: string): string[] {
   return [
     'Try being more specific',
@@ -339,16 +587,25 @@ function generateSuggestions(_input: string): string[] {
   ];
 }
 
-function fallbackToKeywordMatching(input: string): { success: boolean; data?: { type: string }; confidence?: number } {
-  const result = moduleCoordinator.match(input);
-
-  if (result.intents.length > 0 && result.intents[0].intent !== 'UNKNOWN' && result.intents[0].confidence >= 0.6) {
-    return {
-      success: true,
-      data: { type: 'keyword-match' },
-      confidence: result.intents[0].confidence,
-    };
+/**
+ * Falls back to keyword matching for intent detection
+ * @param input - The user input
+ * @returns Fallback match result
+ */
+function fallbackToKeywordMatching(input: string): FallbackMatchResult {
+  const lowerInput = input.toLowerCase();
+  for (const skill of CORE_SKILLS) {
+    const matchedKeywords = skill.keywords.filter(kw => lowerInput.includes(kw));
+    if (matchedKeywords.length > 0) {
+      const confidence = matchedKeywords.length / skill.keywords.length;
+      if (confidence >= 0.6) {
+        return {
+          success: true,
+          data: { type: 'keyword-match' },
+          confidence,
+        };
+      }
+    }
   }
-
   return { success: false };
 }

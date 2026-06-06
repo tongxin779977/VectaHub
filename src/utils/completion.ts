@@ -1,14 +1,19 @@
-import { join } from 'path';
 import { promises as fs } from 'fs';
 import { getVectaHubPath } from './paths.js';
 
-const WORKFLOWS_DIR = getVectaHubPath('workflows');
-const TEMPLATES_DIR = getVectaHubPath('templates');
+function getWorkflowsDir(): string {
+  return getVectaHubPath('workflows');
+}
+
+function getTemplatesDir(): string {
+  return getVectaHubPath('templates');
+}
 
 export async function getWorkflowNames(): Promise<string[]> {
+  const workflowsDir = getWorkflowsDir();
   try {
-    await fs.access(WORKFLOWS_DIR);
-    const files = await fs.readdir(WORKFLOWS_DIR);
+    await fs.access(workflowsDir);
+    const files = await fs.readdir(workflowsDir);
     return files
       .filter(file => file.endsWith('.yaml') || file.endsWith('.yml') || file.endsWith('.json'))
       .map(file => file.replace(/\.(yaml|yml|json)$/, ''));
@@ -18,9 +23,10 @@ export async function getWorkflowNames(): Promise<string[]> {
 }
 
 export async function getTemplateNames(): Promise<string[]> {
+  const templatesDir = getTemplatesDir();
   try {
-    await fs.access(TEMPLATES_DIR);
-    const files = await fs.readdir(TEMPLATES_DIR);
+    await fs.access(templatesDir);
+    const files = await fs.readdir(templatesDir);
     return files
       .filter(file => file.endsWith('.yaml') || file.endsWith('.yml') || file.endsWith('.json'))
       .map(file => file.replace(/\.(yaml|yml|json)$/, ''));

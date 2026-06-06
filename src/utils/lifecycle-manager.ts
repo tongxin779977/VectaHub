@@ -48,6 +48,11 @@ export class LifecycleManager<T> {
       this.cleanupTimer = setInterval(() => {
         this.cleanup();
       }, this.cleanupInterval);
+      
+      // Prevent the timer from keeping the Node.js event loop alive
+      if (this.cleanupTimer && typeof this.cleanupTimer.unref === 'function') {
+        this.cleanupTimer.unref();
+      }
     }
   }
 

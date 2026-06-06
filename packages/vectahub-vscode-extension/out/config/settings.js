@@ -37,6 +37,7 @@ exports.getCliPath = getCliPath;
 exports.getAutoDetectCli = getAutoDetectCli;
 exports.getExecutionMode = getExecutionMode;
 exports.getPreviewBeforeRun = getPreviewBeforeRun;
+exports.getLogTruncationLimit = getLogTruncationLimit;
 const vscode = __importStar(require("vscode"));
 function getCliPath() {
     return vscode.workspace.getConfiguration('vectahubTasks').get('cliPath') || 'vectahub';
@@ -49,5 +50,8 @@ function getExecutionMode() {
 }
 function getPreviewBeforeRun() {
     return vscode.workspace.getConfiguration('vectahubTasks').get('previewBeforeRun', true);
+}
+function getLogTruncationLimit() {
+    return vscode.workspace.getConfiguration('vectahubTasks').get('logTruncationLimit', 2000);
 }
 //# sourceMappingURL=settings.js.map

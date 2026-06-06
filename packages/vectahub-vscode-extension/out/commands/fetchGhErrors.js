@@ -56,7 +56,8 @@ function registerFetchGhErrorsCommand(context, tasksProvider) {
             title: "VectaHub: 正在同步 GitHub Actions 错误...",
             cancellable: true
         }, async (progress, token) => {
-            const result = await (0, adapter_js_1.runCli)(['run', '-f', 'sys:fetch-gh-actions-errors', '--json'], { token });
+            const cwd = (0, adapter_js_1.getActiveWorkspaceFolder)();
+            const result = await (0, adapter_js_1.runCli)(['run', '-f', 'sys:fetch-gh-actions-errors', '--json'], { token, cwd, timeout: 120000 });
             if (!result.ok) {
                 if (result.error?.code === 'CANCELLED') {
                     (0, output_js_1.logToOutput)('[fetchGhErrors] 拉取已由用户取消');

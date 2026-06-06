@@ -1,15 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createCommandSkill, CommandSkill } from './command-skill.js';
 import { join } from 'path';
-import { getVectaHubHome } from '../utils/paths.js';
+import { getVectaHubHome } from '../infrastructure/paths/index.js';
 
-vi.mock('child_process', () => ({
-  execSync: vi.fn((cmd: string) => {
-    if (cmd.includes('ls')) return 'file1.txt\nfile2.txt';
-    if (cmd.includes('git')) return 'On branch main';
-    return '';
-  }),
-}));
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('child_process')>();
+  return {
+    ...actual,
+    execSync: vi.fn((cmd: string) => {
+      if (cmd.includes('ls')) return 'file1.txt\nfile2.txt';
+      if (cmd.includes('git')) return 'On branch main';
+      return '';
+    }),
+  };
+});
 
 describe('CommandSkill', () => {
   let skill: CommandSkill;

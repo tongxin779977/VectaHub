@@ -7,11 +7,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { promisify } from 'node:util';
-import { createConsoleLogger } from '../../utils/logger.js';
+import type { Logger } from '../logger/index.js';
 import type { LogRotationConfig } from './types.js';
+import { AsyncLogWriter } from './async-writer.js';
+import { VectaHubError, ErrorType } from '../errors/index.js';
 
 const gzip = promisify(zlib.gzip);
-const logger = createConsoleLogger('log-rotation');
+
+export interface LogRotationManagerDeps {
+  logger: Logger;
+}
 
 /** 默认配置 */
 const DEFAULT_CONFIG: LogRotationConfig = {
@@ -29,11 +34,21 @@ export class LogRotationManager {
   private logDir: string;
   private archiveDir: string;
   private config: LogRotationConfig;
+  private logger: Logger;
 
-  constructor(logDir: string, config?: Partial<LogRotationConfig>) {
+  constructor(
+    logDir: string,
+    config: Partial<LogRotationConfig> | undefined,
+    deps: LogRotationManagerDeps
+  ) {
+    if (!deps.logger) {
+      throw new VectaHubError('LogRotationManager requires a logger dependency', ErrorType.CONFIGURATION);
+    }
+
     this.logDir = logDir;
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.archiveDir = this.config.archiveDir || path.join(logDir, 'archive');
+    this.logger = deps.logger;
     this.ensureDirectories();
   }
 
@@ -57,6 +72,9 @@ export class LogRotationManager {
     let archived = 0;
     let deleted = 0;
 
+    // 暂停所有 AsyncLogWriter 写入并 flush，防止轮转期间的数据竞态
+    await AsyncLogWriter.pauseAll();
+
     try {
       // 1. 检查并轮转过大的文件
       rotated = await this.rotateLargeFiles();
@@ -67,9 +85,13 @@ export class LogRotationManager {
       // 3. 清理过期文件
       deleted = await this.cleanupExpiredFiles();
 
-      logger.info(`日志轮转完成: 轮转=${rotated}, 归档=${archived}, 删除=${deleted}`);
+      this.logger.info(`日志轮转完成: 轮转=${rotated}, 归档=${archived}, 删除=${deleted}`);
     } catch (error) {
-      logger.error(`日志轮转失败: ${(error as Error).message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`日志轮转失败: ${message}`);
+    } finally {
+      // 恢复所有 AsyncLogWriter 写入
+      AsyncLogWriter.resumeAll();
     }
 
     return { rotated, archived, deleted };
@@ -89,7 +111,8 @@ export class LogRotationManager {
           count++;
         }
       } catch (error) {
-        logger.warn(`检查文件大小失败: ${file}, ${(error as Error).message}`);
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`检查文件大小失败: ${file}, ${message}`);
       }
     }
 
@@ -110,7 +133,7 @@ export class LogRotationManager {
     // 创建新的空文件
     fs.writeFileSync(filePath, '');
 
-    logger.info(`文件轮转: ${filePath} -> ${rotatedPath}`);
+    this.logger.info(`文件轮转: ${filePath} -> ${rotatedPath}`);
   }
 
   /** 归档旧文件 */
@@ -130,7 +153,8 @@ export class LogRotationManager {
           count++;
         }
       } catch (error) {
-        logger.warn(`归档文件失败: ${file}, ${(error as Error).message}`);
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`归档文件失败: ${file}, ${message}`);
       }
     }
 
@@ -154,7 +178,7 @@ export class LogRotationManager {
     // 删除原文件
     fs.unlinkSync(filePath);
 
-    logger.info(`文件归档: ${filePath} -> ${archivePath}`);
+    this.logger.info(`文件归档: ${filePath} -> ${archivePath}`);
   }
 
   /** 清理过期文件 */
@@ -176,10 +200,11 @@ export class LogRotationManager {
         if (age > retentionMs) {
           fs.unlinkSync(file);
           count++;
-          logger.info(`文件清理: ${file}`);
+          this.logger.info(`文件清理: ${file}`);
         }
       } catch (error) {
-        logger.warn(`清理文件失败: ${file}, ${(error as Error).message}`);
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`清理文件失败: ${file}, ${message}`);
       }
     }
 
@@ -221,7 +246,9 @@ export class LogRotationManager {
     const logDirSize = logFiles.reduce((sum, file) => {
       try {
         return sum + fs.statSync(file).size;
-      } catch {
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.debug({ error: message, file }, 'statSync failed for log file');
         return sum;
       }
     }, 0);
@@ -229,7 +256,9 @@ export class LogRotationManager {
     const archiveDirSize = archiveFiles.reduce((sum, file) => {
       try {
         return sum + fs.statSync(file).size;
-      } catch {
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.debug({ error: message, file }, 'statSync failed for archive file');
         return sum;
       }
     }, 0);
@@ -268,7 +297,8 @@ export class LogRotationManager {
  */
 export function createLogRotationManager(
   logDir: string,
-  config?: Partial<LogRotationConfig>
+  config: Partial<LogRotationConfig> | undefined,
+  deps: LogRotationManagerDeps
 ): LogRotationManager {
-  return new LogRotationManager(logDir, config);
+  return new LogRotationManager(logDir, config, deps);
 }

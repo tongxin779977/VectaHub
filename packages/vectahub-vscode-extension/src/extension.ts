@@ -22,11 +22,15 @@ import { registerPreviewProjectTaskCommand } from './commands/previewProjectTask
 import { registerRunProjectTaskCommand } from './commands/runProjectTask.js';
 import { registerListPackageScriptsCommand } from './commands/listPackageScripts.js';
 import { registerFetchGhErrorsCommand } from './commands/fetchGhErrors.js';
+import { DiagnosticBridge, collectAllDiagnostics, filterDiagnostics } from './project/diagnostic-bridge.js';
 import { registerProcessAllQueueCommand } from './commands/processAllQueue.js';
-import { registerRunCheckPipelineCommand } from './commands/runCheckPipeline.js';
-import { registerRunDevPipelineCommand } from './commands/runDevPipeline.js';
+import { registerConfigLlmCommand } from './commands/configLlm.js';
+import { registerRunVerifyAllCommand } from './commands/runVerifyAll.js';
+import { registerSyncAndFixCiCommand } from './commands/syncAndFixCi.js';
 import { registerStartDevServerCommand } from './commands/startDevServer.js';
 import { registerStopRunningTaskCommand } from './commands/stopRunningTask.js';
+import { registerDocTaskCommands } from './commands/runDocTasks.js';
+import { registerRecoverDocTaskCommand } from './commands/recoverDocTask.js';
 
 export function getGlobalCliPath(): string | undefined {
   return getResolvedCliPath();
@@ -44,6 +48,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   registerInstallCliCommand(context);
   registerDoctorCommand(context);
+  registerConfigLlmCommand(context);
   registerPreviewIntentCommand(context);
   registerRunIntentCommand(context);
   registerRunCommonTaskCommand(context);
@@ -58,10 +63,26 @@ export async function activate(context: vscode.ExtensionContext) {
   registerListPackageScriptsCommand(context);
   registerFetchGhErrorsCommand(context, tasksProvider);
   registerProcessAllQueueCommand(context, tasksProvider);
-  registerRunCheckPipelineCommand(context, tasksProvider);
-  registerRunDevPipelineCommand(context, tasksProvider);
+  registerRunVerifyAllCommand(context, tasksProvider);
+  registerSyncAndFixCiCommand(context, tasksProvider);
   registerStartDevServerCommand(context, tasksProvider);
   registerStopRunningTaskCommand(context, tasksProvider);
+  registerDocTaskCommands(context, tasksProvider);
+  registerRecoverDocTaskCommand(context, tasksProvider);
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('vectahub.getDiagnostics', (args?: { file?: string; severity?: string }) => {
+      const all = collectAllDiagnostics();
+      const filtered = filterDiagnostics(all, args?.file, args?.severity);
+      return filtered;
+    }),
+  );
+
+  diagnosticBridge = new DiagnosticBridge();
+  diagnosticBridge.start()
+    .then(port => logToOutput(`Diagnostic bridge started on port ${port}`))
+    .catch(err => logToOutput(`Diagnostic bridge failed: ${err}`, 'error'));
+  context.subscriptions.push({ dispose: () => diagnosticBridge?.dispose() });
 
   context.subscriptions.push(outputChannel);
 
@@ -85,7 +106,7 @@ export async function activate(context: vscode.ExtensionContext) {
       interface DoctorResult {
         summary?: { passed: number; failed: number; warnings: number };
       }
-      const doctorResult = await runCli<DoctorResult>(['doctor', '--json']);
+      const doctorResult = await runCli<DoctorResult>(['doctor', '--json'], { timeout: 30000 });
       if (doctorResult.ok) {
         logToOutput('VectaHub doctor passed.');
       } else {
@@ -105,7 +126,10 @@ export async function activate(context: vscode.ExtensionContext) {
 import { ProcessManager } from './cli/process-manager.js';
 import { LongRunningTaskManager } from './cli/longRunningTaskManager.js';
 
+let diagnosticBridge: DiagnosticBridge | undefined;
+
 export function deactivate() {
   LongRunningTaskManager.getInstance().stopAll();
-  ProcessManager.getInstance().killAll();
+  ProcessManager.getInstance().dispose();
+  diagnosticBridge?.dispose();
 }

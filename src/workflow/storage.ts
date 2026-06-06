@@ -1,19 +1,23 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import YAML from 'yaml';
 import type { Workflow, ExecutionRecord, StepRecord } from '../types/index.js';
-import { createConsoleLogger } from '../utils/logger.js';
 import { createOutputStore, type OutputStore } from '../execution/output-store.js';
-import { getVectaHubHome } from '../utils/paths.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
+import type pino from 'pino';
 
-const logger = createConsoleLogger('storage');
+function getExtName(filepath: string): string {
+  const match = filepath.match(/\.([^./\\]+)$/);
+  return match ? '.' + match[1] : '';
+}
 
 export interface StorageOptions {
   storageDir?: string;
   separateOutput?: boolean;
+  environment: IEnvironmentService;
+  logger: pino.Logger;
 }
 
 export interface Storage {
+  // 向后兼容的旧接口
   save(record: ExecutionRecord): Promise<void>;
   get(id: string): Promise<ExecutionRecord | undefined>;
   list(): Promise<ExecutionRecord[]>;
@@ -27,29 +31,59 @@ export interface Storage {
   loadWorkflowFromFile(filepath: string): Promise<Workflow | null>;
 
   getOutputStore(): OutputStore | undefined;
+
+  // 新的 IStorage 兼容方法（向后兼容）
+  saveExecution?(record: ExecutionRecord): Promise<void>;
+  getExecution?(id: string): Promise<ExecutionRecord | undefined>;
+  listExecutions?(): Promise<ExecutionRecord[]>;
 }
 
-async function ensureDir(dir: string): Promise<void> {
-  try {
-    await fs.mkdir(dir, { recursive: true });
-  } catch {
+async function ensureDir(dir: string, environment: IEnvironmentService): Promise<void> {
+  await environment.mkdirAsync(dir, { recursive: true });
+}
 
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === 'object' && error !== null && 'code' in error;
+}
+
+function isNotFoundError(error: unknown): boolean {
+  if (isNodeError(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) {
+    return true;
+  }
+  if (typeof error === 'object' && error !== null && 'cause' in error) {
+    return isNotFoundError((error as { cause: unknown }).cause);
+  }
+  return false;
+}
+
+function parseJsonObject(content: string, source: string): Record<string, unknown> {
+  try {
+    return JSON.parse(content) as Record<string, unknown>;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to parse JSON from ${source}: ${message}`, { cause: error });
   }
 }
 
-export function createStorage(options: StorageOptions = {}): Storage {
-  const storageDir = options.storageDir || getVectaHubHome();
-  const executionsDir = path.join(storageDir, 'executions');
-  const workflowsDir = path.join(storageDir, 'workflows');
+function parseWorkflowFromJson(content: string, source: string): Workflow {
+  return parseJsonObject(content, source) as unknown as Workflow;
+}
+
+export function createStorage(options: StorageOptions): Storage {
+  const { environment } = options;
+  const logger = options.logger;
+  const storageDir = options.storageDir || environment.getHomePath();
+  const executionsDir = environment.joinPath(storageDir, 'executions');
+  const workflowsDir = environment.joinPath(storageDir, 'workflows');
   const separateOutput = options.separateOutput !== false;
 
-  const outputStore = separateOutput ? createOutputStore(path.join(storageDir, 'outputs')) : undefined;
+  const outputStore = separateOutput ? createOutputStore(environment.joinPath(storageDir, 'outputs')) : undefined;
 
   async function saveRecordWithOutput(record: ExecutionRecord): Promise<void> {
     if (!outputStore) {
-      await ensureDir(executionsDir);
-      const filePath = path.join(executionsDir, `${record.executionId}.json`);
-      await fs.writeFile(filePath, JSON.stringify(record, null, 2), 'utf-8');
+      await ensureDir(executionsDir, environment);
+      const filePath = environment.joinPath(executionsDir, `${record.executionId}.json`);
+      environment.writeFile(filePath, JSON.stringify(record, null, 2));
       return;
     }
 
@@ -59,19 +93,15 @@ export function createStorage(options: StorageOptions = {}): Storage {
     for (const step of record.steps) {
       if (step.output && step.output.length > 0) {
         const stdout = step.output.join('\n');
-        try {
-          const ref = await outputStore.save(record.executionId, step.stepId, stdout, step.error || undefined);
-          stepsWithRefs.push({
-            ...step,
-            output: [],
-            error: step.error,
-          } as unknown as StepRecord);
-          const stepRef = stepsWithRefs[stepsWithRefs.length - 1] as unknown as Record<string, unknown>;
-          stepRef.outputRef = `${record.executionId}/${step.stepId}.stdout`;
-          stepRef.outputSummary = ref.summary;
-        } catch {
-          stepsWithRefs.push(step);
-        }
+        const ref = await outputStore.save(record.executionId, step.stepId, stdout, step.error || undefined);
+        stepsWithRefs.push({
+          ...step,
+          output: [],
+          error: step.error,
+        } as unknown as StepRecord);
+        const stepRef = stepsWithRefs[stepsWithRefs.length - 1] as unknown as Record<string, unknown>;
+        stepRef.outputRef = `${record.executionId}/${step.stepId}.stdout`;
+        stepRef.outputSummary = ref.summary;
       } else {
         stepsWithRefs.push(step);
       }
@@ -79,9 +109,9 @@ export function createStorage(options: StorageOptions = {}): Storage {
 
     recordToSave.steps = stepsWithRefs;
 
-    await ensureDir(executionsDir);
-    const filePath = path.join(executionsDir, `${record.executionId}.json`);
-    await fs.writeFile(filePath, JSON.stringify(recordToSave, null, 2), 'utf-8');
+    await ensureDir(executionsDir, environment);
+    const filePath = environment.joinPath(executionsDir, `${record.executionId}.json`);
+    environment.writeFile(filePath, JSON.stringify(recordToSave, null, 2));
   }
 
   function readRecordWithOutput(data: Record<string, unknown>): ExecutionRecord {
@@ -99,19 +129,42 @@ export function createStorage(options: StorageOptions = {}): Storage {
     for (const step of record.steps) {
       const stepData = step as unknown as Record<string, unknown>;
       if (stepData.outputRef || stepData.outputSummary) {
+        const outputRef = stepData.outputRef as string | undefined;
+        if (!outputRef) {
+          throw new Error(
+            `Execution output metadata is corrupted for ${record.executionId}/${step.stepId}: outputRef is missing`,
+          );
+        }
+
+        const stdoutPath = environment.joinPath(storageDir, 'outputs', outputRef);
+        const stderrPath = stdoutPath.endsWith('.stdout')
+          ? stdoutPath.replace(/\.stdout$/, '.stderr')
+          : `${stdoutPath}.stderr`;
+
         try {
-          const stored = await outputStore.read(record.executionId, step.stepId);
+          const stdout = await environment.readFileAsync(stdoutPath);
+          let stderr = '';
+          try {
+            stderr = await environment.readFileAsync(stderrPath);
+          } catch (error) {
+            if (!isNotFoundError(error)) {
+              throw error;
+            }
+          }
+
           enrichedSteps.push({
             ...step,
-            output: stored.stdout ? stored.stdout.split('\n') : [],
-            error: step.error || stored.stderr,
+            output: stdout ? stdout.split('\n') : [],
+            error: step.error || stderr,
           } as unknown as StepRecord);
-        } catch {
-          const summary = stepData.outputSummary as string | undefined;
-          enrichedSteps.push({
-            ...step,
-            output: summary ? [summary] : [],
-          } as unknown as StepRecord);
+        } catch (error) {
+          if (!isNotFoundError(error)) {
+            throw error;
+          }
+          throw new Error(
+            `Execution output artifact is missing for ${record.executionId}/${step.stepId}: ${outputRef}`,
+            { cause: error },
+          );
         }
       } else {
         enrichedSteps.push(step);
@@ -126,54 +179,98 @@ export function createStorage(options: StorageOptions = {}): Storage {
       await saveRecordWithOutput(record);
     },
 
+    async saveExecution(record: ExecutionRecord): Promise<void> {
+      await saveRecordWithOutput(record);
+    },
+
     async get(id: string): Promise<ExecutionRecord | undefined> {
-      const filePath = path.join(executionsDir, `${id}.json`);
+      const filePath = environment.joinPath(executionsDir, `${id}.json`);
       try {
-        const data = JSON.parse(await fs.readFile(filePath, 'utf-8'));
+        const data = parseJsonObject(await environment.readFileAsync(filePath), filePath);
         const record = readRecordWithOutput(data);
         return enrichRecordWithOutput(record);
-      } catch {
-        return undefined;
+      } catch (error) {
+        if (isNotFoundError(error)) {
+          return undefined;
+        }
+        throw error;
+      }
+    },
+
+    async getExecution(id: string): Promise<ExecutionRecord | undefined> {
+      const filePath = environment.joinPath(executionsDir, `${id}.json`);
+      try {
+        const data = parseJsonObject(await environment.readFileAsync(filePath), filePath);
+        const record = readRecordWithOutput(data);
+        return enrichRecordWithOutput(record);
+      } catch (error) {
+        if (isNotFoundError(error)) {
+          return undefined;
+        }
+        throw error;
       }
     },
 
     async list(): Promise<ExecutionRecord[]> {
       try {
-        const files = await fs.readdir(executionsDir);
+        const files = environment.readDir(executionsDir);
         const records = await Promise.all(
           files
             .filter(f => f.endsWith('.json'))
             .map(async f => {
-              const data = JSON.parse(await fs.readFile(path.join(executionsDir, f), 'utf-8'));
+              const filePath = environment.joinPath(executionsDir, f);
+              const data = parseJsonObject(await environment.readFileAsync(filePath), filePath);
               return readRecordWithOutput(data);
             })
         );
         return records.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
-      } catch {
-        return [];
+      } catch (error) {
+        if (isNotFoundError(error)) {
+          return [];
+        }
+        throw error;
+      }
+    },
+
+    async listExecutions(): Promise<ExecutionRecord[]> {
+      try {
+        const files = environment.readDir(executionsDir);
+        const records = await Promise.all(
+          files
+            .filter(f => f.endsWith('.json'))
+            .map(async f => {
+              const filePath = environment.joinPath(executionsDir, f);
+              const data = parseJsonObject(await environment.readFileAsync(filePath), filePath);
+              return readRecordWithOutput(data);
+            })
+        );
+        return records.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+      } catch (error) {
+        if (isNotFoundError(error)) {
+          return [];
+        }
+        throw error;
       }
     },
 
     async delete(id: string): Promise<void> {
-      const filePath = path.join(executionsDir, `${id}.json`);
+      const filePath = environment.joinPath(executionsDir, `${id}.json`);
       try {
-        await fs.unlink(filePath);
-      } catch {
-
+        environment.rm(filePath);
+      } catch (error) {
+        if (!isNotFoundError(error)) {
+          throw error;
+        }
       }
       if (outputStore) {
-        try {
-          await outputStore.delete(id);
-        } catch {
-
-        }
+        await outputStore.delete(id);
       }
     },
 
     async saveWorkflow(workflow: Workflow, format: 'json' | 'yaml' = 'yaml'): Promise<void> {
-      await ensureDir(workflowsDir);
+      await ensureDir(workflowsDir, environment);
       const ext = format === 'yaml' ? 'yaml' : 'json';
-      const filePath = path.join(workflowsDir, `${workflow.id}.${ext}`);
+      const filePath = environment.joinPath(workflowsDir, `${workflow.id}.${ext}`);
 
       let content: string;
       if (format === 'yaml') {
@@ -182,21 +279,27 @@ export function createStorage(options: StorageOptions = {}): Storage {
         content = JSON.stringify(workflow, null, 2);
       }
 
-      await fs.writeFile(filePath, content, 'utf-8');
+      environment.writeFile(filePath, content);
     },
 
     async getWorkflow(id: string): Promise<Workflow | undefined> {
       for (const ext of ['yaml', 'json']) {
-        const filePath = path.join(workflowsDir, `${id}.${ext}`);
+        const filePath = environment.joinPath(workflowsDir, `${id}.${ext}`);
         try {
-          const content = await fs.readFile(filePath, 'utf-8');
-          const data = ext === 'yaml' ? YAML.parse(content) : JSON.parse(content);
+          const content = await environment.readFileAsync(filePath);
+          const data = ext === 'yaml'
+            ? (YAML.parse(content) as Record<string, unknown>)
+            : parseWorkflowFromJson(content, filePath);
+          const workflow = data as unknown as Workflow;
           return {
-            ...data,
-            createdAt: new Date(data.createdAt)
+            ...workflow,
+            createdAt: new Date(workflow.createdAt)
           };
-        } catch {
-          continue;
+        } catch (error) {
+          if (isNotFoundError(error)) {
+            continue;
+          }
+          throw error;
         }
       }
       return undefined;
@@ -204,64 +307,68 @@ export function createStorage(options: StorageOptions = {}): Storage {
 
     async listWorkflows(): Promise<Workflow[]> {
       try {
-        const files = await fs.readdir(workflowsDir);
+        const files = environment.readDir(workflowsDir);
         const workflows = await Promise.all(
           files
             .filter(f => f.endsWith('.yaml') || f.endsWith('.json'))
             .map(async f => {
-              const filePath = path.join(workflowsDir, f);
-              const content = await fs.readFile(filePath, 'utf-8');
-              const ext = path.extname(f).toLowerCase().slice(1);
-              const data = ext === 'yaml' ? YAML.parse(content) : JSON.parse(content);
+              const filePath = environment.joinPath(workflowsDir, f);
+              const content = await environment.readFileAsync(filePath);
+              const ext = getExtName(f).toLowerCase().slice(1);
+              const data = ext === 'yaml'
+                ? (YAML.parse(content) as Record<string, unknown>)
+                : parseWorkflowFromJson(content, filePath);
+              const workflow = data as unknown as Workflow;
               return {
-                ...data,
-                createdAt: new Date(data.createdAt)
+                ...workflow,
+                createdAt: new Date(workflow.createdAt)
               };
             })
         );
         return workflows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-      } catch {
-        return [];
+      } catch (error) {
+        if (isNotFoundError(error)) {
+          return [];
+        }
+        throw error;
       }
     },
 
     async deleteWorkflow(id: string): Promise<void> {
       for (const ext of ['yaml', 'json']) {
-        const filePath = path.join(workflowsDir, `${id}.${ext}`);
+        const filePath = environment.joinPath(workflowsDir, `${id}.${ext}`);
         try {
-          await fs.unlink(filePath);
-        } catch {
-
+          environment.rm(filePath);
+        } catch (error) {
+          if (!isNotFoundError(error)) {
+            throw error;
+          }
         }
       }
     },
 
     async loadWorkflowFromFile(filepath: string): Promise<Workflow | null> {
       try {
-        await fs.access(filepath);
-      } catch {
-        logger.debug(`文件不存在: ${filepath}`);
-        return null;
-      }
-
-      const ext = path.extname(filepath).toLowerCase().slice(1);
-      const content = await fs.readFile(filepath, 'utf-8');
-
-      try {
-        let data;
+        const ext = getExtName(filepath).toLowerCase().slice(1);
+        const content = await environment.readFileAsync(filepath);
         if (['yaml', 'yml'].includes(ext)) {
-          data = YAML.parse(content);
-        } else {
-          data = JSON.parse(content);
+          const data = YAML.parse(content) as Record<string, unknown>;
+          return {
+            ...data,
+            createdAt: data.createdAt ? new Date(String(data.createdAt)) : new Date()
+          } as Workflow;
         }
-
+        const data = parseWorkflowFromJson(content, filepath) as unknown as Record<string, unknown>;
         return {
           ...data,
-          createdAt: data.createdAt ? new Date(data.createdAt) : new Date()
-        };
-      } catch {
-        logger.error(`无法解析文件: ${filepath}`);
-        return null;
+          createdAt: data.createdAt ? new Date(String(data.createdAt)) : new Date()
+        } as Workflow;
+      } catch (error) {
+        if (isNotFoundError(error)) {
+          logger.debug(`文件不存在: ${filepath}`);
+          return null;
+        }
+        throw error;
       }
     },
 

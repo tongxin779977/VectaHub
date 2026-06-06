@@ -1,6 +1,16 @@
-import type { CommandRule, CommandRuleResult, RuleEngineConfig, DefaultPolicy } from './types.js';
+import type { CommandRule, CommandRuleResult, RuleEngineConfig, DefaultPolicy, RuleMatchResult } from './types.js';
 import { matchPattern } from './matcher.js';
 
+/**
+ * Evaluates commands against blocklist and allowlist rules to produce a security decision.
+ *
+ * The engine applies rules in the following priority order:
+ * 1. Project blocklist (highest priority)
+ * 2. Global blocklist
+ * 3. Project allowlist
+ * 4. Global allowlist
+ * 5. Default policy (fallback)
+ */
 export class CommandRuleEngine {
   private globalBlocklist: CommandRule[];
   private globalAllowlist: CommandRule[];
@@ -16,9 +26,10 @@ export class CommandRuleEngine {
     this.defaultPolicy = config.defaultPolicy || 'block';
   }
 
+  /** Evaluate a command string and return the security decision with matched rule details. */
   evaluate(fullCommand: string): CommandRuleResult {
-    // 先检查黑名单
-    const blockResult = this.matchBlocklist(fullCommand);
+    // Check blocklist first
+    const blockResult = matchRuleLists([this.projectBlocklist, this.globalBlocklist], fullCommand);
     if (blockResult.matched && blockResult.rule) {
       return {
         decision: 'block',
@@ -29,8 +40,8 @@ export class CommandRuleEngine {
       };
     }
 
-    // 再检查白名单
-    const allowResult = this.matchAllowlist(fullCommand);
+    // Then check allowlist
+    const allowResult = matchRuleLists([this.projectAllowlist, this.globalAllowlist], fullCommand);
     if (allowResult.matched && allowResult.rule) {
       return {
         decision: 'allow',
@@ -41,7 +52,7 @@ export class CommandRuleEngine {
       };
     }
 
-    // 应用默认策略
+    // Apply default policy
     switch (this.defaultPolicy) {
       case 'block':
         return {
@@ -65,59 +76,56 @@ export class CommandRuleEngine {
     }
   }
 
-  private matchBlocklist(fullCommand: string): { matched: boolean; rule?: CommandRule; scope?: 'global' | 'project' } {
-    for (const rule of this.projectBlocklist) {
-      if (matchPattern(rule.pattern, fullCommand)) {
-        return { matched: true, rule, scope: 'project' };
-      }
-    }
-
-    for (const rule of this.globalBlocklist) {
-      if (matchPattern(rule.pattern, fullCommand)) {
-        return { matched: true, rule, scope: 'global' };
-      }
-    }
-
-    return { matched: false };
-  }
-
-  private matchAllowlist(fullCommand: string): { matched: boolean; rule?: CommandRule; scope?: 'global' | 'project' } {
-    for (const rule of this.projectAllowlist) {
-      if (matchPattern(rule.pattern, fullCommand)) {
-        return { matched: true, rule, scope: 'project' };
-      }
-    }
-
-    for (const rule of this.globalAllowlist) {
-      if (matchPattern(rule.pattern, fullCommand)) {
-        return { matched: true, rule, scope: 'global' };
-      }
-    }
-
-    return { matched: false };
-  }
-
+  /** Get a copy of the global blocklist rules. */
   getGlobalBlocklist(): CommandRule[] {
     return [...this.globalBlocklist];
   }
 
+  /** Get a copy of the global allowlist rules. */
   getGlobalAllowlist(): CommandRule[] {
     return [...this.globalAllowlist];
   }
 
+  /** Get a copy of the project blocklist rules. */
   getProjectBlocklist(): CommandRule[] {
     return [...this.projectBlocklist];
   }
 
+  /** Get a copy of the project allowlist rules. */
   getProjectAllowlist(): CommandRule[] {
     return [...this.projectAllowlist];
   }
 
+  /** Get the configured default policy. */
   getDefaultPolicy(): DefaultPolicy {
     return this.defaultPolicy;
   }
 }
 
+/**
+ * Match a command against multiple ordered rule lists.
+ *
+ * Lists are evaluated in order; the first match wins. The returned scope
+ * corresponds to which list produced the match (first list = 'project',
+ * second = 'global').
+ */
+function matchRuleLists(lists: [CommandRule[], CommandRule[]], command: string): RuleMatchResult {
+  const scopes: Array<'project' | 'global'> = ['project', 'global'];
+
+  for (let i = 0; i < lists.length; i++) {
+    for (const rule of lists[i]) {
+      if (matchPattern(rule.pattern, command)) {
+        return { matched: true, rule, scope: scopes[i] };
+      }
+    }
+  }
+
+  return { matched: false };
+}
+
+/**
+ * Create a new {@link CommandRuleEngine} instance from the given configuration.
+ */
 export function createCommandRuleEngine(config: RuleEngineConfig): CommandRuleEngine {
   return new CommandRuleEngine(config);
 }

@@ -1,22 +1,13 @@
-import type { CLIToolsConfig, Config } from '../../utils/config.js';
-import { loadConfig as loadAppConfig, getDefaultConfig } from '../../utils/config.js';
-import { writeFileSync, existsSync, mkdirSync } from 'fs';
-import * as path from 'path';
+import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import * as path from 'node:path';
 import { stringify } from 'yaml';
-import { getVectaHubPath } from '../../utils/paths.js';
+import type { IConfigService } from '../../infrastructure/interfaces/index.js';
+import { getVectaHubPath } from '../../infrastructure/paths/index.js';
+import type { RegistrationConfig, ValidationResult } from './types.js';
 
-export interface RegistrationConfig {
-  version: string;
-  registeredTools: string[];
-  templates: {
-    enabled: string[];
-  };
-}
-
-export interface ValidationResult {
-  valid: boolean;
-  errors: string[];
-  warnings: string[];
+interface ToolRegistrationCandidate {
+  name?: string;
+  description?: string;
 }
 
 function getConfigPath(): string {
@@ -39,18 +30,25 @@ export function setTestMode(enabled: boolean): void {
   }
 }
 
-export async function loadConfig(): Promise<RegistrationConfig> {
+export async function loadConfig(configService?: IConfigService): Promise<RegistrationConfig> {
   if (testMode && testConfig) {
     return { ...testConfig };
   }
-  const config = await loadAppConfig();
+  if (!configService) {
+    throw new Error('configService is required when not in test mode');
+  }
+  const config = configService.getConfig();
   return config.cli_tools;
 }
 
-export async function saveConfig(config: RegistrationConfig): Promise<void> {
+export async function saveConfig(config: RegistrationConfig, configService?: IConfigService): Promise<void> {
   if (testMode) {
     testConfig = { ...config };
     return;
+  }
+
+  if (!configService) {
+    throw new Error('configService is required when not in test mode');
   }
 
   const configPath = getConfigPath();
@@ -60,7 +58,7 @@ export async function saveConfig(config: RegistrationConfig): Promise<void> {
     mkdirSync(configDir, { recursive: true });
   }
 
-  const currentConfig = await loadAppConfig();
+  const currentConfig = configService.getConfig();
   currentConfig.cli_tools = config;
 
   const content = stringify(currentConfig);
@@ -69,12 +67,15 @@ export async function saveConfig(config: RegistrationConfig): Promise<void> {
     writeFileSync(configPath, content, 'utf-8');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to save config: ${message}`);
+    if (error instanceof Error) {
+      throw new Error(`Failed to save config: ${message}`, { cause: error });
+    }
+    throw error;
   }
 }
 
 export function validateToolRegistration(
-  tool: any,
+  tool: ToolRegistrationCandidate,
   existingConfig: RegistrationConfig
 ): ValidationResult {
   const errors: string[] = [];
@@ -88,7 +89,7 @@ export function validateToolRegistration(
     warnings.push('建议添加工具描述');
   }
 
-  if (existingConfig.registeredTools.includes(tool.name)) {
+  if (tool.name && existingConfig.registeredTools.includes(tool.name)) {
     warnings.push(`工具 ${tool.name} 已经注册`);
   }
 

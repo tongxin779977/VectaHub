@@ -3,7 +3,7 @@
  * Trace Core - Trace and Span Management
  */
 
-import { createConsoleLogger } from '../../utils/logger.js';
+import type { Logger } from '../logger/index.js';
 import { redactSensitiveData } from '../../utils/sensitive-data.js';
 import type {
   TraceSpan,
@@ -14,22 +14,16 @@ import type {
   ExecutionStatus,
 } from './types.js';
 import { AsyncLogWriter } from './async-writer.js';
+import { VectaHubError, ErrorType } from '../errors/index.js';
 
-const logger = createConsoleLogger('trace-core');
+export interface TraceCoreDeps {
+  logger: Logger;
+}
 
 /** 生成唯一 ID */
 function generateId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 }
-
-/** 当前活跃的 Trace 上下文 */
-interface ActiveTraceContext {
-  traceId: TraceId;
-  currentSpanId: SpanId;
-}
-
-/** 线程本地存储（模拟） */
-const activeTraceContexts = new Map<string, ActiveTraceContext>();
 
 /**
  * 链路追踪核心类
@@ -37,12 +31,18 @@ const activeTraceContexts = new Map<string, ActiveTraceContext>();
  */
 export class TraceCore {
   private writer: AsyncLogWriter;
+  private logger: Logger;
   private activeTraces: Map<TraceId, ExecutionTrace> = new Map();
   private spanIndex: Map<SpanId, TraceSpan> = new Map();
   private traceIndex: Map<TraceId, ExecutionTrace> = new Map();
 
-  constructor(writer: AsyncLogWriter) {
+  constructor(writer: AsyncLogWriter, deps: TraceCoreDeps) {
+    if (!deps.logger) {
+      throw new VectaHubError('TraceCore requires a logger dependency', ErrorType.CONFIGURATION);
+    }
+
     this.writer = writer;
+    this.logger = deps.logger;
   }
 
   /** 创建新的链路追踪 */
@@ -83,7 +83,7 @@ export class TraceCore {
     // 写入根跨度
     await this.writer.write(rootSpan);
 
-    logger.debug(`创建链路追踪: traceId=${traceId}, rootSpanId=${rootSpanId}`);
+    this.logger.debug(`创建链路追踪: traceId=${traceId}, rootSpanId=${rootSpanId}`);
 
     return trace;
   }
@@ -99,7 +99,7 @@ export class TraceCore {
   ): Promise<TraceSpan> {
     const trace = this.activeTraces.get(traceId);
     if (!trace) {
-      throw new Error(`链路追踪不存在: ${traceId}`);
+      throw new VectaHubError(`链路追踪不存在: ${traceId}`, ErrorType.RUNTIME);
     }
 
     const spanId = generateId('span');
@@ -136,7 +136,7 @@ export class TraceCore {
   ): Promise<void> {
     const span = this.spanIndex.get(spanId);
     if (!span) {
-      throw new Error(`跨度不存在: ${spanId}`);
+      throw new VectaHubError(`跨度不存在: ${spanId}`, ErrorType.RUNTIME);
     }
 
     const endTime = new Date().toISOString();
@@ -171,7 +171,7 @@ export class TraceCore {
     // 更新跨度
     await this.writer.write(span);
 
-    logger.debug(`完成跨度: spanId=${spanId}, status=${status}, duration=${duration}ms`);
+    this.logger.debug(`完成跨度: spanId=${spanId}, status=${status}, duration=${duration}ms`);
   }
 
   /** 完成链路追踪 */
@@ -194,7 +194,7 @@ export class TraceCore {
 
     this.activeTraces.delete(traceId);
 
-    logger.debug(`完成链路追踪: traceId=${traceId}, duration=${trace.totalDuration}ms`);
+    this.logger.debug(`完成链路追踪: traceId=${traceId}, duration=${trace.totalDuration}ms`);
   }
 
   /** 获取链路追踪 */
@@ -237,7 +237,7 @@ export class TraceCore {
       }
     }
 
-    logger.debug(`清理已完成链路追踪: ${cleanedCount} 个`);
+    this.logger.debug(`清理已完成链路追踪: ${cleanedCount} 个`);
     return cleanedCount;
   }
 
@@ -258,8 +258,8 @@ export class TraceCore {
  * 创建链路追踪核心工厂函数
  * Create Trace Core Factory Function
  */
-export function createTraceCore(writer: AsyncLogWriter): TraceCore {
-  return new TraceCore(writer);
+export function createTraceCore(writer: AsyncLogWriter, deps: TraceCoreDeps): TraceCore {
+  return new TraceCore(writer, deps);
 }
 
 /**

@@ -102,15 +102,19 @@ export function formatErrorMessage(error: unknown, context?: string): string {
   return `${contextPrefix}${typeLabels[type]}: ${message}`;
 }
 
-export function toJSONError(error: unknown): JSONErrorResponse {
+export function toJSONError(error: unknown, includeStack = false): JSONErrorResponse {
   const { type, message, cause } = classifyError(error);
+  const details = cause instanceof Error
+    ? (includeStack ? { stack: cause.stack } : undefined)
+    : cause;
+
   return {
     ok: false,
     error: {
       code: type.toString(),
       message,
       type,
-      details: cause instanceof Error ? { stack: cause.stack } : cause,
+      ...(details !== undefined ? { details } : {}),
     },
   };
 }

@@ -1,4 +1,4 @@
-import type { ExecutionPlan, ExecutionPlanStep } from './types.js';
+import type { ExecutionPlan } from './types.js';
 
 export interface UserReport {
   title: string;

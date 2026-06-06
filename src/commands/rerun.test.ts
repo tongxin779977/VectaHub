@@ -3,14 +3,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockInfo = vi.fn();
 const mockError = vi.fn();
 
-vi.mock('../utils/logger.js', () => ({
-  createConsoleLogger: vi.fn(() => ({
-    info: mockInfo,
-    error: mockError,
-    debug: vi.fn(),
-  })),
-}));
-
 vi.mock('../execution/record-manager.js', () => ({
   createRecordManager: vi.fn(() => ({
     get: vi.fn((id: string) => {
@@ -62,7 +54,21 @@ vi.mock('../workflow/engine.js', () => ({
   })),
 }));
 
-const { rerunCmd } = await import('./rerun.js');
+function createMockContext() {
+  return {
+    audit: {
+      getHelper: () => ({ log: vi.fn(), cliOutput: vi.fn(), securityAlert: vi.fn(), securityAction: vi.fn() }),
+      getLogger: () => ({ getSessionId: () => 'test-session' }),
+    },
+    environment: {} as never,
+    logger: {
+      getLogger: () => ({ info: mockInfo, error: mockError, debug: vi.fn(), warn: vi.fn() }),
+      setMuted: vi.fn(),
+    },
+  };
+}
+
+const { createRerunCmd } = await import('./rerun.js');
 
 describe('rerun command', () => {
   beforeEach(() => {
@@ -71,12 +77,12 @@ describe('rerun command', () => {
   });
 
   it('should show not found for non-existent execution', async () => {
-    await rerunCmd.parseAsync(['node', 'test', 'exec_missing']);
+    await createRerunCmd(createMockContext() as never).parseAsync(['node', 'test', 'exec_missing']);
     expect(mockError).toHaveBeenCalledWith(expect.stringContaining('not found'));
   });
 
   it('should re-run existing execution', async () => {
-    await rerunCmd.parseAsync(['node', 'test', 'exec_found']);
+    await createRerunCmd(createMockContext() as never).parseAsync(['node', 'test', 'exec_found']);
     expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('Re-running'));
     expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('exec_new'));
   });

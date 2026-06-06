@@ -2,6 +2,8 @@ import type { CommandDetection, DangerCategory } from '../types/index.js';
 import { getSecurityManager } from '../security-protocol/index.js';
 import { ShellTokenizer } from '../utils/shell-tokenizer.js';
 
+type DangerLevel = CommandDetection['level'];
+
 const CATEGORY_MAP: Record<string, DangerCategory> = {
   system: 'SYSTEM',
   filesystem: 'FS',
@@ -56,12 +58,25 @@ export interface Detector {
   };
 }
 
+/**
+ * 创建命令检测器实例
+ *
+ * 结合 SecurityManager（RBAC 规则）和内置危险正则模式，
+ * 对命令字符串进行多层安全检测。
+ * 支持复合命令拆分（管道、&&、||、;）以防止绕过。
+ *
+ * @returns 命令检测器实例，包含 detect、isDangerous、getDangerLevel 方法
+ */
 export function createDetector(): Detector {
   let securityManager: ReturnType<typeof getSecurityManager> | null = null;
 
   const getManager = () => {
     if (!securityManager) {
-      securityManager = getSecurityManager();
+      try {
+        securityManager = getSecurityManager();
+      } catch (error) {
+        throw new Error('Sandbox detector failed to initialize security manager', { cause: error });
+      }
     }
     return securityManager;
   };
@@ -80,7 +95,7 @@ export function createDetector(): Detector {
         if (securityResult.isDangerous && securityResult.rule) {
           return {
             isDangerous: true,
-            level: securityResult.severity as any,
+            level: securityResult.severity,
             reason: securityResult.rule.description,
             matchedPattern: securityResult.matchedPattern,
             category: CATEGORY_MAP[securityResult.rule.category] || 'SYSTEM',
@@ -115,13 +130,13 @@ export function createDetector(): Detector {
     },
 
     getDangerLevel(command: string, cliTool?: string): {
-      level: 'critical' | 'high' | 'medium' | 'low' | 'none';
+      level: DangerLevel;
       matchedPattern?: RegExp;
     } {
       const securityResult = getManager().detectCommand(command, cliTool);
       if (securityResult.isDangerous) {
         return {
-          level: securityResult.severity as any,
+          level: securityResult.severity,
         };
       }
 

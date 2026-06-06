@@ -5,7 +5,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { createConsoleLogger } from '../../utils/logger.js';
+import type { Logger } from '../logger/index.js';
 import type {
   ExecutionTrace,
   TraceSpan,
@@ -17,8 +17,11 @@ import type {
   ModuleName,
   ExecutionStatus,
 } from './types.js';
+import { VectaHubError, ErrorType } from '../errors/index.js';
 
-const logger = createConsoleLogger('query-engine');
+export interface QueryEngineDeps {
+  logger: Logger;
+}
 
 /**
  * 多维度查询引擎类
@@ -26,13 +29,19 @@ const logger = createConsoleLogger('query-engine');
  */
 export class QueryEngine {
   private logDir: string;
+  private logger: Logger;
   private traceCache: Map<TraceId, ExecutionTrace> = new Map();
   private spanIndex: Map<SpanId, TraceSpan> = new Map();
   private moduleIndex: Map<ModuleName, TraceSpan[]> = new Map();
   private statusIndex: Map<ExecutionStatus, TraceSpan[]> = new Map();
 
-  constructor(logDir: string) {
+  constructor(logDir: string, deps: QueryEngineDeps) {
+    if (!deps.logger) {
+      throw new VectaHubError('QueryEngine requires a logger dependency', ErrorType.CONFIGURATION);
+    }
+
     this.logDir = logDir;
+    this.logger = deps.logger;
   }
 
   /** 加载日志文件到内存索引 */
@@ -43,7 +52,7 @@ export class QueryEngine {
       this.loadLogFile(file);
     }
 
-    logger.info(`加载日志完成: ${files.length} 个文件, ${this.spanIndex.size} 个跨度`);
+    this.logger.info(`加载日志完成: ${files.length} 个文件, ${this.spanIndex.size} 个跨度`);
   }
 
   /** 获取日志文件列表 */
@@ -68,12 +77,15 @@ export class QueryEngine {
         try {
           const span = JSON.parse(line) as TraceSpan;
           this.indexSpan(span);
-        } catch {
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.debug({ error: message }, 'Skipping malformed JSONL line in trace log');
           continue;
         }
       }
     } catch (error) {
-      logger.warn(`加载日志文件失败: ${filePath}, ${(error as Error).message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`加载日志文件失败: ${filePath}, ${message}`);
     }
   }
 
@@ -373,6 +385,6 @@ export class QueryEngine {
  * 创建查询引擎工厂函数
  * Create Query Engine Factory Function
  */
-export function createQueryEngine(logDir: string): QueryEngine {
-  return new QueryEngine(logDir);
+export function createQueryEngine(logDir: string, deps: QueryEngineDeps): QueryEngine {
+  return new QueryEngine(logDir, deps);
 }

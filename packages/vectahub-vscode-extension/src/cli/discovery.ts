@@ -1,10 +1,10 @@
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { getCliPath } from '../config/settings.js';
 import { platform } from 'os';
 import { join } from 'path';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export interface CliDiscoveryResult {
   exists: boolean;
@@ -22,7 +22,7 @@ async function findCliAbsolutePath(candidatePath: string): Promise<string | null
     const isWindows = platform() === 'win32';
     const whichCmd = isWindows ? 'where' : 'which';
 
-    const { stdout } = await execAsync(`${whichCmd} ${candidatePath}`);
+    const { stdout } = await execFileAsync(whichCmd, [candidatePath]);
     const paths = stdout.trim().split(/\r?\n/);
     if (paths.length > 0 && paths[0]) {
       return paths[0];
@@ -30,11 +30,11 @@ async function findCliAbsolutePath(candidatePath: string): Promise<string | null
   } catch {
     // Ignore if which command fails
     try {
-      const { stdout } = await execAsync('npm root -g');
+      const { stdout } = await execFileAsync('npm', ['root', '-g']);
       const globalNodeModules = stdout.trim();
       const possiblePath = join(globalNodeModules, '.bin', candidatePath);
 
-      await execAsync(`${possiblePath} --version`);
+      await execFileAsync(possiblePath, ['--version']);
       return possiblePath;
     } catch {
       // Ignore if npm root or version check fails
@@ -47,7 +47,7 @@ async function findCliAbsolutePath(candidatePath: string): Promise<string | null
 export async function discoverCli(): Promise<CliDiscoveryResult> {
   const cliPath = getCliPath();
   try {
-    const { stdout } = await execAsync(`${cliPath} --version`);
+    const { stdout } = await execFileAsync(cliPath, ['--version']);
     
     const absolutePath = await findCliAbsolutePath(cliPath);
     

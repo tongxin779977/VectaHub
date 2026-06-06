@@ -3,6 +3,7 @@ import { createAgentDelegateModule } from './agent-loop.js';
 import { createAIModuleRegistry } from '../registry.js';
 import { BUILTIN_AGENT_TOOLS, agentToolsToLLMTools } from './agent-tools.js';
 import { createExecutor } from '../../../workflow/executor.js';
+import { createNoopAuditHelper } from '../../../infrastructure/audit/index.js';
 import type { Step } from '../../../types/index.js';
 import type { AIModuleContext, AIModuleResult } from '../types.js';
 import type { DelegateStepResult } from './types.js';
@@ -197,7 +198,7 @@ describe('AgentDelegateModule', () => {
 
   describe('executor delegate step validation', () => {
     it('should validate delegate step with delegateTo and delegatePrompt', () => {
-      const executor = createExecutor();
+      const executor = createExecutor({ audit: createNoopAuditHelper() });
       const step: Step = {
         id: 'del1',
         type: 'delegate',
@@ -209,7 +210,7 @@ describe('AgentDelegateModule', () => {
     });
 
     it('should reject delegate step without delegateTo', () => {
-      const executor = createExecutor();
+      const executor = createExecutor({ audit: createNoopAuditHelper() });
       const step = {
         id: 'del1',
         type: 'delegate' as const,
@@ -221,7 +222,7 @@ describe('AgentDelegateModule', () => {
     });
 
     it('should reject delegate step without delegatePrompt', () => {
-      const executor = createExecutor();
+      const executor = createExecutor({ audit: createNoopAuditHelper() });
       const step = {
         id: 'del1',
         type: 'delegate' as const,
@@ -235,7 +236,7 @@ describe('AgentDelegateModule', () => {
 
   describe('executor registerStepHandler', () => {
     it('should register and use custom step handler for delegate type', async () => {
-      const executor = createExecutor() as any;
+      const executor = createExecutor({ audit: createNoopAuditHelper() }) as any;
       const mockResult = {
         stepId: 'del1',
         status: 'COMPLETED' as const,
@@ -258,7 +259,7 @@ describe('AgentDelegateModule', () => {
     });
 
     it('should return FAILED for delegate step without registered handler', async () => {
-      const executor = createExecutor();
+      const executor = createExecutor({ audit: createNoopAuditHelper() });
       const step: Step = {
         id: 'del1',
         type: 'delegate',

@@ -1,7 +1,7 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import { existsSync, accessSync, constants } from 'fs';
-import { platform } from 'os';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
+import { platform } from 'node:os';
+import { getLogger } from '../logger/index.js';
 
 const execAsync = promisify(exec);
 
@@ -27,6 +27,7 @@ export interface EnvAuditResult {
 }
 
 export async function performEnvAudit(): Promise<EnvAuditResult> {
+  const logger = getLogger('env-audit');
   const result: EnvAuditResult = {
     timestamp: new Date().toISOString(),
     platform: platform(),
@@ -51,27 +52,30 @@ export async function performEnvAudit(): Promise<EnvAuditResult> {
   // 1. Deep Check: Linux Kernel Features
   if (result.platform === 'linux') {
     try {
-      // Actual capability test for user namespaces
       await execAsync('unshare --user echo 1');
       result.linuxKernel.userNamespaces = true;
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.debug({ error: message }, 'User namespaces test failed');
       result.linuxKernel.userNamespaces = false;
       result.reasons.push('User Namespaces test failed (unshare not permitted or disabled in kernel)');
       result.sandboxReadiness = 'DEGRADED';
     }
 
     try {
-      // Check if cgroup2 is actually mounted
       const { stdout } = await execAsync('mount -t cgroup2');
       result.linuxKernel.cgroupsV2 = stdout.includes('cgroup2');
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.debug({ error: message }, 'cgroups v2 check failed');
       result.linuxKernel.cgroupsV2 = false;
     }
   } else if (result.platform === 'darwin') {
     try {
-      // Sandbox-exec availability test for macOS
       await execAsync('sandbox-exec -p "(version 1)(allow default)" echo 1');
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.debug({ error: message }, 'macOS sandbox-exec test failed');
       result.reasons.push('macOS sandbox-exec is restricted or unavailable');
       result.sandboxReadiness = 'DEGRADED';
     }
@@ -83,23 +87,25 @@ export async function performEnvAudit(): Promise<EnvAuditResult> {
   // 2. Deep Check: Shell Permissions
   result.shell.isRoot = result.shell.uid === 0;
   try {
-    // Check if sudo is usable without a password prompt
     await execAsync('sudo -n -v');
     result.shell.hasSudo = true;
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.debug({ error: message }, 'sudo check failed');
     result.shell.hasSudo = false;
   }
 
   // 3. Deep Check: Toolchain
   const checkTool = async (cmd: string) => {
     try {
-      // Verify the binary exists in PATH
       const { stdout: pathOut } = await execAsync(`which ${cmd}`);
       if (!pathOut.trim()) return { installed: false };
       
       const { stdout } = await execAsync(`${cmd} --version`);
       return { installed: true, version: stdout.trim().split('\n')[0] };
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.debug({ error: message, tool: cmd }, 'Tool check failed');
       return { installed: false };
     }
   };

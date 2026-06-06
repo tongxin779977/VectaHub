@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createStorage } from './storage.js';
 import type { ExecutionRecord, StepRecord } from '../types/index.js';
+import { createEnvironmentService } from '../infrastructure/environment/index.js';
+import { MockLoggerService } from '../infrastructure/testing/mock-services.js';
 
 function createTestRecord(overrides: Partial<ExecutionRecord> = {}): ExecutionRecord {
   const base = {
@@ -25,7 +27,8 @@ describe('Storage with output-store integration', () => {
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'storage-test-'));
-    storage = createStorage({ storageDir: tmpDir });
+    const logger = new MockLoggerService().getLogger('storage');
+    storage = createStorage({ storageDir: tmpDir, environment: createEnvironmentService(tmpDir), logger });
   });
 
   afterEach(() => {
@@ -67,8 +70,85 @@ describe('Storage with output-store integration', () => {
     });
 
     it('should return undefined when separateOutput is false', () => {
-      const store = createStorage({ storageDir: tmpDir, separateOutput: false });
+      const logger = new MockLoggerService().getLogger('storage');
+      const store = createStorage({ storageDir: tmpDir, separateOutput: false, environment: createEnvironmentService(tmpDir), logger });
       expect(store.getOutputStore()).toBeUndefined();
+    });
+  });
+
+  describe('error handling', () => {
+    it('should throw on malformed execution record JSON', async () => {
+      const broken = join(tmpDir, 'executions', 'broken.json');
+      const fs = await import('node:fs/promises');
+      await fs.mkdir(join(tmpDir, 'executions'), { recursive: true });
+      await fs.writeFile(broken, '{bad json', 'utf-8');
+
+      await expect(storage.get('broken')).rejects.toThrow();
+    });
+
+    it('should fail when output file is missing even if outputSummary exists', async () => {
+      const fs = await import('node:fs/promises');
+      const record = createTestRecord({
+        steps: [
+          {
+            stepId: 'step_1',
+            stepName: 'test',
+            command: 'echo hi',
+            status: 'COMPLETED' as const,
+            output: ['hello summary fallback'],
+          },
+        ],
+      } as unknown as ExecutionRecord);
+
+      await storage.save(record);
+
+      const stdoutPath = join(tmpDir, 'outputs', record.executionId, 'step_1.stdout');
+      await fs.unlink(stdoutPath);
+
+      await expect(storage.get(record.executionId)).rejects.toThrow(
+        `Execution output artifact is missing for ${record.executionId}/step_1: ${record.executionId}/step_1.stdout`,
+      );
+    });
+
+    it('should fail when outputSummary exists but outputRef is missing', async () => {
+      const fs = await import('node:fs/promises');
+      const record = createTestRecord({
+        steps: [
+          {
+            stepId: 'step_1',
+            stepName: 'test',
+            command: 'echo hi',
+            status: 'COMPLETED' as const,
+            output: ['hello summary fallback'],
+          },
+        ],
+      } as unknown as ExecutionRecord);
+
+      await storage.save(record);
+
+      const storedPath = join(tmpDir, 'executions', `${record.executionId}.json`);
+      const stored = JSON.parse(await fs.readFile(storedPath, 'utf-8')) as ExecutionRecord & {
+        steps: Array<Record<string, unknown>>;
+      };
+      delete stored.steps[0].outputRef;
+      await fs.writeFile(storedPath, JSON.stringify(stored, null, 2), 'utf-8');
+
+      await expect(storage.get(record.executionId)).rejects.toThrow(
+        `Execution output metadata is corrupted for ${record.executionId}/step_1: outputRef is missing`,
+      );
+    });
+
+    it('should throw on malformed execution record JSON during list', async () => {
+      const broken = join(tmpDir, 'executions', 'broken-list.json');
+      const fs = await import('node:fs/promises');
+      await fs.mkdir(join(tmpDir, 'executions'), { recursive: true });
+      await fs.writeFile(broken, '{bad json', 'utf-8');
+
+      await expect(storage.list()).rejects.toThrow();
+    });
+
+    it('should return null when workflow file is missing from loadWorkflowFromFile', async () => {
+      await expect(storage.loadWorkflowFromFile(join(tmpDir, 'missing-workflow.yaml'))).resolves.toBeNull();
     });
   });
 });

@@ -15,3 +15,7 @@ export function getExecutionMode(): 'strict' | 'relaxed' | 'consensus' {
 export function getPreviewBeforeRun(): boolean {
   return vscode.workspace.getConfiguration('vectahubTasks').get<boolean>('previewBeforeRun', true);
 }
+
+export function getLogTruncationLimit(): number {
+  return vscode.workspace.getConfiguration('vectahubTasks').get<number>('logTruncationLimit', 2000);
+}

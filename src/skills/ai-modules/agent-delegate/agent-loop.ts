@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'fs';
 import type { AIModule, AIModuleContext, AIModuleResult } from '../types.js';
 import type { AgentLoopConfig, AgentToolCall, DelegateStepResult, AgentToolDefinition } from './types.js';
 import { BUILTIN_AGENT_TOOLS, agentToolsToLLMTools } from './agent-tools.js';
-import type { LLMClient } from '../../../nl/llm.js';
+import type { LLMClient, LLMResponse } from '../../../nl/llm.js';
 import type { Detector } from '../../../sandbox/detector.js';
 import { createDetector } from '../../../sandbox/detector.js';
 
@@ -19,43 +19,75 @@ interface AgentDelegateDeps {
   maxTurns?: number;
 }
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function getStringArg(args: Record<string, unknown>, key: string): string | null {
+  const value = args[key];
+  return typeof value === 'string' ? value : null;
+}
+
+function parseToolArguments(rawArgs: string): Record<string, unknown> {
+  const parsed = JSON.parse(rawArgs) as unknown;
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('Tool call arguments must be a JSON object');
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function hasWorkflowSteps(response: LLMResponse): boolean {
+  return Array.isArray(response.workflow?.steps) && response.workflow.steps.length > 0;
+}
+
 function executeToolCall(toolCall: AgentToolCall): string {
   switch (toolCall.toolName) {
     case 'execute_command': {
-      const command = toolCall.args.command as string;
+      const command = getStringArg(toolCall.args, 'command');
+      if (!command) {
+        return 'Error executing command: missing string command';
+      }
       try {
         const output = execSync(command, { encoding: 'utf-8', timeout: 10000 });
         return output || '(no output)';
-      } catch (err: any) {
-        return `Error executing command: ${err.message}`;
+      } catch (err) {
+        return `Error executing command: ${getErrorMessage(err)}`;
       }
     }
     case 'read_file': {
-      const path = toolCall.args.path as string;
+      const path = getStringArg(toolCall.args, 'path');
+      if (!path) {
+        return 'Error reading file: missing string path';
+      }
       try {
         return readFileSync(path, 'utf-8');
-      } catch (err: any) {
-        return `Error reading file: ${err.message}`;
+      } catch (err) {
+        return `Error reading file: ${getErrorMessage(err)}`;
       }
     }
     case 'write_file': {
-      const path = toolCall.args.path as string;
-      const content = toolCall.args.content as string;
+      const path = getStringArg(toolCall.args, 'path');
+      const content = getStringArg(toolCall.args, 'content');
+      if (!path) {
+        return 'Error writing file: missing string path';
+      }
+      if (content === null) {
+        return 'Error writing file: missing string content';
+      }
       try {
         writeFileSync(path, content, 'utf-8');
         return `File written successfully: ${path}`;
-      } catch (err: any) {
-        return `Error writing file: ${err.message}`;
+      } catch (err) {
+        return `Error writing file: ${getErrorMessage(err)}`;
       }
     }
     case 'search_files': {
-      const pattern = toolCall.args.pattern as string;
-      const directory = (toolCall.args.directory as string) || '.';
-      try {
-        return `Pattern "${pattern}" searched in ${directory}`;
-      } catch (err: any) {
-        return `Error searching: ${err.message}`;
+      const pattern = getStringArg(toolCall.args, 'pattern');
+      const directory = getStringArg(toolCall.args, 'directory') || '.';
+      if (!pattern) {
+        return 'Error searching: missing string pattern';
       }
+      return `Pattern "${pattern}" searched in ${directory}`;
     }
     default:
       return `Unknown tool: ${toolCall.toolName}`;
@@ -99,19 +131,20 @@ When you have completed the task, respond with your final answer as plain text.`
       const conversationMessages: Array<{ role: string; content: string }> = [];
 
       for (let turn = 0; turn < maxTurns; turn++) {
-        let response;
+        let response: LLMResponse;
         try {
           response = await llmClient.complete(systemPrompt, input, undefined, {
             tools: llmTools,
             toolChoice: 'auto',
           });
-        } catch (err: any) {
+        } catch (err) {
+          const errorMessage = getErrorMessage(err);
           return {
             success: false,
-            error: `LLM call failed: ${err.message}`,
+            error: `LLM call failed: ${errorMessage}`,
             data: {
               status: 'failed',
-              output: err.message,
+              output: errorMessage,
               toolCalls: allToolCalls,
               duration: Date.now() - startTime,
             },
@@ -120,7 +153,7 @@ When you have completed the task, respond with your final answer as plain text.`
 
         if (response.tool_calls && response.tool_calls.length > 0) {
           for (const tc of response.tool_calls) {
-            const args = JSON.parse(tc.function.arguments);
+            const args = parseToolArguments(tc.function.arguments);
             const agentToolCall: AgentToolCall = {
               toolName: tc.function.name,
               args,
@@ -129,7 +162,7 @@ When you have completed the task, respond with your final answer as plain text.`
 
             const toolDef = tools.find(t => t.name === tc.function.name);
             if (toolDef?.requiresSecurityCheck) {
-              const commandToCheck = args.command || args.path || tc.function.name;
+              const commandToCheck = getStringArg(args, 'command') || getStringArg(args, 'path') || tc.function.name;
               const detection = detector.detect(commandToCheck);
               if (detection.isDangerous) {
                 const errorMsg = `Command blocked: ${detection.reason || 'Dangerous operation detected'}`;
@@ -142,7 +175,7 @@ When you have completed the task, respond with your final answer as plain text.`
             conversationMessages.push({ role: 'tool', content: result });
           }
         } else {
-          const output = (response as any).workflow?.steps?.length
+          const output = hasWorkflowSteps(response)
             ? JSON.stringify(response)
             : (response.params?.text as string || response.intent || 'No output');
           const outputText = typeof output === 'string' ? output : JSON.stringify(output);

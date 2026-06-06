@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -32,7 +32,7 @@ describe('RecordManager', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it.skip('should find record after save', async () => {
+  it('should find record after save', async () => {
     const record = createTestRecord();
     await manager.save(record);
     const found = await manager.get(record.executionId);
@@ -277,6 +277,26 @@ describe('RecordManager', () => {
       await manager.save(createTestRecord({ executionId: 'exec_r1' }));
       const recent = await manager.getRecent(100);
       expect(recent).toHaveLength(1);
+    });
+  });
+
+  describe('logger dependency', () => {
+    it('should not produce side effects when no logger is provided', () => {
+      const mgr = createRecordManager(tmpDir);
+      expect(mgr).toBeDefined();
+    });
+
+    it('should call injected logger.warn when malformed JSONL line is encountered', async () => {
+      const { writeFile: fsWriteFile } = await import('node:fs/promises');
+      const malformedFile = join(tmpDir, '20260507.jsonl');
+      await fsWriteFile(malformedFile, 'not-valid-json\n', 'utf-8');
+
+      const warn = vi.fn();
+      const mgr = createRecordManager(tmpDir, { logger: { warn } });
+      const records = await mgr.list();
+
+      expect(records).toEqual([]);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('malformed JSONL'));
     });
   });
 });

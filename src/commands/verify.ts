@@ -1,8 +1,28 @@
 import { Command } from 'commander';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { format } from 'node:util';
+import type { InfrastructureContext } from '../infrastructure/context.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
+import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
-const execAsync = promisify(exec);
+interface VerifyCommandOutput {
+  log(message?: unknown, ...optionalParams: unknown[]): void;
+  error(message?: unknown, ...optionalParams: unknown[]): void;
+}
+
+function createVerifyCommandOutput(): VerifyCommandOutput {
+  const writeLine = (stream: NodeJS.WriteStream, message?: unknown, optionalParams: unknown[] = []): void => {
+    stream.write(`${format(message, ...optionalParams)}\n`);
+  };
+
+  return {
+    log(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stdout, message, optionalParams);
+    },
+    error(message?: unknown, ...optionalParams: unknown[]): void {
+      writeLine(process.stderr, message, optionalParams);
+    },
+  };
+}
 
 interface CheckResult {
   name: string;
@@ -15,28 +35,28 @@ interface VerifyReport {
   verdict: 'PASS' | 'FAIL';
 }
 
-export async function runVerification(type: string): Promise<VerifyReport> {
+export async function runVerification(type: string, env: IEnvironmentService): Promise<VerifyReport> {
   const checks: CheckResult[] = [];
 
   if (type === 'typecheck' || type === 'all') {
-    checks.push(await runTypeCheck());
+    checks.push(await runTypeCheck(env));
   }
 
   if (type === 'test' || type === 'all') {
-    checks.push(await runTests());
+    checks.push(await runTests(env));
   }
 
   if (type === 'coverage' || type === 'all') {
-    checks.push(await runCoverageCheck());
+    checks.push(await runCoverageCheck(env));
   }
 
   const verdict = checks.every(c => c.status !== 'fail') ? 'PASS' : 'FAIL';
   return { checks, verdict };
 }
 
-async function runTypeCheck(): Promise<CheckResult> {
+async function runTypeCheck(env: IEnvironmentService): Promise<CheckResult> {
   try {
-    const { stdout, stderr } = await execAsync('npx tsc --noEmit 2>&1');
+    const { stdout, stderr } = await env.exec('npx tsc --noEmit 2>&1');
     const hasErrors = stderr.includes('error TS') || stdout.includes('error TS');
     const errorCount = (stderr.match(/error TS/g) || stdout.match(/error TS/g) || []).length;
 
@@ -51,9 +71,9 @@ async function runTypeCheck(): Promise<CheckResult> {
   }
 }
 
-async function runTests(): Promise<CheckResult> {
+async function runTests(env: IEnvironmentService): Promise<CheckResult> {
   try {
-    const { stdout } = await execAsync('npx vitest --run --reporter=basic 2>&1');
+    const { stdout } = await env.exec('npx vitest --run --reporter=basic 2>&1');
     const passMatch = stdout.match(/(\d+) passed/);
     const failMatch = stdout.match(/(\d+) failed/);
     const passed = passMatch ? parseInt(passMatch[1], 10) : 0;
@@ -69,9 +89,9 @@ async function runTests(): Promise<CheckResult> {
   }
 }
 
-async function runCoverageCheck(): Promise<CheckResult> {
+async function runCoverageCheck(env: IEnvironmentService): Promise<CheckResult> {
   try {
-    const { stdout } = await execAsync('npx vitest --run --coverage 2>&1');
+    const { stdout } = await env.exec('npx vitest --run --coverage 2>&1');
     const coverageMatch = stdout.match(/All files\s*\|\s*([\d.]+)\s*\|/);
     if (coverageMatch) {
       const coverage = parseFloat(coverageMatch[1]);
@@ -106,22 +126,26 @@ function formatReport(report: VerifyReport): string {
   return lines.join('\n');
 }
 
-export const verifyCmd = new Command('verify')
-  .description('Run verification checks (typecheck, tests, coverage)')
-  .option('--type <type>', 'Check type: typecheck, test, coverage, or all (default: all)')
-  .action(async (options: { type?: string }) => {
-    const type = options.type || 'all';
-    const validTypes = ['typecheck', 'test', 'coverage', 'all'];
+export function createVerifyCmd(context: InfrastructureContext): Command {
+  const cliOutput = createVerifyCommandOutput();
 
-    if (!validTypes.includes(type)) {
-      console.error(`Invalid type: ${type}. Must be one of: ${validTypes.join(', ')}`);
-      process.exit(1);
-    }
+  return new Command('verify')
+    .description('Run verification checks (typecheck, tests, coverage)')
+    .option('--type <type>', 'Check type: typecheck, test, coverage, or all (default: all)')
+    .action(async (options: { type?: string }) => {
+      const type = options.type || 'all';
+      const validTypes = ['typecheck', 'test', 'coverage', 'all'];
 
-    const report = await runVerification(type);
-    console.log(formatReport(report));
+      if (!validTypes.includes(type)) {
+        cliOutput.error(`Invalid type: ${type}. Must be one of: ${validTypes.join(', ')}`);
+        throw new VectaHubError(`Invalid verification type: ${type}`, ErrorType.RUNTIME);
+      }
 
-    if (report.verdict === 'FAIL') {
-      process.exit(1);
-    }
-  });
+      const report = await runVerification(type, context.environment);
+      cliOutput.log(formatReport(report));
+
+      if (report.verdict === 'FAIL') {
+        throw new VectaHubError('Verification failed', ErrorType.RUNTIME);
+      }
+    });
+}

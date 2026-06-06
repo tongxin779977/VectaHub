@@ -1,9 +1,9 @@
-import { createConsoleLogger } from '../utils/logger.js';
-import { type Workflow } from '../types/workflow.js';
+import { type Step, type Workflow } from '../types/workflow.js';
 import { type Breakpoint, type DebugState, type StepFrame, type ErrorInfo, type ExecutionHistory, type StepExecution, type WatchExpression, type DebugEvent, BreakpointType } from './debugger-api.js';
 import vm from 'vm';
+import type pino from 'pino';
 
-const ALLOWED_EXPRESSION_CHARS = /^[\w\s.+\-*/%<>=!&|()\[\]'"?:]*$/;
+const ALLOWED_EXPRESSION_CHARS = /^[\w\s.+*/%<>=!&|()[\]'"?:-]*$/;
 
 function sanitizeExpression(expression: string): { valid: boolean; message?: string } {
   const trimmed = expression.trim();
@@ -48,6 +48,10 @@ export interface SandboxOptions {
   memoryLimit?: number;
 }
 
+export interface WorkflowDebuggerDeps {
+  logger: Pick<pino.Logger, 'info' | 'warn'>;
+}
+
 const DEFAULT_TIMEOUT = 1000;
 const DEFAULT_MEMORY_LIMIT = 1024 * 1024 * 10; 
 
@@ -88,8 +92,22 @@ function createSandboxContext(
   };
 }
 
+type ExecutableWorkflowStep = Step & {
+  execute(inputs: Record<string, unknown>): Promise<Record<string, unknown>> | Record<string, unknown>;
+};
+
+function getWorkflowStepName(step: Step): string {
+  const namedStep = step as Step & { name?: unknown };
+  return typeof namedStep.name === 'string' ? namedStep.name : step.id;
+}
+
+function isExecutableWorkflowStep(step: Step): step is ExecutableWorkflowStep {
+  const executableStep = step as Step & { execute?: unknown };
+  return typeof executableStep.execute === 'function';
+}
+
 export class WorkflowDebugger {
-  private logger = createConsoleLogger('debugger');
+  private readonly logger: Pick<pino.Logger, 'info' | 'warn'>;
   private breakpoints = new Map<string, Breakpoint>();
   private watchExpressions = new Map<string, WatchExpression>();
   private executionHistory: ExecutionHistory[] = [];
@@ -97,6 +115,10 @@ export class WorkflowDebugger {
   private eventListeners: Array<(event: DebugEvent) => void> = [];
   private isPaused = false;
   private stepMode = false;
+
+  constructor(deps: WorkflowDebuggerDeps) {
+    this.logger = deps.logger;
+  }
 
   setBreakpoint(stepId: string, type: BreakpointType = 'step', condition?: string): string {
     const id = `bp-${stepId}-${Date.now()}`;
@@ -218,7 +240,7 @@ export class WorkflowDebugger {
 
       this.currentState.currentStepId = step.id;
 
-      const stepName = (step as any).name || step.id;
+      const stepName = getWorkflowStepName(step);
       const stepExecution: StepExecution = {
         stepId: step.id,
         stepName,
@@ -330,8 +352,8 @@ export class WorkflowDebugger {
     return false;
   }
 
-  private async executeStep(step: any, inputs: Record<string, unknown>): Promise<Record<string, unknown>> {
-    if (typeof step.execute === 'function') {
+  private async executeStep(step: Step, inputs: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (isExecutableWorkflowStep(step)) {
       return await step.execute(inputs);
     }
     return {};
@@ -417,5 +439,3 @@ export class WorkflowDebugger {
     this.logger.info('Debugger reset');
   }
 }
-
-export const workflowDebugger = new WorkflowDebugger();

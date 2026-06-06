@@ -1,25 +1,30 @@
 import type { Step } from '../../types/index.js';
-import type { StepHandler, ExecutorOptions, ExecutionContext, ExecuteStepFn, ExecutionResult } from './types.js';
+import type { StepHandler, ExecutorOptions, ExecutionContext, ExecuteStepFn, ExecutionResult, HandlerDependencies } from './types.js';
 import { interpolateString } from '../interpolation.js';
 
-export const createExecHandler = (deps: {
-  detector: any;
-  audit: any;
-  sandboxManager?: any;
-  exec: any;
-  execInSandbox: any;
-  shouldAllow: any;
-}): StepHandler => {
+export const createExecHandler = (deps: HandlerDependencies): StepHandler => {
   return async (
     step: Step,
     options: ExecutorOptions,
     context: ExecutionContext,
-    executeStep: ExecuteStepFn,
+    _executeStep: ExecuteStepFn,
     startTime: number
   ): Promise<ExecutionResult> => {
     const interpolatedCli = interpolateString(step.cli!, context);
     const interpolatedArgs = (step.args || []).map(arg => interpolateString(arg, context));
     const fullCommand = `${interpolatedCli} ${interpolatedArgs.join(' ')}`.trim();
+
+    if (deps.semanticDetector && typeof deps.semanticDetector.detectDangerousCommand === 'function') {
+      const semanticResult = deps.semanticDetector.detectDangerousCommand(fullCommand);
+      if (semanticResult.detected && (semanticResult.severity === 'critical' || semanticResult.severity === 'high')) {
+        return {
+          stepId: step.id,
+          status: 'FAILED',
+          error: `Semantic Guardrails blocked: ${semanticResult.reason}`,
+          duration: Date.now() - startTime,
+        };
+      }
+    }
 
     const detection = deps.detector.detect(fullCommand);
 
@@ -27,7 +32,7 @@ export const createExecHandler = (deps: {
       fullCommand,
       detection.isDangerous,
       detection.level || 'none',
-      'unknown'
+      options.sessionId || 'unknown'
     );
 
     if (!deps.shouldAllow(detection, options.mode)) {
@@ -40,9 +45,11 @@ export const createExecHandler = (deps: {
     }
 
     try {
+      // Safely access optional timeout from step
+      const stepTimeout = (step as Step & { timeout?: number }).timeout;
       const stepOptions = {
         ...options,
-        timeout: (step as any).timeout || options.timeout
+        timeout: stepTimeout || options.timeout
       };
 
       const result = options.useSandbox && deps.sandboxManager
@@ -54,18 +61,23 @@ export const createExecHandler = (deps: {
         interpolatedCli,
         result.exitCode,
         result.duration,
-        'unknown',
+        options.sessionId || 'unknown',
         { stdoutLength: result.stdout.length, stderrLength: result.stderr.length }
       );
 
       const outputs = result.stdout ? [result.stdout] : [];
-      context.previousOutputs[step.id] = outputs;
+      const storageKey = step.outputVar || step.id;
+      context.previousOutputs[storageKey] = outputs;
+      if (storageKey !== step.id) {
+        context.previousOutputs[step.id] = outputs;
+      }
 
       return {
         stepId: step.id,
         status: result.success ? 'COMPLETED' : 'FAILED',
         output: outputs,
         error: result.success ? undefined : (result.stderr || `Command exited with code ${result.exitCode}`),
+        exitCode: result.exitCode,
         duration: Date.now() - startTime,
         sandboxed: options.useSandbox && deps.sandboxManager ? true : undefined,
       };

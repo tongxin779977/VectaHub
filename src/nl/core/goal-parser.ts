@@ -5,12 +5,30 @@ import {
   SCOPE_MAP,
   FAILURE_TERMS,
   resolveDomainConflicts,
+  CI_CONTEXT_KEYWORDS,
 } from '../knowledge/goal-vocabulary.js';
+import { detectNegation } from './llm-fallback.js';
 
-function detectAction(terms: string[]): GoalAction {
-  for (const term of terms) {
-    if (ACTION_MAP[term]) {
-      return ACTION_MAP[term];
+function isCJK(s: string): boolean {
+  return /[\u4e00-\u9fff\u3400-\u4dbf]/.test(s);
+}
+
+const cjkActionKeys = Object.keys(ACTION_MAP).filter(k => isCJK(k)).sort((a, b) => b.length - a.length);
+const nonCjkActionKeys = Object.keys(ACTION_MAP).filter(k => !isCJK(k)).sort((a, b) => b.length - a.length);
+const cjkFailureTerms = FAILURE_TERMS.filter(t => isCJK(t)).sort((a, b) => b.length - a.length);
+const nonCjkFailureTerms = FAILURE_TERMS.filter(t => !isCJK(t));
+const cjkScopeKeys = Object.keys(SCOPE_MAP).filter(k => isCJK(k)).sort((a, b) => b.length - a.length);
+const nonCjkScopeKeys = Object.keys(SCOPE_MAP).filter(k => !isCJK(k));
+
+function detectAction(cleanText: string, terms: string[]): GoalAction {
+  for (const key of cjkActionKeys) {
+    if (cleanText.includes(key)) {
+      return ACTION_MAP[key];
+    }
+  }
+  for (const key of nonCjkActionKeys) {
+    if (terms.includes(key)) {
+      return ACTION_MAP[key];
     }
   }
   return 'unknown';
@@ -20,53 +38,71 @@ function detectDomains(terms: string[], entities: NormalizedInput['entities']): 
   return resolveDomainConflicts(terms, entities);
 }
 
-function detectTarget(terms: string[], entities: NormalizedInput['entities']): string | undefined {
-  const lowerTerms = terms.map(t => t.toLowerCase());
-
-  if (lowerTerms.some(t => FAILURE_TERMS.includes(t))) {
-    return 'failure';
+function detectTarget(cleanText: string, terms: string[], entities: NormalizedInput['entities']): string | undefined {
+  for (const term of cjkFailureTerms) {
+    if (cleanText.includes(term)) {
+      return 'failure';
+    }
   }
 
   if (entities.githubActionRunIds?.length || entities.githubActionUrls?.length) {
     return 'failure';
   }
 
-  if (lowerTerms.includes('test')) {
+  if (nonCjkFailureTerms.some(t => terms.includes(t))) {
+    return 'failure';
+  }
+
+  if (terms.includes('test')) {
     return 'test';
   }
 
-  if (lowerTerms.includes('build')) {
+  if (terms.includes('build')) {
     return 'build';
   }
 
   return undefined;
 }
 
-function detectScope(terms: string[]): GoalScope {
-  for (const term of terms) {
-    if (SCOPE_MAP[term]) {
-      return SCOPE_MAP[term];
+function detectScope(cleanText: string, terms: string[]): GoalScope {
+  for (const key of cjkScopeKeys) {
+    if (cleanText.includes(key)) {
+      return SCOPE_MAP[key];
+    }
+  }
+  for (const key of nonCjkScopeKeys) {
+    if (terms.includes(key)) {
+      return SCOPE_MAP[key];
     }
   }
   return 'unknown';
 }
 
-function detectSuccessCriteria(terms: string[], target?: string): string[] {
+function detectSuccessCriteria(cleanText: string, target?: string): string[] {
   const criteria: string[] = [];
-  const lowerTerms = terms.map(t => t.toLowerCase());
+  const hasCiContext = CI_CONTEXT_KEYWORDS.some(kw => cleanText.includes(kw));
 
-  if (target === 'failure' && lowerTerms.includes('ci')) {
+  if (hasCiContext) {
     criteria.push('ci-green');
   }
 
-  if (target === 'failure' && lowerTerms.some(t => FAILURE_TERMS.includes(t))) {
+  if (target === 'failure') {
     criteria.push('no-errors');
+    if (!criteria.includes('ci-green')) {
+      criteria.push('ci-green');
+    }
   }
 
   return criteria;
 }
 
-function calculateConfidence(action: GoalAction, domains: string[], target: string | undefined): number {
+function calculateConfidence(
+  action: GoalAction,
+  domains: string[],
+  target: string | undefined,
+  scope: GoalScope,
+  needsClarification: boolean,
+): number {
   let score = 0;
 
   if (action !== 'unknown') {
@@ -78,29 +114,46 @@ function calculateConfidence(action: GoalAction, domains: string[], target: stri
   }
 
   if (target) {
-    score += 0.2;
+    score += 0.15;
   }
 
-  if (domains.includes('github-actions')) {
+  if (scope !== 'unknown') {
     score += 0.1;
   }
 
-  return Math.min(score, 1.0);
+  if (domains.includes('github-actions')) {
+    score += 0.05;
+  }
+
+  if (needsClarification) {
+    score *= 0.5;
+  }
+
+  return Math.min(Math.max(score, 0), 1.0);
 }
+
+const MUTATING_ACTIONS: GoalAction[] = ['repair', 'run', 'create', 'delete', 'modify', 'deploy', 'git'];
 
 export function parseGoal(input: string | NormalizedInput): ParsedGoal {
   const normalized = typeof input === 'string'
     ? normalizeInput(input)
     : input;
 
-  const action = detectAction(normalized.normalizedTerms);
-  const domains = detectDomains(normalized.normalizedTerms, normalized.entities);
-  const target = detectTarget(normalized.normalizedTerms, normalized.entities);
-  const scope = detectScope(normalized.normalizedTerms);
-  const successCriteria = detectSuccessCriteria(normalized.normalizedTerms, target);
-  const confidence = calculateConfidence(action, domains, target);
+  const { cleanText, normalizedTerms, entities } = normalized;
+  const action = detectAction(cleanText, normalizedTerms);
+  const domains = detectDomains(normalizedTerms, entities);
+  const target = detectTarget(cleanText, normalizedTerms, entities);
+  const scope = detectScope(cleanText, normalizedTerms);
+  const successCriteria = detectSuccessCriteria(cleanText, target);
+  let needsClarification = action === 'unknown' || (!target && domains.length === 0);
 
-  const needsClarification = action === 'unknown' || (!target && domains.length === 0);
+  const negationPattern = detectNegation(cleanText);
+  const negationDetected = negationPattern !== null && MUTATING_ACTIONS.includes(action);
+  if (negationDetected) {
+    needsClarification = true;
+  }
+
+  const confidence = calculateConfidence(action, domains, target, scope, needsClarification);
 
   return {
     action,
@@ -109,8 +162,9 @@ export function parseGoal(input: string | NormalizedInput): ParsedGoal {
     scope,
     successCriteria,
     constraints: [],
-    evidence: normalized.entities,
+    evidence: entities,
     confidence,
     needsClarification,
+    negationDetected: negationDetected || undefined,
   };
 }
