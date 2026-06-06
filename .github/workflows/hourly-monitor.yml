@@ -145,39 +145,48 @@ jobs:
       - name: Create Issue if problems found
         if: steps.npm-audit.outputs.vulnerable == 'true' || steps.dependabot.outputs.alertCount > 0 || steps.workflow-status.outputs.failedRuns > 0
         uses: actions/github-script@v7
+        env:
+          VULNERABLE: ${{ steps.npm-audit.outputs.vulnerable }}
+          ALERT_COUNT: ${{ steps.dependabot.outputs.alertCount }}
+          FAILED_RUNS: ${{ steps.workflow-status.outputs.failedRuns }}
+          RETRY_RESULTS: ${{ steps.auto-retry.outputs.retryResults || '[]' }}
+          VECTAHUB_PROCESSED: ${{ steps.vectahub-process.outputs.processed }}
         with:
           script: |
             const title = '🔔 GitHub Actions Alert: Issues Detected';
-            
-            const retryResults = ${{ steps.auto-retry.outputs.retryResults || '[]' }};
-            
+            const retryResults = JSON.parse(process.env.RETRY_RESULTS);
+            const vulnerable = process.env.VULNERABLE;
+            const alertCount = process.env.ALERT_COUNT;
+            const failedRuns = process.env.FAILED_RUNS;
+            const processed = process.env.VECTAHUB_PROCESSED;
+
             let body = '## Hourly GitHub Actions Issue & Warning Processor Report\n\n';
             body += '### Security Status\n';
-            body += `- NPM Audit Vulnerabilities: ${steps.npm-audit.outputs.vulnerable == 'true' ? '⚠️ Found' : '✅ Clear'}\n`;
-            body += `- Dependabot Alerts: ${steps.dependabot.outputs.alertCount} open\n\n`;
-            
+            body += `- NPM Audit Vulnerabilities: ${vulnerable === 'true' ? '⚠️ Found' : '✅ Clear'}\n`;
+            body += `- Dependabot Alerts: ${alertCount} open\n\n`;
+
             body += '### Workflow Status\n';
-            body += `- Failed Workflows: ${steps.workflow-status.outputs.failedRuns}\n`;
-            
+            body += `- Failed Workflows: ${failedRuns}\n`;
+
             if (retryResults.length > 0) {
               body += '- Auto-retry attempts:\n';
               for (const result of retryResults) {
                 body += `  - ${result.name} (ID: ${result.id}): ${result.status}\n`;
               }
             }
-            
+
             body += '\n### Actions Taken\n';
-            if (steps.vectahub-process.outputs.processed == 'true') {
+            if (processed === 'true') {
               body += '- ✅ VectaHub analysis completed\n';
             }
             if (retryResults.length > 0) {
               body += '- 🔄 Auto-retry attempted for failed workflows\n';
             }
-            
+
             body += '\n---\n';
             body += 'This issue was automatically created by the hourly GitHub Actions processor workflow.\n';
             body += 'Please review the details and take appropriate action if needed.\n';
-            
+
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
