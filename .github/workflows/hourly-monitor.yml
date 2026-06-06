@@ -7,10 +7,9 @@ on:
 
 permissions:
   contents: write
-  security-events: write
+  security-events: read
   issues: write
   actions: write
-  dependabot-alerts: read
 
 jobs:
   security-monitor:
@@ -50,33 +49,19 @@ jobs:
 
       - name: Check Dependabot alerts
         id: dependabot
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { data: alerts } = await github.rest.dependabot.listAlertsForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              per_page: 100
-            });
-
-            console.log(`Found ${alerts.length} open Dependabot alerts`);
-            
-            let summary = '\n## Dependabot Alerts\n';
-            if (alerts.length === 0) {
-              summary += '✅ No open Dependabot alerts!';
-            } else {
-              summary += '⚠️ Open Dependabot alerts:\n\n';
-              for (const alert of alerts.slice(0, 20)) {
-                summary += `- [${alert.security_advisory.summary}](${alert.html_url}) (${alert.security_advisory.severity})\n`;
-              }
-              if (alerts.length > 20) {
-                summary += `... and ${alerts.length - 20} more\n`;
-              }
-            }
-            
-            await core.summary.addRaw(summary).write();
-            core.setOutput('alertCount', alerts.length);
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ALERT_COUNT=$(gh api repos/${{ github.repository }}/dependabot/alerts?state=open --jq 'length' 2>/dev/null || echo "0")
+          echo "alertCount=$ALERT_COUNT" >> $GITHUB_OUTPUT
+          
+          echo "## Dependabot Alerts" >> $GITHUB_STEP_SUMMARY
+          if [ "$ALERT_COUNT" = "0" ]; then
+            echo "✅ No open Dependabot alerts!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Found $ALERT_COUNT open Dependabot alerts" >> $GITHUB_STEP_SUMMARY
+            gh api repos/${{ github.repository }}/dependabot/alerts?state=open --jq '.[] | "- " + .security_advisory.summary + " (" + .security_advisory.severity + ")"' 2>/dev/null | head -20 >> $GITHUB_STEP_SUMMARY || true
+          fi
 
       - name: Check recent workflow runs
         id: workflow-status
