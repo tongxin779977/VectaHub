@@ -317,7 +317,14 @@ describe('workspace button commands', () => {
     fakeContext.subscriptions.length = 0
     vi.clearAllMocks()
     vi.spyOn(fs, 'existsSync').mockImplementation((filePath: fs.PathLike) => {
-      if (String(filePath) === targetPaths.projectQueueFile) {
+      const p = String(filePath)
+      if (p === targetPaths.projectQueueFile) {
+        return true
+      }
+      if (p === path.join(targetPaths.workspace, 'frontend', 'dist', 'index.html')) {
+        return true
+      }
+      if (p === targetPaths.doc) {
         return true
       }
       return actualExistsSync(filePath)
