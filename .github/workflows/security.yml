@@ -52,27 +52,44 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ALERT_COUNT="$(gh api repos/${{ github.repository }}/dependabot/alerts?state=open --jq 'length' 2>/dev/null || echo "0")"
-          echo "alert_count=$ALERT_COUNT" >> "$GITHUB_OUTPUT"
+          set +e
+          ALERT_COUNT="$(gh api repos/${{ github.repository }}/dependabot/alerts?state=open --jq 'length' 2>dependabot-alerts-error.txt)"
+          STATUS=$?
+          set -e
+
+          if [ "$STATUS" -eq 0 ]; then
+            echo "alert_count=$ALERT_COUNT" >> "$GITHUB_OUTPUT"
+            echo "status=available" >> "$GITHUB_OUTPUT"
+          else
+            echo "alert_count=0" >> "$GITHUB_OUTPUT"
+            echo "status=unavailable" >> "$GITHUB_OUTPUT"
+            {
+              echo "Dependabot alerts API is unavailable to this workflow token."
+              cat dependabot-alerts-error.txt
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Write security summary
         env:
           VULNERABLE: ${{ steps.npm-audit.outputs.vulnerable }}
           ALERT_COUNT: ${{ steps.dependabot.outputs.alert_count }}
+          DEPENDABOT_STATUS: ${{ steps.dependabot.outputs.status }}
         run: |
           {
             echo "## Security Automation"
             echo ""
             echo "- npm audit vulnerabilities: $VULNERABLE"
             echo "- open Dependabot alerts: $ALERT_COUNT"
+            echo "- Dependabot alerts API: $DEPENDABOT_STATUS"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create or update security issue
-        if: steps.npm-audit.outputs.vulnerable == 'true' || steps.dependabot.outputs.alert_count != '0'
+        if: steps.npm-audit.outputs.vulnerable == 'true' || (steps.dependabot.outputs.status == 'available' && steps.dependabot.outputs.alert_count != '0')
         uses: actions/github-script@v7
         env:
           VULNERABLE: ${{ steps.npm-audit.outputs.vulnerable }}
           ALERT_COUNT: ${{ steps.dependabot.outputs.alert_count }}
+          DEPENDABOT_STATUS: ${{ steps.dependabot.outputs.status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
           script: |
@@ -115,6 +132,7 @@ jobs:
               '',
               `- npm audit vulnerabilities: ${process.env.VULNERABLE}`,
               `- open Dependabot alerts: ${process.env.ALERT_COUNT}`,
+              `- Dependabot alerts API: ${process.env.DEPENDABOT_STATUS}`,
               `- workflow run: ${process.env.RUN_URL}`,
               '',
               'This issue is updated by the daily security automation workflow.'
@@ -142,5 +160,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: npm-audit-results
-          path: audit-results.json
+          path: |
+            audit-results.json
+            dependabot-alerts-error.txt
           if-no-files-found: ignore
