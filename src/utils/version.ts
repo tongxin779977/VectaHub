@@ -1,6 +1,6 @@
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -15,7 +15,13 @@ let cachedVersion: string | undefined;
 export function getVersion(): string {
   if (!cachedVersion) {
     try {
-      const pkgPath = join(__dirname, '../../package.json');
+      const pkgPath = [
+        join(__dirname, '../package.json'),
+        join(__dirname, '../../package.json'),
+      ].find(candidate => existsSync(candidate));
+      if (!pkgPath) {
+        throw new Error('package.json not found');
+      }
       const pkgContent = readFileSync(pkgPath, 'utf-8');
       const pkg = JSON.parse(pkgContent) as { version?: string };
       cachedVersion = pkg.version ?? '0.0.0';
