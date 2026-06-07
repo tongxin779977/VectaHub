@@ -64,7 +64,7 @@ vectahub run --dry-run "delete node_modules"
 
 关键文件：
 
-- [src/commands/run.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/commands/run.ts:1)
+- [src/commands/run.ts](../src/commands/run.ts:1)
 
 ### `chat`
 
@@ -101,9 +101,9 @@ vectahub chat
 
 关键文件：
 
-- [src/commands/chat.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/commands/chat.ts:17)
-- [src/chat/context-builder.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/chat/context-builder.ts:1)
-- [src/nl/session-manager.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/nl/session-manager.ts:309)
+- [src/commands/chat.ts](../src/commands/chat.ts:17)
+- [src/chat/context-builder.ts](../src/chat/context-builder.ts:1)
+- [src/nl/session-manager.ts](../src/nl/session-manager.ts:309)
 
 ## 文档处理
 
@@ -226,7 +226,7 @@ vectahub run-task --tool codex --task-id T1 --task-label "Add tests" --doc ./doc
 
 关键文件：
 
-- [src/commands/run-task.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/commands/run-task.ts:2414)
+- [src/commands/run-task.ts](../src/commands/run-task.ts:2414)
 - [contracts/run-task-execution-contract.md](./contracts/run-task-execution-contract.md)
 - [contracts/agent-worker-contract.md](./contracts/agent-worker-contract.md)
 
@@ -354,8 +354,8 @@ workflow definition
 
 关键文件：
 
-- [src/types/workflow.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/types/workflow.ts:30)
-- [src/workflow/storage.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/workflow/storage.ts:270)
+- [src/types/workflow.ts](../src/types/workflow.ts:30)
+- [src/workflow/storage.ts](../src/workflow/storage.ts:270)
 - [workflow-spec.md](./workflow-spec.md#版本与保存正确性)
 
 ### 支持的 step types
@@ -371,7 +371,7 @@ workflow definition
 
 关键文件：
 
-- [src/types/workflow.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/types/workflow.ts:1)
+- [src/types/workflow.ts](../src/types/workflow.ts:1)
 
 ### 当前执行模型
 
@@ -457,7 +457,7 @@ validateDependencies
 
 关键文件：
 
-- [src/workflow/parallel-executor.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/workflow/parallel-executor.ts:1)
+- [src/workflow/parallel-executor.ts](../src/workflow/parallel-executor.ts:1)
 
 ### `delegate`
 
@@ -474,7 +474,7 @@ validateDependencies
 
 关键文件：
 
-- [src/workflow/executor.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/workflow/executor.ts:277)
+- [src/workflow/executor.ts](../src/workflow/executor.ts:277)
 - [workflow-spec.md](./workflow-spec.md)
 
 ### 多 Agent CLI workflow 编排
@@ -520,9 +520,9 @@ validateDependencies
 关键参考：
 
 - [workflow-spec.md](./workflow-spec.md#多-agent-cli-编排合同)
-- [src/agent-runtime/factory.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/agent-runtime/factory.ts:14)
-- [src/workflow/handlers/opencli-handler.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/workflow/handlers/opencli-handler.ts:1)
-- [src/workflow/executor.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/workflow/executor.ts:176)
+- [src/agent-runtime/factory.ts](../src/agent-runtime/factory.ts:14)
+- [src/workflow/handlers/opencli-handler.ts](../src/workflow/handlers/opencli-handler.ts:1)
+- [src/workflow/executor.ts](../src/workflow/executor.ts:176)
 
 ### 工作流历史与重放命令
 
@@ -594,9 +594,9 @@ Agent CLI Runtime 是 VectaHub 调度外部 Agent CLI 的运行时事实层。
 
 关键文件：
 
-- [src/agent-runtime/factory.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/agent-runtime/factory.ts:14)
-- [src/agent-runtime/registry.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/agent-runtime/registry.ts:1)
-- [src/cli-main.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/cli-main.ts:478)
+- [src/agent-runtime/factory.ts](../src/agent-runtime/factory.ts:14)
+- [src/agent-runtime/registry.ts](../src/agent-runtime/registry.ts:1)
+- [src/cli-main.ts](../src/cli-main.ts:478)
 
 ### `tools agents`
 
@@ -748,8 +748,8 @@ User Intent / Document Task
 
 关键文件：
 
-- [src/skills/ai-modules/agent-delegate/agent-loop.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/skills/ai-modules/agent-delegate/agent-loop.ts:1)
-- [src/skills/ai-modules/agent-delegate/agent-tools.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/skills/ai-modules/agent-delegate/agent-tools.ts:1)
+- [src/skills/ai-modules/agent-delegate/agent-loop.ts](../src/skills/ai-modules/agent-delegate/agent-loop.ts:1)
+- [src/skills/ai-modules/agent-delegate/agent-tools.ts](../src/skills/ai-modules/agent-delegate/agent-tools.ts:1)
 
 ## 安全、策略与脱敏
 

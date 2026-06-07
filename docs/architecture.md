@@ -95,8 +95,8 @@ CLI 仍然是主要 composition root。
 
 关键文件：
 
-- [src/cli.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/cli.ts:1)
-- [src/cli-main.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/cli-main.ts:544)
+- [src/cli.ts](../src/cli.ts:1)
+- [src/cli-main.ts](../src/cli-main.ts:544)
 
 ## 2. 基础设施与依赖层
 
@@ -117,7 +117,7 @@ CLI 仍然是主要 composition root。
 
 关键文件：
 
-- [src/infrastructure/context.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/infrastructure/context.ts:18)
+- [src/infrastructure/context.ts](../src/infrastructure/context.ts:18)
 
 ## 3. 意图、规划与回复层
 
@@ -135,8 +135,8 @@ CLI 仍然是主要 composition root。
 
 关键文件：
 
-- [src/nl/orchestrator.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/nl/orchestrator.ts:1)
-- [src/commands/run.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/commands/run.ts:1)
+- [src/nl/orchestrator.ts](../src/nl/orchestrator.ts:1)
+- [src/commands/run.ts](../src/commands/run.ts:1)
 
 ## 4. 工作流执行层
 
@@ -175,9 +175,9 @@ WorkflowDefinition v1
 
 关键文件：
 
-- [src/types/workflow.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/types/workflow.ts:1)
-- [src/workflow/executor.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/workflow/executor.ts:1)
-- [src/workflow/parallel-executor.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/workflow/parallel-executor.ts:1)
+- [src/types/workflow.ts](../src/types/workflow.ts:1)
+- [src/workflow/executor.ts](../src/workflow/executor.ts:1)
+- [src/workflow/parallel-executor.ts](../src/workflow/parallel-executor.ts:1)
 - [design/workflow-engine-architecture.md](./design/workflow-engine-architecture.md)
 
 ## 5. 文档任务执行层
@@ -195,8 +195,8 @@ WorkflowDefinition v1
 
 关键文件：
 
-- [src/commands/run-task.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/commands/run-task.ts:2414)
-- [packages/doc-task-contract-core/package.json](/Users/xin.tong/apps/project/test_trae/VectaHub/packages/doc-task-contract-core/package.json:1)
+- [src/commands/run-task.ts](../src/commands/run-task.ts:2414)
+- [packages/doc-task-contract-core/package.json](../packages/doc-task-contract-core/package.json:1)
 
 ## 6. Agent CLI runtime 层
 
@@ -235,8 +235,8 @@ Agent Registry
 
 关键文件：
 
-- [src/agent-runtime/factory.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/agent-runtime/factory.ts:14)
-- [src/agent-runtime/registry.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/agent-runtime/registry.ts:1)
+- [src/agent-runtime/factory.ts](../src/agent-runtime/factory.ts:14)
+- [src/agent-runtime/registry.ts](../src/agent-runtime/registry.ts:1)
 - [design/agent-cli-runtime-architecture.md](./design/agent-cli-runtime-architecture.md)
 
 ## 7. 编排、委托与任务拆解层
@@ -263,9 +263,9 @@ User Intent / Document Task
 
 关键文件：
 
-- [src/nl/orchestrator.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/nl/orchestrator.ts:1)
-- [src/skills/pipeline-skill.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/skills/pipeline-skill.ts:1)
-- [src/skills/workflow-skill.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/skills/workflow-skill.ts:1)
+- [src/nl/orchestrator.ts](../src/nl/orchestrator.ts:1)
+- [src/skills/pipeline-skill.ts](../src/skills/pipeline-skill.ts:1)
+- [src/skills/workflow-skill.ts](../src/skills/workflow-skill.ts:1)
 - [design/orchestration-and-delegation-architecture.md](./design/orchestration-and-delegation-architecture.md)
 
 ## 8. 安全与治理层
@@ -283,8 +283,8 @@ User Intent / Document Task
 
 关键文件：
 
-- [src/security-protocol/manager.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/security-protocol/manager.ts:1)
-- [src/security-protocol/guard.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/security-protocol/guard.ts:1)
+- [src/security-protocol/manager.ts](../src/security-protocol/manager.ts:1)
+- [src/security-protocol/guard.ts](../src/security-protocol/guard.ts:1)
 - [design/safety-trace-recovery-architecture.md](./design/safety-trace-recovery-architecture.md)
 
 ## 9. 本地服务与集成层
@@ -322,11 +322,11 @@ VS Code / local script / socket client / API
 
 关键文件：
 
-- [src/commands/serve.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/commands/serve.ts:1)
-- [src/commands/daemon.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/commands/daemon.ts:1)
-- [src/api/server.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/api/server.ts:1)
-- [src/commands/export.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/commands/export.ts:1)
-- [packages/vectahub-vscode-extension/package.json](/Users/xin.tong/apps/project/test_trae/VectaHub/packages/vectahub-vscode-extension/package.json:1)
+- [src/commands/serve.ts](../src/commands/serve.ts:1)
+- [src/commands/daemon.ts](../src/commands/daemon.ts:1)
+- [src/api/server.ts](../src/api/server.ts:1)
+- [src/commands/export.ts](../src/commands/export.ts:1)
+- [packages/vectahub-vscode-extension/package.json](../packages/vectahub-vscode-extension/package.json:1)
 - [design/module-scope-cleanup.md](./design/module-scope-cleanup.md)
 
 ## 10. Trace、Audit 与恢复层
@@ -361,8 +361,8 @@ Permission Gate
 
 关键文件：
 
-- [src/infrastructure/trace-audit/system.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/infrastructure/trace-audit/system.ts:1)
-- [src/workflow/storage.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/workflow/storage.ts:72)
+- [src/infrastructure/trace-audit/system.ts](../src/infrastructure/trace-audit/system.ts:1)
+- [src/workflow/storage.ts](../src/workflow/storage.ts:72)
 - [design/safety-trace-recovery-architecture.md](./design/safety-trace-recovery-architecture.md)
 
 ## 架构原则

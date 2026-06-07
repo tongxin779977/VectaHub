@@ -20,7 +20,7 @@
 
 - 不知道失败后状态该怎么写：看 `doc-task-state-machine-spec.md`
 - 不知道验证失败该怎么分类：看 `task-verification-loop-spec.md`
-- 不知道修复命令能不能自动执行：看 `security-permission-loop-spec.md`
+- 不知道修复命令能不能自动执行：看 [安全与权限闭环规格](./security-permission-loop.md)
 - 不知道恢复 trace 怎么关联原 trace：看 `trace-execution-spec.md` 和本文第 6 节
 - 不知道能不能修改任务边界外的文件：看 `agent-worker-contract-spec.md`
 - 不知道哪些实现方式会超预算：看 `performance-resource-budget-spec.md`
@@ -565,7 +565,7 @@ CLI 侧负责：
 
 - 任务状态字段定义：`doc-task-state-machine-spec.md`
 - 验证字段与失败测试语义：`task-verification-loop-spec.md`
-- 风险确认和脱敏：`security-permission-loop-spec.md`
+- 风险确认和脱敏：[安全与权限闭环规格](./security-permission-loop.md)
 - 任务文件边界与合同：`agent-worker-contract-spec.md`
 - trace 字段与查询约定：`trace-execution-spec.md`
 - 冷启动、IO、内存预算：`performance-resource-budget-spec.md`

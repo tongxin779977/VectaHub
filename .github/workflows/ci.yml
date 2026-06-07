@@ -41,6 +41,9 @@ jobs:
       - name: Check default context usage
         run: npm run check:default-context-usage
 
+      - name: Check documentation links
+        run: npm run check:docs
+
       - name: Test
         run: npm exec -- vitest --run --exclude '**/packages/vectahub-vscode-extension/**'
 

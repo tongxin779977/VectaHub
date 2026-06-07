@@ -36,8 +36,8 @@ VectaHub 通过 `chat` 提供本地交互会话，通过 `run` 提供自然语�
 
 - [usage.md](./usage.md)
 - [capabilities-reference.md](./capabilities-reference.md)
-- [src/commands/chat.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/commands/chat.ts:17)
-- [src/nl/session-manager.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/nl/session-manager.ts:309)
+- [src/commands/chat.ts](../src/commands/chat.ts:17)
+- [src/nl/session-manager.ts](../src/nl/session-manager.ts:309)
 
 ## 2. 文档处理与文档驱动执行
 
@@ -60,7 +60,7 @@ VectaHub 通过 `chat` 提供本地交互会话，通过 `run` 提供自然语�
 - [agent-execution.md](./agent-execution.md)
 - [contracts/run-task-execution-contract.md](./contracts/run-task-execution-contract.md)
 - [contracts/agent-worker-contract.md](./contracts/agent-worker-contract.md)
-- [src/commands/run-task.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/commands/run-task.ts:2414)
+- [src/commands/run-task.ts](../src/commands/run-task.ts:2414)
 
 ## 3. 工作流编写与执行
 
@@ -99,8 +99,8 @@ VectaHub 可以从自然语言或 YAML/JSON 文件运行工作流。
 - [workflow-spec.md](./workflow-spec.md)
 - [design/workflow-engine-architecture.md](./design/workflow-engine-architecture.md)
 - [contracts/workflow-lifecycle.md](./contracts/workflow-lifecycle.md)
-- [src/types/workflow.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/types/workflow.ts:1)
-- [src/workflow/executor.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/workflow/executor.ts:1)
+- [src/types/workflow.ts](../src/types/workflow.ts:1)
+- [src/workflow/executor.ts](../src/workflow/executor.ts:1)
 
 ## 4. Agent CLI 注册与 Adapter 层
 
@@ -135,8 +135,8 @@ VectaHub 已经有一层基于 registry 的 adapter 机制，用来接入部分�
 - [configuration.md](./configuration.md)
 - [design/agent-cli-runtime-architecture.md](./design/agent-cli-runtime-architecture.md)
 - [contracts/tools-security-management.md](./contracts/tools-security-management.md)
-- [src/agent-runtime/factory.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/agent-runtime/factory.ts:14)
-- [src/commands/tools.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/commands/tools.ts:1)
+- [src/agent-runtime/factory.ts](../src/agent-runtime/factory.ts:14)
+- [src/commands/tools.ts](../src/commands/tools.ts:1)
 
 ## 5. 编排、委托与任务拆解
 
@@ -164,8 +164,8 @@ VectaHub 现在已经有一些真正可用的编排能力，但“多 agent 编�
 
 - [capabilities-reference.md](./capabilities-reference.md#编排委托与任务拆解)
 - [design/orchestration-and-delegation-architecture.md](./design/orchestration-and-delegation-architecture.md)
-- [src/workflow/parallel-executor.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/workflow/parallel-executor.ts:1)
-- [src/skills/ai-modules/agent-delegate/agent-loop.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/skills/ai-modules/agent-delegate/agent-loop.ts:1)
+- [src/workflow/parallel-executor.ts](../src/workflow/parallel-executor.ts:1)
+- [src/skills/ai-modules/agent-delegate/agent-loop.ts](../src/skills/ai-modules/agent-delegate/agent-loop.ts:1)
 - [workflow-spec.md](./workflow-spec.md)
 
 ## 6. 安全与命令治理
@@ -192,7 +192,7 @@ VectaHub 现在已经有一些真正可用的编排能力，但“多 agent 编�
 - [contracts/tools-security-management.md](./contracts/tools-security-management.md)
 - [contracts/security-permission-loop.md](./contracts/security-permission-loop.md)
 - [design/safety-trace-recovery-architecture.md](./design/safety-trace-recovery-architecture.md)
-- [src/security-protocol/manager.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/security-protocol/manager.ts:1)
+- [src/security-protocol/manager.ts](../src/security-protocol/manager.ts:1)
 
 ## 7. Trace、Audit、执行记录与恢复
 
@@ -220,7 +220,7 @@ VectaHub 现在已经有一些真正可用的编排能力，但“多 agent 编�
 - [contracts/trace-execution.md](./contracts/trace-execution.md)
 - [contracts/recovery-loop.md](./contracts/recovery-loop.md)
 - [design/safety-trace-recovery-architecture.md](./design/safety-trace-recovery-architecture.md)
-- [src/infrastructure/trace-audit/system.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/infrastructure/trace-audit/system.ts:1)
+- [src/infrastructure/trace-audit/system.ts](../src/infrastructure/trace-audit/system.ts:1)
 
 ## 8. 本地服务与集成层
 
@@ -255,8 +255,8 @@ VS Code / local script / client / API
 关键参考：
 
 - [ui/vscode-extension.md](./ui/vscode-extension.md)
-- [src/daemon/socket-server.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/daemon/socket-server.ts:1)
-- [src/api/server.ts](/Users/xin.tong/apps/project/test_trae/VectaHub/src/api/server.ts:1)
+- [src/daemon/socket-server.ts](../src/daemon/socket-server.ts:1)
+- [src/api/server.ts](../src/api/server.ts:1)
 - [design/module-scope-cleanup.md](./design/module-scope-cleanup.md)
 
 ## 下一步建议阅读
