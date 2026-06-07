@@ -1,0 +1,13 @@
+# Repository governance
+#
+# CODEOWNERS is advisory until GitHub branch protection requires owner review.
+# Keep this list focused on public-facing docs, contracts, automation, and safety rules.
+
+* @tongxin779977
+
+/.github/ @tongxin779977
+/README.md @tongxin779977
+/AGENTS.md @tongxin779977
+/docs/repository-permissions.md @tongxin779977
+/docs/contracts/ @tongxin779977
+/docs/standards/ @tongxin779977

@@ -58,6 +58,11 @@ AGENTS.md
 # Trae IDE Generated Documents (临时文档)
 .trae/documents/
 
+# Private Documents (不应该提交)
+docs/private/
+private-docs/
+*.private.md
+
 # Test Temporary Files
 test-*.ts
 test-*.js
