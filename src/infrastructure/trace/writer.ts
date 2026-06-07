@@ -5,7 +5,7 @@ import { Redactor } from '../../security-protocol/redactor.js';
 import { TraceSpanRecord } from './types.js';
 import { getLogger } from '../logger/index.js';
 
-const redactor = new Redactor();
+const redactor = new Redactor({ skipKeys: ['traceId', 'spanId', 'parentSpanId'] });
 
 /**
  * Trace writer 的依赖注入接口

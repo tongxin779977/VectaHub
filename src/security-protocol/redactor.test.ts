@@ -372,4 +372,51 @@ describe('Redactor', () => {
       expect(elapsed).toBeLessThan(100); // should complete well under 100ms
     });
   });
+
+  describe('skipKeys', () => {
+    it('should skip redaction for fields listed in skipKeys', () => {
+      const redactor = new Redactor({ skipKeys: ['traceId', 'spanId'] });
+      const input = {
+        traceId: 'tr_1778657109751_8y5jbd',
+        spanId: 'sp_1778657109751_8y5jbd',
+        output: 'OPENAI_API_KEY=sk-proj-abc123def456ghi789',
+      };
+      const result = redactor.redactObject(input);
+      expect(result.traceId).toBe('tr_1778657109751_8y5jbd');
+      expect(result.spanId).toBe('sp_1778657109751_8y5jbd');
+      expect(result.output).not.toContain('sk-proj-abc123def456ghi789');
+      expect(result.output).toContain('[REDACTED]');
+    });
+
+    it('should still redact skipKeys fields when used as plain string via redact()', () => {
+      const redactor = new Redactor({ skipKeys: ['traceId'] });
+      // redact() is a string-level API and does not know about keys
+      const result = redactor.redact('tr_1778657109751_8y5jbd');
+      // The phone pattern still matches in redact() — skipKeys only applies to redactObject
+      expect(result).toContain('[REDACTED]');
+    });
+
+    it('should not skip redaction for fields not in skipKeys', () => {
+      const redactor = new Redactor({ skipKeys: ['traceId'] });
+      const input = {
+        traceId: 'tr_1778657109751_8y5jbd',
+        command: '13812345678',
+      };
+      const result = redactor.redactObject(input);
+      expect(result.traceId).toBe('tr_1778657109751_8y5jbd');
+      expect(result.command).not.toContain('13812345678');
+    });
+
+    it('should handle empty skipKeys (default behavior)', () => {
+      const redactor = new Redactor();
+      const input = {
+        traceId: 'tr_1778657109751_8y5jbd',
+        output: 'OPENAI_API_KEY=sk-proj-abc123def456ghi789',
+      };
+      const result = redactor.redactObject(input);
+      // Without skipKeys, traceId gets redacted by phone pattern
+      expect(result.traceId).toContain('[REDACTED]');
+      expect(result.output).toContain('[REDACTED]');
+    });
+  });
 });

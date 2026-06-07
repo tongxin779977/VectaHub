@@ -4,6 +4,8 @@ export interface RedactionConfig {
   patterns: RegExp[];
   replacement: string;
   sensitivePaths?: RegExp[];
+  /** Field names whose values should not be redacted during redactObject traversal. */
+  skipKeys?: string[];
 }
 
 // ── Key-value patterns (API keys, tokens, secrets) ──
@@ -93,12 +95,14 @@ export class Redactor {
   private readonly replacement: string;
   private readonly replaceFn: (match: string, ...args: unknown[]) => string;
   private readonly sensitivePaths: RegExp[];
+  private readonly skipKeys: Set<string>;
 
   constructor(config?: Partial<RedactionConfig>) {
     this.patterns = config?.patterns ?? buildDefaultPatterns();
     this.replacement = config?.replacement ?? '[REDACTED]';
     this.replaceFn = buildReplacementFn(this.replacement);
     this.sensitivePaths = config?.sensitivePaths ?? DEFAULT_SENSITIVE_PATHS;
+    this.skipKeys = new Set(config?.skipKeys ?? []);
   }
 
   /**
@@ -153,7 +157,7 @@ export class Redactor {
       const entries = Object.entries(value as Record<string, unknown>);
       const redacted: Record<string, unknown> = {};
       for (const [key, val] of entries) {
-        redacted[key] = this.redactValue(val);
+        redacted[key] = this.skipKeys.has(key) ? val : this.redactValue(val);
       }
       return redacted;
     }
