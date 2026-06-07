@@ -73,7 +73,7 @@ async function runTypeCheck(env: IEnvironmentService): Promise<CheckResult> {
 
 async function runTests(env: IEnvironmentService): Promise<CheckResult> {
   try {
-    const { stdout } = await env.exec('npx vitest --run --reporter=basic 2>&1');
+    const { stdout } = await env.exec('npx vitest --run --reporter=default 2>&1');
     const passMatch = stdout.match(/(\d+) passed/);
     const failMatch = stdout.match(/(\d+) failed/);
     const passed = passMatch ? parseInt(passMatch[1], 10) : 0;
