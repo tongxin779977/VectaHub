@@ -8,6 +8,7 @@ dist/
 dist-ssr/
 build/
 *.tsbuildinfo
+out/
 
 # Environment Variables (IMPORTANT!)
 .env
@@ -19,11 +20,15 @@ build/
 # Logs
 logs/
 *.log
+fail_*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+
+# Runtime data (path bug residue)
+undefined/
 
 # Editor/IDE
 .vscode/*
@@ -80,6 +85,7 @@ coverage/
 .vscode-test/
 
 # Agent Ephemeral Data
+agent-homes/
 .gemini/tasks/
 .gemini/responses/
 .claude/

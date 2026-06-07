@@ -62,7 +62,7 @@ export class QueryEngine {
     }
 
     return fs.readdirSync(this.logDir)
-      .filter((f) => f.endsWith('-traces.jsonl'))
+      .filter((f) => f.endsWith('.jsonl'))
       .map((f) => path.join(this.logDir, f))
       .sort();
   }

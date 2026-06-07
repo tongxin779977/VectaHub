@@ -2,6 +2,7 @@ import { getQueueManager } from '../execution/queue-manager.js';
 import type { DiagnosticTask } from '../types/diagnostic.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getVectaHubHome } from '../infrastructure/paths/index.js';
 
 const modulePath = fileURLToPath(import.meta.url);
 const moduleDir = dirname(modulePath);
@@ -47,9 +48,7 @@ export async function processFailedRuns(
   }
 
   const queueManager = getQueueManager(
-    process.env.VECTAHUB_HOME
-      ? join(process.env.VECTAHUB_HOME, 'diagnostic-queue.json')
-      : join(process.env.HOME || '', '.vectahub', 'diagnostic-queue.json'),
+    join(getVectaHubHome(), 'diagnostic-queue.json'),
     { logger: queueLogger },
   );
   let count = 0;

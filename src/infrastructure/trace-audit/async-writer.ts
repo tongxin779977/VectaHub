@@ -89,7 +89,7 @@ export class AsyncLogWriter {
   /** 获取当前日志文件路径 */
   private getLogFilePath(): string {
     const dateStr = new Date().toISOString().split('T')[0];
-    return path.join(this.logDir, `${dateStr}-traces.jsonl`);
+    return path.join(this.logDir, `${dateStr}.jsonl`);
   }
 
   /** 启动定时刷盘 */

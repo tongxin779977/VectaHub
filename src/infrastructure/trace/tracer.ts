@@ -1,5 +1,5 @@
 import { createRootTraceContext, createSpanId, getTraceContextFromEnv } from './context.js';
-import { writeTraceSpan } from './writer.js';
+import { writeTraceSpan, type TraceWriterDeps } from './writer.js';
 import { TraceContext, TraceError, TraceSource, SpanKind, TraceSpanStatus } from './types.js';
 
 export interface SpanHandle {
@@ -29,6 +29,8 @@ export function startSpan(
     source?: TraceSource;
     kind?: SpanKind;
     attributes?: Record<string, unknown>;
+    /** 依赖注入：控制 trace 日志写入位置 */
+    writerDeps?: TraceWriterDeps;
   }
 ): SpanHandle {
   const externalContext = options?.context || getTraceContextFromEnv();
@@ -39,6 +41,7 @@ export function startSpan(
   const parentSpanId = options?.parentSpanId ?? context.parentSpanId ?? context.spanId;
   const source = options?.source || context.source || 'cli';
   const kind = options?.kind || SpanKind.INTERNAL;
+  const writerDeps = options?.writerDeps ?? {};
   const startMs = process.hrtime.bigint();
   const startTime = new Date().toISOString();
   let closed = false;
@@ -64,7 +67,7 @@ export function startSpan(
         ...(attributes || {}),
       },
       error: error ? toTraceError(error) : undefined,
-    });
+    }, writerDeps);
   };
 
   return {

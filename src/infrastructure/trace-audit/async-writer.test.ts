@@ -112,7 +112,7 @@ describe('AsyncLogWriter', () => {
 
       await writer.flush();
 
-      const logFile = path.join(TEST_LOG_DIR, `${new Date().toISOString().split('T')[0]}-traces.jsonl`);
+      const logFile = path.join(TEST_LOG_DIR, `${new Date().toISOString().split('T')[0]}.jsonl`);
       expect(fs.existsSync(logFile)).toBe(true);
     });
 
@@ -135,7 +135,7 @@ describe('AsyncLogWriter', () => {
       await disabledWriter.write(span);
       await disabledWriter.destroy();
 
-      const logFile = path.join(TEST_LOG_DIR, `${new Date().toISOString().split('T')[0]}-traces.jsonl`);
+      const logFile = path.join(TEST_LOG_DIR, `${new Date().toISOString().split('T')[0]}.jsonl`);
       expect(fs.existsSync(logFile)).toBe(false);
     });
   });
@@ -164,7 +164,7 @@ describe('AsyncLogWriter', () => {
       await writer.writeBatch(spans);
       await writer.flush();
 
-      const logFile = path.join(TEST_LOG_DIR, `${new Date().toISOString().split('T')[0]}-traces.jsonl`);
+      const logFile = path.join(TEST_LOG_DIR, `${new Date().toISOString().split('T')[0]}.jsonl`);
       expect(fs.existsSync(logFile)).toBe(true);
     });
   });
@@ -184,7 +184,7 @@ describe('AsyncLogWriter', () => {
       await writer.write(span);
       await writer.flush();
 
-      const logFile = path.join(TEST_LOG_DIR, `${new Date().toISOString().split('T')[0]}-traces.jsonl`);
+      const logFile = path.join(TEST_LOG_DIR, `${new Date().toISOString().split('T')[0]}.jsonl`);
       const content = fs.readFileSync(logFile, 'utf-8');
       const lines = content.split('\n').filter(Boolean);
       
@@ -230,7 +230,7 @@ describe('AsyncLogWriter', () => {
       await expect(pendingWrite).resolves.toBeUndefined();
       expect(brokenWriter.getQueueLength()).toBe(0);
 
-      const logFile = path.join(brokenLogDir, `${new Date().toISOString().split('T')[0]}-traces.jsonl`);
+      const logFile = path.join(brokenLogDir, `${new Date().toISOString().split('T')[0]}.jsonl`);
       expect(fs.existsSync(logFile)).toBe(true);
 
       await brokenWriter.destroy();
@@ -280,7 +280,7 @@ describe('AsyncLogWriter', () => {
       await writer.destroy();
       await expect(pendingWrite).resolves.toBeUndefined();
 
-      const logFile = path.join(TEST_LOG_DIR, `${new Date().toISOString().split('T')[0]}-traces.jsonl`);
+      const logFile = path.join(TEST_LOG_DIR, `${new Date().toISOString().split('T')[0]}.jsonl`);
       expect(fs.existsSync(logFile)).toBe(true);
 
       const content = fs.readFileSync(logFile, 'utf-8');
@@ -334,7 +334,7 @@ describe('AsyncLogWriter', () => {
 
         // Data should be on disk
         expect(pauseWriter.getQueueLength()).toBe(0);
-        const logFile = path.join(testDir, `${new Date().toISOString().split('T')[0]}-traces.jsonl`);
+        const logFile = path.join(testDir, `${new Date().toISOString().split('T')[0]}.jsonl`);
         expect(fs.existsSync(logFile)).toBe(true);
         expect(fs.readFileSync(logFile, 'utf-8')).toContain('span_pause_001');
       } finally {
@@ -392,7 +392,7 @@ describe('AsyncLogWriter', () => {
         await wp2;
 
         expect(pauseWriter.getQueueLength()).toBe(0);
-        const logFile = path.join(testDir, `${new Date().toISOString().split('T')[0]}-traces.jsonl`);
+        const logFile = path.join(testDir, `${new Date().toISOString().split('T')[0]}.jsonl`);
         const fileContent = fs.readFileSync(logFile, 'utf-8');
         expect(fileContent).toContain('span_blocked_001');
         expect(fileContent).toContain('span_blocked_002');
@@ -513,7 +513,7 @@ describe('AsyncLogWriter', () => {
         await rotWriter.flush();
         await wp2;
 
-        const logFile = path.join(rotationDir, `${new Date().toISOString().split('T')[0]}-traces.jsonl`);
+        const logFile = path.join(rotationDir, `${new Date().toISOString().split('T')[0]}.jsonl`);
         expect(fs.existsSync(logFile)).toBe(true);
       } finally {
         await rotWriter.destroy();

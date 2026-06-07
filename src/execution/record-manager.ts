@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { mkdir, readFile, writeFile, readdir, rm } from 'node:fs/promises';
 import type { ExecutionRecord, ExecutionFilter, ExecutionSearchResult, ExecutionMetadata } from './types.js';
-import { getVectaHubPath } from '../infrastructure/paths/index.js';
+import { getVectaHubPath, getProjectExecutionDir } from '../infrastructure/paths/index.js';
 import { parseStartedAt, toDatePartitionKey } from './utils.js';
 
 interface LoggerLike {
@@ -9,6 +9,16 @@ interface LoggerLike {
 }
 
 const noopLogger: LoggerLike = { warn() {} };
+
+/**
+ * RecordManager 的依赖注入接口
+ */
+export interface RecordManagerDeps {
+  /** 日志记录器，用于报告格式错误的 JSONL 行 */
+  logger?: LoggerLike;
+  /** 项目根目录，设置后执行记录写入 {projectRoot}/.vectahub/executions/ */
+  projectRoot?: string;
+}
 
 export interface RecordManager {
   save(record: ExecutionRecord): Promise<void>;
@@ -34,11 +44,12 @@ const DEFAULT_LIST_LIMIT = 50;
  * Supports listing, filtering, searching, and metadata retrieval.
  *
  * @param baseDir - Base directory for record storage. Defaults to `<VectaHub>/executions`.
- * @param deps - Optional dependencies. Pass `{ logger }` to receive warnings for malformed lines.
+ * @param deps - Optional dependencies. Pass `{ logger }` to receive warnings for malformed lines,
+ *               `{ projectRoot }` to write records to `{projectRoot}/.vectahub/executions/` instead.
  * @returns A {@link RecordManager} instance
  */
-export function createRecordManager(baseDir?: string, deps?: { logger?: LoggerLike }): RecordManager {
-  const dir = baseDir || getVectaHubPath('executions');
+export function createRecordManager(baseDir?: string, deps?: RecordManagerDeps): RecordManager {
+  const dir = baseDir || (deps?.projectRoot ? getProjectExecutionDir(deps.projectRoot) : getVectaHubPath('executions'));
   const logger = deps?.logger ?? noopLogger;
 
   async function ensureDir(): Promise<void> {

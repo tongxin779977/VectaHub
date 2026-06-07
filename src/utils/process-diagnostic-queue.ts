@@ -1,10 +1,10 @@
 import { spawnSync } from 'node:child_process';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'shell-quote';
 import { getQueueManager, type QueueManager } from '../execution/queue-manager.js';
 import type { DiagnosticTask } from '../types/diagnostic.js';
+import { getVectaHubHome } from '../infrastructure/paths/index.js';
 
 export interface QueuedCommand {
   cli: string;
@@ -33,7 +33,7 @@ const diagnosticQueueOutput: DiagnosticQueueOutput = {
 };
 
 function createCliQueueManager(): QueueManager {
-  const queueFile = join(process.env.VECTAHUB_HOME || join(homedir(), '.vectahub'), 'diagnostic-queue.json');
+  const queueFile = join(getVectaHubHome(), 'diagnostic-queue.json');
   return getQueueManager(queueFile, {
     logger: {
       error: (message: string) => process.stderr.write(`${message}\n`),

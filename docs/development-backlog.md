@@ -2,7 +2,7 @@
 
 > Document Status: Current Planning Queue / Migration Contract
 > Authority: NL Workflow Orchestrator backlog entry point. Detailed task state lives in `docs/backlog/items/*.md`; selection and lock behavior is governed by `docs/backlog/protocol.md`.
-> Last Reorganized: 2026-06-01
+> Last Reorganized: 2026-06-08
 
 ## Purpose
 
@@ -70,6 +70,21 @@ Current task status is intentionally not duplicated here. Read the matching item
 | [P3-003](./backlog/items/P3-003.md) | P3 | Backlog automation runner / report hardening |
 | [P4-001](./backlog/items/P4-001.md) | P4 | Secondary 能力是否恢复主线评估 |
 | [P4-002](./backlog/items/P4-002.md) | P4 | Custom rule / skill / MCP ecosystem 重新评估 |
+
+### E2E Test Bugs (2026-06-08)
+
+Source: 模拟用户端到端测试，7 个模块全覆盖。
+
+| Task | Priority | Title |
+|------|----------|-------|
+| [BUG-P1-001](./backlog/items/BUG-P1-001.md) | P1 | `--variable` 参数替换不生效 |
+| [BUG-P1-002](./backlog/items/BUG-P1-002.md) | P1 | `verify` 使用无效 vitest reporter (`--reporter=basic`) |
+| [BUG-P1-003](./backlog/items/BUG-P1-003.md) | P1 | `resume` 执行记录中 workflowId 为 undefined |
+| [BUG-P1-004](./backlog/items/BUG-P1-004.md) | P1 | Redactor 过度脱敏 trace/span ID |
+| [BUG-P2-001](./backlog/items/BUG-P2-001.md) | P2 | 意图路由生成未注册命令 (`vectahub tool run ls`) |
+| [BUG-P2-002](./backlog/items/BUG-P2-002.md) | P2 | `tools eval` 规则引擎覆盖不足（与 `security test` 不一致） |
+| [BUG-P3-001](./backlog/items/BUG-P3-001.md) | P3 | `templates list` 未发现本地模板 |
+| [ISSUES-001](./backlog/items/ISSUES-001.md) | P2-P3 | E2E 测试关注问题汇总（8 项） |
 
 ## Operating Notes
 

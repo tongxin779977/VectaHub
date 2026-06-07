@@ -3,8 +3,11 @@ import {
   getProjectQueuePathWithDeps,
   getVectaHubHomeWithDeps,
   getVectaHubPathWithDeps,
+  getGlobalLogDirWithDeps,
   type VectaHubPathDeps,
 } from './facade.js';
+
+export { getProjectLogDir, getProjectExecutionDir } from './facade.js';
 
 function createPathBridgeDeps(): VectaHubPathDeps {
   const context = getDefaultContext();
@@ -35,4 +38,12 @@ export function getVectaHubPath(...segments: string[]): string {
  */
 export function getProjectQueuePath(projectRoot: string): string {
   return getProjectQueuePathWithDeps(createPathBridgeDeps(), projectRoot);
+}
+
+/**
+ * 兼容桥接层：获取全局日志目录路径
+ * @deprecated 建议使用 getGlobalLogDirWithDeps(deps, ...subDirs)
+ */
+export function getGlobalLogDir(...subDirs: string[]): string {
+  return getGlobalLogDirWithDeps(createPathBridgeDeps(), ...subDirs);
 }

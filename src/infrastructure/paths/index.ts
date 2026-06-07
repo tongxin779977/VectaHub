@@ -3,6 +3,9 @@ export {
   getProjectQueuePathWithDeps,
   getVectaHubHomeWithDeps,
   getVectaHubPathWithDeps,
+  getGlobalLogDirWithDeps,
+  getProjectLogDir,
+  getProjectExecutionDir,
   type VectaHubPathDeps,
 } from './facade.js';
-export { getProjectQueuePath, getVectaHubHome, getVectaHubPath } from './compat-bridge.js';
+export { getProjectQueuePath, getVectaHubHome, getVectaHubPath, getGlobalLogDir } from './compat-bridge.js';
