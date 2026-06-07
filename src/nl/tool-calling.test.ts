@@ -375,6 +375,34 @@ describe('convertToolCallToSteps', () => {
       expect(result.steps[0].args).toEqual(['tools', 'list']);
     });
 
+    it('should generate correct step for tool_run using run-command', () => {
+      const toolCall: LLMToolCall = {
+        id: 'call_tool_run',
+        type: 'function',
+        function: {
+          name: 'tool_run',
+          arguments: JSON.stringify({ toolName: 'ls' }),
+        },
+      };
+
+      const result = convertToolCallToSteps(toolCall);
+      expect(result.steps[0].cli).toBe('vectahub');
+      expect(result.steps[0].args).toEqual(['run-command', 'ls']);
+    });
+
+    it('should throw for tool_run missing required toolName', () => {
+      const toolCall: LLMToolCall = {
+        id: 'call_tool_run_no_name',
+        type: 'function',
+        function: {
+          name: 'tool_run',
+          arguments: JSON.stringify({}),
+        },
+      };
+
+      expect(() => convertToolCallToSteps(toolCall)).toThrow('Missing required parameters: toolName');
+    });
+
     it('should generate correct step for session_list', () => {
       const toolCall: LLMToolCall = {
         id: 'call_sess_list',

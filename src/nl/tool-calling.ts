@@ -152,7 +152,7 @@ export const EXTRA_INTENT_MAPPINGS: Record<string, IntentStepMapping> = {
   tool_run: {
     type: 'exec',
     cli: 'vectahub',
-    args: ['tool', 'run', '{{toolName}}'],
+    args: ['run-command', '{{toolName}}'],
     required: ['toolName'],
   },
 };
