@@ -9,7 +9,6 @@ permissions:
   contents: read
   actions: read
   issues: write
-  pull-requests: write
 
 concurrency:
   group: self-healing-${{ github.event.workflow_run.id }}
@@ -37,6 +36,8 @@ jobs:
           npm run build
 
       - name: Process CI failure
+        id: diagnostics
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           VECTAHUB_HOME: ${{ github.workspace }}/.vectahub
@@ -51,6 +52,83 @@ jobs:
             --variable run_id="$RUN_ID" \
             --mode relaxed 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: Create or update CI issue
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_TITLE: ${{ github.event.workflow_run.display_title }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          DIAGNOSTICS_RESULT: ${{ steps.diagnostics.outcome }}
+        with:
+          script: |
+            const title = 'CI automation report';
+            for (const label of [
+              { name: 'automation', color: '0e8a16', description: 'Created or updated by automation' },
+              { name: 'ci', color: '1d76db', description: 'Continuous integration issue' }
+            ]) {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label.name
+                });
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label.name,
+                  color: label.color,
+                  description: label.description
+                });
+              }
+            }
+
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'automation,ci',
+              per_page: 100
+            });
+
+            const existing = issues.find((issue) => issue.title === title);
+            const body = [
+              '## CI Automation Report',
+              '',
+              `- workflow: ${context.payload.workflow_run.name}`,
+              `- run title: ${process.env.RUN_TITLE}`,
+              `- run id: ${process.env.RUN_ID}`,
+              `- branch: ${process.env.RUN_HEAD_BRANCH}`,
+              `- commit: ${process.env.RUN_HEAD_SHA}`,
+              `- diagnostics result: ${process.env.DIAGNOSTICS_RESULT}`,
+              `- workflow run: ${process.env.RUN_URL}`,
+              '',
+              'This issue is updated by the CI self-healing workflow when the latest CI run fails.'
+            ].join('\n');
+
+            if (existing) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['automation', 'ci']
+              });
+            }
+
       - name: Upload self-healing diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -60,3 +138,50 @@ jobs:
             .vectahub/**
             logs/**
           if-no-files-found: ignore
+
+  resolve:
+    name: Close resolved CI issue
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Close CI issue after green run
+        uses: actions/github-script@v7
+        env:
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_TITLE: ${{ github.event.workflow_run.display_title }}
+        with:
+          script: |
+            const title = 'CI automation report';
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'automation,ci',
+              per_page: 100
+            });
+
+            const existing = issues.find((issue) => issue.title === title);
+            if (!existing) {
+              core.notice('No open CI automation report issue to close.');
+              return;
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: existing.number,
+              body: [
+                'Closing because the latest CI run completed successfully.',
+                '',
+                `- run title: ${process.env.RUN_TITLE}`,
+                `- workflow run: ${process.env.RUN_URL}`
+              ].join('\n')
+            });
+
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: existing.number,
+              state: 'closed'
+            });
