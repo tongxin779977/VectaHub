@@ -74,6 +74,8 @@ export interface ExecutionRecord {
 
 export interface StepRecord {
   stepId: string;
+  stepName?: string;
+  command?: string;
   status: ExecutionStatus;
   startAt?: Date;
   endAt?: Date;

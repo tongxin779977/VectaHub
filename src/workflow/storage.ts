@@ -355,12 +355,14 @@ export function createStorage(options: StorageOptions): Storage {
           const data = YAML.parse(content) as Record<string, unknown>;
           return {
             ...data,
+            id: data.id || `wf_file_${Buffer.from(filepath).toString('base64url').slice(0, 24)}`,
             createdAt: data.createdAt ? new Date(String(data.createdAt)) : new Date()
           } as Workflow;
         }
         const data = parseWorkflowFromJson(content, filepath) as unknown as Record<string, unknown>;
         return {
           ...data,
+          id: data.id || `wf_file_${Buffer.from(filepath).toString('base64url').slice(0, 24)}`,
           createdAt: data.createdAt ? new Date(String(data.createdAt)) : new Date()
         } as Workflow;
       } catch (error) {

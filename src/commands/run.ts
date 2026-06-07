@@ -95,11 +95,30 @@ interface WorkflowExecutionRecord {
   logs: string[];
 }
 
+function normalizeStepRecord(step: Record<string, unknown>): Record<string, unknown> {
+  return {
+    stepId: step.stepId,
+    stepName: step.stepName || step.stepId,
+    command: step.command || '',
+    status: step.status,
+    startedAt: step.startAt ? convertDateToString(step.startAt) : undefined,
+    finishedAt: step.endAt ? convertDateToString(step.endAt) : undefined,
+    duration: step.duration ?? (step.startAt && step.endAt
+      ? new Date(step.endAt as string | Date).getTime() - new Date(step.startAt as string | Date).getTime()
+      : undefined),
+    exitCode: step.exitCode,
+    output: Array.isArray(step.output) ? step.output.map(String).join('\n') : step.output,
+    error: step.error,
+  };
+}
+
 function normalizeExecutionRecord(record: WorkflowExecutionRecord, metadata: ExecutionMetadata): ExecRecord {
+  const normalizedSteps = (record.steps as Record<string, unknown>[]).map(normalizeStepRecord);
   return {
     ...record,
     startedAt: convertDateToString(record.startedAt),
     finishedAt: record.endedAt ? convertDateToString(record.endedAt) : undefined,
+    steps: normalizedSteps,
     metadata,
   } as unknown as ExecRecord;
 }

@@ -150,5 +150,42 @@ describe('Storage with output-store integration', () => {
     it('should return null when workflow file is missing from loadWorkflowFromFile', async () => {
       await expect(storage.loadWorkflowFromFile(join(tmpDir, 'missing-workflow.yaml'))).resolves.toBeNull();
     });
+
+    it('should assign generated id to workflow loaded from YAML file without id', async () => {
+      const fs = await import('node:fs/promises');
+      const yamlPath = join(tmpDir, 'no-id-workflow.yaml');
+      await fs.writeFile(yamlPath, [
+        'name: test-no-id',
+        'steps:',
+        '  - id: step1',
+        '    type: exec',
+        '    cli: echo',
+        '    args: ["hello"]',
+      ].join('\n'), 'utf-8');
+
+      const workflow = await storage.loadWorkflowFromFile(yamlPath);
+      expect(workflow).not.toBeNull();
+      expect(workflow!.id).toBeDefined();
+      expect(workflow!.id).toMatch(/^wf_file_/);
+      expect(workflow!.name).toBe('test-no-id');
+    });
+
+    it('should preserve existing id in workflow loaded from YAML file', async () => {
+      const fs = await import('node:fs/promises');
+      const yamlPath = join(tmpDir, 'with-id-workflow.yaml');
+      await fs.writeFile(yamlPath, [
+        'id: wf_custom_42',
+        'name: test-with-id',
+        'steps:',
+        '  - id: step1',
+        '    type: exec',
+        '    cli: echo',
+        '    args: ["hello"]',
+      ].join('\n'), 'utf-8');
+
+      const workflow = await storage.loadWorkflowFromFile(yamlPath);
+      expect(workflow).not.toBeNull();
+      expect(workflow!.id).toBe('wf_custom_42');
+    });
   });
 });

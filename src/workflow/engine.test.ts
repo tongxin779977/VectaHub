@@ -222,6 +222,22 @@ describe('WorkflowEngine', () => {
     expect(result.steps[0].output?.[0]).toContain('[DRY RUN]');
   });
 
+  it('should include workflowId and step command/stepName in execution record', async () => {
+    const steps: Step[] = [
+      { id: 'step1', type: 'exec', cli: 'git', args: ['add', '.'] },
+      { id: 'step2', type: 'exec', cli: 'git', args: ['commit', '-m', 'test'] },
+    ];
+    const workflow = await engine.createWorkflow('test-workflow', steps);
+
+    const result = await engine.execute(workflow);
+
+    expect(result.workflowId).toBe(workflow.id);
+    expect(result.steps[0].stepName).toBe('step1');
+    expect(result.steps[0].command).toBe('git add .');
+    expect(result.steps[1].stepName).toBe('step2');
+    expect(result.steps[1].command).toBe('git commit -m test');
+  });
+
   it('should consume initialVariables from options for interpolation', async () => {
     const workflow = await engine.createWorkflow('initial-vars-options', [
       { id: 'step1', type: 'exec', cli: 'echo', args: ['${name}'] },

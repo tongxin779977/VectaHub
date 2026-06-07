@@ -251,6 +251,8 @@ async function runExecutionLoop(
 
       const stepRecord: StepRecord = {
         stepId: step.id,
+        stepName: step.id,
+        command: [step.cli, ...(step.args || [])].filter(Boolean).join(' '),
         status: stepStatus as ExecutionStatus,
         startAt: new Date(startedAt.getTime() + (result.duration || 0)),
         endAt: new Date(),
@@ -316,6 +318,8 @@ async function runExecutionLoop(
       }
       const stepRecord: StepRecord = {
         stepId: step.id,
+        stepName: step.id,
+        command: [step.cli, ...(step.args || [])].filter(Boolean).join(' '),
         status: 'FAILED',
         error: error instanceof Error ? error.message : String(error),
       };
