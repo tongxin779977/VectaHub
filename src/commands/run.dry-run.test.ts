@@ -423,4 +423,38 @@ describe('run command dry-run first run behavior', () => {
     expect(createWorkflow).not.toHaveBeenCalled();
     consoleSpy.mockRestore();
   });
+
+  it('applies --variable interpolation in dry-run --json for file workflow', async () => {
+    const consoleSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    loadWorkflowFromFile.mockResolvedValue({
+      id: 'wf_var',
+      name: 'git commit workflow',
+      steps: [
+        { id: 'step_1', type: 'exec', cli: 'git', args: ['add', '${files}'] },
+        { id: 'step_2', type: 'exec', cli: 'git', args: ['commit', '-m', '${message}'] },
+      ],
+      createdAt: new Date(),
+    });
+
+    const runCmd = await createTestRunCmd();
+
+    await runCmd.parseAsync([
+      'node', 'test', '--dry-run', '--json',
+      '--file', 'git-commit.yaml',
+      '--variable', 'files=.',
+      '--variable', 'message=test commit',
+    ]);
+
+    const output = consoleSpy.mock.calls.map(c => c[0]).join('');
+    const parsed = JSON.parse(output);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.dryRun).toBe(true);
+    expect(parsed.result.kind).toBe('workflow_draft');
+    const steps = parsed.workflow.steps;
+    expect(steps[0].args).toContain('.');
+    expect(steps[1].args).toContain('test commit');
+    expect(steps[0].args).not.toContain('${files}');
+    expect(steps[1].args).not.toContain('${message}');
+    consoleSpy.mockRestore();
+  });
 });

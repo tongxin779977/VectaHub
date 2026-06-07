@@ -18,6 +18,7 @@ import { createRecordManager } from '../execution/record-manager.js';
 import { runSelfHealingLoop } from './self-healing.js';
 import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { createRunDispatch, formatRunDispatchText } from './run-dispatch.js';
+import { interpolateStep, type InterpolationContext } from '../workflow/interpolation.js';
 import {
   buildReplyEnvelope,
   buildClarifyEnvelope,
@@ -105,6 +106,31 @@ function normalizeExecutionRecord(record: WorkflowExecutionRecord, metadata: Exe
 
 function isValidVariableValue(valueParts: string[]): boolean {
   return valueParts.length > 0 && valueParts.join('=').trim() !== '';
+}
+
+function buildInitialVariables(variableOption?: string[]): Record<string, unknown> {
+  const initialVariables: Record<string, unknown> = {};
+  if (variableOption) {
+    for (const v of variableOption) {
+      const [key, ...valueParts] = v.split('=');
+      if (key && isValidVariableValue(valueParts)) {
+        initialVariables[key] = valueParts.join('=');
+      }
+    }
+  }
+  return initialVariables;
+}
+
+function toInterpolationContext(initialVariables: Record<string, unknown>): InterpolationContext {
+  const variables: Record<string, string[]> = {};
+  for (const [key, value] of Object.entries(initialVariables)) {
+    if (Array.isArray(value)) {
+      variables[key] = value.map(String);
+    } else {
+      variables[key] = [String(value)];
+    }
+  }
+  return { variables, previousOutputs: {} };
 }
 
 function createProgressCallback(totalSteps: number, output: RunCommandOutput, jsonMode?: boolean): (info: ProgressInfo) => void {
@@ -240,17 +266,19 @@ export function createRunCmd(context: InfrastructureContext): Command {
         logger.info(`✅ 工作流加载成功: ${workflow.name}`);
 
         if (options.dryRun) {
+          const interpolationCtx = toInterpolationContext(buildInitialVariables(options.variable));
+          const interpolatedSteps = workflow.steps.map(s => interpolateStep(s, interpolationCtx));
           if (options.json) {
             output.json(buildWorkflowDraftEnvelope({
               name: workflow.name,
-              steps: workflow.steps.map(s => ({
+              steps: interpolatedSteps.map(s => ({
                 cli: s.cli || s.type,
                 args: s.args ?? []
               }))
             }));
           } else {
             logger.info('\n📋 将要执行的命令:');
-            for (const step of workflow.steps) {
+            for (const step of interpolatedSteps) {
               logger.info(`  ${step.cli || step.type} ${(step.args ?? []).join(' ')}`);
             }
             logger.info('\nDry-run: 未执行任何命令。');
@@ -358,16 +386,18 @@ export function createRunCmd(context: InfrastructureContext): Command {
         }
 
         if (options.dryRun) {
+          const interpolationCtx = toInterpolationContext(buildInitialVariables(options.variable));
+          const interpolatedSteps = orchestrateSteps.map(s => interpolateStep(s, interpolationCtx));
           if (options.json) {
             output.json(buildStepsEnvelope(
-              orchestrateSteps.map(s => ({
-                cli: s.cli,
+              interpolatedSteps.map(s => ({
+                cli: s.cli || s.type || '',
                 args: s.args ?? []
               }))
             ));
           } else {
             logger.info('\n📋 将要执行的命令:');
-            for (const s of orchestrateSteps) {
+            for (const s of interpolatedSteps) {
               logger.info(`  ${s.cli} ${(s.args ?? []).join(' ')}`);
             }
             logger.info('\nDry-run: 未执行任何命令。');
@@ -392,15 +422,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
       }
 
       // 处理初始变量
-      const initialVariables: Record<string, unknown> = {};
-      if (options.variable) {
-        for (const v of options.variable) {
-          const [key, ...valueParts] = v.split('=');
-          if (key && isValidVariableValue(valueParts)) {
-            initialVariables[key] = valueParts.join('=');
-          }
-        }
-      }
+      const initialVariables = buildInitialVariables(options.variable);
 
       
       let shouldRetry = true;
