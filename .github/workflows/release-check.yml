@@ -1,22 +1,25 @@
-name: CI
+name: Release Check
 
 on:
-  push:
-    branches:
-      - main
-      - develop
+  workflow_dispatch:
   pull_request:
+    paths:
+      - package.json
+      - package-lock.json
+      - tsup.config.ts
+      - .github/workflows/release-check.yml
+      - packages/vectahub-vscode-extension/**
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: release-check-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  root:
-    name: Root package
+  release-check:
+    name: Build release artifacts
     runs-on: ubuntu-latest
 
     steps:
@@ -52,34 +55,6 @@ jobs:
           node dist/cli.js --version
           node dist/cli.js version --json
 
-      - name: Upload failure diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: root-failure-diagnostics
-          path: |
-            .test-reports/**
-            logs/**
-            fail_*.log
-          if-no-files-found: ignore
-
-  vscode-extension:
-    name: VS Code extension
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
       - name: Compile extension
         run: npm run compile -w packages/vectahub-vscode-extension
 
@@ -89,12 +64,34 @@ jobs:
       - name: Test extension
         run: npm test -w packages/vectahub-vscode-extension
 
-      - name: Upload extension failure diagnostics
+      - name: Package VSIX
+        run: npm run package:vsix
+
+      - name: Verify release artifacts
+        run: |
+          test -f dist/cli.js
+          find packages/vectahub-vscode-extension -maxdepth 1 -name '*.vsix' -type f | grep -q .
+
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vectahub-dist
+          path: dist/**
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vectahub-vsix
+          path: packages/vectahub-vscode-extension/*.vsix
+
+      - name: Upload failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: extension-failure-diagnostics
+          name: release-check-failure-diagnostics
           path: |
+            .test-reports/**
+            logs/**
+            fail_*.log
             packages/vectahub-vscode-extension/.vscode-test/**
-            packages/vectahub-vscode-extension/out/**
           if-no-files-found: ignore

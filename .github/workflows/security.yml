@@ -1,0 +1,146 @@
+name: Security Automation
+
+on:
+  schedule:
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  security-events: read
+
+concurrency:
+  group: security-automation
+  cancel-in-progress: true
+
+jobs:
+  security:
+    name: Audit dependencies and alerts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        id: npm-audit
+        run: |
+          set +e
+          npm audit --audit-level=moderate --json > audit-results.json
+          STATUS=$?
+          set -e
+          echo "exit_code=$STATUS" >> "$GITHUB_OUTPUT"
+          if [ "$STATUS" -eq 0 ]; then
+            echo "vulnerable=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "vulnerable=true" >> "$GITHUB_OUTPUT"
+          fi
+          exit 0
+
+      - name: Check Dependabot alerts
+        id: dependabot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ALERT_COUNT="$(gh api repos/${{ github.repository }}/dependabot/alerts?state=open --jq 'length' 2>/dev/null || echo "0")"
+          echo "alert_count=$ALERT_COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Write security summary
+        env:
+          VULNERABLE: ${{ steps.npm-audit.outputs.vulnerable }}
+          ALERT_COUNT: ${{ steps.dependabot.outputs.alert_count }}
+        run: |
+          {
+            echo "## Security Automation"
+            echo ""
+            echo "- npm audit vulnerabilities: $VULNERABLE"
+            echo "- open Dependabot alerts: $ALERT_COUNT"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create or update security issue
+        if: steps.npm-audit.outputs.vulnerable == 'true' || steps.dependabot.outputs.alert_count != '0'
+        uses: actions/github-script@v7
+        env:
+          VULNERABLE: ${{ steps.npm-audit.outputs.vulnerable }}
+          ALERT_COUNT: ${{ steps.dependabot.outputs.alert_count }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            const title = 'Security automation report';
+            for (const label of [
+              { name: 'automation', color: '0e8a16', description: 'Created or updated by automation' },
+              { name: 'security', color: 'd73a4a', description: 'Security-related issue' }
+            ]) {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label.name
+                });
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label.name,
+                  color: label.color,
+                  description: label.description
+                });
+              }
+            }
+
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'automation,security',
+              per_page: 100
+            });
+
+            const existing = issues.find((issue) => issue.title === title);
+            const body = [
+              '## Security Automation Report',
+              '',
+              `- npm audit vulnerabilities: ${process.env.VULNERABLE}`,
+              `- open Dependabot alerts: ${process.env.ALERT_COUNT}`,
+              `- workflow run: ${process.env.RUN_URL}`,
+              '',
+              'This issue is updated by the daily security automation workflow.'
+            ].join('\n');
+
+            if (existing) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['automation', 'security']
+              });
+            }
+
+      - name: Upload audit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-results
+          path: audit-results.json
+          if-no-files-found: ignore

@@ -1,0 +1,160 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: Version tag to publish, for example v1.0.14
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: publish-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish npm package and VSIX
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve release tag
+        id: release-tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.version_tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+
+          if ! echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Invalid release tag: $TAG" >&2
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release-tag.outputs.tag }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify publish secrets
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          test -n "$NPM_TOKEN"
+          test -n "$VSCE_PAT"
+
+      - name: Verify package versions
+        env:
+          RELEASE_VERSION: ${{ steps.release-tag.outputs.version }}
+        run: |
+          ROOT_VERSION="$(node -p "require('./package.json').version")"
+          EXTENSION_VERSION="$(node -p "require('./packages/vectahub-vscode-extension/package.json').version")"
+
+          if [ "$ROOT_VERSION" != "$RELEASE_VERSION" ]; then
+            echo "Root package version $ROOT_VERSION does not match release version $RELEASE_VERSION" >&2
+            exit 1
+          fi
+
+          if [ "$EXTENSION_VERSION" != "$RELEASE_VERSION" ]; then
+            echo "Extension package version $EXTENSION_VERSION does not match release version $RELEASE_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check default context usage
+        run: npm run check:default-context-usage
+
+      - name: Test
+        run: npm run test:run
+
+      - name: Build
+        run: npm run build
+
+      - name: Smoke test built CLI
+        run: |
+          node dist/cli.js --version
+          node dist/cli.js version --json
+
+      - name: Compile extension
+        run: npm run compile -w packages/vectahub-vscode-extension
+
+      - name: Lint extension
+        run: npm run lint -w packages/vectahub-vscode-extension
+
+      - name: Test extension
+        run: npm test -w packages/vectahub-vscode-extension
+
+      - name: Package VSIX
+        run: npm run package:vsix
+
+      - name: Resolve VSIX path
+        id: vsix
+        run: |
+          VSIX_PATH="$(find packages/vectahub-vscode-extension -maxdepth 1 -name '*.vsix' -type f | sort | tail -n 1)"
+          if [ -z "$VSIX_PATH" ]; then
+            echo "VSIX artifact was not created" >&2
+            exit 1
+          fi
+          echo "path=$VSIX_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Verify publish artifacts
+        run: |
+          test -f dist/cli.js
+          test -f "${{ steps.vsix.outputs.path }}"
+
+      - name: Publish npm package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public
+
+      - name: Publish VS Code extension
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx @vscode/vsce publish --packagePath "${{ steps.vsix.outputs.path }}"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
+          VSIX_PATH: ${{ steps.vsix.outputs.path }}
+        run: gh release create "$RELEASE_TAG" "$VSIX_PATH" --title "$RELEASE_TAG" --generate-notes
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: publish-failure-diagnostics
+          path: |
+            .test-reports/**
+            logs/**
+            fail_*.log
+            packages/vectahub-vscode-extension/*.vsix
+            packages/vectahub-vscode-extension/.vscode-test/**
+          if-no-files-found: ignore
