@@ -92,6 +92,7 @@ agent-homes/
 .cline/
 .clinerules
 .atomcode/
+.opencode/
 
 # Temporary / Generated
 .test-reports/
