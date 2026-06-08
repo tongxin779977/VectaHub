@@ -79,11 +79,15 @@
 
 ## T7: 工具与模板
 
-### ISSUE-T7-01: `tools known` 描述全部为 undefined
+### ISSUE-T7-01: `tools known` 描述全部为 undefined ✅
 
 - **现象**: 10 个已知工具的描述字段全部显示 `undefined`
 - **影响**: 用户无法了解工具用途
 - **建议**: 补充工具描述信息
+- **状态**: 已修复 (2026-06-08)
+- **修复**: 为 `KNOWN_TOOLS` 中 10 个工具添加 `description` 字段
+- **变更文件**: `src/cli-tools/discovery/known-tools.ts`, `src/cli-tools/discovery/known-tools.test.ts` (新增)
+- **验证**: typecheck 通过，3 个新增测试全部通过，150 个相关测试无回归
 
 ### ISSUE-T7-02: `import --dry-run` 参数风格不一致
 
