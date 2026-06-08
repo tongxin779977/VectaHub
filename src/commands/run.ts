@@ -30,6 +30,8 @@ import {
   type CliMode,
 } from './run-dry-run-envelope.js';
 import { stepsToWorkflowDraft, workflowToDraft } from '../orchestration-plan/workflow-draft-adapter.js';
+import { buildNLRequestEnvelope } from '../nl/core/input-normalizer.js';
+import { validateNLRequestEnvelope } from '../nl/core/nl-request-validator.js';
 
 interface RunCommandOutput {
   json(payload: unknown, options?: { space?: number }): void;
@@ -310,10 +312,27 @@ export function createRunCmd(context: InfrastructureContext): Command {
         }
       } else if (intent.length > 0) {
         const text = intent.join(' ');
+
+        // Build and validate NL request envelope as contract boundary
+        const requestEnvelope = buildNLRequestEnvelope({
+          source: 'run',
+          mode: options.dryRun ? 'dry-run' : 'execute',
+          dryRun: !!options.dryRun,
+          json: !!options.json,
+          cwd: context.environment.getCwd(),
+          userInput: text,
+        });
+
+        const requestValidation = validateNLRequestEnvelope(requestEnvelope);
+        if (!requestValidation.valid) {
+          const errorDetails = requestValidation.errors.map(e => `${e.path.join('.')}: ${e.message}`).join('; ');
+          exitWithError(logger, output, `❌ NL request validation failed: ${errorDetails}`, 'INVALID_REQUEST', options.json);
+        }
+
         logger.info(`解析意图: "${text}"`);
 
         const result = await orchestrateIntent(text, {
-          cwd: context.environment.getCwd(),
+          cwd: requestEnvelope.cwd,
           auditHelper: context.audit.getHelper(),
           logger,
         });
