@@ -116,3 +116,5 @@ export {
 } from '../types/orchestration-recovery.js';
 export { createProposalStorage, createProposalRecord, createProposalFromFeedback, createEvalCandidateProposal, createPromptProposal, createRuleProposal } from './proposal-storage.js';
 export type { ProposalStorageOptions } from './proposal-storage.js';
+export { executionPlanToOrchestrationPlan } from './execution-plan-adapter.js';
+export type { ExecutionPlanConversionResult } from './execution-plan-adapter.js';

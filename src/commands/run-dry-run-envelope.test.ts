@@ -8,6 +8,23 @@ import {
   buildClarifyEnvelope,
   getModeDescription,
 } from './run-dry-run-envelope.js';
+import type { ExecutionPlan } from '../nl/capabilities/types.js';
+
+function createMockPlan(overrides?: Partial<ExecutionPlan>): ExecutionPlan {
+  return {
+    id: 'plan-001',
+    label: 'Test Plan',
+    capabilityId: 'test-capability',
+    goal: { action: 'test' },
+    steps: [],
+    userReport: {
+      summaryTemplate: 'test summary',
+      nextActions: [],
+      verificationSteps: [],
+    },
+    ...overrides,
+  };
+}
 
 describe('run-dry-run-envelope', () => {
   describe('envelope structure', () => {
@@ -22,14 +39,7 @@ describe('run-dry-run-envelope', () => {
           summary: '无命令',
           suggestedAction: '请重新描述',
         }),
-        buildPlanEnvelope({
-          goal: { action: 'test' },
-          requiresExecution: true,
-          steps: [],
-          commands: [],
-          summary: 'test',
-          userReport: { summaryTemplate: 'test', nextActions: [], verificationSteps: [] },
-        }),
+        buildPlanEnvelope(createMockPlan()),
         buildWorkflowDraftEnvelope({ name: 'test', steps: [] }),
         buildStepsEnvelope([{ cli: 'echo', args: ['hello'] }]),
       ];
@@ -50,14 +60,7 @@ describe('run-dry-run-envelope', () => {
           summary: '无命令',
           suggestedAction: '请重新描述',
         }),
-        buildPlanEnvelope({
-          goal: { action: 'test' },
-          requiresExecution: true,
-          steps: [],
-          commands: [],
-          summary: 'test',
-          userReport: { summaryTemplate: 'test', nextActions: [], verificationSteps: [] },
-        }),
+        buildPlanEnvelope(createMockPlan()),
         buildWorkflowDraftEnvelope({ name: 'test', steps: [] }),
         buildStepsEnvelope([{ cli: 'echo', args: ['hello'] }]),
       ];
@@ -105,18 +108,11 @@ describe('run-dry-run-envelope', () => {
   });
 
   describe('buildPlanEnvelope', () => {
-    const mockPlan = {
-      goal: { action: 'health_check' },
-      requiresExecution: true,
-      steps: [{ cli: 'echo', args: ['hello'] }],
-      commands: [{ cli: 'echo', args: ['hello'] }],
-      summary: 'test plan',
-      userReport: {
-        summaryTemplate: 'test summary',
-        nextActions: ['check output'],
-        verificationSteps: ['verify'],
-      },
-    };
+    const mockPlan = createMockPlan({
+      steps: [
+        { id: 'step-1', label: 'Run echo', type: 'command' as const, command: { cli: 'echo', args: ['hello'] } },
+      ],
+    });
 
     it('should create plan envelope from execution plan', () => {
       const envelope = buildPlanEnvelope(mockPlan);
@@ -125,6 +121,9 @@ describe('run-dry-run-envelope', () => {
       expect(envelope.result.kind).toBe('plan');
       if (envelope.result.kind === 'plan') {
         expect(envelope.result.plan).toBeDefined();
+        expect(envelope.result.plan.schemaVersion).toBe('1.0');
+        expect(envelope.result.plan.planId).toBe('plan-001');
+        expect(envelope.result.plan.tasks).toHaveLength(1);
         expect(envelope.result.userReport).toBeDefined();
       }
     });
@@ -132,6 +131,19 @@ describe('run-dry-run-envelope', () => {
     it('should include intent when provided', () => {
       const envelope = buildPlanEnvelope(mockPlan, 'test_intent');
       expect(envelope.intent).toBe('test_intent');
+    });
+
+    it('plan field is OrchestrationPlan with schemaVersion', () => {
+      const envelope = buildPlanEnvelope(mockPlan);
+      if (envelope.result.kind === 'plan') {
+        expect(envelope.result.plan.schemaVersion).toBe('1.0');
+        expect(envelope.result.plan.source).toBe('run');
+        expect(envelope.result.plan.goal).toBe('test');
+        expect(envelope.result.plan.status).toBeDefined();
+        expect(envelope.result.plan.safetyReview).toBeDefined();
+        expect(envelope.result.plan.verification).toBeDefined();
+        expect(envelope.result.plan.metadata).toBeDefined();
+      }
     });
   });
 
@@ -234,19 +246,13 @@ describe('run-dry-run-envelope', () => {
     });
 
     it('plan data lives only in result', () => {
-      const mockPlan = {
-        goal: { action: 'test' },
-        requiresExecution: true,
-        steps: [],
-        commands: [],
-        summary: 'test',
-        userReport: { summaryTemplate: 'test', nextActions: [], verificationSteps: [] },
-      };
+      const mockPlan = createMockPlan();
       const envelope = buildPlanEnvelope(mockPlan);
       expect('plan' in envelope).toBe(false);
       expect('userReport' in envelope).toBe(false);
       if (envelope.result.kind === 'plan') {
         expect(envelope.result.plan).toBeDefined();
+        expect(envelope.result.plan.schemaVersion).toBe('1.0');
         expect(envelope.result.userReport).toBeDefined();
       }
     });

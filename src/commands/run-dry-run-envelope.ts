@@ -1,6 +1,7 @@
 import type { ExecutionPlan } from '../nl/capabilities/types.js';
 import type { RunDispatchResult } from './run-dispatch.js';
-import { formatJsonReport } from '../nl/capabilities/user-report.js';
+import type { OrchestrationPlan } from '../types/orchestration-plan.js';
+import { executionPlanToOrchestrationPlan } from '../orchestration-plan/execution-plan-adapter.js';
 
 export type CliMode = 'strict' | 'relaxed' | 'consensus';
 
@@ -35,7 +36,7 @@ export interface RunDryRunResultBlocked {
 
 export interface RunDryRunResultPlan {
   kind: 'plan';
-  plan: Record<string, unknown>;
+  plan: OrchestrationPlan;
   userReport: Record<string, unknown>;
 }
 
@@ -117,9 +118,13 @@ export function buildPlanEnvelope(
   intent?: string,
   mode?: CliMode,
 ): RunDryRunEnvelope {
-  const report = formatJsonReport(plan);
-  const planData = report.plan as Record<string, unknown>;
-  const userReport = report.userReport as Record<string, unknown>;
+  const { plan: orchestrationPlan } = executionPlanToOrchestrationPlan(plan);
+  const userReport: Record<string, unknown> = {
+    title: plan.label,
+    summary: plan.userReport.summaryTemplate,
+    nextActions: plan.userReport.nextActions,
+    verification: plan.userReport.verificationSteps,
+  };
   return {
     schemaVersion: '1.0',
     ok: true,
@@ -127,7 +132,7 @@ export function buildPlanEnvelope(
     ...(mode ? { mode } : {}),
     result: {
       kind: 'plan',
-      plan: planData,
+      plan: orchestrationPlan,
       userReport,
     },
     ...(intent !== undefined ? { intent } : {}),
