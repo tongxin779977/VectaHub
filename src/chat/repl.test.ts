@@ -3,8 +3,16 @@ import * as readline from 'node:readline';
 import { createRepl } from './repl.js';
 import { createCommandManager } from './command-manager.js';
 import { createDefaultChatConfig, type ChatConfig } from './config.js';
-import type { ReplDeps, SlashCommandContext, REPLDeps } from './types.js';
+import type { ReplDeps, REPLDeps } from './types.js';
 import { LLMClient } from '../nl/llm.js';
+
+const { processInputWithTaskContractMock } = vi.hoisted(() => ({
+  processInputWithTaskContractMock: vi.fn(),
+}));
+
+vi.mock('../nl/orchestrator.js', () => ({
+  processInputWithTaskContract: processInputWithTaskContractMock,
+}));
 
 const defaultCfg = createDefaultChatConfig();
 const cmdManager = createCommandManager(defaultCfg);
@@ -111,7 +119,7 @@ function createMockAuditHelper() {
 
 function createMockDeps(overrides?: Partial<REPLDeps>): REPLDeps {
   return {
-    nlProcessor: { parse: vi.fn().mockResolvedValue({ intent: 'test', confidence: 0.9 }) },
+    nlProcessor: { parse: vi.fn().mockResolvedValue({ success: true, intent: 'test', confidence: 0.9, metadata: { path: 'dialog' } }) },
     contextBuilder: { buildContext: vi.fn().mockResolvedValue({ cwd: '/test' }) },
     llmConfig: { provider: 'openai', model: 'gpt-4' },
     sessionManager: {
@@ -143,6 +151,93 @@ function createMockDeps(overrides?: Partial<REPLDeps>): REPLDeps {
     auditHelper: createMockAuditHelper() as unknown as ReplDeps['auditHelper'],
     logger: createMockLogger(),
     ...overrides,
+  };
+}
+
+function createReplyEnvelope(reply: string) {
+  return {
+    taskContract: {
+      schemaVersion: '1.0' as const,
+      requestId: 'reply_req',
+      rawInput: 'hello',
+      normalizedGoal: 'hello',
+      confidence: 0.9,
+      language: 'en-US' as const,
+      internalSignals: {
+        intentCandidates: ['QUERY_INFO'],
+        routeSource: 'mixed' as const,
+      },
+      kind: 'reply' as const,
+      replyMode: 'answer' as const,
+      answerTopic: 'general',
+    },
+    legacy: {
+      success: true,
+      intent: 'QUERY_INFO',
+      confidence: 0.9,
+      reply,
+      metadata: {
+        path: 'dialog',
+      },
+    },
+  };
+}
+
+function createExecuteEnvelope(
+  overrides: {
+    commandSurfaceId?: string;
+    mode?: 'capability' | 'direct-command' | 'workflow-draft' | 'agent-runtime';
+    rawInput?: string;
+    reply?: string;
+    workflowYAML?: string;
+  } = {},
+) {
+  const rawInput = overrides.rawInput ?? '帮我诊断一下这个项目';
+  return {
+    taskContract: {
+      schemaVersion: '1.0' as const,
+      requestId: 'execute_req',
+      rawInput,
+      normalizedGoal: rawInput,
+      confidence: 1,
+      language: 'zh-CN' as const,
+      internalSignals: {
+        intentCandidates: ['doctor'],
+        routeSource: 'capability' as const,
+      },
+      kind: 'execute' as const,
+      taskKind: overrides.workflowYAML ? 'workflow' as const : 'diagnose' as const,
+      operation: 'doctor',
+      target: {
+        scope: 'project' as const,
+      },
+      constraints: {
+        requiresConfirmation: false,
+        requiresVerification: Boolean(overrides.workflowYAML),
+        sideEffects: ['command' as const],
+      },
+      executionStrategy: {
+        mode: overrides.mode ?? 'capability',
+        commandSurfaceId: overrides.commandSurfaceId ?? 'vectahub doctor',
+      },
+      expectedOutput: {
+        format: overrides.workflowYAML ? 'workflow' as const : 'text' as const,
+        audience: 'system' as const,
+      },
+    },
+    legacy: {
+      success: true,
+      intent: 'doctor',
+      confidence: 1,
+      reply: overrides.reply,
+      workflowYAML: overrides.workflowYAML,
+      taskList: {
+        tasks: [{ commands: [{ cli: 'vectahub', args: ['doctor'] }] }],
+      },
+      metadata: {
+        path: 'category-router',
+      },
+    },
   };
 }
 
@@ -217,9 +312,10 @@ describe('createRepl', () => {
 
   it('should process NL input through nlProcessor', async () => {
     const deps = createMockDeps();
+    const nlParseSpy = deps.nlProcessor.parse as ReturnType<typeof vi.fn>;
     const repl = createRepl(deps);
     const result = await repl.processInput('run tests');
-    expect(deps.nlProcessor.parse).toHaveBeenCalled();
+    expect(nlParseSpy).toHaveBeenCalledWith({ input: 'run tests', sessionId: expect.any(String), options: { useLLM: true } });
     expect(result).toBeDefined();
   });
 
@@ -268,6 +364,7 @@ describe('Workflow Execution Modes', () => {
     };
     mockNlProcessor = {
       parse: vi.fn().mockResolvedValue({
+        success: true,
         intent: 'test-intent',
         confidence: 0.8,
         workflowYAML: 'steps:\n  - id: step1\n    type: exec\n    cli: echo\n    args: ["hello"]',
@@ -275,6 +372,7 @@ describe('Workflow Execution Modes', () => {
           intent: 'test-intent',
           tasks: [{ commands: [{ cli: 'echo', args: ['hello'] }] }],
         },
+        metadata: { path: 'category-router' },
       }),
     };
     mockedLLMClient = mockLLMClientInstance;
@@ -325,7 +423,6 @@ describe('Workflow Execution Modes', () => {
     const repl = createRepl(deps);
     const result = await repl.processInput('some input');
 
-    expect(mockNlProcessor.parse).toHaveBeenCalledWith(expect.objectContaining({ input: 'some input' }));
     expect(mockRl.question).toHaveBeenCalled();
     expect(mockWorkflowEngine.execute).toHaveBeenCalledWith(
       expect.objectContaining({ mode: 'relaxed' }),
@@ -345,7 +442,6 @@ describe('Workflow Execution Modes', () => {
     const repl = createRepl(deps);
     const result = await repl.processInput('some input');
 
-    expect(mockNlProcessor.parse).toHaveBeenCalledWith(expect.objectContaining({ input: 'some input' }));
     expect(mockRl.question).toHaveBeenCalled();
     expect(mockWorkflowEngine.execute).not.toHaveBeenCalled();
     expect(result.type).toBe('text');
@@ -361,16 +457,13 @@ describe('Workflow Execution Modes', () => {
     const repl = createRepl(deps);
     const result = await repl.processInput('some input');
 
-    expect(mockNlProcessor.parse).toHaveBeenCalledWith(expect.objectContaining({ input: 'some input' }));
     expect(mockWorkflowEngine.execute).not.toHaveBeenCalled();
     expect(result.type).toBe('text');
     expect(result.content).toContain('💡 输入 `执行工作流` 或 `/execute` 来运行。');
   });
 
   it('should preserve for_each workflow structure when generating workflow', async () => {
-    mockNlProcessor.parse.mockResolvedValueOnce({
-      intent: 'test-intent',
-      confidence: 0.8,
+    const taskContractProcessor = vi.fn().mockResolvedValue(createExecuteEnvelope({
       workflowYAML: [
         'steps:',
         '  - type: for_each',
@@ -380,13 +473,12 @@ describe('Workflow Execution Modes', () => {
         '        cli: echo',
         '        args: ["${item}"]',
       ].join('\n'),
-      taskList: {
-        intent: 'test-intent',
-        tasks: [{ commands: [{ cli: 'echo', args: ['hello'] }] }],
-      },
-    });
+      mode: 'workflow-draft',
+      commandSurfaceId: 'echo hello',
+    }));
 
     const deps = createMockDeps({
+      taskContractProcessor,
       config: { ...mockChatConfig, executeMode: 'manual' },
       workflowEngine: mockWorkflowEngine as unknown as ReplDeps['workflowEngine'],
       nlProcessor: mockNlProcessor as unknown as ReplDeps['nlProcessor'],
@@ -399,21 +491,18 @@ describe('Workflow Execution Modes', () => {
   });
 
   it('should fail instead of generating echo fallback for invalid exec workflow step', async () => {
-    mockNlProcessor.parse.mockResolvedValueOnce({
-      intent: 'test-intent',
-      confidence: 0.8,
+    const taskContractProcessor = vi.fn().mockResolvedValue(createExecuteEnvelope({
       workflowYAML: [
         'steps:',
         '  - type: exec',
         '    args: ["hello"]',
       ].join('\n'),
-      taskList: {
-        intent: 'test-intent',
-        tasks: [{ commands: [{ cli: 'echo', args: ['hello'] }] }],
-      },
-    });
+      mode: 'workflow-draft',
+      commandSurfaceId: 'echo hello',
+    }));
 
     const deps = createMockDeps({
+      taskContractProcessor,
       config: { ...mockChatConfig, executeMode: 'manual' },
       workflowEngine: mockWorkflowEngine as unknown as ReplDeps['workflowEngine'],
       nlProcessor: mockNlProcessor as unknown as ReplDeps['nlProcessor'],
@@ -424,6 +513,103 @@ describe('Workflow Execution Modes', () => {
     expect(mockWorkflowEngine.execute).not.toHaveBeenCalled();
     expect(result.type).toBe('error');
     expect(result.content).toContain('missing cli');
+  });
+});
+
+describe('TaskContract-first REPL routing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('outputs reply content without leaking intent or step metadata', async () => {
+    const taskContractProcessor = vi.fn().mockResolvedValue(createReplyEnvelope('项目状态正常。'));
+    const deps = createMockDeps({ taskContractProcessor });
+    const repl = createRepl(deps);
+
+    const result = await repl.processInput('当前项目怎么样');
+
+    expect(result.type).toBe('text');
+    expect(result.content).toContain('项目状态正常。');
+    expect(result.content).not.toContain('Intent:');
+    expect(result.content).not.toContain('step_');
+  });
+
+  it('executes validated vectahub doctor command via internal bridge', async () => {
+    const bridgeExecute = vi.fn().mockResolvedValue('doctor output');
+    const taskContractProcessor = vi.fn().mockResolvedValue(createExecuteEnvelope({
+      commandSurfaceId: 'vectahub doctor',
+    }));
+    const deps = createMockDeps({
+      taskContractProcessor,
+      commandBridge: { execute: bridgeExecute } as unknown as ReplDeps['commandBridge'],
+    });
+    const repl = createRepl(deps);
+
+    const result = await repl.processInput('帮我诊断一下这个项目');
+
+    expect(bridgeExecute).toHaveBeenCalledWith('doctor');
+    expect(result.type).toBe('command-result');
+    expect(result.content).toContain('doctor output');
+  });
+
+  it('blocks invalid vectahub command surfaces before bridge execution', async () => {
+    const bridgeExecute = vi.fn().mockResolvedValue('should not run');
+    const taskContractProcessor = vi.fn().mockResolvedValue(createExecuteEnvelope({
+      rawInput: '帮我诊断 CI',
+      commandSurfaceId: 'vectahub ci diagnose',
+    }));
+    const deps = createMockDeps({
+      taskContractProcessor,
+      commandBridge: { execute: bridgeExecute } as unknown as ReplDeps['commandBridge'],
+    });
+    const repl = createRepl(deps);
+
+    const result = await repl.processInput('帮我诊断 CI');
+
+    expect(bridgeExecute).not.toHaveBeenCalled();
+    expect(result.type).toBe('text');
+    expect(result.content).toContain('任务执行已阻断');
+    expect(result.content).not.toContain('vectahub ci diagnose');
+  });
+
+  it('does not send direct-command contracts into internal bridge', async () => {
+    const bridgeExecute = vi.fn().mockResolvedValue('should not run');
+    const taskContractProcessor = vi.fn().mockResolvedValue(createExecuteEnvelope({
+      rawInput: '帮我执行 git status',
+      mode: 'direct-command',
+      commandSurfaceId: 'git status',
+    }));
+    const deps = createMockDeps({
+      taskContractProcessor,
+      commandBridge: { execute: bridgeExecute } as unknown as ReplDeps['commandBridge'],
+    });
+    const repl = createRepl(deps);
+
+    const result = await repl.processInput('帮我执行 git status');
+
+    expect(bridgeExecute).not.toHaveBeenCalled();
+    expect(result.type).toBe('text');
+    expect(result.content).toContain('不会通过内部命令桥自动执行');
+  });
+
+  it('prefers execute task contracts over legacy reply content', async () => {
+    const bridgeExecute = vi.fn().mockResolvedValue('doctor output');
+    const taskContractProcessor = vi.fn().mockResolvedValue(createExecuteEnvelope({
+      rawInput: '帮我诊断并说明原因',
+      commandSurfaceId: 'vectahub doctor',
+      reply: '我先解释一下',
+    }));
+    const deps = createMockDeps({
+      taskContractProcessor,
+      commandBridge: { execute: bridgeExecute } as unknown as ReplDeps['commandBridge'],
+    });
+    const repl = createRepl(deps);
+
+    const result = await repl.processInput('帮我诊断并说明原因');
+
+    expect(bridgeExecute).toHaveBeenCalledWith('doctor');
+    expect(result.type).toBe('command-result');
+    expect(result.content).toContain('doctor output');
   });
 });
 
@@ -479,5 +665,84 @@ describe('Command Bridge functionality', () => {
     expect(mockCommandBridge.execute).toHaveBeenCalledWith('failing-command');
     expect(result.type).toBe('error');
     expect(result.content).toContain('执行出错');
+  });
+});
+
+describe('useLLM=false DI regression', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('outputs reply from nlProcessor when useLLM=false without creating LLM client', async () => {
+    const mockParse = vi.fn().mockResolvedValue({
+      success: true,
+      intent: 'QUERY_INFO',
+      confidence: 0.9,
+      reply: '项目状态正常。',
+      metadata: { path: 'dialog' },
+    });
+    const deps = createMockDeps({
+      useLLM: false,
+      llmConfig: null,
+      nlProcessor: { parse: mockParse } as unknown as ReplDeps['nlProcessor'],
+    });
+    const repl = createRepl(deps);
+    const result = await repl.processInput('当前项目怎么样');
+
+    expect(mockParse).toHaveBeenCalledWith({ input: '当前项目怎么样', sessionId: expect.any(String), options: { useLLM: false } });
+    expect(result.type).toBe('text');
+    expect(result.content).toContain('项目状态正常。');
+    expect(result.content).not.toContain('Intent:');
+    expect(result.content).not.toContain('step_');
+    expect(LLMClient).not.toHaveBeenCalled();
+  });
+
+  it('executes TaskContract from nlProcessor when useLLM=false', async () => {
+    const bridgeExecute = vi.fn().mockResolvedValue('doctor output');
+    const deps = createMockDeps({
+      useLLM: false,
+      llmConfig: null,
+      nlProcessor: {
+        parse: vi.fn().mockResolvedValue({
+          success: true,
+          intent: 'doctor',
+          confidence: 1,
+          metadata: { path: 'category-router' },
+          taskList: {
+            tasks: [{ commands: [{ cli: 'vectahub', args: ['doctor'] }] }],
+          },
+        }),
+      } as unknown as ReplDeps['nlProcessor'],
+      commandBridge: { execute: bridgeExecute } as unknown as ReplDeps['commandBridge'],
+    });
+    const repl = createRepl(deps);
+    const result = await repl.processInput('帮我诊断一下这个项目');
+
+    expect(result.type).toBe('command-result');
+    expect(result.content).toContain('doctor output');
+    expect(bridgeExecute).toHaveBeenCalledWith('doctor');
+    expect(LLMClient).not.toHaveBeenCalled();
+  });
+
+  it('skips nlProcessor.parse when taskContractProcessor is injected', async () => {
+    const nlParseSpy = vi.fn().mockResolvedValue({
+      success: true,
+      intent: 'QUERY_INFO',
+      confidence: 0.9,
+      reply: 'should not be reached',
+      metadata: { path: 'dialog' },
+    });
+    const taskContractProcessor = vi.fn().mockResolvedValue(createReplyEnvelope('来自注入处理器'));
+    const deps = createMockDeps({
+      taskContractProcessor,
+      nlProcessor: { parse: nlParseSpy } as unknown as ReplDeps['nlProcessor'],
+    });
+    const repl = createRepl(deps);
+    const result = await repl.processInput('你好');
+
+    expect(taskContractProcessor).toHaveBeenCalledWith('你好');
+    expect(nlParseSpy).not.toHaveBeenCalled();
+    expect(result.type).toBe('text');
+    expect(result.content).toContain('来自注入处理器');
   });
 });

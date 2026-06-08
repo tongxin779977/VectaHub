@@ -20,3 +20,4 @@ export * from './artifact.js';
 export * from './orchestration-recovery.js';
 export * from './proposal.js';
 export * from './backlog.js';
+export * from './task-contract.js';

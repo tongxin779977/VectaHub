@@ -5,7 +5,7 @@
  */
 import type { ChatConfig } from './config.js';
 import type { Workflow } from '../types/index.js';
-import type { NLProcessor } from '../nl/core/types.js';
+import type { NLProcessor, NLResult } from '../nl/core/types.js';
 import type { SessionManager } from '../nl/session-manager.js';
 import type { LLMConfig } from '../nl/llm.js';
 import type { WorkflowEngine } from '../workflow/engine.js';
@@ -14,6 +14,7 @@ import type { ParamExtractor } from '../nl/param-extractor.js';
 import type { ContextBuilderResult } from './context-builder.js';
 import type { CommandExecutor } from '../nl/executor/command-executor.js';
 import type { AuditHelper } from '../infrastructure/audit/index.js';
+import type { TaskContractEnvelope } from '../types/task-contract.js';
 import type pino from 'pino';
 
 export type { UIRenderer } from './ui-renderer.js';
@@ -124,6 +125,8 @@ export interface PendingWorkflow {
 export interface ReplDeps {
   /** NL 处理器 */
   nlProcessor: NLProcessor;
+  /** 可选 TaskContract 处理器；未提供时由注入的 NL 处理器生成合同 */
+  taskContractProcessor?: (input: string) => Promise<TaskContractEnvelope<NLResult>>;
   /** 上下文构建器 */
   contextBuilder: { buildContext(sessionId?: string): Promise<ContextBuilderResult> };
   /** 会话管理器（可选） */

@@ -91,4 +91,27 @@ describe('doctor command checks', () => {
       message: 'Declared in devDependencies',
     });
   });
+
+  it('recognizes project tsx binary when npx tsx cannot run', async () => {
+    const { runChecks } = await import('./doctor.js');
+    const mockEnv = createMockEnvironment();
+    const joinPath = mockEnv.joinPath;
+
+    vi.mocked(mockEnv.exists).mockImplementation((path: string) => {
+      if (path === joinPath('/fake/project', 'package.json')) return true;
+      if (path === joinPath('/fake/project', 'src')) return true;
+      if (path === joinPath('/fake/project', 'docs')) return true;
+      if (path === joinPath('/fake/project', 'node_modules', '.bin', 'tsx')) return true;
+      return false;
+    });
+
+    const checks = await runChecks(mockEnv);
+    const tsxCheck = checks.find((check) => check.name === 'tsx');
+
+    expect(tsxCheck).toEqual({
+      name: 'tsx',
+      status: 'pass',
+      message: 'Installed in project',
+    });
+  });
 });

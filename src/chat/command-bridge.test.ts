@@ -25,8 +25,7 @@ describe('CommandBridge', () => {
 
   it('should return a string result for empty command', async () => {
     const result = await bridge.execute('');
-    expect(result).toBeDefined();
-    expect(typeof result).toBe('string');
+    expect(result).toBe('❌ Empty command.');
   });
 
   it('should restore process streams after execute', async () => {
@@ -79,6 +78,18 @@ describe('CommandBridge', () => {
     expect(result).toContain('silent');
     expect(result).toContain('no output');
     vi.restoreAllMocks();
+  });
+
+  it('should execute registered subcommand using user argv semantics', async () => {
+    program
+      .command('doctor')
+      .action(() => {
+        process.stdout.write('doctor output');
+      });
+
+    const result = await bridge.execute('doctor');
+
+    expect(result).toBe('doctor output');
   });
 });
 

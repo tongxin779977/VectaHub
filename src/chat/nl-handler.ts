@@ -8,9 +8,14 @@ import type { ChatOutput, PendingWorkflow, ReplDeps } from './types.js';
 import type { ChatConfig } from './config.js';
 import type { UIRenderer } from './ui-renderer.js';
 import type { NLResult } from '../nl/core/types.js';
+import type { TaskContractEnvelope } from '../types/task-contract.js';
 import type { Workflow } from '../types/index.js';
 import { LLMClient } from '../nl/llm.js';
 import { buildAllTools } from '../nl/tool-calling.js';
+import { toTaskContractEnvelope } from '../nl/task-contract-adapter.js';
+import { presentTaskContract } from '../nl/task-contract-presentation.js';
+import { resolveTaskContractCommand } from '../nl/task-contract-strategy.js';
+import { createRunDispatch, type RunDispatchResult } from '../commands/run-dispatch.js';
 import { parseWorkflowSteps } from './workflow-parser.js';
 import { formatError, SimpleCache } from './utils.js';
 import { getLogger } from '../infrastructure/logger/index.js';
@@ -28,24 +33,17 @@ const INTENT_CACHE_MAX_SIZE = 200;
  */
 export interface NLHandlerDeps {
   nlProcessor: ReplDeps['nlProcessor'];
+  taskContractProcessor?: ReplDeps['taskContractProcessor'];
   sessionManager: ReplDeps['sessionManager'];
   useLLM: boolean;
   llmConfig: ReplDeps['llmConfig'];
   auditHelper: ReplDeps['auditHelper'];
   workflowEngine: ReplDeps['workflowEngine'];
   commandExecutor: ReplDeps['commandExecutor'];
+  commandBridge: ReplDeps['commandBridge'];
   paramExtractor: ReplDeps['paramExtractor'];
   config: ChatConfig;
   logger: ReplDeps['logger'];
-}
-
-/**
- * 工作流相关的 NL 元数据。
- */
-interface ReplWorkflowMetadata {
-  intent?: string;
-  confidence?: number;
-  path?: NLResult['metadata']['path'];
 }
 
 /**
@@ -68,10 +66,18 @@ export function createNLHandler(
   promptForConfirmation: (question: string) => Promise<boolean>,
   executePendingWorkflow: (sessId: string, workflowId: string, initialVariables?: Record<string, unknown>) => Promise<ChatOutput>,
 ) {
-  const intentCache = new SimpleCache<NLResult>(INTENT_CACHE_TTL_MS, INTENT_CACHE_MAX_SIZE);
+  const intentCache = new SimpleCache<TaskContractEnvelope<NLResult>>(INTENT_CACHE_TTL_MS, INTENT_CACHE_MAX_SIZE);
 
   function buildIntentCacheKey(input: string): string {
     return `${sessionId}::${input}`;
+  }
+
+  async function processTaskContractInput(input: string): Promise<TaskContractEnvelope<NLResult>> {
+    if (deps.taskContractProcessor) {
+      return deps.taskContractProcessor(input);
+    }
+    const nlResult = await deps.nlProcessor.parse({ input, sessionId, options: { useLLM: deps.useLLM } });
+    return toTaskContractEnvelope(input, nlResult);
   }
 
   async function handleNLInput(input: string): Promise<ChatOutput> {
@@ -90,50 +96,99 @@ export function createNLHandler(
     }
 
     const cacheKey = buildIntentCacheKey(input);
-    let nlResult: NLResult;
+    let envelope: TaskContractEnvelope<NLResult>;
 
     const cached = intentCache.get(cacheKey);
     if (cached !== undefined) {
-      nlResult = cached;
+      envelope = cached;
     } else {
-      nlResult = await deps.nlProcessor.parse({
-        input,
-        sessionId,
-        options: { useLLM: deps.useLLM },
-      });
-      intentCache.set(cacheKey, nlResult);
+      envelope = await processTaskContractInput(input);
+      intentCache.set(cacheKey, envelope);
     }
 
-    const matchedIntent = nlResult.intent || nlResult.taskList?.intent;
+    const nlResult = envelope.legacy;
+    if (!nlResult) {
+      throw new Error('Task contract envelope did not include legacy NL result');
+    }
+    const taskContract = envelope.taskContract;
+    const presentation = presentTaskContract(taskContract);
 
-    if (matchedIntent === 'DIALOG_GREETING') {
+    switch (taskContract.kind) {
+      case 'reply':
+        return {
+          type: 'text',
+          content: buildReplyContent(presentation.summaryLines, nlResult.reply),
+        };
+      case 'clarify':
+      case 'blocked':
+        return {
+          type: 'text',
+          content: presentation.summaryLines.join('\n'),
+        };
+      case 'execute':
+        return handleExecutionContract(envelope, input, presentation.summaryLines);
+    }
+  }
+
+  async function handleExecutionContract(
+    envelope: TaskContractEnvelope<NLResult>,
+    rawInput: string,
+    summaryLines: string[],
+  ): Promise<ChatOutput> {
+    const nlResult = envelope.legacy;
+    if (!nlResult) {
+      throw new Error('Task contract envelope did not include legacy NL result');
+    }
+    const dispatch = createRunDispatch({
+      text: rawInput,
+      steps: [],
+      reply: nlResult.reply,
+      taskContract: envelope.taskContract,
+    });
+
+    if (!dispatch.executable || dispatch.kind !== 'workflow') {
       return {
         type: 'text',
-        content: '👋 你好！我是 VectaHub，你的智能工作流助手。'
+        content: buildDispatchFeedback(summaryLines, dispatch),
+      };
+    }
+
+    const resolvedCommand = resolveTaskContractCommand(envelope.taskContract);
+    if (resolvedCommand?.cli === 'vectahub') {
+      const commandText = formatBridgeCommand(resolvedCommand.cli, resolvedCommand.args);
+      if (!commandText) {
+        return {
+          type: 'text',
+          content: buildDispatchFeedback(summaryLines, {
+            kind: 'blocked',
+            executable: false,
+            reason: 'missing executable vectahub subcommand',
+          }),
+        };
+      }
+
+      const bridgeOutput = await deps.commandBridge.execute(commandText);
+      return {
+        type: 'command-result',
+        content: bridgeOutput,
       };
     }
 
     if (nlResult.workflowYAML) {
-      return handleWorkflowGeneration(nlResult, input);
+      return handleWorkflowGeneration(nlResult, rawInput, summaryLines);
     }
 
-    if (nlResult.reply) {
-      return {
-        type: 'text',
-        content: sanitizeReply(nlResult.reply),
-      };
-    }
-
-    const metadata: ReplWorkflowMetadata = {
-      intent: nlResult.intent,
-      confidence: nlResult.confidence,
-      path: nlResult.metadata?.path,
+    return {
+      type: 'text',
+      content: summaryLines.join('\n'),
     };
-
-    return { type: 'workflow', content: JSON.stringify(nlResult), metadata };
   }
 
-  async function handleWorkflowGeneration(nlResult: NLResult, rawInput: string): Promise<ChatOutput> {
+  async function handleWorkflowGeneration(
+    nlResult: NLResult,
+    rawInput: string,
+    summaryLines: string[],
+  ): Promise<ChatOutput> {
     if (!deps.workflowEngine) return { type: 'error', content: '❌ 工作流引擎未初始化。' };
     if (!nlResult.workflowYAML) return { type: 'error', content: '❌ 工作流 YAML 为空。' };
 
@@ -165,7 +220,10 @@ export function createNLHandler(
         deps.sessionManager.updateLastWorkflow(sessionId, workflow.id, nlResult.workflowYAML);
       }
 
-      const workflowSummary = `✅ 工作流已生成！\n🎯 意图: ${nlResult.intent}\n📊 置信度: ${((nlResult.confidence || 0) * 100).toFixed(0)}%\n\n\`\`\`yaml\n${nlResult.workflowYAML}\n\`\`\``;
+      const workflowSummary = [
+        ...summaryLines,
+        '工作流已生成，可按需执行。',
+      ].join('\n');
 
       if (deps.config.executeMode === 'auto') {
         ui.renderInfo(`执行模式: auto. 立即执行工作流: ${workflow.id}`);
@@ -193,6 +251,58 @@ export function createNLHandler(
   }
 
   return { handleNLInput, clearIntentCache };
+}
+
+function buildReplyContent(summaryLines: string[], reply: string | undefined): string {
+  const normalizedReply = reply ? sanitizeReply(reply) : '收到，但当前没有可展示的回复内容。';
+  if (summaryLines.length === 0) {
+    return normalizedReply;
+  }
+  return `${summaryLines.join('\n')}\n\n${normalizedReply}`;
+}
+
+function buildDispatchFeedback(summaryLines: string[], dispatch: RunDispatchResult): string {
+  const lines = [...summaryLines];
+
+  switch (dispatch.kind) {
+    case 'blocked':
+      lines.push('任务执行已阻断：当前请求无法通过受支持的内部命令执行。');
+      break;
+    case 'direct-command':
+      lines.push('当前任务已识别为本地直接命令。REPL 不会通过内部命令桥自动执行这类命令。');
+      break;
+    case 'agent-task':
+      lines.push('当前任务需要 Agent runtime 才能继续执行。');
+      break;
+    case 'clarify':
+      lines.push('当前任务还需要补充信息。');
+      break;
+    case 'dialog':
+      lines.push('当前请求更适合作为直接回复处理。');
+      break;
+    case 'workflow':
+      break;
+  }
+
+  if (dispatch.suggestedAction) {
+    lines.push(`建议：${dispatch.suggestedAction}`);
+  }
+
+  return lines.join('\n');
+}
+
+function formatBridgeCommand(cli: string, args: string[]): string | null {
+  const normalizedCli = cli.trim();
+  if (normalizedCli !== 'vectahub') {
+    return null;
+  }
+
+  const [subcommand, ...restArgs] = args;
+  if (!subcommand?.trim()) {
+    return null;
+  }
+
+  return [subcommand, ...restArgs].join(' ');
 }
 
 /**

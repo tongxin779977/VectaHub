@@ -9,6 +9,8 @@ import { createLLMConfig, type LLMConfig } from './llm.js';
 import { parseGoal } from './core/goal-parser.js';
 import { createCapabilityRouter } from './capabilities/router.js';
 import { executionPlanToSteps } from './capabilities/plan-adapter.js';
+import { toTaskContractEnvelope } from './task-contract-adapter.js';
+import type { TaskContractEnvelope } from '../types/task-contract.js';
 import type pino from 'pino';
 
 type NLLogger = Pick<pino.Logger, 'error'>;
@@ -67,6 +69,16 @@ export async function processInput(
     logger: requireLoggerForFallback(logger),
   });
   return processor.parse({ input: normalizedInput });
+}
+
+export async function processInputWithTaskContract(
+  input: string,
+  llmConfig?: LLMConfig,
+  auditHelper?: AuditHelper,
+  logger?: NLLogger,
+): Promise<TaskContractEnvelope<NLResult>> {
+  const legacy = await processInput(input, llmConfig, auditHelper, logger);
+  return toTaskContractEnvelope(input, legacy);
 }
 
 function requireLLMConfigForFallback(llmConfig?: LLMConfig): LLMConfig {

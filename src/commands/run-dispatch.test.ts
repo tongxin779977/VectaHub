@@ -2,6 +2,40 @@ import { describe, it, expect } from 'vitest';
 import { createRunDispatch } from './run-dispatch.js';
 
 describe('createRunDispatch', () => {
+  function createExecuteTaskContract(commandSurfaceId?: string) {
+    return {
+      schemaVersion: '1.0' as const,
+      requestId: 'req_1',
+      rawInput: '帮我诊断一下这个项目',
+      normalizedGoal: '帮我诊断一下这个项目',
+      confidence: 1,
+      language: 'zh-CN' as const,
+      internalSignals: {
+        intentCandidates: ['doctor'],
+        routeSource: 'capability' as const,
+      },
+      kind: 'execute' as const,
+      taskKind: 'diagnose' as const,
+      operation: 'doctor',
+      target: {
+        scope: 'project' as const,
+      },
+      constraints: {
+        requiresConfirmation: false,
+        requiresVerification: false,
+        sideEffects: ['command' as const],
+      },
+      executionStrategy: {
+        mode: 'capability' as const,
+        commandSurfaceId,
+      },
+      expectedOutput: {
+        format: 'text' as const,
+        audience: 'system' as const,
+      },
+    };
+  }
+
   describe('validateStep for vectahub subcommands', () => {
     it('should block unregistered vectahub subcommand', () => {
       const result = createRunDispatch({
@@ -70,6 +104,40 @@ describe('createRunDispatch', () => {
       });
       expect(result.kind).toBe('dialog');
       expect(result.executable).toBe(false);
+    });
+
+    it('should use task contract execution strategy when steps are empty', () => {
+      const result = createRunDispatch({
+        text: '帮我诊断一下这个项目',
+        steps: [],
+        taskContract: createExecuteTaskContract('vectahub doctor'),
+      });
+      expect(result.kind).toBe('workflow');
+      expect(result.executable).toBe(true);
+    });
+
+    it('should block task contract execution when vectahub subcommand is not registered', () => {
+      const result = createRunDispatch({
+        text: '帮我诊断 CI',
+        steps: [],
+        taskContract: createExecuteTaskContract('vectahub ci diagnose'),
+      });
+
+      expect(result.kind).toBe('blocked');
+      expect(result.executable).toBe(false);
+      expect(result.reason).toContain('not registered');
+    });
+
+    it('should block task contract execution when commandSurfaceId is missing', () => {
+      const result = createRunDispatch({
+        text: '帮我诊断一下这个项目',
+        steps: [],
+        taskContract: createExecuteTaskContract(undefined),
+      });
+
+      expect(result.kind).toBe('blocked');
+      expect(result.executable).toBe(false);
+      expect(result.reason).toContain('missing a valid command surface id');
     });
   });
 

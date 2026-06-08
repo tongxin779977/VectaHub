@@ -1,3 +1,6 @@
+import type { TaskContract } from '../types/task-contract.js';
+import { resolveTaskContractCommand } from '../nl/task-contract-strategy.js';
+
 export type RunDispatchKind =
   | 'direct-command'
   | 'workflow'
@@ -11,6 +14,7 @@ export interface RunDispatchInput {
   text: string;
   steps: Array<{ cli?: string; args?: string[] }>;
   reply?: string;
+  taskContract?: TaskContract;
 }
 
 export interface RunDispatchResult {
@@ -127,8 +131,28 @@ function validateStep(step: { cli?: string; args?: string[] }): RunDispatchResul
   return null;
 }
 
+function validateTaskContractExecution(
+  taskContract: Extract<TaskContract, { kind: 'execute' }>,
+): RunDispatchResult | null {
+  const resolvedCommand = resolveTaskContractCommand(taskContract);
+  if (!resolvedCommand) {
+    return {
+      kind: 'blocked',
+      executable: false,
+      reason: 'task contract execute strategy is missing a valid command surface id',
+      suggestedAction: '请补充可解析的 commandSurfaceId，或回退到澄清/任务分诊路径。',
+    };
+  }
+
+  return validateStep({
+    cli: resolvedCommand.cli,
+    args: resolvedCommand.args,
+  });
+}
+
 export function createRunDispatch(input: RunDispatchInput): RunDispatchResult {
   const text = input.text.trim();
+  const taskContract = input.taskContract;
 
   if (isDocTaskEdit(text)) {
     return {
@@ -151,6 +175,65 @@ export function createRunDispatch(input: RunDispatchInput): RunDispatchResult {
   }
 
   if (input.steps.length === 0) {
+    if (taskContract?.kind === 'execute') {
+      const blocked = validateTaskContractExecution(taskContract);
+      if (blocked) {
+        return blocked;
+      }
+
+      switch (taskContract.executionStrategy.mode) {
+        case 'direct-command':
+          return {
+            kind: 'direct-command',
+            executable: true,
+            reason: 'task contract resolved to direct-command execution strategy',
+          };
+        case 'capability':
+          return {
+            kind: 'workflow',
+            executable: true,
+            reason: 'task contract resolved to capability execution strategy',
+          };
+        case 'workflow-draft':
+          return {
+            kind: 'workflow',
+            executable: true,
+            reason: 'task contract resolved to workflow-draft execution strategy',
+          };
+        case 'agent-runtime':
+          return {
+            kind: 'agent-task',
+            executable: false,
+            reason: 'task contract requires agent-runtime execution',
+            suggestedAction: '请先进入 Agent runtime 或生成任务合同后再执行。',
+          };
+      }
+    }
+
+    if (taskContract?.kind === 'blocked') {
+      return {
+        kind: 'blocked',
+        executable: false,
+        reason: taskContract.reason,
+      };
+    }
+
+    if (taskContract?.kind === 'clarify') {
+      return {
+        kind: 'clarify',
+        executable: false,
+        reason: taskContract.question,
+      };
+    }
+
+    if (taskContract?.kind === 'reply') {
+      return {
+        kind: 'dialog',
+        executable: false,
+        reason: `task contract resolved to ${taskContract.replyMode}`,
+      };
+    }
+
     return {
       kind: input.reply ? 'dialog' : 'clarify',
       executable: false,

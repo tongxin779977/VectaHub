@@ -56,6 +56,7 @@ export class CommandBridge {
    */
   constructor(program: Command, options?: CommandBridgeOptions) {
     this.program = program;
+    this.program.exitOverride();
     this.cache = new SimpleCache<string>(
       options?.cacheTtlMs ?? DEFAULT_COMMAND_CACHE_TTL_MS,
       options?.cacheMaxSize ?? DEFAULT_COMMAND_CACHE_MAX_SIZE,
@@ -77,8 +78,13 @@ export class CommandBridge {
       return cached;
     }
 
-    const [cmdName, ...args] = command.trim().split(' ');
-    const fullArgs = [this.program.name(), cmdName, ...args];
+    const normalizedCommand = command.trim();
+    if (!normalizedCommand) {
+      return '❌ Empty command.';
+    }
+
+    const [cmdName, ...args] = normalizedCommand.split(/\s+/);
+    const userArgs = [cmdName, ...args];
 
     let output = '';
     const originalStdoutWrite = process.stdout.write;
@@ -98,7 +104,7 @@ export class CommandBridge {
       process.stdout.write = intercept;
       process.stderr.write = intercept;
 
-      await this.program.parseAsync(fullArgs, { from: 'user' });
+      await this.program.parseAsync(userArgs, { from: 'user' });
 
       result = output.trim() || `✅ Command '${cmdName}' executed (no output).`;
     } catch (error) {

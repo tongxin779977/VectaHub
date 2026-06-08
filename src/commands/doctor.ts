@@ -50,6 +50,11 @@ async function hasPackageDependency(environment: IEnvironmentService, name: stri
   }
 }
 
+function getLocalTsxBinaryPath(environment: IEnvironmentService): string {
+  const binaryName = environment.getPlatform() === 'win32' ? 'tsx.cmd' : 'tsx';
+  return join(environment, environment.getCwd(), 'node_modules', '.bin', binaryName);
+}
+
 export async function runChecks(environment: IEnvironmentService, verbose = false): Promise<DoctorCheck[]> {
   const checks: { name: string; status: 'pass' | 'fail' | 'warn'; message: string }[] = [];
 
@@ -103,9 +108,12 @@ export async function runChecks(environment: IEnvironmentService, verbose = fals
   } catch {
     const packageExists = environment.exists(join(environment, environment.getCwd(), 'package.json'));
     const srcExists = environment.exists(join(environment, environment.getCwd(), 'src'));
+    const hasLocalTsxBinary = environment.exists(getLocalTsxBinaryPath(environment));
     const hasLocalTsx = packageExists && await hasPackageDependency(environment, 'tsx');
 
-    if (hasLocalTsx && srcExists) {
+    if (hasLocalTsxBinary) {
+      checks.push({ name: 'tsx', status: 'pass', message: 'Installed in project' });
+    } else if (hasLocalTsx && srcExists) {
       checks.push({ name: 'tsx', status: 'pass', message: 'Declared in devDependencies' });
     } else {
       checks.push({

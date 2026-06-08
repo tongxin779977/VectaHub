@@ -145,12 +145,14 @@ export function createREPL(deps: ReplDeps) {
   const nlHandler = createNLHandler(
     {
       nlProcessor: deps.nlProcessor,
+      taskContractProcessor: deps.taskContractProcessor,
       sessionManager: deps.sessionManager,
       useLLM: deps.useLLM,
       llmConfig: deps.llmConfig,
       auditHelper: deps.auditHelper,
       workflowEngine: deps.workflowEngine,
       commandExecutor: deps.commandExecutor,
+      commandBridge: deps.commandBridge,
       paramExtractor: deps.paramExtractor,
       config: deps.config,
       logger: deps.logger,

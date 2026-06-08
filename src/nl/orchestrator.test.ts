@@ -29,7 +29,7 @@ vi.mock('./llm.js', async () => {
   };
 });
 
-import { orchestrateIntent, processInput } from './orchestrator.js';
+import { orchestrateIntent, processInput, processInputWithTaskContract } from './orchestrator.js';
 
 describe('orchestrateIntent', () => {
   beforeEach(() => {
@@ -448,5 +448,34 @@ describe('orchestrateIntent', () => {
         sandboxDetect: vi.fn(),
       })
     ).rejects.toThrow('Multi-intent contains non-executable clause; clarification or preview required');
+  });
+
+  it('processInputWithTaskContract wraps legacy NLResult into task contract envelope', async () => {
+    routeMock.mockReturnValueOnce({
+      route: 'auto',
+      matchedCapability: 'mock-cap',
+      score: 0.9,
+      reason: 'matched',
+      plan: {
+        id: 'plan_input_auto',
+        label: 'auto plan',
+        capabilityId: 'mock-cap',
+        goal: { confidence: 0.9, domains: [], action: 'run', scope: 'project', successCriteria: [], constraints: [], evidence: {}, needsClarification: false },
+        steps: [{
+          id: 'cmd_1',
+          label: 'run',
+          type: 'command',
+          command: { cli: 'git', args: ['status'] },
+        }],
+        userReport: { summaryTemplate: 'ok' },
+      },
+    });
+
+    const envelope = await processInputWithTaskContract('check status');
+
+    expect(envelope.legacy?.success).toBe(true);
+    expect(envelope.taskContract.kind).toBe('execute');
+    expect(envelope.taskContract.rawInput).toBe('check status');
+    expect(envelope.taskContract.normalizedGoal).toBe('check status');
   });
 });
