@@ -13,7 +13,7 @@ This document assesses the readiness and entry conditions for custom rules, skil
 Current reassessment can rely on these completed backlog foundations:
 - OrchestrationPlan and WorkflowDraft contracts are available for the current orchestrator scope
 - Plan safety review and confirmation policies are available for the current orchestrator scope
-- Native feature passthrough policies are documented in P2-005
+- Native feature passthrough policy is tracked by `P2-005`, but is not yet completed
 - Worker capability matrix is documented in P2-002
 - Trace, audit, verification, and feedback foundations exist for the current orchestrator scope
 
@@ -111,5 +111,5 @@ Current reassessment can rely on these completed backlog foundations:
 
 - [tools-security-management.md](../contracts/tools-security-management.md)
 - [security-permission-loop.md](../contracts/security-permission-loop.md)
-- [native-feature-passthrough-policy](../backlog/items/P2-005.md)
+- [native-feature-passthrough-policy](../contracts/native-feature-passthrough-policy.md)
 - [hybrid-ai-nl-engine.md](./hybrid-ai-nl-engine.md)

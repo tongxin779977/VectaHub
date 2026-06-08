@@ -20,6 +20,22 @@ export interface DelegateHandlerDeps {
   agentModule?: AIModule<string, DelegateStepResult>;
 }
 
+function resolvePreflightArgs(descriptor: ReturnType<typeof getAgentDescriptorById>): string[] {
+  if (!descriptor) {
+    return [];
+  }
+
+  if (descriptor.preflightSpec.readyArgs && descriptor.preflightSpec.readyArgs.length > 0) {
+    return descriptor.preflightSpec.readyArgs;
+  }
+
+  if (descriptor.preflightSpec.invocableArgs && descriptor.preflightSpec.invocableArgs.length > 0) {
+    return descriptor.preflightSpec.invocableArgs;
+  }
+
+  return descriptor.preflightSpec.versionArgs;
+}
+
 export const createDelegateHandler = (deps: DelegateHandlerDeps = {}): StepHandler => {
   // Backward compatibility: if agentModule is provided, use the old implementation
   if (deps.agentModule) {
@@ -183,6 +199,35 @@ export const createDelegateHandler = (deps: DelegateHandlerDeps = {}): StepHandl
       };
     }
 
+    const preflightArgs = resolvePreflightArgs(descriptor);
+    try {
+      const preflightResult = await deps.exec(
+        descriptor.entryCommand,
+        preflightArgs,
+        {
+          ...options,
+          cwd: deps.getEnvironmentCwd(),
+        }
+      );
+
+      if (!preflightResult.success) {
+        return {
+          stepId: step.id,
+          status: 'FAILED',
+          error: `Agent "${delegateTo}" failed preflight`,
+          exitCode: preflightResult.exitCode,
+          duration: Date.now() - startTime,
+        };
+      }
+    } catch (error) {
+      return {
+        stepId: step.id,
+        status: 'FAILED',
+        error: `Agent "${delegateTo}" failed preflight: ${error instanceof Error ? error.message : String(error)}`,
+        duration: Date.now() - startTime,
+      };
+    }
+
     // Execute the agent command
     const execStartTime = Date.now();
     let execResult;
@@ -191,6 +236,7 @@ export const createDelegateHandler = (deps: DelegateHandlerDeps = {}): StepHandl
         ...options,
         env: { ...process.env, ...adapterOutput.envPatch } as Record<string, string>,
         cwd: deps.getEnvironmentCwd(),
+        stdinInput: adapterOutput.stdinInput,
       });
     } catch (error) {
       execResult = {

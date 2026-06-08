@@ -2,17 +2,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { getDefaultContext, resetDefaultContext } from '../infrastructure/context.js';
+import { InfrastructureContext, resetDefaultContext } from '../infrastructure/context.js';
+import { createEnvironmentService } from '../infrastructure/environment/index.js';
+import { MockLoggerService } from '../infrastructure/testing/mock-services.js';
 import { createExportCmd, createImportCmd } from './export.js';
 
 describe('export command factories', () => {
   let oldHome: string | undefined;
   let tempHome: string;
+  let context: InfrastructureContext;
 
   beforeEach(() => {
     oldHome = process.env.VECTAHUB_HOME;
     tempHome = mkdtempSync(join(tmpdir(), 'vectahub-export-test-'));
     process.env.VECTAHUB_HOME = tempHome;
+    context = new InfrastructureContext({
+      environment: createEnvironmentService(tempHome),
+      logger: new MockLoggerService(),
+    });
     resetDefaultContext();
     vi.restoreAllMocks();
   });
@@ -29,13 +36,13 @@ describe('export command factories', () => {
   });
 
   it('createExportCmd returns a command named export', () => {
-    const cmd = createExportCmd(getDefaultContext());
+    const cmd = createExportCmd(context);
     expect(cmd.name()).toBe('export');
     expect(cmd.description()).toContain('导出');
   });
 
   it('createImportCmd returns a command named import', () => {
-    const cmd = createImportCmd(getDefaultContext());
+    const cmd = createImportCmd(context);
     expect(cmd.name()).toBe('import');
     expect(cmd.description()).toContain('导入');
   });
@@ -55,7 +62,7 @@ describe('export command factories', () => {
       }),
     );
 
-    const cmd = createImportCmd(getDefaultContext());
+    const cmd = createImportCmd(context);
     await cmd.parseAsync([importDir, '--dry-run'], { from: 'user' });
 
     expect(existsSync(join(tempHome, 'workflows'))).toBe(false);
@@ -64,7 +71,7 @@ describe('export command factories', () => {
   });
 
   it('import --dry-run option uses consistent style with other commands', () => {
-    const cmd = createImportCmd(getDefaultContext());
+    const cmd = createImportCmd(context);
     const dryRunOption = cmd.options.find((o: { long: string }) => o.long === '--dry-run');
     expect(dryRunOption).toBeDefined();
     // --dry-run should not have a negation counterpart (--no-dry-run) in help output
@@ -75,7 +82,7 @@ describe('export command factories', () => {
   it('export with no data does not create archive', async () => {
     const outputDir = mkdtempSync(join(tmpdir(), 'vectahub-export-out-'));
 
-    const cmd = createExportCmd(getDefaultContext());
+    const cmd = createExportCmd(context);
     await cmd.parseAsync(['--output', outputDir], { from: 'user' });
 
     const files = readdirSync(outputDir);

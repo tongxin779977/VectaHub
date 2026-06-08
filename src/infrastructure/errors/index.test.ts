@@ -101,7 +101,11 @@ describe('toJSONError', () => {
     const err = new VectaHubError('wrapped error', ErrorType.RUNTIME, cause);
     const result = toJSONError(err);
     
+    expect(result.schemaVersion).toBe('1.0');
     expect(result.ok).toBe(false);
+    expect(result.result.kind).toBe('internal_error');
+    expect(result.result.reason).toBe('wrapped error');
+    expect(result.timestamp).toBeDefined();
     expect(result.error.code).toBe('RUNTIME');
     expect(result.error.details).toBeUndefined();
   });

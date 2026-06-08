@@ -33,6 +33,7 @@
 | [Worktree 隔离设计](./worktree-isolation.md) | worktree 隔离、diff 归因和清理策略目标。 |
 | [Recovery Model](./recovery-model.md) | 恢复模型背景和迁移方向。 |
 | [模块范围整理建议](./module-scope-cleanup.md) | 哪些模块保留、合并、降级或后续删除。 |
+| [Secondary Capability Follow-Up](./secondary-capability-follow-up.md) | 记录 secondary 能力的当前保留/降级决策和后续动作。 |
 | [VS Code UI 逻辑设计](./vscode-ui-logic.md) | VS Code 插件 UI 的目标交互逻辑。 |
 
 ## 不在当前主线

@@ -29,6 +29,9 @@ import {
   getModeDescription,
   type CliMode,
 } from './run-dry-run-envelope.js';
+import {
+  buildValidationErrorResponse,
+} from '../machine-response/index.js';
 import { stepsToWorkflowDraft, workflowToDraft } from '../orchestration-plan/workflow-draft-adapter.js';
 import { buildNLRequestEnvelope } from '../nl/core/input-normalizer.js';
 import { validateNLRequestEnvelope } from '../nl/core/nl-request-validator.js';
@@ -57,13 +60,7 @@ function exitWithError(
   jsonMode?: boolean,
 ): never {
   if (jsonMode) {
-    output.json({
-      ok: false,
-      error: {
-        code,
-        message
-      }
-    });
+    output.json(buildValidationErrorResponse(message, [code]));
   } else {
     logger.error(message);
   }

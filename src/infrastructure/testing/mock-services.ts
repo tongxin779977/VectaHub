@@ -1,6 +1,8 @@
 import pino from 'pino';
-import type { IEnvironmentService, ILoggerService } from '../interfaces/index.js';
+import type { IEnvironmentService, ILoggerService, IAuditService } from '../interfaces/index.js';
 import { Signal } from '../interfaces/environment-service.js';
+import type { AuditFailureMode, AuditLoggerInterface } from '../interfaces/audit-service.js';
+import { createNoopAuditHelper, type AuditHelper, type AuditEvent } from '../audit/index.js';
 import type { ChildProcess, StdioOptions } from 'node:child_process';
 import type { WriteStream } from 'node:fs';
 
@@ -30,6 +32,41 @@ export class MockLoggerService implements ILoggerService {
   createConsoleLogger(prefix = ''): pino.Logger { return this.createMockLogger(prefix || 'mock-console'); }
   createFileLogger(prefix = ''): pino.Logger { return this.createMockLogger(prefix || 'mock-file'); }
   getLogger(prefix = ''): pino.Logger { return this.createMockLogger(prefix || 'mock'); }
+}
+
+/**
+ * 内存审计服务，用于测试时避免真实目录和文件写入
+ */
+export class MockAuditService implements IAuditService {
+  private readonly events: AuditEvent[] = [];
+  private readonly sessionId = 'test-session';
+  private readonly helper: AuditHelper = createNoopAuditHelper();
+
+  getLogger(): AuditLoggerInterface {
+    return {
+      write: (event: AuditEvent) => {
+        this.events.push(event);
+      },
+      query: () => {
+        return [...this.events];
+      },
+      export: (format: 'json' | 'csv') => {
+        if (format === 'csv') {
+          return this.events.map((event) => JSON.stringify(event)).join('\n');
+        }
+        return JSON.stringify(this.events, null, 2);
+      },
+      getSessionId: () => this.sessionId,
+    };
+  }
+
+  getHelper(): AuditHelper {
+    return this.helper;
+  }
+
+  getFailureMode(): AuditFailureMode {
+    return 'fail-open';
+  }
 }
 
 /**

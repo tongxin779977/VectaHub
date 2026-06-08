@@ -258,8 +258,9 @@ export async function handleCliError(error: unknown, ctx: InfrastructureContext)
   const classification = classifyError(error);
 
   if (isJson) {
+    const jsonError = toJSONError(error, isVerbose());
     output.json({
-      ...toJSONError(error, isVerbose()),
+      ...jsonError,
       classification: {
         severity: classification.severity,
         category: classification.category,

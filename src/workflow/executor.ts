@@ -126,6 +126,11 @@ export function createExecutor(deps: ExecutorDeps): Executor {
       child.stdout?.on('data', (data: Buffer) => { stdout += data.toString(); });
       child.stderr?.on('data', (data: Buffer) => { stderr += data.toString(); });
 
+      if (options.stdinInput !== undefined && child.stdin) {
+        child.stdin.write(options.stdinInput);
+        child.stdin.end();
+      }
+
       child.on('close', (code: number | null) => {
         currentChildProcess = null;
         if (timeoutHandle) clearTimeout(timeoutHandle);

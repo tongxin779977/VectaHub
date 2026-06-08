@@ -3,9 +3,16 @@ import pino from 'pino';
 import { createDraftStorage } from '../orchestration-plan/draft-storage.js';
 import { createDraftExecutor } from '../orchestration-plan/draft-executor.js';
 import { applyConfirmationToDraft } from '../orchestration-plan/confirmation-handler.js';
+import {
+  decideOrchestrationRecovery,
+  createOrchestrationRecoveryRecord,
+  type OrchestrationFailureKind,
+} from '../orchestration-plan/index.js';
 import type { InfrastructureContext } from '../infrastructure/context.js';
 import { createCliOutput } from '../infrastructure/cli-output.js';
 import type { WorkflowDraft } from '../types/workflow-draft.js';
+import type { ExecutionRecord } from '../types/workflow.js';
+import type { OrchestrationVerificationResult } from '../types/verification-result.js';
 
 function formatDraftStatus(status: string): string {
   const statusMap: Record<string, { icon: string; label: string }> = {
@@ -341,6 +348,25 @@ function formatDraftDetail(draft: WorkflowDraft, logger: pino.Logger, output: Re
   }
 
   logger.info('');
+}
+
+function classifyDraftExecutionFailure(
+  executionRecord: ExecutionRecord,
+  verificationResults?: OrchestrationVerificationResult,
+): OrchestrationFailureKind {
+  if (verificationResults?.status === 'fail') {
+    return 'verification_error';
+  }
+
+  const hasFailedStep = executionRecord.steps.some(
+    (step) => step.status === 'FAILED' || step.status === 'TIMEOUT' || step.status === 'ABORTED',
+  );
+
+  if (hasFailedStep || executionRecord.status === 'FAILED' || executionRecord.status === 'ABORTED') {
+    return 'execution_error';
+  }
+
+  return 'unknown';
 }
 
 function isExecutable(draft: WorkflowDraft): { executable: boolean; reason: string } {
@@ -730,16 +756,78 @@ function createDraftCommand(context: InfrastructureContext): Command {
           },
         });
 
+        const hasExecutionFailure = result.executionRecord.status !== 'COMPLETED';
+        const hasVerificationFailure = result.verificationResults?.status === 'fail';
+        const recoveryDecision = (hasExecutionFailure || hasVerificationFailure)
+          ? decideOrchestrationRecovery({
+              planId: draft.planId,
+              draftId: draft.draftId,
+              executionId: result.executionRecord.executionId,
+              traceId: result.executionRecord.traceId ?? draft.trace?.traceId,
+              failureKind: classifyDraftExecutionFailure(result.executionRecord, result.verificationResults),
+              failureReason: result.verificationResults?.failureReason
+                ?? result.executionRecord.steps.find((step) => step.status === 'FAILED' || step.status === 'TIMEOUT' || step.status === 'ABORTED')?.error
+                ?? `Draft execution ended with status ${result.executionRecord.status}`,
+              planHash: draft.snapshot.planHash,
+              currentPlanHash: draft.snapshot.planHash,
+              workflowHash: draft.snapshot.workflowHash,
+              currentWorkflowHash: draft.snapshot.workflowHash,
+              draft,
+              executionRecord: result.executionRecord,
+              verificationResult: result.verificationResults,
+              hasSideEffects: draft.steps.some((step) => step.sideEffect !== 'none' && step.sideEffect !== 'read'),
+              stepsCompleted: result.executionRecord.steps.filter((step) => step.status === 'COMPLETED').length,
+              stepsFailed: result.executionRecord.steps.filter(
+                (step) => step.status === 'FAILED' || step.status === 'TIMEOUT' || step.status === 'ABORTED',
+              ).length,
+              totalSteps: result.executionRecord.steps.length || draft.steps.length,
+            })
+          : undefined;
+        const recoveryRecord = recoveryDecision
+          ? createOrchestrationRecoveryRecord({
+              recoveryRunId: `orch-rec-${Date.now()}`,
+              sourcePlanId: draft.planId,
+              sourceDraftId: draft.draftId,
+              sourceExecutionId: result.executionRecord.executionId,
+              planId: draft.planId,
+              draftId: draft.draftId,
+              executionId: result.executionRecord.executionId,
+              decision: recoveryDecision,
+              sourceTraceId: draft.trace?.traceId,
+              recoveryTraceId: result.executionRecord.traceId,
+            })
+          : undefined;
+
         if (isJson) {
           output.json({
-            ok: true,
-            message: options.dryRun ? '干运行完成' : '执行完成',
+            ok: !recoveryDecision,
+            message: options.dryRun ? '干运行完成' : recoveryDecision ? '执行失败，已生成恢复建议' : '执行完成',
             draftId: draft.draftId,
             executionId: result.executionRecord.executionId,
             status: result.executionRecord.status,
             stepCount: result.executionRecord.steps.length,
             duration: result.executionRecord.duration,
+            verificationStatus: result.verificationResults?.status,
+            recoveryDecision,
+            recoveryRecord,
           });
+          return;
+        }
+
+        if (recoveryDecision) {
+          logger.info('');
+          logger.info('='.repeat(60));
+          logger.info('⚠️ 执行失败，已生成恢复建议');
+          logger.info('='.repeat(60));
+          logger.info(`  Execution ID: ${result.executionRecord.executionId}`);
+          logger.info(`  状态:         ${result.executionRecord.status}`);
+          logger.info(`  恢复策略:     ${recoveryDecision.kind}`);
+          logger.info(`  原因:         ${recoveryDecision.summary}`);
+          logger.info('');
+          for (const action of recoveryDecision.suggestedActions) {
+            logger.info(`  → ${action}`);
+          }
+          logger.info('');
           return;
         }
 

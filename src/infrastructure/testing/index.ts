@@ -1,5 +1,5 @@
 import { InfrastructureContext } from '../context.js';
-import { MockEnvironmentService, MockLoggerService } from './mock-services.js';
+import { MockAuditService, MockEnvironmentService, MockLoggerService } from './mock-services.js';
 
 export * from './mock-services.js';
 
@@ -9,9 +9,11 @@ export * from './mock-services.js';
 export function createTestInfrastructureContext(): InfrastructureContext {
   const environment = new MockEnvironmentService();
   const logger = new MockLoggerService();
+  const audit = new MockAuditService();
   
   return new InfrastructureContext({
     environment,
     logger,
+    audit,
   });
 }

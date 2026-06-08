@@ -156,3 +156,7 @@
 2. **Phase 2: 合同补全** - 为每个 secondary 能力补充 API 合同、持久化合同和生命周期合同。
 3. **Phase 3: 路径整合** - 将 chat、generate、templates 与 NL plan 路径整合，避免能力重复。
 4. **Phase 4: 决策升级** - 等主线稳定后，根据用户反馈和使用数据决定哪些能力升级为主产品。
+
+## Follow-up Tracking
+
+This assessment is tracked by [P4-001](../backlog/items/P4-001.md). The follow-up decision is recorded in [secondary-capability-follow-up.md](./secondary-capability-follow-up.md).

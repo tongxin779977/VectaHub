@@ -13,6 +13,7 @@ export interface ExecutorOptions {
   dryRun?: boolean;
   cwd?: string;
   env?: Record<string, string>;
+  stdinInput?: string;
   useSandbox?: boolean;
   role?: RoleName;
   sessionId?: string;

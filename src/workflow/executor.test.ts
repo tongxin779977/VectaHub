@@ -1,17 +1,44 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('../infrastructure/logger/index.js', () => ({
+  getLogger: () => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  }),
+  createConsoleLogger: () => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  }),
+  createLogger: () => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  }),
+  isLoggerMuted: vi.fn(() => false),
+  setMuted: vi.fn(),
+}));
+
 import { createExecutor, type Executor } from './executor.js';
 import { contextManager } from './context-manager.js';
 import { createNoopAuditHelper } from '../infrastructure/audit/index.js';
 import { createEnvironmentService } from '../infrastructure/environment/index.js';
 import type { Step } from '../types/index.js';
 import type { SandboxManager } from '../sandbox/sandbox.js';
-
-const environment = createEnvironmentService();
+import { mkdtempSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 describe('Executor', () => {
   let executor: Executor;
+  let environment: ReturnType<typeof createEnvironmentService>;
 
   beforeEach(() => {
+    environment = createEnvironmentService(mkdtempSync(join(tmpdir(), 'vectahub-executor-test-')));
     executor = createExecutor({ audit: createNoopAuditHelper(), environment });
     contextManager.clear();
   });
@@ -597,6 +624,125 @@ describe('Executor', () => {
 
       expect(result.status).toBe('FAILED');
       expect(result.error).toContain('cannot handle delegation');
+    });
+
+    it('should run agent preflight before delegate execution', async () => {
+      const execMock = vi
+        .fn()
+        .mockResolvedValueOnce({
+          success: true,
+          exitCode: 0,
+          stdout: 'help output',
+          stderr: '',
+          duration: 1,
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          exitCode: 0,
+          stdout: 'delegate output',
+          stderr: '',
+          duration: 1,
+        });
+
+      const delegateExecutor = createExecutor({
+        audit: createNoopAuditHelper(),
+        environment,
+        delegateHandlerDeps: {
+          exec: execMock,
+          getEnvironmentCwd: () => '/repo',
+        },
+      });
+
+      const step: Step = {
+        id: 'd-preflight',
+        type: 'delegate',
+        delegateTo: 'claude',
+        delegatePrompt: 'Analyze the bug',
+      };
+      const result = await delegateExecutor.execute(step, { mode: 'RELAXED' });
+
+      expect(result.status).toBe('COMPLETED');
+      expect(execMock).toHaveBeenNthCalledWith(
+        1,
+        'claude',
+        ['code', '--help'],
+        expect.objectContaining({ cwd: '/repo' })
+      );
+      expect(execMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('should stop delegate execution when preflight fails', async () => {
+      const execMock = vi.fn().mockResolvedValue({
+        success: false,
+        exitCode: 1,
+        stdout: '',
+        stderr: 'not ready',
+        duration: 1,
+      });
+
+      const delegateExecutor = createExecutor({
+        audit: createNoopAuditHelper(),
+        environment,
+        delegateHandlerDeps: {
+          exec: execMock,
+          getEnvironmentCwd: () => '/repo',
+        },
+      });
+
+      const step: Step = {
+        id: 'd-preflight-fail',
+        type: 'delegate',
+        delegateTo: 'codex',
+        delegatePrompt: 'Fix the failing test',
+      };
+      const result = await delegateExecutor.execute(step, { mode: 'RELAXED' });
+
+      expect(result.status).toBe('FAILED');
+      expect(result.error).toContain('failed preflight');
+      expect(execMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('should pass stdin prompt transport to delegate execution', async () => {
+      const execMock = vi
+        .fn()
+        .mockResolvedValueOnce({
+          success: true,
+          exitCode: 0,
+          stdout: 'ready',
+          stderr: '',
+          duration: 1,
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          exitCode: 0,
+          stdout: 'done',
+          stderr: '',
+          duration: 1,
+        });
+
+      const delegateExecutor = createExecutor({
+        audit: createNoopAuditHelper(),
+        environment,
+        delegateHandlerDeps: {
+          exec: execMock,
+          getEnvironmentCwd: () => '/repo',
+        },
+      });
+
+      const step: Step = {
+        id: 'd-stdin',
+        type: 'delegate',
+        delegateTo: 'codex',
+        delegatePrompt: 'Write a fix',
+      };
+      await delegateExecutor.execute(step, { mode: 'RELAXED' });
+
+      expect(execMock).toHaveBeenNthCalledWith(
+        2,
+        'codex',
+        expect.any(Array),
+        expect.objectContaining({ stdinInput: 'Write a fix' })
+      );
     });
   });
 

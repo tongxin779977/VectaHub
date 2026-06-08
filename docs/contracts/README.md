@@ -33,6 +33,7 @@
 |------|------|
 | [安全与权限闭环规格](./security-permission-loop.md) | 风险评估、确认拦截、脱敏和安全失败边界。 |
 | [工具与安全规则规格](./tools-security-management.md) | `tools`、`security`、`run-command` 和 Agent runtime 相关命令语义。 |
+| [Native Feature Passthrough Policy](./native-feature-passthrough-policy.md) | 定义原生能力通过 custom rule、skill、MCP 等第三方能力面透传时的分类和约束。 |
 | [Trace 执行规格](./trace-execution.md) | trace 传播、JSON stdout 隔离、插件/CLI/Agent 链路定位。 |
 | [验证闭环规格](./verification-loop.md) | 验证命令、验证结果记录和成功判定边界。 |
 | [恢复闭环规格](./recovery-loop.md) | 失败分类、恢复决策、instruction hash 和 trace 关联。 |

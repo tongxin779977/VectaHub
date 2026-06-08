@@ -30,6 +30,8 @@ Automation agents must use:
 
 Current task status is intentionally not duplicated here. Read the matching item file for `status`, `depends_on`, `lock`, `completion`, and `review_findings`.
 
+Only tasks with an existing file under `docs/backlog/items/` are listed in the active index below.
+
 | Task | Priority | Title |
 |------|----------|-------|
 | [P0-001](./backlog/items/P0-001.md) | P0 | 统一 `run --dry-run --json` 输出 envelope |
@@ -65,11 +67,18 @@ Current task status is intentionally not duplicated here. Read the matching item
 | [P2-012](./backlog/items/P2-012.md) | P2 | Prompt / eval / rule proposal 治理闭环 |
 | [P2-013](./backlog/items/P2-013.md) | P2 | NL / plan / draft / feedback 全链路脱敏审计 |
 | [P2-014](./backlog/items/P2-014.md) | P2 | 实现标准化语义评分报告 |
-| [P3-001](./backlog/items/P3-001.md) | P3 | VS Code/UI 消费统一 JSON contract |
-| [P3-002](./backlog/items/P3-002.md) | P3 | CLI draft review / confirm UX |
-| [P3-003](./backlog/items/P3-003.md) | P3 | Backlog automation runner / report hardening |
 | [P4-001](./backlog/items/P4-001.md) | P4 | Secondary 能力是否恢复主线评估 |
-| [P4-002](./backlog/items/P4-002.md) | P4 | Custom rule / skill / MCP ecosystem 重新评估 |
+
+## Planned But Not Yet Itemized
+
+These task IDs remain part of the planning queue, but they are not selectable backlog items until a matching `docs/backlog/items/<TASK_ID>.md` file exists.
+
+| Task | Priority | Title |
+|------|----------|-------|
+| `P3-001` | P3 | VS Code/UI 消费统一 JSON contract |
+| `P3-002` | P3 | CLI draft review / confirm UX |
+| `P3-003` | P3 | Backlog automation runner / report hardening |
+| `P4-002` | P4 | Custom rule / skill / MCP ecosystem 重新评估 |
 
 ### E2E Test Bugs (2026-06-08)
 

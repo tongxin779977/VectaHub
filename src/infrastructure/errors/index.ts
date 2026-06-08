@@ -8,13 +8,20 @@ export enum ErrorType {
 }
 
 export interface JSONErrorResponse {
+  schemaVersion: '1.0';
   ok: false;
+  result: {
+    kind: 'internal_error';
+    reason: string;
+    errorId?: string;
+  };
   error: {
     code: string;
     message: string;
     type: ErrorType;
     details?: unknown;
   };
+  timestamp: string;
 }
 
 export class VectaHubError extends Error {
@@ -107,14 +114,22 @@ export function toJSONError(error: unknown, includeStack = false): JSONErrorResp
   const details = cause instanceof Error
     ? (includeStack ? { stack: cause.stack } : undefined)
     : cause;
+  const errorId = `err_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
   return {
+    schemaVersion: '1.0',
     ok: false,
+    result: {
+      kind: 'internal_error',
+      reason: message,
+      errorId,
+    },
     error: {
       code: type.toString(),
       message,
       type,
       ...(details !== undefined ? { details } : {}),
     },
+    timestamp: new Date().toISOString(),
   };
 }

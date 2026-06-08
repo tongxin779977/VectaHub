@@ -1,9 +1,50 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+vi.mock('../infrastructure/logger/index.js', () => ({
+  getLogger: () => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  }),
+  createConsoleLogger: () => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  }),
+  createLogger: () => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  }),
+  isLoggerMuted: vi.fn(() => false),
+  setMuted: vi.fn(),
+}));
+
+vi.mock('../setup/first-run-wizard-bridge.js', () => ({
+  loadConfig: vi.fn(() => ({
+    version: 1,
+    first_run_completed: false,
+    ai_providers: {
+      vectahub_llm: {
+        provider: '',
+        enabled: false,
+      },
+    },
+    external_cli: {},
+    priority: [],
+  })),
+}));
+
 import { LLMClient } from '../nl/llm.js';
-import { getDefaultContext } from '../infrastructure/context.js';
+import { createTestInfrastructureContext } from '../infrastructure/testing/index.js';
+import * as llmModule from '../nl/llm.js';
+import { resetDefaultContext, setDefaultContext } from '../infrastructure/context.js';
 import {
   parseTasksFromLLMOutput,
   findChunkBoundary,
@@ -18,6 +59,8 @@ import {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  resetDefaultContext();
+  delete process.env.VECTAHUB_HOME;
 });
 
 describe('parseTasksFromLLMOutput', () => {
@@ -360,53 +403,44 @@ describe('parseRoadmapTableTasks', () => {
 
 describe('parseDocTaskResult', () => {
   it('should report explicit regex fallback when LLM is unconfigured', async () => {
-    const originalVectaHubHome = process.env.VECTAHUB_HOME;
-    const originalOpenAI = process.env.OPENAI_API_KEY;
-    const tempDir = mkdtempSync(join(tmpdir(), 'vectahub-parse-doc-'));
-    const docPath = join(tempDir, 'tasks.md');
+    const context = createTestInfrastructureContext();
+    const docPath = '/test/docs/tasks.md';
+    const tempHome = mkdtempSync(join(tmpdir(), 'vectahub-parse-doc-home-'));
+    setDefaultContext(context);
+    process.env.VECTAHUB_HOME = tempHome;
 
-    delete process.env.OPENAI_API_KEY;
-    process.env.VECTAHUB_HOME = join(tempDir, 'home');
-    writeFileSync(docPath, [
+    vi.spyOn(llmModule, 'createLLMConfig').mockReturnValue(null);
+    context.environment.writeFile(docPath, [
       '## Tasks',
       '### P1-1：实现登录',
       '### P1-2：实现注册',
     ].join('\n'));
 
-    try {
-      const result = await parseDocTaskResult(getDefaultContext(), docPath);
+    const result = await parseDocTaskResult(context, docPath);
 
-      expect(result.source).toBe('regex-fallback');
-      expect(result.degraded).toBe(true);
-      expect(result.warnings[0]).toContain('LLM 未配置');
-      expect(result.tasks.map(task => task.id)).toEqual(['P1-1', 'P1-2']);
-    } finally {
-      if (originalVectaHubHome === undefined) {
-        delete process.env.VECTAHUB_HOME;
-      } else {
-        process.env.VECTAHUB_HOME = originalVectaHubHome;
-      }
-      if (originalOpenAI === undefined) {
-        delete process.env.OPENAI_API_KEY;
-      } else {
-        process.env.OPENAI_API_KEY = originalOpenAI;
-      }
-      rmSync(tempDir, { recursive: true, force: true });
-    }
+    expect(result.source).toBe('regex-fallback');
+    expect(result.degraded).toBe(true);
+    expect(result.warnings[0]).toContain('LLM 未配置');
+    expect(result.tasks.map(task => task.id)).toEqual(['P1-1', 'P1-2']);
+    rmSync(tempHome, { recursive: true, force: true });
   });
 
   it('should report degraded LLM result when some chunks fail', async () => {
-    const originalVectaHubHome = process.env.VECTAHUB_HOME;
-    const originalOpenAI = process.env.OPENAI_API_KEY;
-    const originalMaxLength = process.env.PARSE_DOC_MAX_LENGTH;
-    const tempDir = mkdtempSync(join(tmpdir(), 'vectahub-parse-doc-'));
-    const docPath = join(tempDir, 'tasks.md');
+    const context = createTestInfrastructureContext();
+    const docPath = '/test/docs/tasks.md';
+    const tempHome = mkdtempSync(join(tmpdir(), 'vectahub-parse-doc-home-'));
+    setDefaultContext(context);
+    process.env.VECTAHUB_HOME = tempHome;
 
-    process.env.OPENAI_API_KEY = 'test-key';
-    process.env.VECTAHUB_HOME = join(tempDir, 'home');
-    process.env.PARSE_DOC_MAX_LENGTH = '40';
-    process.env.PARSE_DOC_MAX_RETRIES = '0';
-    writeFileSync(docPath, [
+    vi.spyOn(llmModule, 'createLLMConfig').mockReturnValue({
+      provider: 'openai',
+      model: 'gpt-4',
+      apiKey: 'test-key',
+      baseUrl: 'https://api.openai.com/v1',
+    });
+    context.environment.setEnv('PARSE_DOC_MAX_LENGTH', '40');
+    context.environment.setEnv('PARSE_DOC_MAX_RETRIES', '0');
+    context.environment.writeFile(docPath, [
       'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
       '',
       'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
@@ -419,50 +453,31 @@ describe('parseDocTaskResult', () => {
       .mockRejectedValueOnce(new Error('chunk failed'))
       .mockRejectedValueOnce(new Error('chunk failed'));
 
-    try {
-      const result = await parseDocTaskResult(getDefaultContext(), docPath);
+    const result = await parseDocTaskResult(context, docPath);
 
-      expect(completeRawSpy).toHaveBeenCalled();
-      expect(result.source).toBe('llm');
-      expect(result.degraded).toBe(true);
-      expect(result.warnings[0]).toContain('部分分段 LLM 解析失败');
-      expect(result.tasks).toEqual([{ id: 'P2-1', label: '第一段' }]);
-    } finally {
-      if (originalVectaHubHome === undefined) {
-        delete process.env.VECTAHUB_HOME;
-      } else {
-        process.env.VECTAHUB_HOME = originalVectaHubHome;
-      }
-      if (originalOpenAI === undefined) {
-        delete process.env.OPENAI_API_KEY;
-      } else {
-        process.env.OPENAI_API_KEY = originalOpenAI;
-      }
-      if (originalMaxLength === undefined) {
-        delete process.env.PARSE_DOC_MAX_LENGTH;
-      } else {
-        process.env.PARSE_DOC_MAX_LENGTH = originalMaxLength;
-      }
-      delete process.env.PARSE_DOC_MAX_RETRIES;
-      rmSync(tempDir, { recursive: true, force: true });
-    }
+    expect(completeRawSpy).toHaveBeenCalled();
+    expect(result.source).toBe('llm');
+    expect(result.degraded).toBe(true);
+    expect(result.warnings[0]).toContain('部分分段 LLM 解析失败');
+    expect(result.tasks).toEqual([{ id: 'P2-1', label: '第一段' }]);
+    rmSync(tempHome, { recursive: true, force: true });
   });
 });
 
 describe('createParseDocCmd', () => {
   it('should include parser metadata in JSON output', async () => {
-    const originalVectaHubHome = process.env.VECTAHUB_HOME;
-    const originalOpenAI = process.env.OPENAI_API_KEY;
-    const tempDir = mkdtempSync(join(tmpdir(), 'vectahub-parse-doc-cmd-'));
-    const docPath = join(tempDir, 'tasks.md');
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const context = createTestInfrastructureContext();
+    const docPath = '/test/docs/tasks.md';
+    const tempHome = mkdtempSync(join(tmpdir(), 'vectahub-parse-doc-home-'));
+    setDefaultContext(context);
+    process.env.VECTAHUB_HOME = tempHome;
 
-    delete process.env.OPENAI_API_KEY;
-    process.env.VECTAHUB_HOME = join(tempDir, 'home');
-    writeFileSync(docPath, '### P3-1：补充测试');
+    vi.spyOn(llmModule, 'createLLMConfig').mockReturnValue(null);
+    context.environment.writeFile(docPath, '### P3-1：补充测试');
 
     try {
-      const cmd = createParseDocCmd(getDefaultContext());
+      const cmd = createParseDocCmd(context);
       await cmd.parseAsync([docPath, '--json'], { from: 'user' });
 
       const output = stdoutSpy.mock.calls.map(([chunk]) => String(chunk)).join('');
@@ -479,17 +494,45 @@ describe('createParseDocCmd', () => {
       expect(payload.warnings?.[0]).toContain('LLM 未配置');
     } finally {
       stdoutSpy.mockRestore();
-      if (originalVectaHubHome === undefined) {
-        delete process.env.VECTAHUB_HOME;
-      } else {
-        process.env.VECTAHUB_HOME = originalVectaHubHome;
-      }
-      if (originalOpenAI === undefined) {
-        delete process.env.OPENAI_API_KEY;
-      } else {
-        process.env.OPENAI_API_KEY = originalOpenAI;
-      }
-      rmSync(tempDir, { recursive: true, force: true });
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  it('should include orchestration plan output in --plan mode', async () => {
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const context = createTestInfrastructureContext();
+    const docPath = '/test/docs/tasks.md';
+    const tempHome = mkdtempSync(join(tmpdir(), 'vectahub-parse-doc-home-'));
+    setDefaultContext(context);
+    process.env.VECTAHUB_HOME = tempHome;
+
+    vi.spyOn(llmModule, 'createLLMConfig').mockReturnValue(null);
+    context.environment.writeFile(docPath, [
+      '### P3-1：补充测试',
+      '### P3-2：继续验证',
+    ].join('\n'));
+
+    try {
+      const cmd = createParseDocCmd(context);
+      await cmd.parseAsync([docPath, '--plan'], { from: 'user' });
+
+      const output = stdoutSpy.mock.calls.map(([chunk]) => String(chunk)).join('');
+      const payload = JSON.parse(output) as {
+        ok: boolean;
+        planKind?: string;
+        plan?: {
+          source: string;
+          tasks: Array<{ id: string }>;
+        };
+      };
+
+      expect(payload.ok).toBe(true);
+      expect(payload.planKind).toBe('plan');
+      expect(payload.plan?.source).toBe('document');
+      expect(payload.plan?.tasks).toHaveLength(2);
+    } finally {
+      stdoutSpy.mockRestore();
+      rmSync(tempHome, { recursive: true, force: true });
     }
   });
 });
