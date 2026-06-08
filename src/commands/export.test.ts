@@ -63,6 +63,15 @@ describe('export command factories', () => {
     rmSync(importDir, { recursive: true, force: true });
   });
 
+  it('import --dry-run option uses consistent style with other commands', () => {
+    const cmd = createImportCmd(getDefaultContext());
+    const dryRunOption = cmd.options.find((o: { long: string }) => o.long === '--dry-run');
+    expect(dryRunOption).toBeDefined();
+    // --dry-run should not have a negation counterpart (--no-dry-run) in help output
+    const noDryRunOption = cmd.options.find((o: { long: string }) => o.long === '--no-dry-run');
+    expect(noDryRunOption).toBeUndefined();
+  });
+
   it('export with no data does not create archive', async () => {
     const outputDir = mkdtempSync(join(tmpdir(), 'vectahub-export-out-'));
 

@@ -196,7 +196,7 @@ async function importFromArchive(environment: IEnvironmentService, logger: pino.
       logger.info(`源文件: ${inputPath}`);
     }
     logger.info(`目标目录: ${VECTAHUB_DIR}`);
-    logger.info('使用 --no-dry-run 执行实际导入');
+    logger.info('去掉 --dry-run 参数以执行实际导入');
     return;
   }
 

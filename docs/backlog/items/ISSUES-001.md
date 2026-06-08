@@ -39,11 +39,15 @@
 
 ## T3: 执行记录管理
 
-### ISSUE-T3-01: `detail --step` Command 字段为 undefined
+### ISSUE-T3-01: `detail --step` Command 字段为 undefined ✅
 
 - **现象**: 步骤详情中 `Command: undefined`
 - **影响**: 无法查看步骤执行的具体命令
 - **关联**: BUG-P1-003（workflowId 为 undefined），可能同根因
+- **状态**: 已修复 (2026-06-08)
+- **修复**: BUG-P1-003 添加了 `normalizeStepRecord` 函数，将 `StepRecord.command` 映射到 `StepExecution` 字段
+- **变更文件**: `src/commands/run.ts`, `src/types/workflow.ts`
+- **验证**: typecheck 通过，104 个测试全部通过
 
 ---
 
@@ -89,8 +93,12 @@
 - **变更文件**: `src/cli-tools/discovery/known-tools.ts`, `src/cli-tools/discovery/known-tools.test.ts` (新增)
 - **验证**: typecheck 通过，3 个新增测试全部通过，150 个相关测试无回归
 
-### ISSUE-T7-02: `import --dry-run` 参数风格不一致
+### ISSUE-T7-02: `import --dry-run` 参数风格不一致 ✅
 
 - **现象**: `import` 使用 `--no-dry-run` 执行实际导入，而其他命令（`run`、`run-command`）用 `--dry-run` 预览
 - **影响**: 参数风格不一致，用户需记忆不同命令的不同参数
 - **建议**: 统一为 `--dry-run` 预览模式
+- **状态**: 已修复 (2026-06-08)
+- **修复**: 将 dry-run 模式下的提示信息从 `使用 --no-dry-run 执行实际导入` 改为 `去掉 --dry-run 参数以执行实际导入`，与其他命令的 UX 风格一致
+- **变更文件**: `src/commands/export.ts`, `src/commands/export.test.ts`
+- **验证**: typecheck 通过，5 个测试全部通过（含 1 个新增选项一致性测试）
