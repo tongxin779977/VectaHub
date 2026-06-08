@@ -29,6 +29,7 @@ import {
   getModeDescription,
   type CliMode,
 } from './run-dry-run-envelope.js';
+import { stepsToWorkflowDraft, workflowToDraft } from '../orchestration-plan/workflow-draft-adapter.js';
 
 interface RunCommandOutput {
   json(payload: unknown, options?: { space?: number }): void;
@@ -291,13 +292,11 @@ export function createRunCmd(context: InfrastructureContext): Command {
           const interpolatedSteps = workflow.steps.map(s => interpolateStep(s, interpolationCtx));
           const mode = options.mode || 'relaxed';
           if (options.json) {
-            output.json(buildWorkflowDraftEnvelope({
-              name: workflow.name,
-              steps: interpolatedSteps.map(s => ({
-                cli: s.cli || s.type,
-                args: s.args ?? []
-              }))
-            }, mode));
+            const { draft } = workflowToDraft(
+              { name: workflow.name, steps: interpolatedSteps },
+              { mode: mode as CliMode },
+            );
+            output.json(buildWorkflowDraftEnvelope(draft, mode));
           } else {
             logger.info(`\n📋 将要执行的命令 (模式: ${mode}):`);
             for (const step of interpolatedSteps) {
@@ -415,13 +414,14 @@ export function createRunCmd(context: InfrastructureContext): Command {
           const interpolatedSteps = orchestrateSteps.map(s => interpolateStep(s, interpolationCtx));
           const mode = options.mode || 'relaxed';
           if (options.json) {
-            output.json(buildStepsEnvelope(
+            const { draft } = stepsToWorkflowDraft(
               interpolatedSteps.map(s => ({
                 cli: s.cli || s.type || '',
                 args: s.args ?? []
               })),
-              mode
-            ));
+              { mode: mode as CliMode },
+            );
+            output.json(buildStepsEnvelope(draft, mode));
           } else {
             logger.info(`\n📋 将要执行的命令 (模式: ${mode}):`);
             for (const s of interpolatedSteps) {

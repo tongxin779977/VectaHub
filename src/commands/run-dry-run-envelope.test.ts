@@ -9,6 +9,8 @@ import {
   getModeDescription,
 } from './run-dry-run-envelope.js';
 import type { ExecutionPlan } from '../nl/capabilities/types.js';
+import type { WorkflowDraft } from '../types/workflow-draft.js';
+import { stepsToWorkflowDraft, workflowToDraft } from '../orchestration-plan/workflow-draft-adapter.js';
 
 function createMockPlan(overrides?: Partial<ExecutionPlan>): ExecutionPlan {
   return {
@@ -26,9 +28,55 @@ function createMockPlan(overrides?: Partial<ExecutionPlan>): ExecutionPlan {
   };
 }
 
+function createMockDraft(overrides?: Partial<WorkflowDraft>): WorkflowDraft {
+  return {
+    schemaVersion: '1.0',
+    draftId: 'draft-test',
+    planId: 'plan-test',
+    status: 'draft',
+    name: 'test-workflow',
+    mode: 'strict',
+    steps: [
+      {
+        id: 'step-1',
+        sourceTaskId: 'task-1',
+        type: 'exec',
+        label: 'echo hello',
+        dependsOn: [],
+        command: { cli: 'echo', args: ['hello'] },
+        sideEffect: 'command',
+      },
+    ],
+    safetyReview: {
+      status: 'not_reviewed',
+      findings: [],
+    },
+    snapshot: {
+      planHash: 'hash-123',
+      workflowHash: 'hash-456',
+      generatedAt: '2026-06-08T00:00:00Z',
+      sourceCwd: '/project',
+    },
+    verification: {
+      required: false,
+      commands: [],
+      successCriteria: [],
+    },
+    metadata: {
+      createdAt: '2026-06-08T00:00:00Z',
+      createdFrom: 'run',
+      cwd: '/project',
+      dryRunAvailable: true,
+      persistRequested: false,
+    },
+    ...overrides,
+  };
+}
+
 describe('run-dry-run-envelope', () => {
   describe('envelope structure', () => {
     it('all envelopes have schemaVersion 1.0', () => {
+      const draft = createMockDraft();
       const envelopes = [
         buildReplyEnvelope('hello'),
         buildClarifyEnvelope('need info'),
@@ -40,8 +88,8 @@ describe('run-dry-run-envelope', () => {
           suggestedAction: '请重新描述',
         }),
         buildPlanEnvelope(createMockPlan()),
-        buildWorkflowDraftEnvelope({ name: 'test', steps: [] }),
-        buildStepsEnvelope([{ cli: 'echo', args: ['hello'] }]),
+        buildWorkflowDraftEnvelope(draft),
+        buildStepsEnvelope(draft),
       ];
       for (const envelope of envelopes) {
         expect(envelope.schemaVersion).toBe('1.0');
@@ -50,6 +98,7 @@ describe('run-dry-run-envelope', () => {
 
     it('all envelopes have ISO 8601 timestamp', () => {
       const before = new Date();
+      const draft = createMockDraft();
       const envelopes = [
         buildReplyEnvelope('hello'),
         buildClarifyEnvelope('need info'),
@@ -61,8 +110,8 @@ describe('run-dry-run-envelope', () => {
           suggestedAction: '请重新描述',
         }),
         buildPlanEnvelope(createMockPlan()),
-        buildWorkflowDraftEnvelope({ name: 'test', steps: [] }),
-        buildStepsEnvelope([{ cli: 'echo', args: ['hello'] }]),
+        buildWorkflowDraftEnvelope(draft),
+        buildStepsEnvelope(draft),
       ];
       const after = new Date();
       for (const envelope of envelopes) {
@@ -148,38 +197,67 @@ describe('run-dry-run-envelope', () => {
   });
 
   describe('buildWorkflowDraftEnvelope', () => {
-    it('should create workflow draft envelope', () => {
-      const workflow = {
-        name: 'test-workflow',
-        steps: [{ cli: 'echo', args: ['hello'] }],
-      };
-      const envelope = buildWorkflowDraftEnvelope(workflow);
+    it('should create workflow draft envelope with WorkflowDraft', () => {
+      const draft = createMockDraft();
+      const envelope = buildWorkflowDraftEnvelope(draft);
       expect(envelope.ok).toBe(true);
       expect(envelope.dryRun).toBe(true);
       expect(envelope.result.kind).toBe('workflow_draft');
       if (envelope.result.kind === 'workflow_draft') {
-        expect(envelope.result.workflow).toEqual(workflow);
+        expect(envelope.result.workflow.schemaVersion).toBe('1.0');
+        expect(envelope.result.workflow.draftId).toBe('draft-test');
+        expect(envelope.result.workflow.name).toBe('test-workflow');
+        expect(envelope.result.workflow.steps).toHaveLength(1);
       }
     });
 
     it('should have result.kind = workflow_draft', () => {
-      const envelope = buildWorkflowDraftEnvelope({ name: 'test', steps: [] });
+      const draft = createMockDraft();
+      const envelope = buildWorkflowDraftEnvelope(draft);
       expect(envelope.result.kind).toBe('workflow_draft');
+    });
+
+    it('workflow field is WorkflowDraft with schemaVersion', () => {
+      const draft = createMockDraft();
+      const envelope = buildWorkflowDraftEnvelope(draft);
+      if (envelope.result.kind === 'workflow_draft') {
+        expect(envelope.result.workflow.schemaVersion).toBe('1.0');
+        expect(envelope.result.workflow.draftId).toBeTruthy();
+        expect(envelope.result.workflow.planId).toBeTruthy();
+        expect(envelope.result.workflow.status).toBeDefined();
+        expect(envelope.result.workflow.safetyReview).toBeDefined();
+        expect(envelope.result.workflow.verification).toBeDefined();
+        expect(envelope.result.workflow.metadata).toBeDefined();
+      }
     });
   });
 
   describe('buildStepsEnvelope', () => {
-    it('should create steps envelope', () => {
-      const steps = [
+    it('should create steps envelope with WorkflowDraft', () => {
+      const { draft } = stepsToWorkflowDraft([
         { cli: 'echo', args: ['hello'] },
         { cli: 'ls', args: ['-la'] },
-      ];
-      const envelope = buildStepsEnvelope(steps);
+      ]);
+      const envelope = buildStepsEnvelope(draft);
       expect(envelope.ok).toBe(true);
       expect(envelope.dryRun).toBe(true);
       expect(envelope.result.kind).toBe('workflow_draft');
       if (envelope.result.kind === 'workflow_draft') {
-        expect(envelope.result.workflow.steps).toEqual(steps);
+        expect(envelope.result.workflow.schemaVersion).toBe('1.0');
+        expect(envelope.result.workflow.steps).toHaveLength(2);
+        expect(envelope.result.workflow.steps[0].command?.cli).toBe('echo');
+        expect(envelope.result.workflow.steps[1].command?.cli).toBe('ls');
+      }
+    });
+
+    it('steps envelope workflow is WorkflowDraft with full structure', () => {
+      const { draft } = stepsToWorkflowDraft([{ cli: 'echo', args: ['hello'] }]);
+      const envelope = buildStepsEnvelope(draft);
+      if (envelope.result.kind === 'workflow_draft') {
+        expect(envelope.result.workflow.schemaVersion).toBe('1.0');
+        expect(envelope.result.workflow.safetyReview).toBeDefined();
+        expect(envelope.result.workflow.verification).toBeDefined();
+        expect(envelope.result.workflow.metadata).toBeDefined();
       }
     });
   });
@@ -228,20 +306,22 @@ describe('run-dry-run-envelope', () => {
     });
 
     it('workflow data lives only in result', () => {
-      const workflow = { name: 'test', steps: [{ cli: 'echo', args: [] }] };
-      const envelope = buildWorkflowDraftEnvelope(workflow);
+      const draft = createMockDraft();
+      const envelope = buildWorkflowDraftEnvelope(draft);
       expect('workflow' in envelope).toBe(false);
       if (envelope.result.kind === 'workflow_draft') {
-        expect(envelope.result.workflow).toEqual(workflow);
+        expect(envelope.result.workflow.schemaVersion).toBe('1.0');
+        expect(envelope.result.workflow.draftId).toBe('draft-test');
       }
     });
 
-    it('steps data lives only in result.workflow.steps', () => {
-      const steps = [{ cli: 'echo', args: ['hello'] }];
-      const envelope = buildStepsEnvelope(steps);
+    it('steps data lives only in result.workflow', () => {
+      const { draft } = stepsToWorkflowDraft([{ cli: 'echo', args: ['hello'] }]);
+      const envelope = buildStepsEnvelope(draft);
       expect('steps' in envelope).toBe(false);
       if (envelope.result.kind === 'workflow_draft') {
-        expect(envelope.result.workflow.steps).toEqual(steps);
+        expect(envelope.result.workflow.steps).toHaveLength(1);
+        expect(envelope.result.workflow.steps[0].command?.cli).toBe('echo');
       }
     });
 
@@ -260,26 +340,26 @@ describe('run-dry-run-envelope', () => {
 
   describe('mode in dry-run envelope', () => {
     it('buildWorkflowDraftEnvelope includes mode when provided', () => {
-      const workflow = { name: 'test', steps: [{ cli: 'echo', args: ['hello'] }] };
-      const envelope = buildWorkflowDraftEnvelope(workflow, 'strict');
+      const draft = createMockDraft();
+      const envelope = buildWorkflowDraftEnvelope(draft, 'strict');
       expect(envelope.mode).toBe('strict');
     });
 
     it('buildWorkflowDraftEnvelope omits mode when not provided', () => {
-      const workflow = { name: 'test', steps: [{ cli: 'echo', args: ['hello'] }] };
-      const envelope = buildWorkflowDraftEnvelope(workflow);
+      const draft = createMockDraft();
+      const envelope = buildWorkflowDraftEnvelope(draft);
       expect(envelope.mode).toBeUndefined();
     });
 
     it('buildStepsEnvelope includes mode when provided', () => {
-      const steps = [{ cli: 'echo', args: ['hello'] }];
-      const envelope = buildStepsEnvelope(steps, 'consensus');
+      const { draft } = stepsToWorkflowDraft([{ cli: 'echo', args: ['hello'] }]);
+      const envelope = buildStepsEnvelope(draft, 'consensus');
       expect(envelope.mode).toBe('consensus');
     });
 
     it('buildStepsEnvelope omits mode when not provided', () => {
-      const steps = [{ cli: 'echo', args: ['hello'] }];
-      const envelope = buildStepsEnvelope(steps);
+      const { draft } = stepsToWorkflowDraft([{ cli: 'echo', args: ['hello'] }]);
+      const envelope = buildStepsEnvelope(draft);
       expect(envelope.mode).toBeUndefined();
     });
 

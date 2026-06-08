@@ -118,3 +118,12 @@ export { createProposalStorage, createProposalRecord, createProposalFromFeedback
 export type { ProposalStorageOptions } from './proposal-storage.js';
 export { executionPlanToOrchestrationPlan } from './execution-plan-adapter.js';
 export type { ExecutionPlanConversionResult } from './execution-plan-adapter.js';
+export {
+  stepsToWorkflowDraft,
+  workflowToDraft,
+} from './workflow-draft-adapter.js';
+export type {
+  SimpleStepInput,
+  StepsToDraftOptions,
+  StepsToDraftResult,
+} from './workflow-draft-adapter.js';

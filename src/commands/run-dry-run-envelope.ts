@@ -1,6 +1,7 @@
 import type { ExecutionPlan } from '../nl/capabilities/types.js';
 import type { RunDispatchResult } from './run-dispatch.js';
 import type { OrchestrationPlan } from '../types/orchestration-plan.js';
+import type { WorkflowDraft } from '../types/workflow-draft.js';
 import { executionPlanToOrchestrationPlan } from '../orchestration-plan/execution-plan-adapter.js';
 
 export type CliMode = 'strict' | 'relaxed' | 'consensus';
@@ -42,10 +43,7 @@ export interface RunDryRunResultPlan {
 
 export interface RunDryRunResultWorkflowDraft {
   kind: 'workflow_draft';
-  workflow: {
-    name: string;
-    steps: Array<{ cli: string; args: string[] }>;
-  };
+  workflow: WorkflowDraft;
 }
 
 export type RunDryRunResult =
@@ -141,7 +139,7 @@ export function buildPlanEnvelope(
 }
 
 export function buildWorkflowDraftEnvelope(
-  workflow: { name: string; steps: Array<{ cli: string; args: string[] }> },
+  draft: WorkflowDraft,
   mode?: CliMode,
 ): RunDryRunEnvelope {
   return {
@@ -151,14 +149,14 @@ export function buildWorkflowDraftEnvelope(
     ...(mode ? { mode } : {}),
     result: {
       kind: 'workflow_draft',
-      workflow,
+      workflow: draft,
     },
     timestamp: new Date().toISOString(),
   };
 }
 
 export function buildStepsEnvelope(
-  steps: Array<{ cli: string; args: string[] }>,
+  draft: WorkflowDraft,
   mode?: CliMode,
 ): RunDryRunEnvelope {
   return {
@@ -168,7 +166,7 @@ export function buildStepsEnvelope(
     ...(mode ? { mode } : {}),
     result: {
       kind: 'workflow_draft',
-      workflow: { name: 'nl-generated', steps },
+      workflow: draft,
     },
     timestamp: new Date().toISOString(),
   };
