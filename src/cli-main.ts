@@ -4,7 +4,8 @@
 import { Command } from 'commander';
 
 // --- Internal: infrastructure ---
-import { getDefaultContext } from './infrastructure/context.js';
+import { getDefaultContext, setDefaultContext, InfrastructureContext } from './infrastructure/context.js';
+import { findProjectRoot } from './infrastructure/paths/index.js';
 import { AuditService } from './infrastructure/audit/service.js';
 import { AuditEventType } from './infrastructure/audit/index.js';
 import { AsyncLogWriter } from './infrastructure/trace-audit/async-writer.js';
@@ -26,6 +27,8 @@ import { lazyLoadCommand, lazyLoadCliTools, lazyLoadAgentRuntime, resolveLazyCom
 import { setupGlobalSignals, setupProcessListeners } from './cli-signal-handler.js';
 import { displayPolicyWarning } from './cli-security.js';
 
+const projectRoot = findProjectRoot();
+setDefaultContext(new InfrastructureContext({ projectRoot }));
 const ctx = getDefaultContext();
 
 let auditLoggerInitialized = false;

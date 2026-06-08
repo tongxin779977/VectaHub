@@ -28,11 +28,12 @@ export class InfrastructureContext {
     logger?: ILoggerService;
     eventBus?: IEventBus;
     audit?: IAuditService;
+    projectRoot?: string;
   }) {
     // 依赖注入，如果没有提供则使用默认实现
     this.environment = options?.environment ?? createEnvironmentService();
     this.config = options?.config ?? new ConfigService(this.environment);
-    this.logger = options?.logger ?? new LoggerService(this.environment);
+    this.logger = options?.logger ?? new LoggerService(this.environment, { projectRoot: options?.projectRoot });
     this.eventBus = options?.eventBus ?? new EventBus();
     this.auditService = options?.audit;
   }
@@ -55,6 +56,7 @@ export class InfrastructureContext {
     logger: ILoggerService;
     eventBus: IEventBus;
     audit: IAuditService;
+    projectRoot: string;
   }>): InfrastructureContext {
     return new InfrastructureContext({
       environment: overrides.environment ?? this.environment,
@@ -62,6 +64,7 @@ export class InfrastructureContext {
       logger: overrides.logger ?? this.logger,
       eventBus: overrides.eventBus ?? this.eventBus,
       audit: overrides.audit ?? this.audit,
+      projectRoot: overrides.projectRoot,
     });
   }
 }

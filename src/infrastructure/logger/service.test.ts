@@ -186,3 +186,116 @@ describe('LoggerService file logging', () => {
     expect(content.length).toBeGreaterThan(0);
   });
 });
+
+describe('LoggerService project-level logging', () => {
+  let testHome: string;
+  let projectRoot: string;
+  let env: TestEnvironmentService;
+
+  beforeEach(() => {
+    testHome = mkdtempSync(join(tmpdir(), 'vectahub-logger-test-'));
+    projectRoot = mkdtempSync(join(tmpdir(), 'vectahub-project-'));
+    env = new TestEnvironmentService(testHome);
+  });
+
+  afterEach(() => {
+    rmSync(testHome, { recursive: true, force: true });
+    rmSync(projectRoot, { recursive: true, force: true });
+  });
+
+  function getProjectLogPath(): { appLogFile: string; errorLogFile: string } {
+    const today = new Date().toISOString().split('T')[0];
+    return {
+      appLogFile: join(projectRoot, '.vectahub', 'logs', 'app', `${today}.log`),
+      errorLogFile: join(projectRoot, '.vectahub', 'logs', 'error', `${today}.json`),
+    };
+  }
+
+  function waitForFile(filePath: string, maxMs = 3000): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const start = Date.now();
+      const check = () => {
+        if (existsSync(filePath)) {
+          try {
+            const content = readFileSync(filePath, 'utf-8');
+            if (content.length > 0) {
+              resolve();
+              return;
+            }
+          } catch {
+            // file might not be readable yet
+          }
+        }
+        if (Date.now() - start > maxMs) {
+          reject(new Error(`Timeout waiting for file: ${filePath}`));
+          return;
+        }
+        setTimeout(check, 100);
+      };
+      check();
+    });
+  }
+
+  it('writes logs to project-level directory when projectRoot is set', async () => {
+    const service = new LoggerService(env, { projectRoot });
+    const logger = service.getLogger('project-test');
+    logger.info('project-level log message');
+
+    const { appLogFile, errorLogFile } = getProjectLogPath();
+    await waitForFile(appLogFile);
+
+    expect(existsSync(appLogFile)).toBe(true);
+    expect(existsSync(errorLogFile)).toBe(true);
+
+    const content = readFileSync(appLogFile, 'utf-8');
+    const lines = content.trim().split('\n').filter(Boolean);
+    expect(lines.length).toBeGreaterThanOrEqual(1);
+
+    const parsed = JSON.parse(lines[lines.length - 1]);
+    expect(parsed.msg).toBe('project-level log message');
+  });
+
+  it('writes error logs to project-level error directory', async () => {
+    const service = new LoggerService(env, { projectRoot });
+    const logger = service.getLogger('project-error-test');
+    logger.error({ errCode: 500 }, 'project error message');
+
+    const { errorLogFile } = getProjectLogPath();
+    await waitForFile(errorLogFile);
+
+    const content = readFileSync(errorLogFile, 'utf-8');
+    const lines = content.trim().split('\n').filter(Boolean);
+
+    const hasErrorMsg = lines.some(line => {
+      const parsed = JSON.parse(line);
+      return parsed.msg === 'project error message';
+    });
+    expect(hasErrorMsg).toBe(true);
+  });
+
+  it('does not write to global directory when projectRoot is set', async () => {
+    const service = new LoggerService(env, { projectRoot });
+    const logger = service.getLogger('project-isolation-test');
+    logger.info('should go to project dir');
+
+    const { appLogFile: projectAppLog } = getProjectLogPath();
+    await waitForFile(projectAppLog);
+
+    // Global log should NOT exist for this test
+    const today = new Date().toISOString().split('T')[0];
+    const globalAppLog = join(testHome, 'logs', 'app', `${today}.log`);
+    expect(existsSync(globalAppLog)).toBe(false);
+  });
+
+  it('falls back to global directory when projectRoot is not set', async () => {
+    const service = new LoggerService(env);
+    const logger = service.getLogger('global-test');
+    logger.info('global log message');
+
+    const today = new Date().toISOString().split('T')[0];
+    const globalAppLog = join(testHome, 'logs', 'app', `${today}.log`);
+    await waitForFile(globalAppLog);
+
+    expect(existsSync(globalAppLog)).toBe(true);
+  });
+});

@@ -2,6 +2,7 @@ import pino from 'pino';
 import { mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { redactString } from '../../utils/sensitive-data.js';
+import { getProjectLogDir } from '../paths/index.js';
 import type { ILoggerService } from '../interfaces/index.js';
 import type { IEnvironmentService } from '../interfaces/index.js';
 
@@ -20,12 +21,14 @@ function ensureDir(dir: string): void {
  */
 export class LoggerService implements ILoggerService {
   private env: IEnvironmentService;
+  private projectRoot?: string;
   private logLevel: pino.Level | 'silent';
   private muted: boolean;
   private loggerCache: Map<string, pino.Logger>;
 
-  constructor(env: IEnvironmentService) {
+  constructor(env: IEnvironmentService, options?: { projectRoot?: string }) {
     this.env = env;
+    this.projectRoot = options?.projectRoot;
     this.logLevel = 'info';
     this.muted = false;
     this.loggerCache = new Map();
@@ -100,9 +103,17 @@ export class LoggerService implements ILoggerService {
 
   createFileLogger(prefix = ''): pino.Logger {
     const name = prefix || 'vectahub';
-    const logDir = this.env.getPath('logs');
-    const appLogDir = join(logDir, 'app');
-    const errorLogDir = join(logDir, 'error');
+    let appLogDir: string;
+    let errorLogDir: string;
+
+    if (this.projectRoot) {
+      appLogDir = getProjectLogDir(this.projectRoot, 'app');
+      errorLogDir = getProjectLogDir(this.projectRoot, 'error');
+    } else {
+      const logDir = this.env.getPath('logs');
+      appLogDir = join(logDir, 'app');
+      errorLogDir = join(logDir, 'error');
+    }
 
     ensureDir(appLogDir);
     ensureDir(errorLogDir);

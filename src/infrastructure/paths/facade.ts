@@ -1,4 +1,5 @@
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
 import type { IEnvironmentService } from '../interfaces/index.js';
 
 /**
@@ -66,4 +67,39 @@ export function getProjectLogDir(projectRoot: string, ...subDirs: string[]): str
  */
 export function getProjectExecutionDir(projectRoot: string): string {
   return join(projectRoot, '.vectahub', 'executions');
+}
+
+/**
+ * 项目根目录标记文件/目录
+ * 按优先级排列：.vectahube > .git > package.json
+ */
+const PROJECT_ROOT_MARKERS = ['.vectahub', '.git', 'package.json'];
+
+/**
+ * 从指定目录向上查找项目根目录
+ * 查找包含 .vectahub、.git 或 package.json 的最近祖先目录
+ * @param startDir - 起始查找目录，默认为 process.cwd()
+ * @returns 项目根目录绝对路径，未找到时返回 undefined
+ */
+export function findProjectRoot(startDir?: string): string | undefined {
+  let dir = resolve(startDir ?? process.cwd());
+  const root = resolve('/');
+
+  while (dir !== root) {
+    for (const marker of PROJECT_ROOT_MARKERS) {
+      if (existsSync(join(dir, marker))) {
+        return dir;
+      }
+    }
+    dir = resolve(dir, '..');
+  }
+
+  // Check root directory as well
+  for (const marker of PROJECT_ROOT_MARKERS) {
+    if (existsSync(join(root, marker))) {
+      return root;
+    }
+  }
+
+  return undefined;
 }

@@ -1,6 +1,6 @@
 # ISSUES-001: E2E 测试发现的关注问题
 
-> Status: open
+> Status: done
 > Priority: P2-P3
 > Source: E2E Test T1-T7
 > Discovered: 2026-06-08
@@ -87,11 +87,20 @@
 - **变更文件**: `src/infrastructure/logger/service.ts`, `src/infrastructure/logger/service.test.ts` (新增)
 - **验证**: typecheck 通过，5 个新增测试全部通过，139 个 infrastructure 测试无回归
 
-### ISSUE-T5-02: 项目级日志路径未实际使用
+### ISSUE-T5-02: 项目级日志路径未实际使用 ✅
 
 - **现象**: 代码已支持 `getProjectLogDir()` 和 DI 注入 `projectRoot`，但 CLI 运行时未传入 projectRoot，所有日志仍写全局目录
 - **影响**: 多项目场景下日志无法隔离
 - **建议**: CLI 入口处检测当前项目目录并传入 projectRoot
+- **状态**: 已修复 (2026-06-08)
+- **根因**: CLI 入口 `cli-main.ts` 使用 `getDefaultContext()` 创建上下文，未检测项目根目录，`LoggerService` 构造时不接受 `projectRoot` 参数
+- **修复**:
+  - 新增 `findProjectRoot()` 函数（`src/infrastructure/paths/facade.ts`），从 `cwd()` 向上查找 `.vectahub`、`.git` 或 `package.json` 标记
+  - `LoggerService` 构造函数新增可选 `options.projectRoot`，设置时使用 `getProjectLogDir()` 写入项目级日志目录
+  - `InfrastructureContext` 构造函数新增可选 `projectRoot` 选项，传递给 `LoggerService`
+  - `cli-main.ts` 在创建上下文前调用 `findProjectRoot()` 检测项目根目录
+- **变更文件**: `src/infrastructure/paths/facade.ts`, `src/infrastructure/paths/index.ts`, `src/infrastructure/logger/service.ts`, `src/infrastructure/context.ts`, `src/cli-main.ts`, `src/infrastructure/paths/facade.test.ts` (新增), `src/infrastructure/logger/service.test.ts`
+- **验证**: typecheck 通过，16 个新增/修改测试全部通过（7 个 findProjectRoot + 9 个 LoggerService），150 个 infrastructure 测试无回归
 
 ---
 
