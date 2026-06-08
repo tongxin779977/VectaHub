@@ -85,4 +85,78 @@ describe('verify', () => {
       expect(testCheck?.status).toBe('fail');
     });
   });
+
+  describe('runCoverageCheck', () => {
+    it('should return WARN verdict when coverage is not available', async () => {
+      const mockEnv = createMockEnv(async () => {
+        throw new Error('coverage command failed');
+      });
+
+      const report = await runVerification('coverage', mockEnv);
+      const coverageCheck = report.checks.find(c => c.name === 'Coverage');
+      expect(coverageCheck?.status).toBe('warn');
+      expect(coverageCheck?.detail).toBe('Coverage not available');
+      expect(report.verdict).toBe('WARN');
+    });
+
+    it('should return WARN verdict when coverage data cannot be parsed', async () => {
+      const mockEnv = createMockEnv(async () => ({
+        stdout: 'no coverage output',
+        stderr: '',
+      }));
+
+      const report = await runVerification('coverage', mockEnv);
+      const coverageCheck = report.checks.find(c => c.name === 'Coverage');
+      expect(coverageCheck?.status).toBe('warn');
+      expect(report.verdict).toBe('WARN');
+    });
+
+    it('should return WARN verdict when coverage is below threshold', async () => {
+      const mockEnv = createMockEnv(async () => ({
+        stdout: 'All files | 45.2 | 60 | 30 | 50',
+        stderr: '',
+      }));
+
+      const report = await runVerification('coverage', mockEnv);
+      const coverageCheck = report.checks.find(c => c.name === 'Coverage');
+      expect(coverageCheck?.status).toBe('warn');
+      expect(report.verdict).toBe('WARN');
+    });
+
+    it('should return PASS verdict when coverage meets threshold', async () => {
+      const mockEnv = createMockEnv(async () => ({
+        stdout: 'All files | 85.3 | 90 | 80 | 85',
+        stderr: '',
+      }));
+
+      const report = await runVerification('coverage', mockEnv);
+      const coverageCheck = report.checks.find(c => c.name === 'Coverage');
+      expect(coverageCheck?.status).toBe('pass');
+      expect(report.verdict).toBe('PASS');
+    });
+  });
+
+  describe('verdict logic', () => {
+    it('should return FAIL verdict when any check fails even with warnings', async () => {
+      const mockEnv = createMockEnv(async (cmd: string) => {
+        if (cmd.includes('tsc')) {
+          return { stdout: '', stderr: 'error TS1234' };
+        }
+        throw new Error('coverage failed');
+      });
+
+      const report = await runVerification('all', mockEnv);
+      expect(report.verdict).toBe('FAIL');
+    });
+
+    it('should return PASS verdict when all checks pass', async () => {
+      const mockEnv = createMockEnv(async () => ({
+        stdout: 'Tests  10 passed (10)',
+        stderr: '',
+      }));
+
+      const report = await runVerification('test', mockEnv);
+      expect(report.verdict).toBe('PASS');
+    });
+  });
 });

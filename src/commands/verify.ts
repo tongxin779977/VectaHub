@@ -32,7 +32,7 @@ interface CheckResult {
 
 interface VerifyReport {
   checks: CheckResult[];
-  verdict: 'PASS' | 'FAIL';
+  verdict: 'PASS' | 'WARN' | 'FAIL';
 }
 
 export async function runVerification(type: string, env: IEnvironmentService): Promise<VerifyReport> {
@@ -50,7 +50,9 @@ export async function runVerification(type: string, env: IEnvironmentService): P
     checks.push(await runCoverageCheck(env));
   }
 
-  const verdict = checks.every(c => c.status !== 'fail') ? 'PASS' : 'FAIL';
+  const hasFail = checks.some(c => c.status === 'fail');
+  const hasWarn = checks.some(c => c.status === 'warn');
+  const verdict = hasFail ? 'FAIL' : hasWarn ? 'WARN' : 'PASS';
   return { checks, verdict };
 }
 

@@ -25,11 +25,15 @@
 - **影响**: 用户无法通过 dry-run 了解不同模式的执行差异
 - **建议**: 在 dry-run 输出中标注模式差异（如确认步骤、安全检查级别等）
 
-### ISSUE-T2-03: `verify --type coverage` 语义矛盾
+### ISSUE-T2-03: `verify --type coverage` 语义矛盾 ✅
 
 - **现象**: Coverage 不可用时 VERDICT 为 PASS
 - **影响**: 用户可能误以为覆盖率检查通过
 - **建议**: Coverage 不可用时 VERDICT 应为 WARN 或 SKIP
+- **状态**: 已修复 (2026-06-08)
+- **修复**: `VerifyReport.verdict` 类型增加 `'WARN'`；判定逻辑改为有 fail→FAIL，有 warn（无 fail）→WARN，否则→PASS
+- **变更文件**: `src/commands/verify.ts`, `src/commands/verify.test.ts`
+- **验证**: typecheck 通过，9 个测试全部通过
 
 ---
 
