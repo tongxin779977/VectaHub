@@ -67,11 +67,16 @@
 
 ## T5: 日志系统
 
-### ISSUE-T5-01: app/error 日志文件为空
+### ISSUE-T5-01: app/error 日志文件为空 ✅
 
 - **现象**: `~/.vectahub/logs/app/2026-05-29.log` 和 `~/.vectahub/logs/error/2026-05-29.json` 均为 0 字节
 - **影响**: 应用日志和错误日志可能未正确写入
 - **建议**: 排查 app logger 和 error logger 的写入逻辑
+- **状态**: 已修复 (2026-06-08)
+- **根因**: `LoggerService.getLogger()` 始终调用 `createConsoleLogger()`（仅写 stderr），从不调用 `createFileLogger()`（写文件），导致 app/error 日志文件从未被写入
+- **修复**: 修改 `getLogger()` 优先使用 `createFileLogger()`，失败时回退到 `createConsoleLogger()`；修改 `createFileLogger()` 在开发环境使用 pino-pretty + 文件输出，生产环境使用 pino/file + 文件输出，console 目标从 stdout 改为 stderr
+- **变更文件**: `src/infrastructure/logger/service.ts`, `src/infrastructure/logger/service.test.ts` (新增)
+- **验证**: typecheck 通过，5 个新增测试全部通过，139 个 infrastructure 测试无回归
 
 ### ISSUE-T5-02: 项目级日志路径未实际使用
 

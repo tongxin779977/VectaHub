@@ -109,8 +109,9 @@ export class LoggerService implements ILoggerService {
 
     const appLogFile = join(appLogDir, `${formatDate(new Date())}.log`);
     const errorLogFile = join(errorLogDir, `${formatDate(new Date())}.json`);
+    const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
 
-    return pino({
+    const baseOptions: pino.LoggerOptions = {
       name,
       level: this.getEffectiveLevel(),
       formatters: {
@@ -126,11 +127,46 @@ export class LoggerService implements ILoggerService {
           return redacted;
         },
       },
+    };
+
+    const fileTargets: pino.TransportTargetOptions[] = [
+      { level: this.getEffectiveLevel(), target: 'pino/file', options: { destination: appLogFile } },
+      { level: 'error', target: 'pino/file', options: { destination: errorLogFile } },
+    ];
+
+    // 开发环境尝试使用 pino-pretty 输出到 stderr
+    if (isDevelopment) {
+      try {
+        return pino({
+          ...baseOptions,
+          transport: {
+            targets: [
+              { level: this.getEffectiveLevel(), target: 'pino-pretty', options: { destination: 2, colorize: true, translateTime: 'HH:MM:ss', ignore: 'pid,hostname' } },
+              ...fileTargets,
+            ],
+          },
+        });
+      } catch {
+        // pino-pretty 不可用时回退到 pino/file 输出到 stderr
+        return pino({
+          ...baseOptions,
+          transport: {
+            targets: [
+              { level: this.getEffectiveLevel(), target: 'pino/file', options: { destination: 2 } },
+              ...fileTargets,
+            ],
+          },
+        });
+      }
+    }
+
+    // 生产环境：pino/file 输出到 stderr + 文件
+    return pino({
+      ...baseOptions,
       transport: {
         targets: [
-          { level: this.getEffectiveLevel(), target: 'pino/file', options: { destination: 1 } },
-          { level: this.getEffectiveLevel(), target: 'pino/file', options: { destination: appLogFile } },
-          { level: 'error', target: 'pino/file', options: { destination: errorLogFile } },
+          { level: this.getEffectiveLevel(), target: 'pino/file', options: { destination: 2 } },
+          ...fileTargets,
         ],
       },
     });
@@ -140,7 +176,12 @@ export class LoggerService implements ILoggerService {
     const key = prefix || 'vectahub';
     let cached = this.loggerCache.get(key);
     if (!cached) {
-      cached = this.createConsoleLogger(prefix);
+      try {
+        cached = this.createFileLogger(prefix);
+      } catch {
+        // 文件日志创建失败时回退到控制台日志
+        cached = this.createConsoleLogger(prefix);
+      }
       this.loggerCache.set(key, cached);
     }
     return cached;
