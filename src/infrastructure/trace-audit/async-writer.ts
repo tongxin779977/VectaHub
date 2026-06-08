@@ -99,7 +99,7 @@ export class AsyncLogWriter {
     }
     this.flushTimer = setInterval(() => {
       this.flush().catch((err) => {
-        this.logger.error('定时刷盘失败:', err);
+        this.logger.warn('定时刷盘失败:', err);
       });
     }, this.config.flushIntervalMs);
   }
@@ -156,7 +156,7 @@ export class AsyncLogWriter {
       // 暂停时不触发刷盘，等待 resume 后由定时器或手动触发
       if (!this.isPaused && this.queue.length >= this.config.bufferSize) {
         this.flush().catch((err) => {
-          this.logger.error('缓冲区满刷盘失败:', err);
+          this.logger.warn('缓冲区满刷盘失败:', err);
         });
       }
     });
@@ -193,7 +193,7 @@ export class AsyncLogWriter {
       itemsToFlush.forEach((item) => item.resolve());
     } catch (error) {
       const err = error as Error;
-      this.logger.error('刷盘失败: ' + err.message);
+      this.logger.warn('刷盘失败: ' + err.message);
 
       // 将失败的数据重新放回队列头部，保证不丢当前批次
       this.queue = [...itemsToFlush, ...this.queue];

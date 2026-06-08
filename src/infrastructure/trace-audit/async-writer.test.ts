@@ -3,7 +3,7 @@
  * Async Log Writer Tests
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import pino from 'pino';
@@ -519,6 +519,55 @@ describe('AsyncLogWriter', () => {
         await rotWriter.destroy();
         fs.rmSync(rotationDir, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe('flush failure log level', () => {
+    it('should log flush failures at WARN level, not ERROR', async () => {
+      const warnSpy = vi.fn();
+      const errorSpy = vi.fn();
+
+      const spyLogger = {
+        warn: (...args: any[]) => { warnSpy(...args); },
+        error: (...args: any[]) => { errorSpy(...args); },
+        info: () => {},
+        debug: () => {},
+        fatal: () => {},
+        trace: () => {},
+        child: () => spyLogger,
+        level: 'debug',
+      } as any;
+
+      const brokenLogDir = path.join(TEST_LOG_DIR, 'log-level-test');
+      const brokenWriter = createAsyncLogWriter(brokenLogDir, {
+        bufferSize: 10,
+        flushIntervalMs: 10_000,
+      }, { logger: spyLogger });
+
+      const span: TraceSpan = {
+        spanId: 'span_log_level_001',
+        traceId: 'trace_log_level_001',
+        caller: 'CLI',
+        callee: 'Workflow',
+        startTime: new Date().toISOString(),
+        status: 'RUNNING',
+      };
+
+      brokenWriter.write(span);
+
+      // Sabotage the log dir to cause flush failure
+      fs.rmSync(brokenLogDir, { recursive: true, force: true });
+      fs.writeFileSync(brokenLogDir, 'not-a-directory', 'utf-8');
+
+      await expect(brokenWriter.flush()).rejects.toThrow();
+
+      expect(warnSpy).toHaveBeenCalled();
+      expect(errorSpy).not.toHaveBeenCalled();
+
+      // Cleanup - restore directory before destroy
+      fs.rmSync(brokenLogDir, { force: true });
+      fs.mkdirSync(brokenLogDir, { recursive: true });
+      await brokenWriter.destroy();
     });
   });
 });

@@ -49,11 +49,15 @@
 
 ## T4: 安全与审计
 
-### ISSUE-T4-01: audit 写入失败时 ERROR 级别过高
+### ISSUE-T4-01: audit 写入失败时 ERROR 级别过高 ✅
 
 - **现象**: 审计日志写入失败（EPERM）时以 ERROR 级别输出，每次命令执行都有多条 ERROR 日志
 - **影响**: 干扰正常输出，用户可能误以为命令执行失败
 - **建议**: 审计写入失败应降级为 WARN 或 DEBUG 级别
+- **状态**: 已修复 (2026-06-08)
+- **修复**: 将 audit 写入失败相关日志从 `error` 降级为 `warn`
+- **变更文件**: `src/infrastructure/context.ts`, `src/infrastructure/trace-audit/async-writer.ts`, `src/infrastructure/audit/service.test.ts`, `src/infrastructure/trace-audit/async-writer.test.ts`
+- **验证**: typecheck 通过，22 个测试全部通过（含 2 个新增日志级别验证测试）
 
 ---
 

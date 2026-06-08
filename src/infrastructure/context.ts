@@ -40,7 +40,7 @@ export class InfrastructureContext {
   get audit(): IAuditService {
     this.auditService ??= new AuditService(this.environment, {
       onError: (error) => {
-        this.logger.getLogger('audit').error({ error }, 'Audit log write failed');
+        this.logger.getLogger('audit').warn({ error }, 'Audit log write failed');
       },
     });
     return this.auditService;
