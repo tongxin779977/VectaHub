@@ -19,11 +19,15 @@
 - **影响**: 版本管理功能可能未启用或未实现
 - **建议**: 确认版本管理是否为已实现功能，若是则排查写入逻辑
 
-### ISSUE-T2-02: 执行模式无差异
+### ISSUE-T2-02: 执行模式无差异 ✅
 
 - **现象**: `strict`/`relaxed`/`consensus` 三种执行模式在 `--dry-run` 中输出完全一致
 - **影响**: 用户无法通过 dry-run 了解不同模式的执行差异
 - **建议**: 在 dry-run 输出中标注模式差异（如确认步骤、安全检查级别等）
+- **状态**: 已修复 (2026-06-08)
+- **修复**: dry-run 输出中包含 `mode` 字段和模式行为描述；JSON envelope 添加 `mode` 字段；文本输出显示模式名称和说明
+- **变更文件**: `src/commands/run-dry-run-envelope.ts`, `src/commands/run.ts`, `src/commands/run-dry-run-envelope.test.ts`, `src/commands/run.dry-run.test.ts`
+- **验证**: typecheck 通过，34 个测试全部通过（含 11 个新增测试），431 个相关测试无回归
 
 ### ISSUE-T2-03: `verify --type coverage` 语义矛盾 ✅
 

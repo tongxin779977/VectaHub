@@ -6,6 +6,7 @@ import {
   buildStepsEnvelope,
   buildBlockedEnvelope,
   buildClarifyEnvelope,
+  getModeDescription,
 } from './run-dry-run-envelope.js';
 
 describe('run-dry-run-envelope', () => {
@@ -159,6 +160,50 @@ describe('run-dry-run-envelope', () => {
       const steps = [{ cli: 'echo', args: ['hello'] }];
       const envelope = buildStepsEnvelope(steps);
       expect(envelope.steps).toEqual(steps);
+    });
+  });
+
+  describe('mode in dry-run envelope', () => {
+    it('buildWorkflowDraftEnvelope includes mode when provided', () => {
+      const workflow = { name: 'test', steps: [{ cli: 'echo', args: ['hello'] }] };
+      const envelope = buildWorkflowDraftEnvelope(workflow, 'strict');
+      expect(envelope.mode).toBe('strict');
+    });
+
+    it('buildWorkflowDraftEnvelope omits mode when not provided', () => {
+      const workflow = { name: 'test', steps: [{ cli: 'echo', args: ['hello'] }] };
+      const envelope = buildWorkflowDraftEnvelope(workflow);
+      expect(envelope.mode).toBeUndefined();
+    });
+
+    it('buildStepsEnvelope includes mode when provided', () => {
+      const steps = [{ cli: 'echo', args: ['hello'] }];
+      const envelope = buildStepsEnvelope(steps, 'consensus');
+      expect(envelope.mode).toBe('consensus');
+    });
+
+    it('buildStepsEnvelope omits mode when not provided', () => {
+      const steps = [{ cli: 'echo', args: ['hello'] }];
+      const envelope = buildStepsEnvelope(steps);
+      expect(envelope.mode).toBeUndefined();
+    });
+
+    it('each mode has a non-empty description', () => {
+      for (const mode of ['strict', 'relaxed', 'consensus'] as const) {
+        expect(getModeDescription(mode).length).toBeGreaterThan(0);
+      }
+    });
+
+    it('strict mode description mentions failure stop', () => {
+      expect(getModeDescription('strict')).toContain('失败时立即停止');
+    });
+
+    it('relaxed mode description mentions continue on failure', () => {
+      expect(getModeDescription('relaxed')).toContain('继续执行');
+    });
+
+    it('consensus mode description mentions consensus confirmation', () => {
+      expect(getModeDescription('consensus')).toContain('共识确认');
     });
   });
 });

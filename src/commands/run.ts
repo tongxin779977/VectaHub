@@ -26,6 +26,8 @@ import {
   buildPlanEnvelope,
   buildWorkflowDraftEnvelope,
   buildStepsEnvelope,
+  getModeDescription,
+  type CliMode,
 } from './run-dry-run-envelope.js';
 
 interface RunCommandOutput {
@@ -287,6 +289,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
         if (options.dryRun) {
           const interpolationCtx = toInterpolationContext(buildInitialVariables(options.variable));
           const interpolatedSteps = workflow.steps.map(s => interpolateStep(s, interpolationCtx));
+          const mode = options.mode || 'relaxed';
           if (options.json) {
             output.json(buildWorkflowDraftEnvelope({
               name: workflow.name,
@@ -294,12 +297,13 @@ export function createRunCmd(context: InfrastructureContext): Command {
                 cli: s.cli || s.type,
                 args: s.args ?? []
               }))
-            }));
+            }, mode));
           } else {
-            logger.info('\n📋 将要执行的命令:');
+            logger.info(`\n📋 将要执行的命令 (模式: ${mode}):`);
             for (const step of interpolatedSteps) {
               logger.info(`  ${step.cli || step.type} ${(step.args ?? []).join(' ')}`);
             }
+            logger.info(`\n⚙️ ${getModeDescription(mode as CliMode)}`);
             logger.info('\nDry-run: 未执行任何命令。');
           }
           restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
@@ -321,10 +325,12 @@ export function createRunCmd(context: InfrastructureContext): Command {
           currentPlan = plan;
 
           if (options.dryRun) {
+            const mode = options.mode || 'relaxed';
             if (options.json) {
-              output.json(buildPlanEnvelope(plan));
+              output.json(buildPlanEnvelope(plan, undefined, mode));
             } else {
               logger.info(formatDryRunText(plan));
+              logger.info(`\n⚙️ ${getModeDescription(mode as CliMode)}`);
             }
             restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
             return;
@@ -407,18 +413,21 @@ export function createRunCmd(context: InfrastructureContext): Command {
         if (options.dryRun) {
           const interpolationCtx = toInterpolationContext(buildInitialVariables(options.variable));
           const interpolatedSteps = orchestrateSteps.map(s => interpolateStep(s, interpolationCtx));
+          const mode = options.mode || 'relaxed';
           if (options.json) {
             output.json(buildStepsEnvelope(
               interpolatedSteps.map(s => ({
                 cli: s.cli || s.type || '',
                 args: s.args ?? []
-              }))
+              })),
+              mode
             ));
           } else {
-            logger.info('\n📋 将要执行的命令:');
+            logger.info(`\n📋 将要执行的命令 (模式: ${mode}):`);
             for (const s of interpolatedSteps) {
               logger.info(`  ${s.cli} ${(s.args ?? []).join(' ')}`);
             }
+            logger.info(`\n⚙️ ${getModeDescription(mode as CliMode)}`);
             logger.info('\nDry-run: 未执行任何命令。');
           }
           restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);

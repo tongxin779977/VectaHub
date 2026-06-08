@@ -457,4 +457,68 @@ describe('run command dry-run first run behavior', () => {
     expect(steps[1].args).not.toContain('${message}');
     consoleSpy.mockRestore();
   });
+
+  it('includes mode in dry-run --json output for file workflow', async () => {
+    const consoleSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    loadWorkflowFromFile.mockResolvedValue({
+      id: 'wf_mode',
+      name: 'test workflow',
+      steps: [{ id: 'step_1', type: 'exec', cli: 'git', args: ['status'] }],
+      createdAt: new Date(),
+    });
+
+    const runCmd = await createTestRunCmd();
+
+    await runCmd.parseAsync([
+      'node', 'test', '--dry-run', '--json',
+      '--file', 'test.yaml',
+      '--mode', 'strict',
+    ]);
+
+    const output = consoleSpy.mock.calls.map(c => c[0]).join('');
+    const parsed = JSON.parse(output);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.dryRun).toBe(true);
+    expect(parsed.mode).toBe('strict');
+    consoleSpy.mockRestore();
+  });
+
+  it('defaults to relaxed mode in dry-run --json when no mode specified', async () => {
+    const consoleSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    loadWorkflowFromFile.mockResolvedValue({
+      id: 'wf_default',
+      name: 'test workflow',
+      steps: [{ id: 'step_1', type: 'exec', cli: 'git', args: ['status'] }],
+      createdAt: new Date(),
+    });
+
+    const runCmd = await createTestRunCmd();
+
+    await runCmd.parseAsync([
+      'node', 'test', '--dry-run', '--json',
+      '--file', 'test.yaml',
+    ]);
+
+    const output = consoleSpy.mock.calls.map(c => c[0]).join('');
+    const parsed = JSON.parse(output);
+    expect(parsed.mode).toBe('relaxed');
+    consoleSpy.mockRestore();
+  });
+
+  it('includes consensus mode in dry-run --json for NL intent', async () => {
+    const consoleSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    const runCmd = await createTestRunCmd();
+
+    await runCmd.parseAsync([
+      'node', 'test', '--dry-run', '--json',
+      '--mode', 'consensus',
+      'git status',
+    ]);
+
+    const output = consoleSpy.mock.calls.map(c => c[0]).join('');
+    const parsed = JSON.parse(output);
+    expect(parsed.mode).toBe('consensus');
+    consoleSpy.mockRestore();
+  });
 });
