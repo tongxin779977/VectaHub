@@ -55,29 +55,24 @@ export type RunDryRunResult =
   | RunDryRunResultWorkflowDraft;
 
 export interface RunDryRunEnvelope {
+  schemaVersion: '1.0';
   ok: boolean;
   dryRun: true;
   mode?: CliMode;
   result: RunDryRunResult;
   intent?: string;
-  reply?: string;
-  plan?: Record<string, unknown>;
-  userReport?: Record<string, unknown>;
-  steps?: Array<{ cli: string; args: string[] }>;
-  workflow?: {
-    name: string;
-    steps: Array<{ cli: string; args: string[] }>;
-  };
   dispatch?: RunDispatchResult;
+  timestamp: string;
 }
 
 export function buildReplyEnvelope(reply: string, intent?: string): RunDryRunEnvelope {
   return {
+    schemaVersion: '1.0',
     ok: true,
     dryRun: true,
     result: { kind: 'reply', reply },
-    reply,
     ...(intent !== undefined ? { intent } : {}),
+    timestamp: new Date().toISOString(),
   };
 }
 
@@ -86,6 +81,7 @@ export function buildClarifyEnvelope(
   dispatch?: RunDispatchResult,
 ): RunDryRunEnvelope {
   return {
+    schemaVersion: '1.0',
     ok: true,
     dryRun: true,
     result: {
@@ -94,6 +90,7 @@ export function buildClarifyEnvelope(
       suggestedAction: dispatch?.suggestedAction,
     },
     ...(dispatch ? { dispatch } : {}),
+    timestamp: new Date().toISOString(),
   };
 }
 
@@ -102,6 +99,7 @@ export function buildBlockedEnvelope(
   dispatch: RunDispatchResult,
 ): RunDryRunEnvelope {
   return {
+    schemaVersion: '1.0',
     ok: false,
     dryRun: true,
     result: {
@@ -110,6 +108,7 @@ export function buildBlockedEnvelope(
       suggestedAction: dispatch.suggestedAction,
     },
     dispatch,
+    timestamp: new Date().toISOString(),
   };
 }
 
@@ -122,6 +121,7 @@ export function buildPlanEnvelope(
   const planData = report.plan as Record<string, unknown>;
   const userReport = report.userReport as Record<string, unknown>;
   return {
+    schemaVersion: '1.0',
     ok: true,
     dryRun: true,
     ...(mode ? { mode } : {}),
@@ -130,9 +130,8 @@ export function buildPlanEnvelope(
       plan: planData,
       userReport,
     },
-    plan: planData,
-    userReport,
     ...(intent !== undefined ? { intent } : {}),
+    timestamp: new Date().toISOString(),
   };
 }
 
@@ -141,6 +140,7 @@ export function buildWorkflowDraftEnvelope(
   mode?: CliMode,
 ): RunDryRunEnvelope {
   return {
+    schemaVersion: '1.0',
     ok: true,
     dryRun: true,
     ...(mode ? { mode } : {}),
@@ -148,7 +148,7 @@ export function buildWorkflowDraftEnvelope(
       kind: 'workflow_draft',
       workflow,
     },
-    workflow,
+    timestamp: new Date().toISOString(),
   };
 }
 
@@ -157,6 +157,7 @@ export function buildStepsEnvelope(
   mode?: CliMode,
 ): RunDryRunEnvelope {
   return {
+    schemaVersion: '1.0',
     ok: true,
     dryRun: true,
     ...(mode ? { mode } : {}),
@@ -164,6 +165,6 @@ export function buildStepsEnvelope(
       kind: 'workflow_draft',
       workflow: { name: 'nl-generated', steps },
     },
-    steps,
+    timestamp: new Date().toISOString(),
   };
 }

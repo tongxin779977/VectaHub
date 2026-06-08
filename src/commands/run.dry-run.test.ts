@@ -450,7 +450,7 @@ describe('run command dry-run first run behavior', () => {
     expect(parsed.ok).toBe(true);
     expect(parsed.dryRun).toBe(true);
     expect(parsed.result.kind).toBe('workflow_draft');
-    const steps = parsed.workflow.steps;
+    const steps = parsed.result.workflow.steps;
     expect(steps[0].args).toContain('.');
     expect(steps[1].args).toContain('test commit');
     expect(steps[0].args).not.toContain('${files}');

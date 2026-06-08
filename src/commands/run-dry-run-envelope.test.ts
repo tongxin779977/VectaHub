@@ -10,31 +10,97 @@ import {
 } from './run-dry-run-envelope.js';
 
 describe('run-dry-run-envelope', () => {
+  describe('envelope structure', () => {
+    it('all envelopes have schemaVersion 1.0', () => {
+      const envelopes = [
+        buildReplyEnvelope('hello'),
+        buildClarifyEnvelope('need info'),
+        buildBlockedEnvelope('blocked', {
+          executable: false,
+          type: 'blocked' as const,
+          reason: 'no_steps',
+          summary: '无命令',
+          suggestedAction: '请重新描述',
+        }),
+        buildPlanEnvelope({
+          goal: { action: 'test' },
+          requiresExecution: true,
+          steps: [],
+          commands: [],
+          summary: 'test',
+          userReport: { summaryTemplate: 'test', nextActions: [], verificationSteps: [] },
+        }),
+        buildWorkflowDraftEnvelope({ name: 'test', steps: [] }),
+        buildStepsEnvelope([{ cli: 'echo', args: ['hello'] }]),
+      ];
+      for (const envelope of envelopes) {
+        expect(envelope.schemaVersion).toBe('1.0');
+      }
+    });
+
+    it('all envelopes have ISO 8601 timestamp', () => {
+      const before = new Date();
+      const envelopes = [
+        buildReplyEnvelope('hello'),
+        buildClarifyEnvelope('need info'),
+        buildBlockedEnvelope('blocked', {
+          executable: false,
+          type: 'blocked' as const,
+          reason: 'no_steps',
+          summary: '无命令',
+          suggestedAction: '请重新描述',
+        }),
+        buildPlanEnvelope({
+          goal: { action: 'test' },
+          requiresExecution: true,
+          steps: [],
+          commands: [],
+          summary: 'test',
+          userReport: { summaryTemplate: 'test', nextActions: [], verificationSteps: [] },
+        }),
+        buildWorkflowDraftEnvelope({ name: 'test', steps: [] }),
+        buildStepsEnvelope([{ cli: 'echo', args: ['hello'] }]),
+      ];
+      const after = new Date();
+      for (const envelope of envelopes) {
+        const ts = new Date(envelope.timestamp);
+        expect(ts.getTime()).toBeGreaterThanOrEqual(before.getTime());
+        expect(ts.getTime()).toBeLessThanOrEqual(after.getTime());
+      }
+    });
+
+    it('all envelopes have dryRun true', () => {
+      const envelope = buildReplyEnvelope('hello');
+      expect(envelope.dryRun).toBe(true);
+    });
+  });
+
   describe('buildReplyEnvelope', () => {
     it('should create reply envelope with intent', () => {
       const envelope = buildReplyEnvelope('hello', 'greet');
-      expect(envelope).toEqual({
-        ok: true,
-        dryRun: true,
-        result: { kind: 'reply', reply: 'hello' },
-        reply: 'hello',
-        intent: 'greet',
-      });
+      expect(envelope.ok).toBe(true);
+      expect(envelope.result).toEqual({ kind: 'reply', reply: 'hello' });
+      expect(envelope.intent).toBe('greet');
     });
 
     it('should create reply envelope without intent', () => {
       const envelope = buildReplyEnvelope('hello');
-      expect(envelope).toEqual({
-        ok: true,
-        dryRun: true,
-        result: { kind: 'reply', reply: 'hello' },
-        reply: 'hello',
-      });
+      expect(envelope.ok).toBe(true);
+      expect(envelope.result).toEqual({ kind: 'reply', reply: 'hello' });
+      expect(envelope.intent).toBeUndefined();
     });
 
     it('should have result.kind = reply', () => {
       const envelope = buildReplyEnvelope('test');
       expect(envelope.result.kind).toBe('reply');
+    });
+
+    it('result.reply contains the reply text', () => {
+      const envelope = buildReplyEnvelope('test reply');
+      expect(envelope.result.kind).toBe('reply');
+      if (envelope.result.kind === 'reply') {
+        expect(envelope.result.reply).toBe('test reply');
+      }
     });
   });
 
@@ -57,8 +123,10 @@ describe('run-dry-run-envelope', () => {
       expect(envelope.ok).toBe(true);
       expect(envelope.dryRun).toBe(true);
       expect(envelope.result.kind).toBe('plan');
-      expect(envelope.plan).toBeDefined();
-      expect(envelope.userReport).toBeDefined();
+      if (envelope.result.kind === 'plan') {
+        expect(envelope.result.plan).toBeDefined();
+        expect(envelope.result.userReport).toBeDefined();
+      }
     });
 
     it('should include intent when provided', () => {
@@ -74,21 +142,12 @@ describe('run-dry-run-envelope', () => {
         steps: [{ cli: 'echo', args: ['hello'] }],
       };
       const envelope = buildWorkflowDraftEnvelope(workflow);
-      expect(envelope).toEqual({
-        ok: true,
-        dryRun: true,
-        result: {
-          kind: 'workflow_draft',
-          workflow: {
-            name: 'test-workflow',
-            steps: [{ cli: 'echo', args: ['hello'] }],
-          },
-        },
-        workflow: {
-          name: 'test-workflow',
-          steps: [{ cli: 'echo', args: ['hello'] }],
-        },
-      });
+      expect(envelope.ok).toBe(true);
+      expect(envelope.dryRun).toBe(true);
+      expect(envelope.result.kind).toBe('workflow_draft');
+      if (envelope.result.kind === 'workflow_draft') {
+        expect(envelope.result.workflow).toEqual(workflow);
+      }
     });
 
     it('should have result.kind = workflow_draft', () => {
@@ -107,7 +166,9 @@ describe('run-dry-run-envelope', () => {
       expect(envelope.ok).toBe(true);
       expect(envelope.dryRun).toBe(true);
       expect(envelope.result.kind).toBe('workflow_draft');
-      expect(envelope.steps).toEqual(steps);
+      if (envelope.result.kind === 'workflow_draft') {
+        expect(envelope.result.workflow.steps).toEqual(steps);
+      }
     });
   });
 
@@ -143,23 +204,51 @@ describe('run-dry-run-envelope', () => {
     });
   });
 
-  describe('backward compatibility', () => {
-    it('reply envelope preserves reply field', () => {
+  describe('result as single source of truth', () => {
+    it('reply data lives only in result', () => {
       const envelope = buildReplyEnvelope('test reply', 'test_intent');
-      expect(envelope.reply).toBe('test reply');
+      expect('reply' in envelope).toBe(false);
+      expect(envelope.result.kind).toBe('reply');
+      if (envelope.result.kind === 'reply') {
+        expect(envelope.result.reply).toBe('test reply');
+      }
       expect(envelope.intent).toBe('test_intent');
     });
 
-    it('workflow draft envelope preserves workflow field', () => {
+    it('workflow data lives only in result', () => {
       const workflow = { name: 'test', steps: [{ cli: 'echo', args: [] }] };
       const envelope = buildWorkflowDraftEnvelope(workflow);
-      expect(envelope.workflow).toEqual(workflow);
+      expect('workflow' in envelope).toBe(false);
+      if (envelope.result.kind === 'workflow_draft') {
+        expect(envelope.result.workflow).toEqual(workflow);
+      }
     });
 
-    it('steps envelope preserves steps field', () => {
+    it('steps data lives only in result.workflow.steps', () => {
       const steps = [{ cli: 'echo', args: ['hello'] }];
       const envelope = buildStepsEnvelope(steps);
-      expect(envelope.steps).toEqual(steps);
+      expect('steps' in envelope).toBe(false);
+      if (envelope.result.kind === 'workflow_draft') {
+        expect(envelope.result.workflow.steps).toEqual(steps);
+      }
+    });
+
+    it('plan data lives only in result', () => {
+      const mockPlan = {
+        goal: { action: 'test' },
+        requiresExecution: true,
+        steps: [],
+        commands: [],
+        summary: 'test',
+        userReport: { summaryTemplate: 'test', nextActions: [], verificationSteps: [] },
+      };
+      const envelope = buildPlanEnvelope(mockPlan);
+      expect('plan' in envelope).toBe(false);
+      expect('userReport' in envelope).toBe(false);
+      if (envelope.result.kind === 'plan') {
+        expect(envelope.result.plan).toBeDefined();
+        expect(envelope.result.userReport).toBeDefined();
+      }
     });
   });
 
