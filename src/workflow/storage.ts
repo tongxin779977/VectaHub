@@ -1,6 +1,7 @@
 import YAML from 'yaml';
 import type { Workflow, ExecutionRecord, StepRecord } from '../types/index.js';
 import { createOutputStore, type OutputStore } from '../execution/output-store.js';
+import { saveVersion } from './versioning.js';
 import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 import type pino from 'pino';
 
@@ -280,6 +281,12 @@ export function createStorage(options: StorageOptions): Storage {
       }
 
       environment.writeFile(filePath, content);
+
+      // Save version history (always as YAML for consistency with versioning system)
+      const yamlContent = format === 'yaml'
+        ? content
+        : YAML.stringify(workflow, { indent: 2, blockQuote: true });
+      saveVersion(environment, storageDir, workflow.id, yamlContent, 'Workflow saved');
     },
 
     async getWorkflow(id: string): Promise<Workflow | undefined> {

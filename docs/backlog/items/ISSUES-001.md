@@ -13,11 +13,16 @@
 
 ## T2: Workflow 核心流程
 
-### ISSUE-T2-01: `list versions` 始终为空
+### ISSUE-T2-01: `list versions` 始终为空 ✅
 
 - **现象**: 所有工作流的版本历史均为空
 - **影响**: 版本管理功能可能未启用或未实现
 - **建议**: 确认版本管理是否为已实现功能，若是则排查写入逻辑
+- **状态**: 已修复 (2026-06-08)
+- **根因**: `saveWorkflow()` 写入工作流文件后未调用 `saveVersion()`，导致版本记录从未被创建。`listVersions()` 逻辑正确但无数据可读。
+- **修复**: 在 `storage.saveWorkflow()` 中写入文件后调用 `saveVersion()`，自动为每次保存创建版本记录。JSON 格式保存时版本内容仍为 YAML（与版本系统一致）。
+- **变更文件**: `src/workflow/storage.ts`, `src/workflow/storage.test.ts`
+- **验证**: typecheck 通过，storage + versioning 26 个测试全部通过（含 3 个新增版本集成测试），engine + templates 49 个测试无回归
 
 ### ISSUE-T2-02: 执行模式无差异 ✅
 

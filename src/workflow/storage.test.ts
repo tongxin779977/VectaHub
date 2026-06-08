@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createStorage } from './storage.js';
-import type { ExecutionRecord, StepRecord } from '../types/index.js';
+import { listVersions } from './versioning.js';
+import type { ExecutionRecord, StepRecord, Workflow } from '../types/index.js';
 import { createEnvironmentService } from '../infrastructure/environment/index.js';
 import { MockLoggerService } from '../infrastructure/testing/mock-services.js';
 
@@ -186,6 +187,66 @@ describe('Storage with output-store integration', () => {
       const workflow = await storage.loadWorkflowFromFile(yamlPath);
       expect(workflow).not.toBeNull();
       expect(workflow!.id).toBe('wf_custom_42');
+    });
+  });
+
+  describe('saveWorkflow versioning', () => {
+    it('should create a version when saving a workflow', async () => {
+      const workflow: Workflow = {
+        id: 'wf_version_test',
+        name: 'version-test',
+        steps: [{ id: 's1', type: 'exec', cli: 'echo', args: ['hello'] }],
+        createdAt: new Date().toISOString(),
+      };
+
+      await storage.saveWorkflow(workflow);
+
+      const env = createEnvironmentService(tmpDir);
+      const versions = listVersions(env, tmpDir, 'wf_version_test');
+      expect(versions.length).toBe(1);
+      expect(versions[0].version).toBe(1);
+      expect(versions[0].message).toBe('Workflow saved');
+    });
+
+    it('should increment version on each save', async () => {
+      const workflow: Workflow = {
+        id: 'wf_increment_test',
+        name: 'increment-test',
+        steps: [{ id: 's1', type: 'exec', cli: 'echo', args: ['hello'] }],
+        createdAt: new Date().toISOString(),
+      };
+
+      await storage.saveWorkflow(workflow);
+      workflow.steps = [{ id: 's1', type: 'exec', cli: 'echo', args: ['updated'] }];
+      await storage.saveWorkflow(workflow);
+      workflow.steps = [{ id: 's1', type: 'exec', cli: 'echo', args: ['final'] }];
+      await storage.saveWorkflow(workflow);
+
+      const env = createEnvironmentService(tmpDir);
+      const versions = listVersions(env, tmpDir, 'wf_increment_test');
+      expect(versions.length).toBe(3);
+      expect(versions.map(v => v.version)).toEqual([1, 2, 3]);
+    });
+
+    it('should create version with YAML content even when saved as JSON', async () => {
+      const workflow: Workflow = {
+        id: 'wf_json_version_test',
+        name: 'json-version-test',
+        steps: [{ id: 's1', type: 'exec', cli: 'echo', args: ['hello'] }],
+        createdAt: new Date().toISOString(),
+      };
+
+      await storage.saveWorkflow(workflow, 'json');
+
+      const env = createEnvironmentService(tmpDir);
+      const versions = listVersions(env, tmpDir, 'wf_json_version_test');
+      expect(versions.length).toBe(1);
+
+      // Versioned content should be YAML (read the workflow.yaml file in version dir)
+      const versionDir = join(tmpDir, 'wf_json_version_test', 'versions', '1');
+      const fs = await import('node:fs/promises');
+      const content = await fs.readFile(join(versionDir, 'workflow.yaml'), 'utf-8');
+      expect(content).toContain('name:');  // YAML format, not JSON
     });
   });
 });
