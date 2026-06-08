@@ -55,8 +55,8 @@ function getTemplatesDir(context: InfrastructureContext): string {
   }
 
   const __filename = fileURLToPath(import.meta.url);
-  const __dirname = context.environment.getPath(__filename, '..');
-  return context.environment.getPath(__dirname, '..', '..', '..', 'templates');
+  const __dirname = context.environment.getDirname(__filename);
+  return context.environment.joinPath(__dirname, '..', '..', 'templates');
 }
 
 function formatTemplateTable(templates: WorkflowTemplate[], logger: pino.Logger, output: TemplatesCommandOutput): void {

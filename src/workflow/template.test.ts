@@ -117,6 +117,13 @@ describe('WorkflowTemplate', () => {
       expect(templates.some(t => t.name === 'backup-files')).toBe(true);
     });
 
+    it('should list built-in project templates', () => {
+      const projectTemplatesDir = join(__dirname, '..', '..', 'templates');
+      const templates = listTemplates(environment, projectTemplatesDir);
+      expect(templates.length).toBeGreaterThan(0);
+      expect(templates.some(t => t.name === 'git-commit')).toBe(true);
+    });
+
     it('should return empty array for empty directory', () => {
       const templates = listTemplates(environment, TEST_DIR);
       expect(templates.length).toBe(0);
