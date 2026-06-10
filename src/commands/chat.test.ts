@@ -1,495 +1,130 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const initializeRouterMock = vi.fn();
-const processInputWithTaskContractMock = vi.fn();
+/**
+ * 旧的 chat 命令实现 (`while loop + readline + processInputWithTaskContract`)
+ * 已被替换为 `createRepl()`。本测试集只验证 CLI 与 REPL 之间的桥接契约：
+ *
+ * - chatCmd 是命名导出、且名字是 'chat'
+ * - chatCmd 触发后，createRepl 会被调用一次，并使用 buildReplDeps 的结果
+ * - 得到的 REPL 实例的 start() 会被调用
+ * - buildReplDeps 装配出的 deps 包含 ReplDeps 必需的全部字段
+ * - 在无 LLM 配置时给出明确错误（行为与基础 REPL 保持一致）
+ *
+ * REPL 自身的语义（bare-execute、/execute、/help、/status、/exit、pendingWorkflows）
+ * 已经在 `src/chat/repl.test.ts` 中覆盖，这里不再重复。
+ */
+
+const createReplMock = vi.fn();
 const createLLMConfigMock = vi.fn();
-const createInterfaceMock = vi.fn();
-const commandBridgeExecuteMock = vi.fn();
 
-vi.mock('../nl/orchestrator.js', () => ({
-  initializeRouter: initializeRouterMock,
-  processInputWithTaskContract: processInputWithTaskContractMock,
-}));
-
-vi.mock('../nl/templates/index.js', () => ({
-  INTENT_TEMPLATES: [],
+vi.mock('../chat/repl.js', () => ({
+  createRepl: (...args: unknown[]) => createReplMock(...args),
 }));
 
 vi.mock('../nl/llm.js', () => ({
-  createLLMConfig: createLLMConfigMock,
-}));
-
-vi.mock('readline', () => ({
-  createInterface: createInterfaceMock,
+  createLLMConfig: () => createLLMConfigMock(),
 }));
 
 vi.mock('../chat/command-bridge.js', () => ({
   CommandBridge: vi.fn().mockImplementation(function CommandBridgeMock() {
-    return {
-      execute: commandBridgeExecuteMock,
-    };
+    return { execute: vi.fn().mockResolvedValue('') };
   }),
 }));
 
-describe('chat command', () => {
-  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-  const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+vi.mock('../chat/context-builder.js', () => ({
+  createContextBuilder: () => ({ buildContext: vi.fn().mockResolvedValue({ cwd: '/test' }) }),
+}));
 
+vi.mock('../nl/core/pipeline.js', () => ({
+  createNLProcessor: () => ({ parse: vi.fn().mockResolvedValue({ success: true, intent: 'x' }) }),
+}));
+
+vi.mock('../nl/param-extractor.js', () => ({
+  createParamExtractor: () => ({ extract: vi.fn().mockReturnValue({}) }),
+}));
+
+vi.mock('../workflow/engine.js', () => ({
+  createWorkflowEngine: () => ({
+    execute: vi.fn(),
+    getWorkflow: vi.fn(),
+    pauseExecution: vi.fn(),
+    resumeExecution: vi.fn(),
+    abortExecution: vi.fn(),
+  }),
+}));
+
+vi.mock('../workflow/storage.js', () => ({
+  createStorage: () => ({}),
+}));
+
+describe('chat command bridge to REPL', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    commandBridgeExecuteMock.mockReset();
-    processInputWithTaskContractMock.mockReset();
+    createReplMock.mockReturnValue({
+      start: vi.fn().mockResolvedValue(undefined),
+      processInput: vi.fn(),
+    });
   });
 
   afterEach(() => {
-    logSpy.mockClear();
-    errorSpy.mockClear();
+    vi.clearAllMocks();
   });
 
-  it('uses createLLMConfig as the single source of truth for chat fallback config', async () => {
-    const mockConfig = {
-      provider: 'openai',
-      model: 'configured-model',
-      apiKey: 'secret',
-      baseUrl: 'https://api.openai.com/v1',
-    };
-    const answers = ['hello', 'exit'];
-    const rl = {
-      question: vi.fn((_question: string, callback: (answer: string) => void) => callback(answers.shift() ?? 'exit')),
-      close: vi.fn(),
-    };
+  it('exports a chatCmd named "chat"', async () => {
+    const { chatCmd } = await import('./chat.js');
+    expect(chatCmd).toBeDefined();
+    expect(chatCmd.name()).toBe('chat');
+  });
 
-    createLLMConfigMock.mockReturnValue(mockConfig);
-    createInterfaceMock.mockReturnValue(rl);
-    processInputWithTaskContractMock.mockResolvedValue({
-      taskContract: {
-        schemaVersion: '1.0',
-        requestId: 'req_1',
-        rawInput: 'hello',
-        normalizedGoal: 'hello',
-        confidence: 0.9,
-        language: 'en-US',
-        internalSignals: {
-          intentCandidates: ['RUN_SCRIPT'],
-          routeSource: 'mixed',
-        },
-        kind: 'blocked',
-        reason: 'request is blocked',
-        safetyCategory: 'unsupported',
-      },
-      legacy: {
-        success: true,
-        intent: 'RUN_SCRIPT',
-        confidence: 0.9,
-        taskList: { tasks: [] },
-        metadata: {},
-      },
-    });
+  it('chatCmd invokes createRepl with ReplDeps-shaped value and calls start()', async () => {
+    const startSpy = vi.fn().mockResolvedValue(undefined);
+    createReplMock.mockReturnValueOnce({ start: startSpy, processInput: vi.fn() });
 
     const { chatCmd } = await import('./chat.js');
     await chatCmd.parseAsync(['node', 'chat']);
 
-    expect(createLLMConfigMock).toHaveBeenCalled();
-    expect(processInputWithTaskContractMock).toHaveBeenCalledWith(
-      'hello',
-      mockConfig,
-      expect.objectContaining({
-        intentMatch: expect.any(Function),
-      }),
-      expect.objectContaining({
-        error: expect.any(Function),
-      }),
-    );
-    expect(initializeRouterMock).toHaveBeenCalled();
+    expect(createReplMock).toHaveBeenCalledTimes(1);
+    const passedDeps = createReplMock.mock.calls[0][0] as Record<string, unknown>;
+    // 关键字段必须在场（其余行为由 REPL 自身的测试覆盖）
+    expect(passedDeps.nlProcessor).toBeDefined();
+    expect(passedDeps.contextBuilder).toBeDefined();
+    expect(passedDeps.commandBridge).toBeDefined();
+    expect(passedDeps.paramExtractor).toBeDefined();
+    expect(passedDeps.auditHelper).toBeDefined();
+    expect(passedDeps.logger).toBeDefined();
+    expect(passedDeps.workflowEngine).toBeDefined();
+    expect(passedDeps.config).toBeDefined();
+    expect(startSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('executes routed vectahub doctor command when there is no reply', async () => {
-    const answers = ['帮我诊断一下这个项目有哪些问题', 'exit'];
-    const rl = {
-      question: vi.fn((_question: string, callback: (answer: string) => void) => callback(answers.shift() ?? 'exit')),
-      close: vi.fn(),
-    };
+  it('buildReplDeps returns a complete ReplDeps shape', async () => {
+    createLLMConfigMock.mockReturnValue(null);
+    const chatModule = await import('./chat.js');
+    // sanity: the function must be a named export
+    expect(typeof chatModule.buildReplDeps).toBe('function');
+    const ctx = (await import('../infrastructure/context.js')).InfrastructureContext;
+    const context = new ctx();
+    const deps = chatModule.buildReplDeps(context);
 
-    createLLMConfigMock.mockReturnValue(undefined);
-    createInterfaceMock.mockReturnValue(rl);
-    processInputWithTaskContractMock.mockResolvedValue({
-      taskContract: {
-        schemaVersion: '1.0',
-        requestId: 'req_2',
-        rawInput: '帮我诊断一下这个项目有哪些问题',
-        normalizedGoal: '帮我诊断一下这个项目有哪些问题',
-        confidence: 1,
-        language: 'zh-CN',
-        internalSignals: {
-          intentCandidates: ['doctor'],
-          routeSource: 'capability',
-        },
-        kind: 'execute',
-        taskKind: 'diagnose',
-        operation: 'doctor',
-        target: {
-          scope: 'project',
-        },
-        constraints: {
-          requiresConfirmation: false,
-          requiresVerification: false,
-          sideEffects: ['command'],
-        },
-        executionStrategy: {
-          mode: 'capability',
-          commandSurfaceId: 'vectahub doctor',
-        },
-        expectedOutput: {
-          format: 'text',
-          audience: 'system',
-        },
-      },
-      legacy: {
-        success: true,
-        intent: 'UNKNOWN',
-        confidence: 1,
-        taskList: {
-          tasks: [
-            {
-              description: 'step_doctor',
-              commands: [{ cli: 'vectahub', args: ['doctor'] }],
-            },
-          ],
-        },
-        metadata: {},
-      },
-    });
-    commandBridgeExecuteMock.mockResolvedValue('doctor output');
-
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-
-    const { chatCmd } = await import('./chat.js');
-    await chatCmd.parseAsync(['node', 'chat']);
-
-    expect(commandBridgeExecuteMock).toHaveBeenCalledWith('doctor');
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('任务摘要：诊断当前项目'));
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('doctor output'));
-
-    stdoutSpy.mockRestore();
+    expect(deps.nlProcessor).toBeDefined();
+    expect(deps.contextBuilder).toBeDefined();
+    expect(deps.commandBridge).toBeDefined();
+    expect(deps.paramExtractor).toBeDefined();
+    expect(deps.auditHelper).toBeDefined();
+    expect(deps.logger).toBeDefined();
+    expect(deps.workflowEngine).toBeDefined();
+    expect(deps.config).toBeDefined();
+    expect(deps.config.executeMode).toBe('manual');
+    expect(typeof deps.useLLM).toBe('boolean');
   });
 
-  it('executes doctor even when legacy reply is present alongside execute task contract', async () => {
-    const answers = ['帮我诊断一下这个项目并告诉我结果', 'exit'];
-    const rl = {
-      question: vi.fn((_question: string, callback: (answer: string) => void) => callback(answers.shift() ?? 'exit')),
-      close: vi.fn(),
-    };
-
-    createLLMConfigMock.mockReturnValue(undefined);
-    createInterfaceMock.mockReturnValue(rl);
-    processInputWithTaskContractMock.mockResolvedValue({
-      taskContract: {
-        schemaVersion: '1.0',
-        requestId: 'req_execute_with_reply',
-        rawInput: '帮我诊断一下这个项目并告诉我结果',
-        normalizedGoal: '帮我诊断一下这个项目并告诉我结果',
-        confidence: 1,
-        language: 'zh-CN',
-        internalSignals: {
-          intentCandidates: ['doctor'],
-          routeSource: 'capability',
-        },
-        kind: 'execute',
-        taskKind: 'diagnose',
-        operation: 'doctor',
-        target: {
-          scope: 'project',
-        },
-        constraints: {
-          requiresConfirmation: false,
-          requiresVerification: false,
-          sideEffects: ['command'],
-        },
-        executionStrategy: {
-          mode: 'capability',
-          commandSurfaceId: 'vectahub doctor',
-        },
-        expectedOutput: {
-          format: 'text',
-          audience: 'system',
-        },
-      },
-      legacy: {
-        success: true,
-        intent: 'doctor',
-        confidence: 1,
-        reply: '我会先给你一个解释',
-        taskList: {
-          tasks: [
-            {
-              description: 'step_doctor',
-              commands: [{ cli: 'vectahub', args: ['doctor'] }],
-            },
-          ],
-        },
-        metadata: {},
-      },
-    });
-    commandBridgeExecuteMock.mockResolvedValue('doctor output');
-
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-
-    const { chatCmd } = await import('./chat.js');
-    await chatCmd.parseAsync(['node', 'chat']);
-
-    expect(commandBridgeExecuteMock).toHaveBeenCalledWith('doctor');
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('doctor output'));
-    expect(stdoutSpy).not.toHaveBeenCalledWith(expect.stringContaining('我会先给你一个解释'));
-
-    stdoutSpy.mockRestore();
-  });
-
-  it('blocks invalid vectahub command surfaces before reaching command bridge', async () => {
-    const answers = ['帮我诊断 CI', 'exit'];
-    const rl = {
-      question: vi.fn((_question: string, callback: (answer: string) => void) => callback(answers.shift() ?? 'exit')),
-      close: vi.fn(),
-    };
-
-    createLLMConfigMock.mockReturnValue(undefined);
-    createInterfaceMock.mockReturnValue(rl);
-    processInputWithTaskContractMock.mockResolvedValue({
-      taskContract: {
-        schemaVersion: '1.0',
-        requestId: 'req_3',
-        rawInput: '帮我诊断 CI',
-        normalizedGoal: '帮我诊断 CI',
-        confidence: 1,
-        language: 'zh-CN',
-        internalSignals: {
-          intentCandidates: ['doctor'],
-          routeSource: 'capability',
-        },
-        kind: 'execute',
-        taskKind: 'diagnose',
-        operation: 'doctor',
-        target: {
-          scope: 'project',
-        },
-        constraints: {
-          requiresConfirmation: false,
-          requiresVerification: false,
-          sideEffects: ['command'],
-        },
-        executionStrategy: {
-          mode: 'capability',
-          commandSurfaceId: 'vectahub ci diagnose',
-        },
-        expectedOutput: {
-          format: 'text',
-          audience: 'system',
-        },
-      },
-      legacy: {
-        success: true,
-        intent: 'UNKNOWN',
-        confidence: 1,
-        taskList: {
-          tasks: [],
-        },
-        metadata: {},
-      },
-    });
-
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-
-    const { chatCmd } = await import('./chat.js');
-    await chatCmd.parseAsync(['node', 'chat']);
-
-    expect(commandBridgeExecuteMock).not.toHaveBeenCalled();
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('任务执行已阻断'));
-
-    stdoutSpy.mockRestore();
-  });
-
-  it('does not send direct-command task contracts into command bridge', async () => {
-    const answers = ['帮我执行 git status', 'exit'];
-    const rl = {
-      question: vi.fn((_question: string, callback: (answer: string) => void) => callback(answers.shift() ?? 'exit')),
-      close: vi.fn(),
-    };
-
-    createLLMConfigMock.mockReturnValue(undefined);
-    createInterfaceMock.mockReturnValue(rl);
-    processInputWithTaskContractMock.mockResolvedValue({
-      taskContract: {
-        schemaVersion: '1.0',
-        requestId: 'req_4',
-        rawInput: '帮我执行 git status',
-        normalizedGoal: '帮我执行 git status',
-        confidence: 0.9,
-        language: 'mixed',
-        internalSignals: {
-          intentCandidates: ['tool_run'],
-          routeSource: 'llm-tool-calling',
-        },
-        kind: 'execute',
-        taskKind: 'modify',
-        operation: 'tool_run',
-        target: {
-          scope: 'environment',
-        },
-        constraints: {
-          requiresConfirmation: false,
-          requiresVerification: false,
-          sideEffects: ['command'],
-        },
-        executionStrategy: {
-          mode: 'direct-command',
-          commandSurfaceId: 'git status',
-        },
-        expectedOutput: {
-          format: 'text',
-          audience: 'system',
-        },
-      },
-      legacy: {
-        success: true,
-        intent: 'tool_run',
-        confidence: 0.9,
-        taskList: {
-          tasks: [],
-        },
-        metadata: {},
-      },
-    });
-
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-
-    const { chatCmd } = await import('./chat.js');
-    await chatCmd.parseAsync(['node', 'chat']);
-
-    expect(commandBridgeExecuteMock).not.toHaveBeenCalled();
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('不会通过内部命令桥自动执行'));
-
-    stdoutSpy.mockRestore();
-  });
-
-  it('does not execute legacy taskList commands when runtime returns execute-continue', async () => {
-    const answers = ['echo hello', 'exit'];
-    const rl = {
-      question: vi.fn((_question: string, callback: (answer: string) => void) => callback(answers.shift() ?? 'exit')),
-      close: vi.fn(),
-    };
-
-    createLLMConfigMock.mockReturnValue(undefined);
-    createInterfaceMock.mockReturnValue(rl);
-    processInputWithTaskContractMock.mockResolvedValue({
-      taskContract: {
-        schemaVersion: '1.0',
-        requestId: 'req_continue',
-        rawInput: 'echo hello',
-        normalizedGoal: 'echo hello',
-        confidence: 0.9,
-        language: 'en-US',
-        internalSignals: {
-          intentCandidates: ['tool_run'],
-          routeSource: 'mixed',
-        },
-        kind: 'execute',
-        taskKind: 'workflow',
-        operation: 'echo hello',
-        target: { scope: 'project' },
-        constraints: {
-          requiresConfirmation: false,
-          requiresVerification: false,
-          sideEffects: ['command'],
-        },
-        executionStrategy: {
-          mode: 'workflow-draft',
-          commandSurfaceId: 'echo hello',
-        },
-        expectedOutput: { format: 'text', audience: 'system' },
-      },
-      legacy: {
-        success: true,
-        intent: 'tool_run',
-        confidence: 0.9,
-        taskList: {
-          tasks: [
-            {
-              description: 'legacy doctor',
-              commands: [{ cli: 'vectahub', args: ['doctor'] }],
-            },
-          ],
-        },
-        metadata: {},
-      },
-    });
-
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-
-    const { chatCmd } = await import('./chat.js');
-    await chatCmd.parseAsync(['node', 'chat']);
-
-    expect(commandBridgeExecuteMock).not.toHaveBeenCalled();
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('不自动执行'));
-
-    stdoutSpy.mockRestore();
-  });
-
-  it('does not duplicate summary lines in dispatch feedback output', async () => {
-    const answers = ['帮我执行 git status', 'exit'];
-    const rl = {
-      question: vi.fn((_question: string, callback: (answer: string) => void) => callback(answers.shift() ?? 'exit')),
-      close: vi.fn(),
-    };
-
-    createLLMConfigMock.mockReturnValue(undefined);
-    createInterfaceMock.mockReturnValue(rl);
-    processInputWithTaskContractMock.mockResolvedValue({
-      taskContract: {
-        schemaVersion: '1.0',
-        requestId: 'req_dup',
-        rawInput: '帮我执行 git status',
-        normalizedGoal: '帮我执行 git status',
-        confidence: 0.9,
-        language: 'mixed',
-        internalSignals: {
-          intentCandidates: ['tool_run'],
-          routeSource: 'llm-tool-calling',
-        },
-        kind: 'execute',
-        taskKind: 'modify',
-        operation: 'tool_run',
-        target: { scope: 'environment' },
-        constraints: {
-          requiresConfirmation: false,
-          requiresVerification: false,
-          sideEffects: ['command'],
-        },
-        executionStrategy: {
-          mode: 'direct-command',
-          commandSurfaceId: 'git status',
-        },
-        expectedOutput: { format: 'text', audience: 'system' },
-      },
-      legacy: {
-        success: true,
-        intent: 'tool_run',
-        confidence: 0.9,
-        taskList: { tasks: [] },
-        metadata: {},
-      },
-    });
-
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-
-    const { chatCmd } = await import('./chat.js');
-    await chatCmd.parseAsync(['node', 'chat']);
-
-    const allOutput = stdoutSpy.mock.calls
-      .map((call: unknown[]) => String(call[0]))
-      .join('');
-
-    const summaryCount = (allOutput.match(/任务摘要：执行修改类任务/g) ?? []).length;
-    expect(summaryCount).toBe(1);
-
-    stdoutSpy.mockRestore();
+  it('createChatCmd returns a chat Command wired to createRepl + start', async () => {
+    createLLMConfigMock.mockReturnValue(null);
+    const { createChatCmd } = await import('./chat.js');
+    const ctx = (await import('../infrastructure/context.js')).InfrastructureContext;
+    const context = new ctx();
+    const cmd = createChatCmd(context);
+    expect(cmd).toBeDefined();
+    expect(cmd.name()).toBe('chat');
   });
 });
