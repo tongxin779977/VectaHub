@@ -1066,4 +1066,92 @@ describe('run command TaskContract priority over legacy', () => {
     expect(output).not.toContain('step_');
     consoleSpy.mockRestore();
   });
+
+  it('agent-runtime contract auto-generates markdown and updates suggestedAction in non-dry-run --json mode', async () => {
+    const consoleSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const { getDefaultContext } = await import('../infrastructure/context.js');
+    const env = getDefaultContext().environment;
+    const ensureDirSpy = vi.spyOn(env, 'ensureDir').mockImplementation(() => {});
+    const writeFileSpy = vi.spyOn(env, 'writeFile').mockImplementation(() => {});
+
+    orchestrateIntent.mockResolvedValue({
+      steps: [{ id: 'step_1', description: 'Refactor', status: 'PENDING', cli: 'vectahub', args: ['run-task'], type: 'exec' }],
+      intentRecognitionMethod: 'llm', recognizedIntent: 'refactor', score: 0.9,
+    });
+    resolveRunTaskContractMock.mockReturnValue({
+      taskContract: {
+        schemaVersion: '1.0', requestId: 'ar-test-json-123', rawInput: '重构模块', normalizedGoal: '重构模块',
+        confidence: 0.95, language: 'zh-CN', internalSignals: { intentCandidates: ['refactor'], routeSource: 'llm-tool-calling' },
+        kind: 'execute', taskKind: 'delegate', operation: 'refactor',
+        target: { scope: 'project' }, constraints: { requiresConfirmation: false, requiresVerification: false, sideEffects: ['command'] },
+        executionStrategy: { mode: 'agent-runtime' },
+        expectedOutput: { format: 'text', audience: 'system' },
+      },
+      legacy: { success: true, intent: 'refactor', confidence: 0.9, metadata: { path: 'llm-tool-calling' } },
+    });
+
+    const runCmd = await createTestRunCmd();
+    await runCmd.parseAsync(['node', 'test', '--json', '重构模块']);
+
+    const output = consoleSpy.mock.calls.map(c => c[0]).join('');
+    const parsed = JSON.parse(output);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.dispatch.kind).toBe('agent-task');
+    expect(parsed.dispatch.suggestedAction).toContain('自动为您生成任务合同');
+    expect(parsed.dispatch.suggestedAction).toContain('run-task --file');
+    expect(parsed.reason).toContain('自动为您生成任务合同');
+
+    expect(ensureDirSpy).toHaveBeenCalled();
+    expect(writeFileSpy).toHaveBeenCalledWith(
+      expect.stringContaining('ar-test-json-123.md'),
+      expect.stringContaining('taskId: ar-test-json-123')
+    );
+
+    ensureDirSpy.mockRestore();
+    writeFileSpy.mockRestore();
+    consoleSpy.mockRestore();
+  });
+
+  it('agent-runtime contract auto-generates markdown and prints feedback in non-dry-run console mode', async () => {
+    const { getDefaultContext } = await import('../infrastructure/context.js');
+    const loggerInstance = getDefaultContext().logger.getLogger('run');
+    const loggerInfoSpy = vi.spyOn(loggerInstance, 'info').mockImplementation(() => {});
+    
+    const env = getDefaultContext().environment;
+    const ensureDirSpy = vi.spyOn(env, 'ensureDir').mockImplementation(() => {});
+    const writeFileSpy = vi.spyOn(env, 'writeFile').mockImplementation(() => {});
+
+    orchestrateIntent.mockResolvedValue({
+      steps: [{ id: 'step_1', description: 'Refactor', status: 'PENDING', cli: 'vectahub', args: ['run-task'], type: 'exec' }],
+      intentRecognitionMethod: 'llm', recognizedIntent: 'refactor', score: 0.9,
+    });
+    resolveRunTaskContractMock.mockReturnValue({
+      taskContract: {
+        schemaVersion: '1.0', requestId: 'ar-test-console-123', rawInput: '重构模块', normalizedGoal: '重构模块',
+        confidence: 0.95, language: 'zh-CN', internalSignals: { intentCandidates: ['refactor'], routeSource: 'llm-tool-calling' },
+        kind: 'execute', taskKind: 'delegate', operation: 'refactor',
+        target: { scope: 'project' }, constraints: { requiresConfirmation: false, requiresVerification: false, sideEffects: ['command'] },
+        executionStrategy: { mode: 'agent-runtime' },
+        expectedOutput: { format: 'text', audience: 'system' },
+      },
+      legacy: { success: true, intent: 'refactor', confidence: 0.9, metadata: { path: 'llm-tool-calling' } },
+    });
+
+    const runCmd = await createTestRunCmd();
+    await runCmd.parseAsync(['node', 'test', '重构模块']);
+
+    const output = loggerInfoSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).toContain('自动为您生成任务合同');
+    expect(output).toContain('run-task --file');
+
+    expect(ensureDirSpy).toHaveBeenCalled();
+    expect(writeFileSpy).toHaveBeenCalledWith(
+      expect.stringContaining('ar-test-console-123.md'),
+      expect.stringContaining('taskId: ar-test-console-123')
+    );
+
+    ensureDirSpy.mockRestore();
+    writeFileSpy.mockRestore();
+    loggerInfoSpy.mockRestore();
+  });
 });

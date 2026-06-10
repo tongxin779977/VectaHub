@@ -166,4 +166,37 @@ describe('task-contract adapter', () => {
 
     expect(contract.kind).toBe('execute');
   });
+
+  it('maps refactor-style execution to agent-runtime strategy', () => {
+    const rawInput = '重构整个模块并更新相关调用';
+    const result = createBaseResult({
+      intent: 'refactor' as unknown as NLResult['intent'],
+      taskList: {
+        version: '1.0',
+        generatedAt: new Date().toISOString(),
+        originalInput: rawInput,
+        intent: 'UNKNOWN',
+        confidence: 0.9,
+        entities: { FILE_PATH: [], CLI_TOOL: [], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: [], HOST: [], PORT: [], OWNER: [], MODE: [], FILE1: [], FILE2: [] },
+        tasks: [{
+          id: 'task_agent',
+          type: 'CODE_TRANSFORM',
+          description: 'refactor module',
+          status: 'PENDING',
+          commands: [{ cli: 'vectahub', args: ['run-task'] }],
+          dependencies: [],
+        }],
+        warnings: [],
+      },
+    });
+
+    const contract = toTaskContract(rawInput, result);
+
+    expect(contract.kind).toBe('execute');
+    if (contract.kind !== 'execute') {
+      throw new Error('expected execute task contract');
+    }
+    expect(contract.taskKind).toBe('delegate');
+    expect(contract.executionStrategy.mode).toBe('agent-runtime');
+  });
 });

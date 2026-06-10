@@ -3421,6 +3421,7 @@ export function createRunTaskCmd(_context: InfrastructureContext): Command {
     .requiredOption('--task-id <id>', '任务编号')
     .option('--task-label <label>', '任务描述')
     .option('--doc <path>', '参考文档路径')
+    .option('--file <path>', '参考文档路径（同 --doc）')
     .option('--dry-run', '仅生成命令，不实际执行')
     .option('--contract-preview', '只生成任务边界合同摘要，不加载 LLM、不执行 Agent')
     .option('--json', '以 JSON 格式输出')
@@ -3429,14 +3430,17 @@ export function createRunTaskCmd(_context: InfrastructureContext): Command {
       taskId: string;
       taskLabel?: string;
       doc?: string;
+      file?: string;
       dryRun?: boolean;
       contractPreview?: boolean;
       json?: boolean;
     }) => {
       let deferredTraceCloseout: RunTaskTraceCloseout | undefined;
       try {
+        const docPath = options.doc || options.file;
         const result = await runTask({
           ...options,
+          doc: docPath,
           deferTraceCloseout: Boolean(options.json),
         });
         deferredTraceCloseout = getRunTaskTraceCloseout(result);

@@ -20,7 +20,8 @@ import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { createRunDispatch, formatRunDispatchText } from './run-dispatch.js';
 import { interpolateStep, type InterpolationContext } from '../workflow/interpolation.js';
 import { resolveRunTaskContract } from './run-task-contract-resolver.js';
-import { resolveTaskContractAction } from '../nl/task-contract-runtime.js';
+import { resolveTaskContractAction, buildDispatchFeedbackText, type TaskContractAction } from '../nl/task-contract-runtime.js';
+import type { ExecutionTaskContract } from '../types/task-contract.js';
 import {
   buildReplyEnvelope,
   buildClarifyEnvelope,
@@ -75,6 +76,116 @@ function restoreEnvValue(context: InfrastructureContext, name: string, previousV
     context.environment.deleteEnv(name);
   } else {
     context.environment.setEnv(name, previousValue);
+  }
+}
+
+function buildMarkdownFromTaskContract(taskContract: ExecutionTaskContract): string {
+  const constraints = taskContract.constraints || {};
+  const sideEffects = constraints.sideEffects ? constraints.sideEffects.join(', ') : 'none';
+  
+  return [
+    `# Tasks`,
+    ``,
+    `## ${taskContract.requestId} ${taskContract.normalizedGoal}`,
+    ``,
+    `taskId: ${taskContract.requestId}`,
+    `schemaVersion: ${taskContract.schemaVersion}`,
+    `normalizedGoal: ${taskContract.normalizedGoal}`,
+    ``,
+    `### Constraints`,
+    `- requiresConfirmation: ${constraints.requiresConfirmation ?? false}`,
+    `- requiresVerification: ${constraints.requiresVerification ?? false}`,
+    `- sideEffects: ${sideEffects}`,
+    ``,
+    `### Target`,
+    `- scope: ${taskContract.target?.scope ?? 'unknown'}`,
+    `- identifier: ${taskContract.target?.identifier ?? 'none'}`,
+    ``,
+    `### Execution Strategy`,
+    `- mode: ${taskContract.executionStrategy.mode}`,
+    `- capabilityId: ${taskContract.executionStrategy.capabilityId ?? 'none'}`,
+    `- commandSurfaceId: ${taskContract.executionStrategy.commandSurfaceId ?? 'none'}`,
+    ``,
+    `### Expected Output`,
+    `- format: ${taskContract.expectedOutput?.format ?? 'text'}`,
+    `- audience: ${taskContract.expectedOutput?.audience ?? 'user'}`,
+  ].join('\n');
+}
+
+interface PresentOptions {
+  dryRun?: boolean;
+  json?: boolean;
+  recognizedIntent?: string;
+}
+
+class TaskContractUiPresenter {
+  constructor(
+    private logger: ReturnType<InfrastructureContext['logger']['getLogger']>,
+    private output: RunCommandOutput,
+  ) {}
+
+  public present(tcAction: TaskContractAction, options: PresentOptions): void {
+    if (options.json) {
+      this.presentJson(tcAction, options);
+    } else {
+      this.presentConsole(tcAction, options);
+    }
+  }
+
+  private presentJson(tcAction: TaskContractAction, options: PresentOptions): void {
+    if (options.dryRun) {
+      if (tcAction.kind === 'reply') {
+        this.output.json(buildReplyEnvelope(tcAction.reply ?? '', options.recognizedIntent));
+      } else if (tcAction.kind === 'clarify') {
+        this.output.json(buildClarifyEnvelope(tcAction.question));
+      } else if (tcAction.kind === 'blocked') {
+        this.output.json(buildBlockedEnvelope(tcAction.reason, { kind: 'blocked', executable: false, reason: tcAction.reason }));
+      } else {
+        const dispatch = tcAction.kind === 'execute-dispatch-feedback' ? tcAction.dispatch : undefined;
+        this.output.json(buildBlockedEnvelope(tcAction.kind === 'blocked' ? tcAction.reason : (tcAction.kind === 'execute-dispatch-feedback' ? tcAction.feedback : ''), dispatch));
+      }
+    } else {
+      if (tcAction.kind === 'reply') {
+        this.output.json({ ok: true, reply: tcAction.reply, intent: options.recognizedIntent });
+      } else if (tcAction.kind === 'clarify') {
+        this.output.json({ ok: false, reason: tcAction.question });
+      } else {
+        const dispatch = tcAction.kind === 'execute-dispatch-feedback' ? tcAction.dispatch : undefined;
+        this.output.json({ ok: false, reason: tcAction.kind === 'blocked' ? tcAction.reason : (tcAction.kind === 'execute-dispatch-feedback' ? tcAction.feedback : ''), ...(dispatch ? { dispatch } : {}) });
+      }
+    }
+  }
+
+  private presentConsole(tcAction: TaskContractAction, options: PresentOptions): void {
+    if (tcAction.kind === 'reply') {
+      this.logger.info(`\n🤖 VectaHub Expert:\n\n${tcAction.reply}\n`);
+    } else if (tcAction.kind === 'clarify') {
+      if (options.dryRun) {
+        for (const line of tcAction.summaryLines) {
+          this.logger.info(line);
+        }
+      } else {
+        exitWithError(this.logger, this.output, '❌ 无法解析意图，请尝试更明确的输入！', 'INTENT_PARSE_FAILED', options.json);
+      }
+    } else {
+      if (options.dryRun) {
+        for (const line of tcAction.summaryLines) {
+          this.logger.info(line);
+        }
+      } else {
+        if (tcAction.kind === 'execute-dispatch-feedback') {
+          this.logger.info(`\n${tcAction.feedback}`);
+        } else {
+          for (const line of tcAction.summaryLines) {
+            this.logger.info(line);
+          }
+        }
+      }
+    }
+
+    if (options.dryRun) {
+      this.logger.info('\nDry-run: 未执行任何命令。');
+    }
   }
 }
 
@@ -364,48 +475,30 @@ export function createRunCmd(context: InfrastructureContext): Command {
         const envelope = resolveRunTaskContract(result, text);
         const tcAction = resolveTaskContractAction(envelope, text, 'run');
 
+        if (!options.dryRun && tcAction.kind === 'execute-dispatch-feedback' && tcAction.dispatch.kind === 'agent-task') {
+          const tasksDir = context.environment.getEnv('VECTAHUB_TASKS_DIR') || '.vectahub/tasks';
+          const resolvedTasksDir = context.environment.resolvePath(tasksDir);
+          context.environment.ensureDir(resolvedTasksDir);
+
+          const taskFileName = `${envelope.taskContract.requestId}.md`;
+          const taskFilePath = context.environment.joinPath(resolvedTasksDir, taskFileName);
+          
+          const markdownContent = buildMarkdownFromTaskContract(envelope.taskContract as ExecutionTaskContract);
+          context.environment.writeFile(taskFilePath, markdownContent);
+
+          const relativePath = context.environment.joinPath(tasksDir, taskFileName);
+          
+          tcAction.dispatch.suggestedAction = `已在 ${relativePath} 自动为您生成任务合同。您可以使用 \`vectahub run-task --file ${relativePath}\` 直接执行此 Agent 任务。`;
+          tcAction.feedback = buildDispatchFeedbackText(tcAction.summaryLines, tcAction.dispatch, 'run');
+        }
+
         if (tcAction.kind !== 'execute-continue' && tcAction.kind !== 'execute-bridge') {
-          if (options.dryRun) {
-            if (options.json) {
-              if (tcAction.kind === 'reply') {
-                output.json(buildReplyEnvelope(tcAction.reply ?? '', recognizedIntent));
-              } else if (tcAction.kind === 'clarify') {
-                output.json(buildClarifyEnvelope(tcAction.question));
-              } else if (tcAction.kind === 'blocked') {
-                output.json(buildBlockedEnvelope(tcAction.reason, { kind: 'blocked', executable: false, reason: tcAction.reason }));
-              } else {
-                output.json(buildBlockedEnvelope(tcAction.feedback, tcAction.dispatch));
-              }
-            } else {
-              if (tcAction.kind === 'reply') {
-                logger.info(`\n🤖 VectaHub Expert:\n\n${tcAction.reply}\n`);
-              } else {
-                for (const line of tcAction.summaryLines) {
-                  logger.info(line);
-                }
-              }
-              logger.info('\nDry-run: 未执行任何命令。');
-            }
-          } else if (options.json) {
-            if (tcAction.kind === 'reply') {
-              output.json({ ok: true, reply: tcAction.reply, intent: recognizedIntent });
-            } else if (tcAction.kind === 'clarify') {
-              output.json({ ok: false, reason: tcAction.question });
-            } else {
-              const dispatch = tcAction.kind === 'execute-dispatch-feedback' ? tcAction.dispatch : undefined;
-              output.json({ ok: false, reason: tcAction.kind === 'blocked' ? tcAction.reason : tcAction.feedback, ...(dispatch ? { dispatch } : {}) });
-            }
-          } else {
-            if (tcAction.kind === 'reply') {
-              logger.info(`\n🤖 VectaHub Expert:\n\n${tcAction.reply}\n`);
-            } else if (tcAction.kind === 'clarify') {
-              exitWithError(logger, output, '❌ 无法解析意图，请尝试更明确的输入！', 'INTENT_PARSE_FAILED', options.json);
-            } else {
-              for (const line of tcAction.summaryLines) {
-                logger.info(line);
-              }
-            }
-          }
+          const presenter = new TaskContractUiPresenter(logger, output);
+          presenter.present(tcAction, {
+            dryRun: options.dryRun,
+            json: options.json,
+            recognizedIntent,
+          });
           restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
           return;
         }
