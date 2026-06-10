@@ -369,4 +369,127 @@ describe('chat command', () => {
 
     stdoutSpy.mockRestore();
   });
+
+  it('does not execute legacy taskList commands when runtime returns execute-continue', async () => {
+    const answers = ['echo hello', 'exit'];
+    const rl = {
+      question: vi.fn((_question: string, callback: (answer: string) => void) => callback(answers.shift() ?? 'exit')),
+      close: vi.fn(),
+    };
+
+    createLLMConfigMock.mockReturnValue(undefined);
+    createInterfaceMock.mockReturnValue(rl);
+    processInputWithTaskContractMock.mockResolvedValue({
+      taskContract: {
+        schemaVersion: '1.0',
+        requestId: 'req_continue',
+        rawInput: 'echo hello',
+        normalizedGoal: 'echo hello',
+        confidence: 0.9,
+        language: 'en-US',
+        internalSignals: {
+          intentCandidates: ['tool_run'],
+          routeSource: 'mixed',
+        },
+        kind: 'execute',
+        taskKind: 'workflow',
+        operation: 'echo hello',
+        target: { scope: 'project' },
+        constraints: {
+          requiresConfirmation: false,
+          requiresVerification: false,
+          sideEffects: ['command'],
+        },
+        executionStrategy: {
+          mode: 'workflow-draft',
+          commandSurfaceId: 'echo hello',
+        },
+        expectedOutput: { format: 'text', audience: 'system' },
+      },
+      legacy: {
+        success: true,
+        intent: 'tool_run',
+        confidence: 0.9,
+        taskList: {
+          tasks: [
+            {
+              description: 'legacy doctor',
+              commands: [{ cli: 'vectahub', args: ['doctor'] }],
+            },
+          ],
+        },
+        metadata: {},
+      },
+    });
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    const { chatCmd } = await import('./chat.js');
+    await chatCmd.parseAsync(['node', 'chat']);
+
+    expect(commandBridgeExecuteMock).not.toHaveBeenCalled();
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('不自动执行'));
+
+    stdoutSpy.mockRestore();
+  });
+
+  it('does not duplicate summary lines in dispatch feedback output', async () => {
+    const answers = ['帮我执行 git status', 'exit'];
+    const rl = {
+      question: vi.fn((_question: string, callback: (answer: string) => void) => callback(answers.shift() ?? 'exit')),
+      close: vi.fn(),
+    };
+
+    createLLMConfigMock.mockReturnValue(undefined);
+    createInterfaceMock.mockReturnValue(rl);
+    processInputWithTaskContractMock.mockResolvedValue({
+      taskContract: {
+        schemaVersion: '1.0',
+        requestId: 'req_dup',
+        rawInput: '帮我执行 git status',
+        normalizedGoal: '帮我执行 git status',
+        confidence: 0.9,
+        language: 'mixed',
+        internalSignals: {
+          intentCandidates: ['tool_run'],
+          routeSource: 'llm-tool-calling',
+        },
+        kind: 'execute',
+        taskKind: 'modify',
+        operation: 'tool_run',
+        target: { scope: 'environment' },
+        constraints: {
+          requiresConfirmation: false,
+          requiresVerification: false,
+          sideEffects: ['command'],
+        },
+        executionStrategy: {
+          mode: 'direct-command',
+          commandSurfaceId: 'git status',
+        },
+        expectedOutput: { format: 'text', audience: 'system' },
+      },
+      legacy: {
+        success: true,
+        intent: 'tool_run',
+        confidence: 0.9,
+        taskList: { tasks: [] },
+        metadata: {},
+      },
+    });
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    const { chatCmd } = await import('./chat.js');
+    await chatCmd.parseAsync(['node', 'chat']);
+
+    const allOutput = stdoutSpy.mock.calls
+      .map((call: unknown[]) => String(call[0]))
+      .join('');
+
+    const summaryCount = (allOutput.match(/任务摘要：执行修改类任务/g) ?? []).length;
+    expect(summaryCount).toBe(1);
+
+    stdoutSpy.mockRestore();
+  });
 });

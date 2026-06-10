@@ -73,6 +73,10 @@ function inferExecuteTaskKind(result: NLResult): ExecutionTaskContract['taskKind
   if (intent === 'session_list' || intent === 'session_inspect' || intent === 'QUERY_INFO') {
     return 'inspect';
   }
+  const agentIntents = ['refactor', 'implement', 'fix_code', 'code_review', 'cross_file'];
+  if (agentIntents.includes(intent as string)) {
+    return 'delegate';
+  }
   return 'inspect';
 }
 
@@ -92,9 +96,22 @@ function inferTargetScope(result: NLResult): ExecutionTaskContract['target']['sc
 
 function inferExecutionStrategy(result: NLResult): ExecutionTaskContract['executionStrategy'] {
   const firstCommand = result.taskList?.tasks[0]?.commands?.[0];
+  const intent = result.intent ?? result.taskList?.intent ?? 'UNKNOWN';
+
   if (result.workflowYAML) {
     return { mode: 'workflow-draft', commandSurfaceId: firstCommand?.cli };
   }
+
+  // agent-runtime：delegate 任务、代码修改/重构/实现等需要 agent 级别的请求
+  const taskKind = inferExecuteTaskKind(result);
+  if (taskKind === 'delegate') {
+    return { mode: 'agent-runtime' };
+  }
+  const agentIntents = ['refactor', 'implement', 'fix_code', 'code_review', 'cross_file'];
+  if (agentIntents.includes(intent as string)) {
+    return { mode: 'agent-runtime' };
+  }
+
   if (result.metadata.path === 'category-router') {
     return {
       mode: 'capability',

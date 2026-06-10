@@ -13,9 +13,7 @@ import type { Workflow } from '../types/index.js';
 import { LLMClient } from '../nl/llm.js';
 import { buildAllTools } from '../nl/tool-calling.js';
 import { toTaskContractEnvelope } from '../nl/task-contract-adapter.js';
-import { presentTaskContract } from '../nl/task-contract-presentation.js';
-import { resolveTaskContractCommand } from '../nl/task-contract-strategy.js';
-import { createRunDispatch, type RunDispatchResult } from '../commands/run-dispatch.js';
+import { resolveTaskContractAction } from '../nl/task-contract-runtime.js';
 import { parseWorkflowSteps } from './workflow-parser.js';
 import { formatError, SimpleCache } from './utils.js';
 import { getLogger } from '../infrastructure/logger/index.js';
@@ -110,78 +108,43 @@ export function createNLHandler(
     if (!nlResult) {
       throw new Error('Task contract envelope did not include legacy NL result');
     }
-    const taskContract = envelope.taskContract;
-    const presentation = presentTaskContract(taskContract);
 
-    switch (taskContract.kind) {
+    const action = resolveTaskContractAction(envelope, input, 'REPL');
+
+    switch (action.kind) {
       case 'reply':
         return {
           type: 'text',
-          content: buildReplyContent(presentation.summaryLines, nlResult.reply),
+          content: buildReplyContent(action.summaryLines, action.reply),
         };
       case 'clarify':
       case 'blocked':
         return {
           type: 'text',
-          content: presentation.summaryLines.join('\n'),
+          content: action.summaryLines.join('\n'),
         };
-      case 'execute':
-        return handleExecutionContract(envelope, input, presentation.summaryLines);
-    }
-  }
-
-  async function handleExecutionContract(
-    envelope: TaskContractEnvelope<NLResult>,
-    rawInput: string,
-    summaryLines: string[],
-  ): Promise<ChatOutput> {
-    const nlResult = envelope.legacy;
-    if (!nlResult) {
-      throw new Error('Task contract envelope did not include legacy NL result');
-    }
-    const dispatch = createRunDispatch({
-      text: rawInput,
-      steps: [],
-      reply: nlResult.reply,
-      taskContract: envelope.taskContract,
-    });
-
-    if (!dispatch.executable || dispatch.kind !== 'workflow') {
-      return {
-        type: 'text',
-        content: buildDispatchFeedback(summaryLines, dispatch),
-      };
-    }
-
-    const resolvedCommand = resolveTaskContractCommand(envelope.taskContract);
-    if (resolvedCommand?.cli === 'vectahub') {
-      const commandText = formatBridgeCommand(resolvedCommand.cli, resolvedCommand.args);
-      if (!commandText) {
+      case 'execute-bridge': {
+        const bridgeOutput = await deps.commandBridge.execute(action.bridgeCommand);
         return {
-          type: 'text',
-          content: buildDispatchFeedback(summaryLines, {
-            kind: 'blocked',
-            executable: false,
-            reason: 'missing executable vectahub subcommand',
-          }),
+          type: 'command-result',
+          content: bridgeOutput,
         };
       }
-
-      const bridgeOutput = await deps.commandBridge.execute(commandText);
-      return {
-        type: 'command-result',
-        content: bridgeOutput,
-      };
+      case 'execute-dispatch-feedback':
+        return {
+          type: 'text',
+          content: action.feedback,
+        };
+      case 'execute-continue': {
+        if (nlResult.workflowYAML) {
+          return handleWorkflowGeneration(nlResult, input, action.summaryLines);
+        }
+        return {
+          type: 'text',
+          content: action.summaryLines.join('\n'),
+        };
+      }
     }
-
-    if (nlResult.workflowYAML) {
-      return handleWorkflowGeneration(nlResult, rawInput, summaryLines);
-    }
-
-    return {
-      type: 'text',
-      content: summaryLines.join('\n'),
-    };
   }
 
   async function handleWorkflowGeneration(
@@ -259,50 +222,6 @@ function buildReplyContent(summaryLines: string[], reply: string | undefined): s
     return normalizedReply;
   }
   return `${summaryLines.join('\n')}\n\n${normalizedReply}`;
-}
-
-function buildDispatchFeedback(summaryLines: string[], dispatch: RunDispatchResult): string {
-  const lines = [...summaryLines];
-
-  switch (dispatch.kind) {
-    case 'blocked':
-      lines.push('任务执行已阻断：当前请求无法通过受支持的内部命令执行。');
-      break;
-    case 'direct-command':
-      lines.push('当前任务已识别为本地直接命令。REPL 不会通过内部命令桥自动执行这类命令。');
-      break;
-    case 'agent-task':
-      lines.push('当前任务需要 Agent runtime 才能继续执行。');
-      break;
-    case 'clarify':
-      lines.push('当前任务还需要补充信息。');
-      break;
-    case 'dialog':
-      lines.push('当前请求更适合作为直接回复处理。');
-      break;
-    case 'workflow':
-      break;
-  }
-
-  if (dispatch.suggestedAction) {
-    lines.push(`建议：${dispatch.suggestedAction}`);
-  }
-
-  return lines.join('\n');
-}
-
-function formatBridgeCommand(cli: string, args: string[]): string | null {
-  const normalizedCli = cli.trim();
-  if (normalizedCli !== 'vectahub') {
-    return null;
-  }
-
-  const [subcommand, ...restArgs] = args;
-  if (!subcommand?.trim()) {
-    return null;
-  }
-
-  return [subcommand, ...restArgs].join(' ');
 }
 
 /**

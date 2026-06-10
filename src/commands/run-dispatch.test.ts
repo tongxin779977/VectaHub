@@ -139,6 +139,22 @@ describe('createRunDispatch', () => {
       expect(result.executable).toBe(false);
       expect(result.reason).toContain('missing a valid command surface id');
     });
+
+    it('should return agent-task when task contract mode is agent-runtime and commandSurfaceId is missing', () => {
+      const contract = createExecuteTaskContract(undefined);
+      contract.executionStrategy.mode = 'agent-runtime' as const;
+
+      const result = createRunDispatch({
+        text: '修改一些代码',
+        steps: [],
+        taskContract: contract,
+      });
+
+      expect(result.kind).toBe('agent-task');
+      expect(result.executable).toBe(false);
+      expect(result.reason).toContain('agent-runtime');
+      expect(result.suggestedAction).toContain('Agent runtime');
+    });
   });
 
   describe('missing cli in step', () => {

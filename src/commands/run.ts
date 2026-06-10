@@ -19,6 +19,8 @@ import { runSelfHealingLoop } from './self-healing.js';
 import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { createRunDispatch, formatRunDispatchText } from './run-dispatch.js';
 import { interpolateStep, type InterpolationContext } from '../workflow/interpolation.js';
+import { resolveRunTaskContract } from './run-task-contract-resolver.js';
+import { resolveTaskContractAction } from '../nl/task-contract-runtime.js';
 import {
   buildReplyEnvelope,
   buildClarifyEnvelope,
@@ -334,6 +336,126 @@ export function createRunCmd(context: InfrastructureContext): Command {
           logger,
         });
         const { steps: orchestrateSteps, plan, intentRecognitionMethod, matchedCapability, score, recognizedIntent } = result;
+
+        // doc-task-edit 在 TaskContract 之前前置检查
+        const preliminaryDispatch = createRunDispatch({
+          text,
+          steps: orchestrateSteps,
+          reply: result.reply,
+        });
+        if (preliminaryDispatch.kind === 'doc-task-edit') {
+          if (options.dryRun) {
+            if (options.json) {
+              output.json(buildClarifyEnvelope(preliminaryDispatch.reason, preliminaryDispatch));
+            } else {
+              logger.info(`\n${formatRunDispatchText(preliminaryDispatch)}`);
+              logger.info('\nDry-run: 未执行任何命令。');
+            }
+          } else if (options.json) {
+            output.json({ ok: false, dispatch: preliminaryDispatch });
+          } else {
+            logger.info(`\n${formatRunDispatchText(preliminaryDispatch)}`);
+          }
+          restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+          return;
+        }
+
+        // TaskContract-first 路由
+        const envelope = resolveRunTaskContract(result, text);
+        const tcAction = resolveTaskContractAction(envelope, text, 'run');
+
+        if (tcAction.kind !== 'execute-continue' && tcAction.kind !== 'execute-bridge') {
+          if (options.dryRun) {
+            if (options.json) {
+              if (tcAction.kind === 'reply') {
+                output.json(buildReplyEnvelope(tcAction.reply ?? '', recognizedIntent));
+              } else if (tcAction.kind === 'clarify') {
+                output.json(buildClarifyEnvelope(tcAction.question));
+              } else if (tcAction.kind === 'blocked') {
+                output.json(buildBlockedEnvelope(tcAction.reason, { kind: 'blocked', executable: false, reason: tcAction.reason }));
+              } else {
+                output.json(buildBlockedEnvelope(tcAction.feedback, tcAction.dispatch));
+              }
+            } else {
+              if (tcAction.kind === 'reply') {
+                logger.info(`\n🤖 VectaHub Expert:\n\n${tcAction.reply}\n`);
+              } else {
+                for (const line of tcAction.summaryLines) {
+                  logger.info(line);
+                }
+              }
+              logger.info('\nDry-run: 未执行任何命令。');
+            }
+          } else if (options.json) {
+            if (tcAction.kind === 'reply') {
+              output.json({ ok: true, reply: tcAction.reply, intent: recognizedIntent });
+            } else if (tcAction.kind === 'clarify') {
+              output.json({ ok: false, reason: tcAction.question });
+            } else {
+              const dispatch = tcAction.kind === 'execute-dispatch-feedback' ? tcAction.dispatch : undefined;
+              output.json({ ok: false, reason: tcAction.kind === 'blocked' ? tcAction.reason : tcAction.feedback, ...(dispatch ? { dispatch } : {}) });
+            }
+          } else {
+            if (tcAction.kind === 'reply') {
+              logger.info(`\n🤖 VectaHub Expert:\n\n${tcAction.reply}\n`);
+            } else if (tcAction.kind === 'clarify') {
+              exitWithError(logger, output, '❌ 无法解析意图，请尝试更明确的输入！', 'INTENT_PARSE_FAILED', options.json);
+            } else {
+              for (const line of tcAction.summaryLines) {
+                logger.info(line);
+              }
+            }
+          }
+          restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+          return;
+        }
+
+        // execute-bridge: 使用合同命令，不回退到 legacy steps
+        if (tcAction.kind === 'execute-bridge') {
+          const bridgeArgs = tcAction.bridgeCommand.split(/\s+/);
+          const bridgeSteps = [{
+            id: 'bridge_step',
+            description: `vectahub ${tcAction.bridgeCommand}`,
+            status: 'PENDING',
+            cli: 'vectahub',
+            args: bridgeArgs,
+            type: 'exec' as const,
+          }];
+
+          if (options.dryRun) {
+            const interpolationCtx = toInterpolationContext(buildInitialVariables(options.variable));
+            const interpolatedSteps = bridgeSteps.map(s => interpolateStep(s, interpolationCtx));
+            const mode = options.mode || 'relaxed';
+            if (options.json) {
+              const { draft } = stepsToWorkflowDraft(
+                interpolatedSteps.map(s => ({ cli: s.cli || 'vectahub', args: s.args ?? [] })),
+                { mode: mode as CliMode },
+              );
+              output.json(buildStepsEnvelope(draft, mode));
+            } else {
+              logger.info(`\n📋 将要执行的命令 (模式: ${mode}):`);
+              for (const s of interpolatedSteps) {
+                logger.info(`  ${s.cli} ${(s.args ?? []).join(' ')}`);
+              }
+              logger.info(`\n⚙️ ${getModeDescription(mode as CliMode)}`);
+              logger.info('\nDry-run: 未执行任何命令。');
+            }
+            restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+            return;
+          }
+
+          // 非 dry-run：创建 workflow 后进入执行流程
+          workflow = await (await getWorkflowEngine()).createWorkflow(
+            `intent_${Date.now()}`,
+            bridgeSteps,
+            { persist: options.save === true }
+          );
+          logger.info(`创建工作流，包含 ${bridgeSteps.length} 个步骤`);
+          if (options.save) {
+            logger.info('工作流已保存');
+          }
+        } else {
+          // execute-continue: 回退到 legacy workflow 逻辑
         
         if (intentRecognitionMethod === 'capability' && plan) {
           logger.info(`能力路由: ${matchedCapability} (score=${score?.toFixed(2)})`);
@@ -360,46 +482,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
           logger.info(`识别到意图: ${recognizedIntent}`);
         }
 
-        if (result.reply) {
-          if (options.json) {
-            if (options.dryRun) {
-              output.json(buildReplyEnvelope(result.reply, recognizedIntent));
-              restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
-              return;
-            } else {
-              output.json({
-                ok: true,
-                reply: result.reply,
-                intent: recognizedIntent,
-              });
-            }
-          } else {
-            logger.info(`\n🤖 VectaHub Expert:\n\n${result.reply}\n`);
-            if (options.dryRun && orchestrateSteps.length === 0) {
-              logger.info('\nDry-run: 未执行任何命令。');
-            }
-          }
-        }
-
-        if (orchestrateSteps.length === 0) {
-          if (result.reply) {
-            // 已显示回复，直接退出
-            restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
-            return;
-          }
-          if (options.dryRun && options.json) {
-            output.json(buildClarifyEnvelope('无法解析意图，请尝试更明确的输入！'));
-            restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
-            return;
-          }
-          exitWithError(logger, output, '❌ 无法解析意图，请尝试更明确的输入！', 'INTENT_PARSE_FAILED', options.json);
-        }
-
-        const dispatch = createRunDispatch({
-          text,
-          steps: orchestrateSteps,
-          reply: result.reply,
-        });
+        const dispatch = preliminaryDispatch;
 
         if (!dispatch.executable) {
           if (options.dryRun) {
@@ -460,6 +543,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
 
         if (options.save) {
           logger.info('工作流已保存');
+        }
         }
       } else {
         exitWithError(logger, output, '❌ 请提供自然语言描述或使用 --file 选项指定工作流文件', 'NO_INPUT', options.json);

@@ -154,6 +154,15 @@ export function createRunDispatch(input: RunDispatchInput): RunDispatchResult {
   const text = input.text.trim();
   const taskContract = input.taskContract;
 
+  if (input.steps.length === 0 && taskContract?.kind === 'execute' && taskContract.executionStrategy.mode === 'agent-runtime') {
+    return {
+      kind: 'agent-task',
+      executable: false,
+      reason: 'task contract requires agent-runtime execution',
+      suggestedAction: '请进入 Agent runtime 或生成任务合同后执行',
+    };
+  }
+
   if (isDocTaskEdit(text)) {
     return {
       kind: 'doc-task-edit',
@@ -199,13 +208,6 @@ export function createRunDispatch(input: RunDispatchInput): RunDispatchResult {
             kind: 'workflow',
             executable: true,
             reason: 'task contract resolved to workflow-draft execution strategy',
-          };
-        case 'agent-runtime':
-          return {
-            kind: 'agent-task',
-            executable: false,
-            reason: 'task contract requires agent-runtime execution',
-            suggestedAction: '请先进入 Agent runtime 或生成任务合同后再执行。',
           };
       }
     }
