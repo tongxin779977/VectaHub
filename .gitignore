@@ -64,6 +64,7 @@ AGENTS.md
 .trae/documents/
 
 # Private Documents (不应该提交)
+docs-private/
 docs/private/
 private-docs/
 *.private.md
