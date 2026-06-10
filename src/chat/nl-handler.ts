@@ -196,9 +196,9 @@ export function createNLHandler(
         if (confirmed) {
           return executePendingWorkflow(sessionId, workflow.id, combinedParams);
         }
-        return { type: 'text', content: `${workflowSummary}\n\n💡 已取消自动执行。输入 \`执行工作流\` 或 \`/execute\` 来手动执行。` };
+        return { type: 'text', content: `${workflowSummary}\n\n💡 已取消自动执行。输入 \`执行\`、\`/execute\` 来手动执行。` };
       } else {
-        return { type: 'text', content: `${workflowSummary}\n\n💡 输入 \`执行工作流\` 或 \`/execute\` 来运行。` };
+        return { type: 'text', content: `${workflowSummary}\n\n💡 输入 \`执行\`、\`/execute\` 来运行。` };
       }
     } catch (err) {
       return { type: 'error', content: `❌ 工作流解析失败: ${formatError(err)}` };

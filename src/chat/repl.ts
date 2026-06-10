@@ -97,6 +97,28 @@ async function loadSessionData(sessionId: string): Promise<SessionPersistData | 
 }
 
 /**
+ * 视为"执行最近一个待执行工作流"的自然语言短语集合。
+ * 大小写不敏感，匹配时去除首尾空白。
+ * 与 `/execute` slash-command 行为一致：直接执行，不受 executeMode 影响。
+ */
+const BARE_EXECUTE_INTENTS: ReadonlySet<string> = new Set([
+  '执行',
+  '运行',
+  'run',
+  'go',
+  'execute',
+  'do it',
+  'run it',
+  'go ahead',
+]);
+
+function isBareExecuteIntent(input: string): boolean {
+  const normalized = input.trim().toLowerCase();
+  if (!normalized) return false;
+  return BARE_EXECUTE_INTENTS.has(normalized);
+}
+
+/**
  * 默认斜杠命令集合。
  * 包含 `exit`、`help`、`status` 和 `execute` 四个内置命令。
  */
@@ -220,11 +242,28 @@ export function createREPL(deps: ReplDeps) {
     }
   }
 
+  /**
+   * 执行当前会话最近一个待执行工作流。
+   * 无待执行工作流时返回错误回复。
+   * 被 `/execute` slash-command 与 bare execute 意图（`执行`/`run` 等）共用。
+   */
+  async function runMostRecentPendingWorkflow(): Promise<ChatOutput> {
+    if (pendingWorkflows.size === 0) {
+      return { type: 'error', content: '❌ 没有待执行的工作流。请先通过 NL 生成工作流。' };
+    }
+    const [[wfId]] = pendingWorkflows;
+    return executePendingWorkflow(sessionId, wfId);
+  }
+
   async function processInput(input: string): Promise<ChatOutput> {
     const trimmedInput = input.trim();
 
     if (!trimmedInput) {
       return { type: 'text', content: '' };
+    }
+
+    if (isBareExecuteIntent(trimmedInput)) {
+      return runMostRecentPendingWorkflow();
     }
 
     const chatInput = cmdManager.parseInput(trimmedInput);
@@ -243,11 +282,7 @@ export function createREPL(deps: ReplDeps) {
           return { type: 'text', content: '👋 再见！', metadata: { exit: true } };
         }
         if (result === '__EXECUTE__') {
-          if (pendingWorkflows.size === 0) {
-            return { type: 'error', content: '❌ 没有待执行的工作流。请先通过 NL 生成工作流。' };
-          }
-          const [[wfId]] = pendingWorkflows;
-          return executePendingWorkflow(sessionId, wfId);
+          return runMostRecentPendingWorkflow();
         }
         if (result === '__STATUS__') {
           const status = `📊 会话: ${sessionId}\n工作流: ${pendingWorkflows.size} 个待执行\n${formatChatConfig(deps.config)}`;

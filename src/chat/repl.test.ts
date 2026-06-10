@@ -459,7 +459,7 @@ describe('Workflow Execution Modes', () => {
 
     expect(mockWorkflowEngine.execute).not.toHaveBeenCalled();
     expect(result.type).toBe('text');
-    expect(result.content).toContain('💡 输入 `执行工作流` 或 `/execute` 来运行。');
+    expect(result.content).toContain('💡 输入 `执行`、`/execute` 来运行。');
   });
 
   it('should preserve for_each workflow structure when generating workflow', async () => {
@@ -513,6 +513,133 @@ describe('Workflow Execution Modes', () => {
     expect(mockWorkflowEngine.execute).not.toHaveBeenCalled();
     expect(result.type).toBe('error');
     expect(result.content).toContain('missing cli');
+  });
+});
+
+describe('Bare execute intent shortcut', () => {
+  let mockNlProcessor: { parse: ReturnType<typeof vi.fn> };
+  let mockWorkflowEngine: {
+    execute: ReturnType<typeof vi.fn>;
+    getWorkflow: ReturnType<typeof vi.fn>;
+    pauseExecution: ReturnType<typeof vi.fn>;
+    resumeExecution: ReturnType<typeof vi.fn>;
+    abortExecution: ReturnType<typeof vi.fn>;
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockWorkflowEngine = {
+      execute: vi.fn().mockResolvedValue({
+        executionId: 'exec-bare',
+        status: 'COMPLETED',
+        duration: 50,
+        steps: [{ stepId: 'step1', status: 'COMPLETED', output: ['✅ bare execute ok'] }],
+        warnings: [],
+        logs: [],
+      }),
+      getWorkflow: vi.fn(),
+      pauseExecution: vi.fn(),
+      resumeExecution: vi.fn(),
+      abortExecution: vi.fn(),
+    };
+    mockNlProcessor = {
+      parse: vi.fn().mockResolvedValue({
+        success: true,
+        intent: 'test-intent',
+        confidence: 0.8,
+        workflowYAML: 'steps:\n  - id: step1\n    type: exec\n    cli: echo\n    args: ["hello"]',
+        taskList: { intent: 'test-intent', tasks: [{ commands: [{ cli: 'echo', args: ['hello'] }] }] },
+        metadata: { path: 'category-router' },
+      }),
+    };
+  });
+
+  it('executes the pending workflow when user types bare "执行"', async () => {
+    const deps = createMockDeps({
+      config: { ...mockChatConfig, executeMode: 'manual' },
+      workflowEngine: mockWorkflowEngine as unknown as ReplDeps['workflowEngine'],
+      nlProcessor: mockNlProcessor as unknown as ReplDeps['nlProcessor'],
+    });
+    const repl = createRepl(deps);
+
+    const generated = await repl.processInput('some input');
+    expect(generated.type).toBe('text');
+    expect(generated.content).toContain('工作流已生成');
+    expect(mockWorkflowEngine.execute).not.toHaveBeenCalled();
+
+    const nlParseSpy = mockNlProcessor.parse as ReturnType<typeof vi.fn>;
+    nlParseSpy.mockClear();
+
+    const executed = await repl.processInput('执行');
+
+    expect(nlParseSpy).not.toHaveBeenCalled();
+    expect(mockWorkflowEngine.execute).toHaveBeenCalledTimes(1);
+    expect(executed.type).toBe('command-result');
+    expect(executed.content).toContain('bare execute ok');
+  });
+
+  it('executes pending workflow for English synonym "run"', async () => {
+    const deps = createMockDeps({
+      config: { ...mockChatConfig, executeMode: 'manual' },
+      workflowEngine: mockWorkflowEngine as unknown as ReplDeps['workflowEngine'],
+      nlProcessor: mockNlProcessor as unknown as ReplDeps['nlProcessor'],
+    });
+    const repl = createRepl(deps);
+    await repl.processInput('some input');
+
+    const executed = await repl.processInput('run');
+
+    expect(mockWorkflowEngine.execute).toHaveBeenCalledTimes(1);
+    expect(executed.type).toBe('command-result');
+  });
+
+  it('executes pending workflow for "运行" and "go"', async () => {
+    const deps = createMockDeps({
+      config: { ...mockChatConfig, executeMode: 'manual' },
+      workflowEngine: mockWorkflowEngine as unknown as ReplDeps['workflowEngine'],
+      nlProcessor: mockNlProcessor as unknown as ReplDeps['nlProcessor'],
+    });
+    const repl = createRepl(deps);
+    await repl.processInput('some input');
+
+    const executed1 = await repl.processInput('运行');
+    expect(mockWorkflowEngine.execute).toHaveBeenCalledTimes(1);
+    expect(executed1.type).toBe('command-result');
+
+    await repl.processInput('some input');
+    const executed2 = await repl.processInput('go');
+    expect(mockWorkflowEngine.execute).toHaveBeenCalledTimes(2);
+    expect(executed2.type).toBe('command-result');
+  });
+
+  it('returns error when no pending workflow exists for bare execute', async () => {
+    const deps = createMockDeps({
+      config: { ...mockChatConfig, executeMode: 'manual' },
+      workflowEngine: mockWorkflowEngine as unknown as ReplDeps['workflowEngine'],
+      nlProcessor: mockNlProcessor as unknown as ReplDeps['nlProcessor'],
+    });
+    const repl = createRepl(deps);
+
+    const result = await repl.processInput('执行');
+
+    expect(mockWorkflowEngine.execute).not.toHaveBeenCalled();
+    expect(result.type).toBe('error');
+    expect(result.content).toContain('没有待执行的工作流');
+  });
+
+  it('does not treat longer NL sentences as bare execute', async () => {
+    const deps = createMockDeps({
+      config: { ...mockChatConfig, executeMode: 'manual' },
+      workflowEngine: mockWorkflowEngine as unknown as ReplDeps['workflowEngine'],
+      nlProcessor: mockNlProcessor as unknown as ReplDeps['nlProcessor'],
+    });
+    const repl = createRepl(deps);
+
+    const result = await repl.processInput('执行一下 git status');
+
+    expect(mockWorkflowEngine.execute).not.toHaveBeenCalled();
+    expect(mockNlProcessor.parse).toHaveBeenCalled();
+    expect(result).toBeDefined();
   });
 });
 
