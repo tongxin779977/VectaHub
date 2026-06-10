@@ -386,6 +386,7 @@ export function createREPL(deps: ReplDeps) {
     });
 
     ui.renderInfo(`VectaHub Chat REPL ${formatChatConfig(deps.config)}`);
+    ui.renderInfo('💡 输入自然语言生成工作流，再输入 `执行` / `run` / `go` 触发最近一个待执行工作流');
     rl.prompt();
 
     rl.on('line', async (line: string) => {
