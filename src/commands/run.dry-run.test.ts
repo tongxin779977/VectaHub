@@ -45,7 +45,9 @@ const orchestrateIntent = vi.fn(async () => ({
   matchedCapability: 'git-workflow',
   score: 0.9,
 }));
+type ResolveRunTaskContractFn = typeof import('./run-task-contract-resolver.js')['resolveRunTaskContract'];
 const resolveRunTaskContractMock = vi.fn();
+let actualResolveRunTaskContract: ResolveRunTaskContractFn;
 
 vi.mock('../utils/logger.js', () => ({
   createConsoleLogger: () => ({
@@ -109,7 +111,8 @@ vi.mock('../nl/orchestrator.js', () => ({
 }));
 
 vi.mock('./run-task-contract-resolver.js', async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = await importOriginal<typeof import('./run-task-contract-resolver.js')>();
+  actualResolveRunTaskContract = actual.resolveRunTaskContract;
   resolveRunTaskContractMock.mockImplementation(actual.resolveRunTaskContract);
   return {
     ...actual,
@@ -127,6 +130,11 @@ async function createTestRunCmd() {
   return createRunCmd(getDefaultContext());
 }
 
+function resetResolveRunTaskContractMock(): void {
+  resolveRunTaskContractMock.mockReset();
+  resolveRunTaskContractMock.mockImplementation(actualResolveRunTaskContract);
+}
+
 describe('run command dry-run first run behavior', () => {
   let exitSpy: { mockRestore: () => void };
 
@@ -135,6 +143,7 @@ describe('run command dry-run first run behavior', () => {
     createWorkflow.mockClear();
     executeWorkflow.mockClear();
     orchestrateIntent.mockClear();
+    resetResolveRunTaskContractMock();
     orchestrateIntent.mockResolvedValue({
       steps: [
         {
@@ -538,6 +547,7 @@ describe('run command TaskContract-first routing', () => {
 
   beforeEach(() => {
     orchestrateIntent.mockClear();
+    resetResolveRunTaskContractMock();
     createWorkflow.mockClear();
     executeWorkflow.mockClear();
     exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
@@ -594,11 +604,22 @@ describe('run command TaskContract-first routing', () => {
     const consoleSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     orchestrateIntent.mockResolvedValue({
       steps: [
-        { id: 'step_blocked', description: 'CI diagnose', status: 'PENDING', cli: 'vectahub', args: ['ci', 'diagnose'], type: 'exec' },
+        { id: 'step_1', description: 'Doctor', status: 'PENDING', cli: 'vectahub', args: ['doctor'], type: 'exec' },
       ],
       intentRecognitionMethod: 'llm',
-      recognizedIntent: 'ci_diagnose',
-      score: 0.8,
+      recognizedIntent: 'doctor',
+      score: 0.9,
+    });
+    resolveRunTaskContractMock.mockReturnValue({
+      taskContract: {
+        schemaVersion: '1.0', requestId: 'invalid-vh', rawInput: '诊断 CI 失败', normalizedGoal: '诊断 CI 失败',
+        confidence: 0.9, language: 'zh-CN', internalSignals: { intentCandidates: ['ci_diagnose'], routeSource: 'llm-tool-calling' },
+        kind: 'execute', taskKind: 'inspect', operation: 'ci_diagnose',
+        target: { scope: 'project' }, constraints: { requiresConfirmation: false, requiresVerification: false, sideEffects: ['command'] },
+        executionStrategy: { mode: 'direct-command', commandSurfaceId: 'vectahub ci diagnose' },
+        expectedOutput: { format: 'text', audience: 'system' },
+      },
+      legacy: { success: true, intent: 'ci_diagnose', confidence: 0.9, metadata: { path: 'llm-tool-calling' } },
     });
 
     const runCmd = await createTestRunCmd();
@@ -676,30 +697,13 @@ describe('run command TaskContract-first routing', () => {
       recognizedIntent: 'git_status',
       score: 0.9,
     });
-    createWorkflow.mockResolvedValue({
-      id: 'wf_reply_exec',
-      name: 'reply exec workflow',
-      steps: [{ id: 'step_1', type: 'exec', cli: 'git', args: ['status'] }],
-      createdAt: new Date(),
-    });
-    executeWorkflow.mockResolvedValue({
-      executionId: 'exec_reply',
-      workflowId: 'wf_reply_exec',
-      workflowName: 'reply exec workflow',
-      status: 'COMPLETED',
-      mode: 'relaxed',
-      startedAt: new Date(),
-      endedAt: new Date(),
-      duration: 1,
-      steps: [],
-      warnings: [],
-      logs: [],
-    });
 
     const runCmd = await createTestRunCmd();
     await runCmd.parseAsync(['node', 'test', '查看 git 状态并解释']);
 
-    expect(createWorkflow).toHaveBeenCalled();
+    const output = consoleSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).not.toContain('我先解释一下');
+    expect(createWorkflow).not.toHaveBeenCalled();
     consoleSpy.mockRestore();
   });
 
@@ -721,7 +725,7 @@ describe('run command TaskContract-first routing', () => {
     expect(process.exit).not.toHaveBeenCalled();
   });
 
-  it('execute-bridge uses contract command not legacy steps', async () => {
+  it('doctor intent resolves to agent-runtime instead of executing legacy doctor steps in dry-run', async () => {
     const consoleSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     orchestrateIntent.mockResolvedValue({
       steps: [
@@ -731,23 +735,37 @@ describe('run command TaskContract-first routing', () => {
       recognizedIntent: 'doctor',
       score: 0.9,
     });
+    resolveRunTaskContractMock.mockReturnValue({
+      taskContract: {
+        schemaVersion: '1.0', requestId: 'doctor-dry-run', rawInput: '诊断项目', normalizedGoal: '诊断项目',
+        confidence: 0.9, language: 'zh-CN', internalSignals: { intentCandidates: ['doctor'], routeSource: 'llm-tool-calling' },
+        kind: 'execute', taskKind: 'diagnose', operation: 'doctor',
+        target: { scope: 'project' }, constraints: { requiresConfirmation: false, requiresVerification: false, sideEffects: ['command'] },
+        executionStrategy: { mode: 'agent-runtime' },
+        expectedOutput: { format: 'text', audience: 'system' },
+      },
+      legacy: { success: true, intent: 'doctor', confidence: 0.9, metadata: { path: 'llm-tool-calling' } },
+    });
 
     const runCmd = await createTestRunCmd();
     await runCmd.parseAsync(['node', 'test', '--dry-run', '--json', '诊断项目']);
 
     const output = consoleSpy.mock.calls.map(c => c[0]).join('');
     const parsed = JSON.parse(output);
-    expect(parsed.ok).toBe(true);
+    expect(parsed.ok).toBe(false);
     expect(parsed.dryRun).toBe(true);
-    expect(parsed.result.kind).toBe('workflow_draft');
-    const steps = parsed.result.workflow.steps;
-    expect(steps[0].command.cli).toBe('vectahub');
-    expect(steps[0].command.args).toContain('doctor');
+    expect(parsed.result.kind).toBe('blocked');
+    expect(parsed.dispatch.kind).toBe('agent-task');
     expect(createWorkflow).not.toHaveBeenCalled();
     consoleSpy.mockRestore();
   });
 
-  it('execute-bridge creates and executes workflow in non-dry-run mode', async () => {
+  it('doctor intent auto-generates an agent task contract instead of executing legacy doctor steps', async () => {
+    const { getDefaultContext } = await import('../infrastructure/context.js');
+    const env = getDefaultContext().environment;
+    const ensureDirSpy = vi.spyOn(env, 'ensureDir').mockImplementation(() => {});
+    const writeFileSpy = vi.spyOn(env, 'writeFile').mockImplementation(() => {});
+
     orchestrateIntent.mockResolvedValue({
       steps: [
         { id: 'step_1', description: 'Doctor', status: 'PENDING', cli: 'vectahub', args: ['doctor'], type: 'exec' },
@@ -756,37 +774,20 @@ describe('run command TaskContract-first routing', () => {
       recognizedIntent: 'doctor',
       score: 0.9,
     });
-    createWorkflow.mockResolvedValue({
-      id: 'wf_bridge',
-      name: 'bridge workflow',
-      steps: [{ id: 'step_1', type: 'exec', cli: 'vectahub', args: ['doctor'] }],
-      createdAt: new Date(),
-    });
-    executeWorkflow.mockResolvedValue({
-      executionId: 'exec_bridge',
-      workflowId: 'wf_bridge',
-      workflowName: 'bridge workflow',
-      status: 'COMPLETED',
-      mode: 'relaxed',
-      startedAt: new Date(),
-      endedAt: new Date(),
-      duration: 1,
-      steps: [],
-      warnings: [],
-      logs: [],
-    });
 
     const runCmd = await createTestRunCmd();
     await runCmd.parseAsync(['node', 'test', '诊断项目']);
 
-    expect(createWorkflow).toHaveBeenCalledWith(
-      expect.stringMatching(/^intent_/),
-      expect.arrayContaining([
-        expect.objectContaining({ cli: 'vectahub', args: ['doctor'] }),
-      ]),
-      { persist: false }
+    expect(createWorkflow).not.toHaveBeenCalled();
+    expect(executeWorkflow).not.toHaveBeenCalled();
+    expect(ensureDirSpy).toHaveBeenCalled();
+    expect(writeFileSpy).toHaveBeenCalledWith(
+      expect.stringContaining('.md'),
+      expect.stringContaining('taskId:')
     );
-    expect(executeWorkflow).toHaveBeenCalled();
+
+    ensureDirSpy.mockRestore();
+    writeFileSpy.mockRestore();
   });
 });
 
@@ -797,7 +798,7 @@ describe('run command TaskContract priority over legacy', () => {
     orchestrateIntent.mockClear();
     createWorkflow.mockClear();
     executeWorkflow.mockClear();
-    resolveRunTaskContractMock.mockReset();
+    resetResolveRunTaskContractMock();
     exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
   });
 
@@ -930,8 +931,10 @@ describe('run command TaskContract priority over legacy', () => {
     const runCmd = await createTestRunCmd();
     await runCmd.parseAsync(['node', 'test', '查看 git 状态并解释']);
 
-    expect(createWorkflow).toHaveBeenCalled();
-    expect(executeWorkflow).toHaveBeenCalled();
+    const output = consoleSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).not.toContain('我先解释一下');
+    expect(createWorkflow).not.toHaveBeenCalled();
+    expect(executeWorkflow).not.toHaveBeenCalled();
     consoleSpy.mockRestore();
   });
 

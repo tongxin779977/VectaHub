@@ -33,7 +33,7 @@ describe('task-contract adapter', () => {
     expect(contract.normalizedGoal).toBe(rawInput.trim());
   });
 
-  it('maps executable doctor result to execution task contract', () => {
+  it('maps executable doctor result to agent-runtime task contract', () => {
     const rawInput = '  帮我诊断一下这个项目  ';
     const result = createBaseResult({
       intent: 'doctor',
@@ -67,8 +67,8 @@ describe('task-contract adapter', () => {
       throw new Error('expected execute task contract');
     }
     expect(contract.taskKind).toBe('diagnose');
-    expect(contract.executionStrategy.mode).toBe('capability');
-    expect(contract.executionStrategy.commandSurfaceId).toContain('vectahub doctor');
+    expect(contract.executionStrategy.mode).toBe('agent-runtime');
+    expect(contract.executionStrategy.commandSurfaceId).toBeUndefined();
     expect(contract.rawInput).toBe(rawInput);
     expect(contract.normalizedGoal).toBe('帮我诊断一下这个项目');
   });
@@ -165,6 +165,43 @@ describe('task-contract adapter', () => {
     const contract = toTaskContract(rawInput, result);
 
     expect(contract.kind).toBe('execute');
+  });
+
+  it('keeps doctor workflow YAML out of workflow-draft command execution', () => {
+    const rawInput = '帮我系统的诊断一下这个项目';
+    const result = createBaseResult({
+      intent: 'doctor',
+      workflowYAML: 'name: doctor\nsteps:\n  - run: vectahub doctor\n',
+      metadata: {
+        path: 'llm-tool-calling',
+      },
+      taskList: {
+        version: '1.0',
+        generatedAt: new Date().toISOString(),
+        originalInput: rawInput,
+        intent: 'doctor',
+        confidence: 0.9,
+        entities: { FILE_PATH: [], CLI_TOOL: [], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: [], HOST: [], PORT: [], OWNER: [], MODE: [], FILE1: [], FILE2: [] },
+        tasks: [{
+          id: 'task_1',
+          type: 'QUERY_EXEC',
+          description: 'step_doctor',
+          status: 'PENDING',
+          commands: [{ cli: 'vectahub', args: ['doctor'] }],
+          dependencies: [],
+        }],
+        warnings: [],
+      },
+    });
+
+    const contract = toTaskContract(rawInput, result);
+
+    expect(contract.kind).toBe('execute');
+    if (contract.kind !== 'execute') {
+      throw new Error('expected execute task contract');
+    }
+    expect(contract.taskKind).toBe('diagnose');
+    expect(contract.executionStrategy.mode).toBe('agent-runtime');
   });
 
   it('maps refactor-style execution to agent-runtime strategy', () => {

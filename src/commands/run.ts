@@ -20,8 +20,8 @@ import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { createRunDispatch, formatRunDispatchText } from './run-dispatch.js';
 import { interpolateStep, type InterpolationContext } from '../workflow/interpolation.js';
 import { resolveRunTaskContract } from './run-task-contract-resolver.js';
+import { writeAgentTaskContractFile } from './agent-task-contract-file.js';
 import { resolveTaskContractAction, buildDispatchFeedbackText, type TaskContractAction } from '../nl/task-contract-runtime.js';
-import type { ExecutionTaskContract } from '../types/task-contract.js';
 import {
   buildReplyEnvelope,
   buildClarifyEnvelope,
@@ -79,39 +79,6 @@ function restoreEnvValue(context: InfrastructureContext, name: string, previousV
   }
 }
 
-function buildMarkdownFromTaskContract(taskContract: ExecutionTaskContract): string {
-  const constraints = taskContract.constraints || {};
-  const sideEffects = constraints.sideEffects ? constraints.sideEffects.join(', ') : 'none';
-  
-  return [
-    `# Tasks`,
-    ``,
-    `## ${taskContract.requestId} ${taskContract.normalizedGoal}`,
-    ``,
-    `taskId: ${taskContract.requestId}`,
-    `schemaVersion: ${taskContract.schemaVersion}`,
-    `normalizedGoal: ${taskContract.normalizedGoal}`,
-    ``,
-    `### Constraints`,
-    `- requiresConfirmation: ${constraints.requiresConfirmation ?? false}`,
-    `- requiresVerification: ${constraints.requiresVerification ?? false}`,
-    `- sideEffects: ${sideEffects}`,
-    ``,
-    `### Target`,
-    `- scope: ${taskContract.target?.scope ?? 'unknown'}`,
-    `- identifier: ${taskContract.target?.identifier ?? 'none'}`,
-    ``,
-    `### Execution Strategy`,
-    `- mode: ${taskContract.executionStrategy.mode}`,
-    `- capabilityId: ${taskContract.executionStrategy.capabilityId ?? 'none'}`,
-    `- commandSurfaceId: ${taskContract.executionStrategy.commandSurfaceId ?? 'none'}`,
-    ``,
-    `### Expected Output`,
-    `- format: ${taskContract.expectedOutput?.format ?? 'text'}`,
-    `- audience: ${taskContract.expectedOutput?.audience ?? 'user'}`,
-  ].join('\n');
-}
-
 interface PresentOptions {
   dryRun?: boolean;
   json?: boolean;
@@ -140,9 +107,10 @@ class TaskContractUiPresenter {
         this.output.json(buildClarifyEnvelope(tcAction.question));
       } else if (tcAction.kind === 'blocked') {
         this.output.json(buildBlockedEnvelope(tcAction.reason, { kind: 'blocked', executable: false, reason: tcAction.reason }));
+      } else if (tcAction.kind === 'execute-dispatch-feedback') {
+        this.output.json(buildBlockedEnvelope(tcAction.feedback, tcAction.dispatch));
       } else {
-        const dispatch = tcAction.kind === 'execute-dispatch-feedback' ? tcAction.dispatch : undefined;
-        this.output.json(buildBlockedEnvelope(tcAction.kind === 'blocked' ? tcAction.reason : (tcAction.kind === 'execute-dispatch-feedback' ? tcAction.feedback : ''), dispatch));
+        this.output.json(buildBlockedEnvelope('', { kind: 'blocked', executable: false, reason: '' }));
       }
     } else {
       if (tcAction.kind === 'reply') {
@@ -151,7 +119,8 @@ class TaskContractUiPresenter {
         this.output.json({ ok: false, reason: tcAction.question });
       } else {
         const dispatch = tcAction.kind === 'execute-dispatch-feedback' ? tcAction.dispatch : undefined;
-        this.output.json({ ok: false, reason: tcAction.kind === 'blocked' ? tcAction.reason : (tcAction.kind === 'execute-dispatch-feedback' ? tcAction.feedback : ''), ...(dispatch ? { dispatch } : {}) });
+        const reason = tcAction.kind === 'execute-dispatch-feedback' ? tcAction.feedback : '';
+        this.output.json({ ok: false, reason, ...(dispatch ? { dispatch } : {}) });
       }
     }
   }
@@ -475,20 +444,9 @@ export function createRunCmd(context: InfrastructureContext): Command {
         const envelope = resolveRunTaskContract(result, text);
         const tcAction = resolveTaskContractAction(envelope, text, 'run');
 
-        if (!options.dryRun && tcAction.kind === 'execute-dispatch-feedback' && tcAction.dispatch.kind === 'agent-task') {
-          const tasksDir = context.environment.getEnv('VECTAHUB_TASKS_DIR') || '.vectahub/tasks';
-          const resolvedTasksDir = context.environment.resolvePath(tasksDir);
-          context.environment.ensureDir(resolvedTasksDir);
-
-          const taskFileName = `${envelope.taskContract.requestId}.md`;
-          const taskFilePath = context.environment.joinPath(resolvedTasksDir, taskFileName);
-          
-          const markdownContent = buildMarkdownFromTaskContract(envelope.taskContract as ExecutionTaskContract);
-          context.environment.writeFile(taskFilePath, markdownContent);
-
-          const relativePath = context.environment.joinPath(tasksDir, taskFileName);
-          
-          tcAction.dispatch.suggestedAction = `已在 ${relativePath} 自动为您生成任务合同。您可以使用 \`vectahub run-task --file ${relativePath}\` 直接执行此 Agent 任务。`;
+        if (!options.dryRun && tcAction.kind === 'execute-dispatch-feedback' && tcAction.dispatch.kind === 'agent-task' && envelope.taskContract.kind === 'execute') {
+          const generated = writeAgentTaskContractFile(context, envelope.taskContract);
+          tcAction.dispatch.suggestedAction = generated.suggestedAction;
           tcAction.feedback = buildDispatchFeedbackText(tcAction.summaryLines, tcAction.dispatch, 'run');
         }
 

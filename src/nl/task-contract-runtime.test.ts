@@ -214,13 +214,14 @@ describe('resolveTaskContractAction', () => {
     expect((action as { feedback: string }).feedback).toContain('任务执行已阻断');
   });
 
-  it('returns execute-continue for direct-command', () => {
+  it('returns execute-dispatch-feedback for direct-command', () => {
     const envelope = makeEnvelope(
       makeExecuteContract({ mode: 'direct-command', commandSurfaceId: 'git status' }),
       makeNLResult({ intent: 'git_status' }),
     );
     const action = resolveTaskContractAction(envelope, '帮我执行 git status', 'REPL');
-    expect(action.kind).toBe('execute-continue');
+    expect(action.kind).toBe('execute-dispatch-feedback');
+    expect((action as { dispatch: { kind: string } }).dispatch.kind).toBe('direct-command');
   });
 
   it('execute contract takes precedence over legacy reply', () => {

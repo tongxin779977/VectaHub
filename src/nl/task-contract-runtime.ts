@@ -128,7 +128,7 @@ export function resolveTaskContractAction(
         taskContract,
       });
 
-      if (!dispatch.executable) {
+      if (!dispatch.executable || dispatch.kind === 'direct-command') {
         return {
           kind: 'execute-dispatch-feedback',
           summaryLines: presentation.summaryLines,
