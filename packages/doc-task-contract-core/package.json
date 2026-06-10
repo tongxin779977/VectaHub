@@ -1,6 +1,6 @@
 {
   "name": "@vectahub/doc-task-contract-core",
-  "version": "1.0.14",
+  "version": "1.0.17",
   "private": true,
   "type": "module",
   "exports": {
