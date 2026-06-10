@@ -211,7 +211,7 @@ vi.mock('../utils/logger.js', () => ({
   })),
 }));
 
-import { runTask, runTaskCleanLogsCmd, collectGitChanges, formatRunTaskHumanOutput, formatRunTaskJson, runVerificationCommands, splitCommandArgs, buildDefaultPrompt, bindRunTaskContext, buildTaskRuntimeFeatures, formatPreflightEstimateSummary, buildRuntimeResolvedConfig, type RunTaskResult } from './run-task.js';
+import { runTask, runTaskCleanLogsCmd, collectGitChanges, formatRunTaskHumanOutput, formatRunTaskJson, runVerificationCommands, splitCommandArgs, buildDefaultPrompt, bindRunTaskContext, buildTaskRuntimeFeatures, formatPreflightEstimateSummary, buildRuntimeResolvedConfig, deriveTaskIdFromDocFile, type RunTaskResult } from './run-task.js';
 import { getDefaultContext } from '../infrastructure/context.js';
 import { createLLMConfig, createLLMConfigDigestSource } from '../nl/llm.js';
 import { assessCommandRisk } from '../security-protocol/engine.js';
@@ -4721,4 +4721,49 @@ describe('buildRuntimeResolvedConfig', () => {
     expect(config.progressIntervalMs).toBe(sampleEstimate.progressIntervalMs);
   });
 
+});
+
+describe('deriveTaskIdFromDocFile', () => {
+  let tmpDir: string;
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'vectahub-run-task-derive-'));
+  });
+
+  it('derives taskId from filename pattern nlreq_*.md', () => {
+    const file = join(tmpDir, 'nlreq_1781071704179_8u015h.md');
+    const result = deriveTaskIdFromDocFile(file, getDefaultContext() as any);
+    expect(result).toBe('nlreq_1781071704179_8u015h');
+  });
+
+  it('prefers taskId field from file body when both exist', () => {
+    const file = join(tmpDir, 'nlreq_filename_id.md');
+    writeFileSync(file, '# Tasks\n## header\n\ntaskId: nlreq_body_id_xyz\nschemaVersion: 1.0\n');
+    const result = deriveTaskIdFromDocFile(file, getDefaultContext() as any);
+    expect(result).toBe('nlreq_body_id_xyz');
+  });
+
+  it('falls back to filename when body has no taskId field', () => {
+    const file = join(tmpDir, 'nlreq_only_filename.md');
+    writeFileSync(file, '# no taskId here\n');
+    const result = deriveTaskIdFromDocFile(file, getDefaultContext() as any);
+    expect(result).toBe('nlreq_only_filename');
+  });
+
+  it('returns filename when file does not exist', () => {
+    const file = join(tmpDir, 'nlreq_ghost.md');
+    const result = deriveTaskIdFromDocFile(file, getDefaultContext() as any);
+    expect(result).toBe('nlreq_ghost');
+  });
+
+  it('returns null for empty path', () => {
+    expect(deriveTaskIdFromDocFile('', getDefaultContext() as any)).toBeNull();
+  });
+
+  it('handles path with directories', () => {
+    const sub = join(tmpDir, 'sub');
+    mkdirSync(sub, { recursive: true });
+    const file = join(sub, 'nlreq_nested_id.md');
+    const result = deriveTaskIdFromDocFile(file, getDefaultContext() as any);
+    expect(result).toBe('nlreq_nested_id');
+  });
 });

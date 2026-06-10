@@ -3412,22 +3412,51 @@ export async function runTask(options: {
   }
 }
 
+/**
+ * 从任务合同文件派生 taskId。
+ * 优先解析文件正文中的 `taskId: <id>`；若文件不存在或正文不含此字段，
+ * 则回退到文件名（约定形如 `nlreq_*.md`）。
+ *
+ * 该函数是建议文案 `vectahub run-task --file <path>` 真正可用
+ * （不再强依赖用户手动复制 taskId）的关键。
+ */
+export function deriveTaskIdFromDocFile(filePath: string, context: InfrastructureContext = getContext()): string | null {
+  if (!filePath) return null;
+  const fileName = filePath.split(/[\\/]/).pop() ?? '';
+  const fileNameMatch = fileName.match(/^(nlreq_[A-Za-z0-9_-]+)\.md$/);
+  const fileNameCandidate = fileNameMatch ? fileNameMatch[1] : (fileName.replace(/\.md$/i, '') || null);
+
+  if (!context.environment.exists(filePath)) {
+    return fileNameCandidate;
+  }
+  try {
+    const content = context.environment.readFile(filePath);
+    const bodyMatch = content.match(/^\s*taskId\s*:\s*(\S+)\s*$/m);
+    if (bodyMatch && bodyMatch[1]) {
+      return bodyMatch[1];
+    }
+  } catch {
+    // 读取失败时回退到文件名
+  }
+  return fileNameCandidate;
+}
+
 export function createRunTaskCmd(_context: InfrastructureContext): Command {
   bindRunTaskContext(_context);
   const output = createRunTaskCommandOutput();
   return new Command('run-task')
     .description('执行文档任务：根据任务描述和 Agent CLI 工具生成并执行命令')
     .option('--tool <name>', 'Agent CLI 工具名称（如 aider、claude）')
-    .requiredOption('--task-id <id>', '任务编号')
+    .option('--task-id <id>', '任务编号（与 --file/--doc 互斥：传 file 时可省略）')
+    .option('--file <path>', '任务合同文档路径（可派生 --task-id）')
     .option('--task-label <label>', '任务描述')
-    .option('--doc <path>', '参考文档路径')
-    .option('--file <path>', '参考文档路径（同 --doc）')
+    .option('--doc <path>', '参考文档路径（与 --file 等价的旧别名）')
     .option('--dry-run', '仅生成命令，不实际执行')
     .option('--contract-preview', '只生成任务边界合同摘要，不加载 LLM、不执行 Agent')
     .option('--json', '以 JSON 格式输出')
     .action(async (options: {
       tool?: string;
-      taskId: string;
+      taskId?: string;
       taskLabel?: string;
       doc?: string;
       file?: string;
@@ -3438,8 +3467,20 @@ export function createRunTaskCmd(_context: InfrastructureContext): Command {
       let deferredTraceCloseout: RunTaskTraceCloseout | undefined;
       try {
         const docPath = options.doc || options.file;
+        if (!docPath) {
+          throw new VectaHubError('run-task 需要 --file 或 --doc 指定任务合同路径', ErrorType.RUNTIME, { code: 'MISSING_DOC_PATH' });
+        }
+        let resolvedTaskId = options.taskId;
+        if (!resolvedTaskId) {
+          const derived = deriveTaskIdFromDocFile(docPath, _context);
+          if (!derived) {
+            throw new VectaHubError('无法从 --file 派生 --task-id，请在文件名或文件正文中包含 taskId 字段', ErrorType.RUNTIME, { code: 'MISSING_TASK_ID' });
+          }
+          resolvedTaskId = derived;
+        }
         const result = await runTask({
           ...options,
+          taskId: resolvedTaskId,
           doc: docPath,
           deferTraceCloseout: Boolean(options.json),
         });

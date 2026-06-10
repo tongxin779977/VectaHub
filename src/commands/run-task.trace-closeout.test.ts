@@ -29,6 +29,7 @@ describe('runTask trace closeout', () => {
     const runTaskCmd = await createTestRunTaskCmd();
 
     await runTaskCmd.parseAsync([
+      '--file', '/tmp/does-not-matter.md',
       '--task-id', 'TRACE-1',
       '--contract-preview',
       '--json',
@@ -60,6 +61,7 @@ describe('runTask trace closeout', () => {
     const runTaskCmd = await createTestRunTaskCmd();
 
     await expect(runTaskCmd.parseAsync([
+      '--file', '/tmp/does-not-matter.md',
       '--task-id', 'TRACE-ERR',
       '--json',
     ], { from: 'user' })).rejects.toThrow('缺少 Agent CLI 工具名称');
