@@ -1,5 +1,5 @@
 import pino from 'pino';
-import { mkdirSync, existsSync } from 'node:fs';
+import { mkdirSync, existsSync, openSync, closeSync } from 'node:fs';
 import { join } from 'node:path';
 import { redactString } from '../../utils/sensitive-data.js';
 import { getProjectLogDir } from '../paths/index.js';
@@ -101,25 +101,31 @@ export class LoggerService implements ILoggerService {
     return pino(baseOptions, pino.destination(2));
   }
 
-  createFileLogger(prefix = ''): pino.Logger {
+  createFileLogger(prefix = '', preflighted?: { appLogFile: string; errorLogFile: string }): pino.Logger {
     const name = prefix || 'vectahub';
-    let appLogDir: string;
-    let errorLogDir: string;
+    let appLogFile: string;
+    let errorLogFile: string;
 
-    if (this.projectRoot) {
-      appLogDir = getProjectLogDir(this.projectRoot, 'app');
-      errorLogDir = getProjectLogDir(this.projectRoot, 'error');
+    if (preflighted) {
+      appLogFile = preflighted.appLogFile;
+      errorLogFile = preflighted.errorLogFile;
+    } else if (this.projectRoot) {
+      const appLogDir = getProjectLogDir(this.projectRoot, 'app');
+      const errorLogDir = getProjectLogDir(this.projectRoot, 'error');
+      ensureDir(appLogDir);
+      ensureDir(errorLogDir);
+      appLogFile = join(appLogDir, `${formatDate(new Date())}.log`);
+      errorLogFile = join(errorLogDir, `${formatDate(new Date())}.json`);
     } else {
       const logDir = this.env.getPath('logs');
-      appLogDir = join(logDir, 'app');
-      errorLogDir = join(logDir, 'error');
+      const appLogDir = join(logDir, 'app');
+      const errorLogDir = join(logDir, 'error');
+      ensureDir(appLogDir);
+      ensureDir(errorLogDir);
+      appLogFile = join(appLogDir, `${formatDate(new Date())}.log`);
+      errorLogFile = join(errorLogDir, `${formatDate(new Date())}.json`);
     }
 
-    ensureDir(appLogDir);
-    ensureDir(errorLogDir);
-
-    const appLogFile = join(appLogDir, `${formatDate(new Date())}.log`);
-    const errorLogFile = join(errorLogDir, `${formatDate(new Date())}.json`);
     const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
 
     const baseOptions: pino.LoggerOptions = {
@@ -187,14 +193,76 @@ export class LoggerService implements ILoggerService {
     const key = prefix || 'vectahub';
     let cached = this.loggerCache.get(key);
     if (!cached) {
-      try {
-        cached = this.createFileLogger(prefix);
-      } catch {
-        // 文件日志创建失败时回退到控制台日志
+      // pre-test log file writability. pino() configures an async worker
+      // transport that fails silently if the file cannot be opened
+      // (e.g. macOS com.apple.provenance xattr returns EPERM on existing
+      // log files for worker threads). Doing a sync openSync() here lets
+      // us detect the issue before the worker is even spawned, so we can
+      // skip the file target and fall back to the console logger.
+      const fileTargets = this.preflightLogFileTargets();
+      if (fileTargets) {
+        try {
+          cached = this.createFileLogger(prefix, fileTargets);
+        } catch {
+          // 文件日志创建失败时回退到控制台日志
+          cached = this.createConsoleLogger(prefix);
+        }
+      } else {
         cached = this.createConsoleLogger(prefix);
       }
       this.loggerCache.set(key, cached);
     }
     return cached;
+  }
+
+  /**
+   * 同步预检 log 文件可写性。返回要传给 file-target 的路径列表，
+   * 全部不可写时返回 null（调用方应回退到控制台）。
+   *
+   * 注意：仅检查文件本身是否可 openSync，目录由调用方在
+   * `createFileLogger` 中通过 `ensureDir` 创建。
+   */
+  private preflightLogFileTargets(): { appLogFile: string; errorLogFile: string } | null {
+    let appLogFile: string;
+    let errorLogFile: string;
+    try {
+      if (this.projectRoot) {
+        const appLogDir = getProjectLogDir(this.projectRoot, 'app');
+        const errorLogDir = getProjectLogDir(this.projectRoot, 'error');
+        ensureDir(appLogDir);
+        ensureDir(errorLogDir);
+        appLogFile = join(appLogDir, `${formatDate(new Date())}.log`);
+        errorLogFile = join(errorLogDir, `${formatDate(new Date())}.json`);
+      } else {
+        const logDir = this.env.getPath('logs');
+        const appLogDir = join(logDir, 'app');
+        const errorLogDir = join(logDir, 'error');
+        ensureDir(appLogDir);
+        ensureDir(errorLogDir);
+        appLogFile = join(appLogDir, `${formatDate(new Date())}.log`);
+        errorLogFile = join(errorLogDir, `${formatDate(new Date())}.json`);
+      }
+    } catch {
+      // 路径计算失败 → 直接回退
+      return null;
+    }
+
+    for (const filePath of [appLogFile, errorLogFile]) {
+      let fd: number | undefined;
+      try {
+        fd = openSync(filePath, 'a');
+      } catch {
+        return null;
+      } finally {
+        if (fd !== undefined) {
+          try {
+            closeSync(fd);
+          } catch {
+            // ignore close errors
+          }
+        }
+      }
+    }
+    return { appLogFile, errorLogFile };
   }
 }
