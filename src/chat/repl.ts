@@ -131,7 +131,7 @@ export const defaultSlashCommands: SlashCommand[] = [
   {
     name: 'help',
     description: '帮助',
-    handler: async () => '📖 可用命令: /exit, /help, /status, /execute',
+    handler: async () => '📖 可用命令: /exit, /help, /status, /execute\n💡 也可以直接输入 `执行` / `run` / `go` 触发最近一个待执行工作流',
   },
   {
     name: 'status',

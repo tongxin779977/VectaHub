@@ -299,6 +299,17 @@ describe('createRepl', () => {
     const result = await helpCmd!.handler([], { sessionId: 'test', config: mockChatConfig });
     expect(result).toContain('help');
     expect(result).toContain('exit');
+    expect(result).toContain('execute');
+  });
+
+  it('/help mentions bare execute shortcut', async () => {
+    const deps = createMockDeps();
+    const repl = createRepl(deps);
+    const handler = repl.getSlashCommands();
+    const helpCmd = handler.get('help');
+    const result = await helpCmd!.handler([], { sessionId: 'test', config: mockChatConfig });
+    expect(result).toContain('执行');
+    expect(result).toContain('run');
   });
 
   it('/exit should return exit signal', async () => {
