@@ -1,4 +1,5 @@
 import type { Command } from 'commander';
+import { parse as parseShell } from 'shell-quote';
 import { SimpleCache } from './utils.js';
 
 type StreamWrite = NodeJS.WriteStream['write'];
@@ -83,7 +84,12 @@ export class CommandBridge {
       return '❌ Empty command.';
     }
 
-    const [cmdName, ...args] = normalizedCommand.split(/\s+/);
+    const parsedArgs = parseShell(normalizedCommand);
+    const stringArgs = parsedArgs.filter((arg): arg is string => typeof arg === 'string');
+    if (stringArgs.length === 0) {
+      return '❌ Empty command.';
+    }
+    const [cmdName, ...args] = stringArgs;
     const userArgs = [cmdName, ...args];
 
     let output = '';

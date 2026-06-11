@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { InfrastructureContext } from '../infrastructure/context.js';
 import { createRepl } from '../chat/repl.js';
 import { CommandBridge } from '../chat/command-bridge.js';
+import { registerLazyProxyCommands } from '../cli-command-registry.js';
 import { createContextBuilder } from '../chat/context-builder.js';
 import { createNLProcessor } from '../nl/core/pipeline.js';
 import { createLLMConfig } from '../nl/llm.js';
@@ -42,6 +43,7 @@ export const chatCmd: Command = new Command('chat')
 export function buildReplDeps(context: InfrastructureContext): ReplDeps {
   const logger = context.logger.getLogger('chat');
   const commandProgram = new Command('vectahub');
+  registerLazyProxyCommands(commandProgram, context);
   const commandBridge = new CommandBridge(commandProgram);
   const llmConfig = createLLMConfig();
   const storage = createStorage({
