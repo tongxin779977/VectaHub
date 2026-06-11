@@ -38,6 +38,7 @@ const VECTAHUB_COMMANDS = new Set([
   'security',
   'audit',
   'tools',
+  'provider',
   'list',
   'mode',
   'history',

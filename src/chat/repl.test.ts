@@ -836,29 +836,29 @@ describe('useLLM=false DI regression', () => {
   });
 
   it('executes TaskContract from nlProcessor when useLLM=false', async () => {
-    const bridgeExecute = vi.fn().mockResolvedValue('doctor output');
+    const bridgeExecute = vi.fn().mockResolvedValue('list output');
     const deps = createMockDeps({
       useLLM: false,
       llmConfig: null,
       nlProcessor: {
         parse: vi.fn().mockResolvedValue({
           success: true,
-          intent: 'doctor',
+          intent: 'session_list',
           confidence: 1,
           metadata: { path: 'category-router' },
           taskList: {
-            tasks: [{ commands: [{ cli: 'vectahub', args: ['doctor'] }] }],
+            tasks: [{ commands: [{ cli: 'vectahub', args: ['list'] }] }],
           },
         }),
       } as unknown as ReplDeps['nlProcessor'],
       commandBridge: { execute: bridgeExecute } as unknown as ReplDeps['commandBridge'],
     });
     const repl = createRepl(deps);
-    const result = await repl.processInput('帮我诊断一下这个项目');
+    const result = await repl.processInput('帮我列出所有会话');
 
     expect(result.type).toBe('command-result');
-    expect(result.content).toContain('doctor output');
-    expect(bridgeExecute).toHaveBeenCalledWith('doctor');
+    expect(result.content).toContain('list output');
+    expect(bridgeExecute).toHaveBeenCalledWith('list');
     expect(LLMClient).not.toHaveBeenCalled();
   });
 

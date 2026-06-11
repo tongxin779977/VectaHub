@@ -398,7 +398,13 @@ export function createREPL(deps: ReplDeps) {
         return;
       }
 
-      rl.prompt();
+      if (process.env.NODE_ENV === 'test') {
+        rl.prompt();
+      } else {
+        setTimeout(() => {
+          rl.prompt();
+        }, 50);
+      }
     });
 
     rl.on('close', () => {
