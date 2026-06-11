@@ -456,7 +456,9 @@ export function registerLazyProxyCommands(program: Command, ctx: InfrastructureC
         const loadedCmd = program.commands.find(c => c.name() === cmdName);
         if (loadedCmd && loadedCmd !== lazyProxyCmd) {
           const cmdIndex = ctx.environment.getArgv().findIndex(arg => arg === cmdName);
-          const remainingArgs = ctx.environment.getArgv().slice(cmdIndex + 1);
+          const remainingArgs = cmdIndex !== -1
+            ? ctx.environment.getArgv().slice(cmdIndex + 1)
+            : lazyProxyCmd.args;
           await loadedCmd.parseAsync(remainingArgs, { from: 'user' });
         } else {
           const loadError = commandLoadErrors.get(cmdName);
