@@ -638,6 +638,34 @@ describe('Bare execute intent shortcut', () => {
     expect(result.content).toContain('没有待执行的工作流');
   });
 
+  it('returns error when workflow execution fails', async () => {
+    const failedWorkflowEngine = {
+      ...mockWorkflowEngine,
+      execute: vi.fn().mockResolvedValue({
+        executionId: 'exec-bare-fail',
+        status: 'FAILED',
+        duration: 20,
+        steps: [{ stepId: 'step1', status: 'FAILED', error: 'Command flag error: --yes' }],
+        warnings: [],
+        logs: [],
+      }),
+    };
+    const deps = createMockDeps({
+      config: { ...mockChatConfig, executeMode: 'manual' },
+      workflowEngine: failedWorkflowEngine as unknown as ReplDeps['workflowEngine'],
+      nlProcessor: mockNlProcessor as unknown as ReplDeps['nlProcessor'],
+    });
+    const repl = createRepl(deps);
+    await repl.processInput('some input');
+
+    const executed = await repl.processInput('执行');
+
+    expect(failedWorkflowEngine.execute).toHaveBeenCalledTimes(1);
+    expect(executed.type).toBe('error');
+    expect(executed.content).toContain('工作流执行失败');
+    expect(executed.content).toContain('Command flag error: --yes');
+  });
+
   it('does not treat longer NL sentences as bare execute', async () => {
     const deps = createMockDeps({
       config: { ...mockChatConfig, executeMode: 'manual' },

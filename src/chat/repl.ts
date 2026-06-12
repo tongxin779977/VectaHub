@@ -222,15 +222,29 @@ export function createREPL(deps: ReplDeps) {
       const executionId = execution.executionId;
       const status = execution.status;
       const exitCode = status === 'COMPLETED' ? 0 : 1;
+
+      pendingWorkflows.delete(sessId);
+      void persistSession();
+
+      if (status !== 'COMPLETED') {
+        const failedSteps = execution.steps.filter(s => s.status !== 'COMPLETED');
+        const errors = failedSteps.map(s => s.error).filter(Boolean);
+        const errorMessage = errors.length > 0
+          ? errors.join('\n')
+          : (execution.warnings.length > 0 ? execution.warnings.join('\n') : `工作流状态为 ${status}`);
+        return {
+          type: 'error',
+          content: `❌ 工作流执行失败:\n${errorMessage}`,
+          metadata: { executionId, status: String(status), exitCode },
+        };
+      }
+
       const lastStepOutput = execution.steps.length > 0
         ? execution.steps[execution.steps.length - 1].output
         : undefined;
       const outputText = Array.isArray(lastStepOutput) && lastStepOutput.length > 0
         ? lastStepOutput.join('\n')
         : '✅ 工作流执行完成';
-
-      pendingWorkflows.delete(sessId);
-      void persistSession();
 
       return {
         type: 'command-result',
