@@ -2,7 +2,7 @@
   "name": "vectahub-vscode-extension",
   "displayName": "VectaHub 任务助手",
   "description": "为 VectaHub CLI 提供自然语言工作流 UI 界面",
-  "version": "1.0.25",
+  "version": "1.0.26",
   "publisher": "vectahub",
   "license": "MIT",
   "repository": {

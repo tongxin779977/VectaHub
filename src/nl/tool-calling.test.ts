@@ -561,6 +561,7 @@ describe('convertToolCallToSteps', () => {
       const result = convertToolCallToSteps(toolCall);
       expect(result.steps[0].cli).toBe('aider');
       expect(result.steps[0].args).toEqual(['--message', 'make changes', 'src/index.ts', 'src/cli.ts']);
+      expect(result.steps[0].timeout).toBe(120000);
     });
   });
 });

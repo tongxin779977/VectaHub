@@ -479,6 +479,10 @@ export function convertToolCallToSteps(toolCall: LLMToolCall): { intent: string;
     });
 
     const finalArgs = [...rendered.args, ...files];
+    const targetAdapter = adapter as { getExecutionTimeoutMs?: () => number };
+    const timeout = typeof targetAdapter.getExecutionTimeoutMs === 'function'
+      ? targetAdapter.getExecutionTimeoutMs()
+      : 120000;
 
     return {
       intent: intentName,
@@ -488,6 +492,7 @@ export function convertToolCallToSteps(toolCall: LLMToolCall): { intent: string;
         type: 'exec' as const,
         cli: rendered.command,
         args: finalArgs,
+        timeout,
       }],
     };
   }

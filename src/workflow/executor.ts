@@ -131,12 +131,13 @@ export function createExecutor(deps: ExecutorDeps): Executor {
         child.stdin.end();
       }
 
-      child.on('close', (code: number | null) => {
+      child.on('close', (code: number | null, signal: string | null) => {
         currentChildProcess = null;
         if (timeoutHandle) clearTimeout(timeoutHandle);
+        const hasSignaled = code === null && signal !== null;
         resolve({
-          success: code === 0,
-          exitCode: code || 0,
+          success: code === 0 && !hasSignaled,
+          exitCode: code !== null ? code : 1,
           stdout,
           stderr,
           duration: Date.now() - startTime,

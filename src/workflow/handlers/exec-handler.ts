@@ -46,7 +46,7 @@ export const createExecHandler = (deps: HandlerDependencies): StepHandler => {
 
     try {
       // Safely access optional timeout from step
-      const stepTimeout = (step as Step & { timeout?: number }).timeout;
+      const stepTimeout = step.timeout;
       const stepOptions = {
         ...options,
         timeout: stepTimeout || options.timeout

@@ -23,6 +23,7 @@ export interface Step {
   delegatePrompt?: string;
   delegateContext?: Record<string, unknown>;
   delegateOptions?: AIDelegateOptions;
+  timeout?: number;
 }
 
 export type WorkflowMode = 'strict' | 'relaxed' | 'consensus';
