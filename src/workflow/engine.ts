@@ -228,9 +228,21 @@ async function runExecutionLoop(
     try {
       const records = await storage.list();
       const stepCommand = [step.cli, ...(step.args || [])].filter(Boolean).join(' ');
+      const registry = getAgentRegistry();
       const matched = records
         .flatMap(r => (r.steps || []).map(s => ({ ...s, startedAt: r.startedAt })))
-        .filter(s => s.stepId === step.id || s.command === stepCommand);
+        .filter(s => {
+          if (s.stepId === step.id || s.command === stepCommand) return true;
+          if (step.cli && s.command) {
+            const isAgent = registry.isKnownAgent(step.cli.toLowerCase());
+            if (isAgent) {
+              const cleanCommand = s.command.trim();
+              const targetPrefix = step.cli.trim();
+              return cleanCommand.startsWith(targetPrefix + ' ') || cleanCommand === targetPrefix;
+            }
+          }
+          return false;
+        });
 
       if (matched.length > 0) {
         const lastRun = matched[0];

@@ -923,5 +923,43 @@ describe('WorkflowEngine', () => {
 
       expect(steps[0].timeout).toBe(30000);
     });
+
+    it('should scale step timeout by matching Agent CLI prefix even if stepId and full command differ', async () => {
+      const { initializeBuiltInAgents } = await import('../agent-runtime/factory.js');
+      initializeBuiltInAgents();
+
+      const lastFailedExecution: ExecutionRecord = {
+        executionId: 'exec-prev-diff',
+        workflowId: 'wf-prev-diff',
+        workflowName: 'wf-prev-diff',
+        status: 'FAILED',
+        mode: 'relaxed',
+        startedAt: new Date(Date.now() - 60000),
+        steps: [
+          {
+            stepId: 'step_run_agent_aider',
+            stepName: 'step_run_agent_aider',
+            command: 'aider --message initial_changes src/index.ts',
+            status: 'FAILED',
+            error: 'timeout',
+            timing: {
+              startTime: new Date(Date.now() - 60000),
+              endTime: new Date(Date.now() - 40000),
+              durationMs: 80000,
+            }
+          }
+        ],
+        warnings: [],
+        logs: [],
+      };
+      mockList.mockResolvedValue([lastFailedExecution]);
+
+      const steps: Step[] = [{ id: 'step_1', type: 'exec', cli: 'aider', args: ['--message', 'new_changes', 'src/cli.ts'] }];
+      const workflow = await engine.createWorkflow('adaptive-wf-diff', steps);
+      
+      await engine.execute(workflow);
+
+      expect(steps[0].timeout).toBe(160000);
+    });
   });
 });
