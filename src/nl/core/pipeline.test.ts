@@ -516,4 +516,59 @@ describe('NLProcessor', () => {
       expect(result.workflowYAML).toBeUndefined();
     });
   });
+
+  describe('Agent Targeted Routing', () => {
+    it('should restrict tools list to the specific run_agent tool when specified agent is present in input', async () => {
+      const { getAgentRegistry, resetAgentRegistry } = await import('../../agent-runtime/registry.js');
+      const registry = getAgentRegistry();
+      const mockDescriptor = {
+        id: 'agy',
+        displayName: 'Agy Agent',
+        entryCommand: 'agy',
+        nonInteractiveFlags: [],
+        approvalPolicySupport: 'unknown' as const,
+        structuredOutputSupport: false,
+        preflightSpec: {
+          versionArgs: [],
+          invocableArgs: [],
+          readyArgs: [],
+        },
+        dryRunRenderMode: 'prompt-only' as const,
+        runtimePolicy: { configSemantics: 'inherit-user-default' as const },
+      };
+      const mockAdapter = {
+        render: vi.fn().mockReturnValue({ command: 'agy', args: [] }),
+        execute: vi.fn(),
+      };
+      registry.register(mockDescriptor, mockAdapter as any);
+
+      const completeSpy = vi.spyOn(LLMClient.prototype, 'complete').mockResolvedValue({
+        tool_calls: [{
+          id: 'call_1',
+          type: 'function',
+          function: { name: 'run_agent_agy', arguments: JSON.stringify({ prompt: 'review project' }) }
+        }],
+        confidence: 0.9,
+      } as any);
+
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig, auditHelper: mockAuditHelper, logger: mockLogger });
+      const result = await processor.parse({ input: '帮我使用 agy 全量审查项目' });
+
+      expect(completeSpy).toHaveBeenCalled();
+      const lastCallArgs = completeSpy.mock.calls[0];
+      const toolsPassedToLLM = lastCallArgs[3]?.tools || [];
+
+      const runAgentTools = toolsPassedToLLM.filter((t: any) => t.function.name.startsWith('run_agent_'));
+      expect(runAgentTools.length).toBe(1);
+      expect(runAgentTools[0].function.name).toBe('run_agent_agy');
+
+      const discoverTool = toolsPassedToLLM.find((t: any) => t.function.name === 'tool_discover');
+      expect(discoverTool).toBeUndefined();
+
+      expect(result.intent).toBe('run_agent_agy');
+
+      resetAgentRegistry();
+    });
+  });
 });
+

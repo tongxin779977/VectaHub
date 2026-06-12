@@ -107,27 +107,31 @@ export function createNLProcessor(deps: NLProcessorDeps): NLProcessor {
     const goal = parseGoal(input);
     let domains: string[] | undefined = goal.domains;
 
-    if (domains.length === 0) {
+    // 检查输入是否包含任何已注册 Agent 的名字/ID
+    let matchedAgentIds: string[] = [];
+    try {
+      const registry = getAgentRegistry();
+      if (registry) {
+        const agentIds = registry.getAllDescriptors().map(d => d.id.toLowerCase());
+        const lowerInput = input.toLowerCase();
+        matchedAgentIds = agentIds.filter(id => lowerInput.includes(id));
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      moduleLogger.debug({ error: message }, 'Agent name check failed');
+    }
+
+    if (matchedAgentIds.length > 0) {
+      // 如果包含了已注册的 Agent，将 domains 强制置为被匹配的 Agent ID 列表。
+      // 这将在工具集构造阶段（buildAllTools）自动进行排他性的精准裁剪。
+      domains = matchedAgentIds;
+    } else if (domains.length === 0) {
       // 检查是否为纯闲聊。如果满足以下所有条件，则判定为纯闲聊，执行工具剪枝：
       // 1. 无识别出的动作 (action === 'unknown')
       // 2. 无任何实体提取 (如文件、路径、URL等)
-      // 3. 不包含任何已注册 Agent 的名字/ID
       const hasEntities = Object.values(goal.evidence).some(arr => Array.isArray(arr) && arr.length > 0);
-      let containsAgentName = false;
-      try {
-        const registry = getAgentRegistry();
-        if (registry) {
-          const agentIds = registry.getAllDescriptors().map(d => d.id.toLowerCase());
-          const lowerInput = input.toLowerCase();
-          containsAgentName = agentIds.some(id => lowerInput.includes(id));
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        moduleLogger.debug({ error: message }, 'Agent name check failed');
-        containsAgentName = false;
-      }
 
-      if (goal.action === 'unknown' && !hasEntities && !containsAgentName) {
+      if (goal.action === 'unknown' && !hasEntities) {
         domains = [];
       } else {
         domains = undefined;

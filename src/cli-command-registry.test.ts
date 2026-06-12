@@ -46,12 +46,12 @@ describe('registerLazyProxyCommands Parameter Routing', () => {
 
     // 劫持 program.commands.find
     const originalFind = program.commands.find;
-    vi.spyOn(program.commands, 'find').mockImplementation(function (this: any, callback: any) {
+    vi.spyOn(program.commands, 'find').mockImplementation(function (this: any, ...args: any[]) {
       if (isInsideAction) {
         isInsideAction = false; // 重置
         return mockRealModeCmd;
       }
-      return originalFind.apply(this, arguments as any);
+      return originalFind.apply(this, args);
     });
 
     // 模拟代理命令执行。lazyProxy 的 action 内部会检测 argv 并进行转发
@@ -99,12 +99,12 @@ describe('registerLazyProxyCommands Parameter Routing', () => {
 
     // 劫持 program.commands.find
     const originalFind = program.commands.find;
-    vi.spyOn(program.commands, 'find').mockImplementation(function (this: any, callback: any) {
+    vi.spyOn(program.commands, 'find').mockImplementation(function (this: any, ...args: any[]) {
       if (isInsideAction) {
         isInsideAction = false; // 重置
         return mockRealModeCmd;
       }
-      return originalFind.apply(this, arguments as any);
+      return originalFind.apply(this, args);
     });
 
     // 在 CommandBridge.execute('mode show --verbose') 中，

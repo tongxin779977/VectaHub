@@ -329,8 +329,36 @@ export function buildAllTools(domains?: string[]): LLMTool[] {
   const allTools = [...intentTools, ...cliTools, ...agentTools, ...providerTools];
 
   if (domains && domains.length > 0) {
+    // 检查 domains 中是否存在已注册的 Agent ID
+    let registeredAgentIds: string[] = [];
+    try {
+      const registry = getAgentRegistry();
+      if (registry) {
+        registeredAgentIds = registry.getAllDescriptors().map(d => d.id.toLowerCase());
+      }
+    } catch {
+      // 忽略错误
+    }
+
+    const matchedAgentIds = domains.map(d => d.toLowerCase()).filter(d => registeredAgentIds.includes(d));
+    const hasSpecificAgent = matchedAgentIds.length > 0;
+
     return allTools.filter(tool => {
       const name = tool.function.name.toLowerCase();
+
+      // 如果是为了特定的 Agent 进行过滤，排他性地只保留匹配的 run_agent_xxx 及其关联域工具
+      if (hasSpecificAgent) {
+        if (name.startsWith('run_agent_')) {
+          const agentId = name.replace('run_agent_', '');
+          return matchedAgentIds.includes(agentId);
+        }
+        return domains.some(domain => {
+          const d = domain.toLowerCase();
+          return name.includes(d);
+        });
+      }
+
+      // 通用的过滤逻辑：保留包含指定 domain 名字的工具，以及所有 run_agent_ 工具以备任务分发
       return domains.some(domain => {
         const d = domain.toLowerCase();
         return name.includes(d) || name.startsWith('run_agent_');
