@@ -1,6 +1,6 @@
 {
   "name": "vectahub",
-  "version": "1.0.23",
+  "version": "1.0.24",
   "type": "module",
   "description": "VectaHub - Natural Language Workflow Engine",
   "main": "dist/index.js",
@@ -21,6 +21,7 @@
     "compile:extension": "npm run compile -w packages/vectahub-vscode-extension",
     "package:vsix": "npm run compile -w packages/vectahub-vscode-extension && cd packages/vectahub-vscode-extension && rm -f ../.DS_Store && find . -name '.DS_Store' -delete && npx @vscode/vsce package --allow-missing-repository --no-dependencies",
     "release": "npm run bump && npm run build && npm run package:vsix && npm link",
+    "commit": "npm run bump && npm run build && git add . && git commit",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
