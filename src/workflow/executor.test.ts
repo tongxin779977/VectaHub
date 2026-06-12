@@ -203,6 +203,32 @@ describe('Executor', () => {
     );
   });
 
+  it('should propagate step.timeout as VECTAHUB_EXEC_TIMEOUT_MS environment variable', async () => {
+    const spawnSpy = vi.spyOn(environment, 'spawn').mockReturnValue({
+      stdout: { on: vi.fn() },
+      stderr: { on: vi.fn() },
+      on: vi.fn().mockImplementation((event, callback) => {
+        if (event === 'close') {
+          callback(0);
+        }
+      }),
+    } as any);
+
+    const step: Step = { id: 'step_with_timeout', type: 'exec', cli: 'git', args: ['status'], timeout: 240000 };
+    await executor.execute(step, { mode: 'RELAXED' });
+
+    expect(spawnSpy).toHaveBeenCalledWith(
+      'git',
+      ['status'],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          VECTAHUB_EXEC_TIMEOUT_MS: '240000',
+        }),
+      })
+    );
+    spawnSpy.mockRestore();
+  });
+
   describe('for_each step', () => {
     it('should iterate over items and run body for each', async () => {
       const step: Step = {

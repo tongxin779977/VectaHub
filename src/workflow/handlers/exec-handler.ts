@@ -49,7 +49,11 @@ export const createExecHandler = (deps: HandlerDependencies): StepHandler => {
       const stepTimeout = step.timeout;
       const stepOptions = {
         ...options,
-        timeout: stepTimeout || options.timeout
+        timeout: stepTimeout || options.timeout,
+        env: {
+          ...options.env,
+          ...(stepTimeout ? { VECTAHUB_EXEC_TIMEOUT_MS: String(stepTimeout) } : {}),
+        },
       };
 
       const result = options.useSandbox && deps.sandboxManager
