@@ -13,6 +13,7 @@ import { generateId } from '../execution/id-generator.js';
 import { createSystemWorkflows } from './system-workflows.js';
 import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 import type pino from 'pino';
+import { getAgentRegistry } from '../agent-runtime/registry.js';
 
 export interface RetryOptions {
   maxAttempts?: number;
@@ -208,6 +209,47 @@ async function runExecutionLoop(
   for (let i = 0; i < sortedSteps.length; i++) {
     sm.currentStepIndex = i;
     const step = sortedSteps[i];
+
+    // 自学习自适应超时估计：基于历史数据智能决定超时时长
+    let baseTimeoutMs = 30000;
+    if (step.cli) {
+      const registry = getAgentRegistry();
+      const agentId = step.cli.toLowerCase();
+      if (registry.isKnownAgent(agentId)) {
+        const adapter = registry.getAgentAdapter(agentId);
+        const targetAdapter = adapter as { getExecutionTimeoutMs?: () => number };
+        if (targetAdapter && typeof targetAdapter.getExecutionTimeoutMs === 'function') {
+          baseTimeoutMs = targetAdapter.getExecutionTimeoutMs();
+        }
+      }
+    }
+
+    let adaptiveTimeoutMs = baseTimeoutMs;
+    try {
+      const records = await storage.list();
+      const stepCommand = [step.cli, ...(step.args || [])].filter(Boolean).join(' ');
+      const matched = records
+        .flatMap(r => (r.steps || []).map(s => ({ ...s, startedAt: r.startedAt })))
+        .filter(s => s.stepId === step.id || s.command === stepCommand);
+
+      if (matched.length > 0) {
+        const lastRun = matched[0];
+        const lastDuration = lastRun.timing?.durationMs ||
+          (lastRun.endAt && lastRun.startAt ? new Date(lastRun.endAt).getTime() - new Date(lastRun.startAt).getTime() : 0);
+
+        if (lastDuration > 0) {
+          if (lastRun.status === 'FAILED') {
+            adaptiveTimeoutMs = Math.max(baseTimeoutMs, Math.round(lastDuration * 2.0));
+          } else if (lastRun.status === 'COMPLETED') {
+            adaptiveTimeoutMs = Math.max(baseTimeoutMs, Math.round(lastDuration * 1.5));
+          }
+        }
+      }
+    } catch {
+      // 容错处理
+    }
+
+    step.timeout = adaptiveTimeoutMs;
 
     if (onProgress) {
       onProgress({

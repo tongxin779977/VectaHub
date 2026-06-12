@@ -853,4 +853,75 @@ describe('WorkflowEngine', () => {
       expect(auditMocks.workflowEnd).not.toHaveBeenCalled();
     });
   });
+
+  describe('self-learning adaptive timeout', () => {
+    it('should scale step timeout if last execution of same command failed', async () => {
+      const lastFailedExecution: ExecutionRecord = {
+        executionId: 'exec-prev',
+        workflowId: 'wf-prev',
+        workflowName: 'wf-prev',
+        status: 'FAILED',
+        mode: 'relaxed',
+        startedAt: new Date(Date.now() - 60000),
+        steps: [
+          {
+            stepId: 's1',
+            stepName: 's1',
+            command: 'echo hello',
+            status: 'FAILED',
+            error: 'timeout',
+            timing: {
+              startTime: new Date(Date.now() - 60000),
+              endTime: new Date(Date.now() - 45000),
+              durationMs: 15000,
+            }
+          }
+        ],
+        warnings: [],
+        logs: [],
+      };
+      mockList.mockResolvedValue([lastFailedExecution]);
+
+      const steps: Step[] = [{ id: 's1', type: 'exec', cli: 'echo', args: ['hello'] }];
+      const workflow = await engine.createWorkflow('adaptive-wf', steps);
+      
+      await engine.execute(workflow);
+
+      expect(steps[0].timeout).toBe(30000);
+    });
+
+    it('should scale step timeout based on last completed execution with 1.5x buffer', async () => {
+      const lastCompletedExecution: ExecutionRecord = {
+        executionId: 'exec-prev-ok',
+        workflowId: 'wf-prev-ok',
+        workflowName: 'wf-prev-ok',
+        status: 'COMPLETED',
+        mode: 'relaxed',
+        startedAt: new Date(Date.now() - 60000),
+        steps: [
+          {
+            stepId: 's1',
+            stepName: 's1',
+            command: 'echo hello',
+            status: 'COMPLETED',
+            timing: {
+              startTime: new Date(Date.now() - 60000),
+              endTime: new Date(Date.now() - 40000),
+              durationMs: 20000,
+            }
+          }
+        ],
+        warnings: [],
+        logs: [],
+      };
+      mockList.mockResolvedValue([lastCompletedExecution]);
+
+      const steps: Step[] = [{ id: 's1', type: 'exec', cli: 'echo', args: ['hello'] }];
+      const workflow = await engine.createWorkflow('adaptive-wf-ok', steps);
+      
+      await engine.execute(workflow);
+
+      expect(steps[0].timeout).toBe(30000);
+    });
+  });
 });
