@@ -62,6 +62,17 @@ const DEFAULT_NATIVE_FEATURES: Record<string, Partial<Record<WorkerNativeFeature
     checkpoint: 'supported',
     resume: 'supported',
   },
+  agy: {
+    json_output: 'supported',
+    headless: 'supported',
+    approval: 'supported',
+    sandbox: 'supported',
+    mcp: 'partial',
+    subagent: 'unsupported',
+    memory: 'unsupported',
+    checkpoint: 'partial',
+    resume: 'partial',
+  },
 };
 
 /**
@@ -72,6 +83,7 @@ const DEFAULT_SUITABLE_TASKS: Record<string, WorkerTaskType[]> = {
   claude: ['codegen', 'refactor', 'review', 'test', 'debug', 'docs', 'semantic_test'],
   gemini: ['codegen', 'refactor', 'review', 'test', 'debug', 'docs', 'semantic_test'],
   aider: ['codegen', 'refactor', 'review', 'test', 'debug'],
+  agy: ['codegen', 'refactor', 'review', 'test', 'debug', 'docs', 'semantic_test'],
 };
 
 /**
@@ -82,6 +94,7 @@ const DEFAULT_CONSTRAINTS: Record<string, string[]> = {
   claude: ['Requires structured output for reliable parsing', 'High-risk operations require explicit confirmation'],
   gemini: ['Requires structured output for reliable parsing', 'High-risk operations require explicit confirmation'],
   aider: ['Works best with git-based workflows', 'JSON output support is partial'],
+  agy: ['Requires structured output for reliable parsing', 'High-risk operations require explicit confirmation'],
 };
 
 /**
@@ -92,6 +105,7 @@ const DEFAULT_LLM_SUMMARIES: Record<string, string> = {
   claude: 'Claude is a coding agent suitable for code generation, refactoring, reviewing, testing, and debugging. It supports JSON output, headless mode, approval, sandboxing, and MCP.',
   gemini: 'Gemini is a coding agent suitable for code generation, refactoring, reviewing, testing, and debugging. It supports JSON output, headless mode, approval, and sandboxing.',
   aider: 'Aider is a git-based coding agent suitable for code generation, refactoring, reviewing, testing, and debugging. It has strong checkpoint and resume capabilities.',
+  agy: 'Agy is a coding agent suitable for code generation, refactoring, reviewing, testing, and debugging. It supports JSON output, headless mode, approval, and sandboxing.',
 };
 
 /**

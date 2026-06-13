@@ -4,6 +4,7 @@ import { CodexAdapter } from './adapters/codex.js';
 import { AiderAdapter } from './adapters/aider.js';
 import { GeminiAdapter } from './adapters/gemini.js';
 import { ClaudeAdapter } from './adapters/claude.js';
+import { AgyAdapter } from './adapters/agy.js';
 
 const BUILT_IN_AGENT_DESCRIPTORS: Record<string, AgentDescriptor> = {
   codex: {
@@ -106,6 +107,34 @@ const BUILT_IN_AGENT_DESCRIPTORS: Record<string, AgentDescriptor> = {
       },
     },
   },
+  agy: {
+    id: 'agy',
+    displayName: 'AGY CLI',
+    entryCommand: 'agy',
+    promptTransport: 'arg',
+    promptArgName: '--prompt',
+    nonInteractiveFlags: [],
+    approvalPolicySupport: 'none',
+    structuredOutputSupport: false,
+    preflightSpec: {
+      versionArgs: ['--version'],
+      invocableArgs: ['--help'],
+      readyArgs: ['--help'],
+    },
+    dryRunRenderMode: 'prompt-only',
+    runtimePolicy: {
+      configSemantics: 'inherit-user-default',
+      writableRuntimeHome: {
+        envVar: 'HOME',
+        defaultHomeSubdir: '',
+        bootstrapFiles: [
+          { relativePath: '.local/share/opencode/auth.json', required: true },
+          { relativePath: '.local/share/opencode/account.json', required: false },
+        ],
+        requireAnyBootstrapFile: true,
+      },
+    },
+  },
 };
 
 export function initializeBuiltInAgents(): void {
@@ -115,4 +144,5 @@ export function initializeBuiltInAgents(): void {
   registry.register(BUILT_IN_AGENT_DESCRIPTORS.aider, new AiderAdapter());
   registry.register(BUILT_IN_AGENT_DESCRIPTORS.gemini, new GeminiAdapter());
   registry.register(BUILT_IN_AGENT_DESCRIPTORS.claude, new ClaudeAdapter());
+  registry.register(BUILT_IN_AGENT_DESCRIPTORS.agy, new AgyAdapter());
 }
