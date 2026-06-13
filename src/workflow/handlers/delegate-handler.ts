@@ -211,6 +211,7 @@ export const createDelegateHandler = (deps: DelegateHandlerDeps = {}): StepHandl
         preflightArgs,
         {
           ...options,
+          timeout: Math.max(options.timeout || 0, 60000),
           allowedEnvVars,
           cwd: deps.getEnvironmentCwd(),
         }
@@ -240,6 +241,7 @@ export const createDelegateHandler = (deps: DelegateHandlerDeps = {}): StepHandl
     try {
       execResult = await deps.exec(adapterOutput.command, adapterOutput.args, {
         ...options,
+        timeout: Math.max(options.timeout || 0, 300000),
         allowedEnvVars,
         env: { ...process.env, ...adapterOutput.envPatch } as Record<string, string>,
         cwd: deps.getEnvironmentCwd(),
