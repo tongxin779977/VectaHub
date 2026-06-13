@@ -1,6 +1,7 @@
 import type { Step } from '../../types/index.js';
 import type { StepHandler, ExecutorOptions, ExecutionContext, ExecuteStepFn, ExecutionResult, HandlerDependencies } from './types.js';
 import { interpolateString } from '../interpolation.js';
+import { join, dirname } from 'path';
 
 export const createExecHandler = (deps: HandlerDependencies): StepHandler => {
   return async (
@@ -47,11 +48,57 @@ export const createExecHandler = (deps: HandlerDependencies): StepHandler => {
     try {
       // Safely access optional timeout from step
       const stepTimeout = step.timeout;
+      
+      const { getAgentDescriptorById } = await import('../../commands/agent-cli-adapter.js');
+      const descriptor = getAgentDescriptorById(interpolatedCli);
+      
+      let bootstrapEnvPatch: Record<string, string> = {};
+      let allowedEnvVars = options.allowedEnvVars || [];
+      
+      if (descriptor) {
+        allowedEnvVars = [
+          ...allowedEnvVars,
+          ...(descriptor.allowedEnvVars || [])
+        ];
+        
+        if (descriptor.runtimePolicy?.writableRuntimeHome) {
+          const policy = descriptor.runtimePolicy.writableRuntimeHome;
+          const userHome = process.env.HOME || process.env.USERPROFILE || '';
+          const userDefaultHome = policy.defaultHomeSubdir 
+            ? join(userHome, policy.defaultHomeSubdir) 
+            : userHome;
+
+          const workspaceRoot = deps.getEnvironmentCwd?.() || process.cwd();
+          const crypto = await import('crypto');
+          const workspaceHash = crypto.createHash('md5').update(workspaceRoot).digest('hex').slice(0, 8);
+          const runtimeHome = join(userHome, '.vectahub', 'agent-homes', descriptor.id, workspaceHash);
+
+          const fs = await import('fs');
+          for (const file of policy.bootstrapFiles) {
+            const sourcePath = join(userDefaultHome, file.relativePath);
+            const targetPath = join(runtimeHome, file.relativePath);
+            
+            if (fs.existsSync(sourcePath)) {
+              try {
+                fs.mkdirSync(dirname(targetPath), { recursive: true });
+                fs.copyFileSync(sourcePath, targetPath);
+              } catch (e) {
+                // 忽略非致命拷贝错误
+              }
+            }
+          }
+          
+          bootstrapEnvPatch[policy.envVar] = runtimeHome;
+        }
+      }
+
       const stepOptions = {
         ...options,
-        timeout: stepTimeout || options.timeout,
+        allowedEnvVars,
+        timeout: stepTimeout || options.timeout || (descriptor ? 300000 : undefined),
         env: {
           ...options.env,
+          ...bootstrapEnvPatch,
           ...(stepTimeout ? { VECTAHUB_EXEC_TIMEOUT_MS: String(stepTimeout) } : {}),
         },
       };

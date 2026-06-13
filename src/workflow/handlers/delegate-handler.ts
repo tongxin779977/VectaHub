@@ -2,6 +2,7 @@ import type { Step, ExecutionStatus } from '../../types/index.js';
 import type { StepHandler, ExecutorOptions, ExecutionContext, ExecuteStepFn, ExecutionResult, HandlerDependencies } from './types.js';
 import type { AIModule, AIModuleContext, AIModuleResult } from '../../skills/ai-modules/types.js';
 import type { DelegateStepResult } from '../../skills/ai-modules/agent-delegate/types.js';
+import { join, dirname } from 'path';
 import { getAgentDescriptorById, getAgentAdapterById } from '../../commands/agent-cli-adapter.js';
 import { makeDelegationDecision, delegatedTaskRequiresVerification } from '../../orchestration-plan/index.js';
 import { normalizeWorkerResult } from '../../orchestration-plan/worker-result-normalizer.js';
@@ -204,6 +205,37 @@ export const createDelegateHandler = (deps: DelegateHandlerDeps = {}): StepHandl
       ...(descriptor.allowedEnvVars || [])
     ];
 
+    let bootstrapEnvPatch: Record<string, string> = {};
+    if (descriptor.runtimePolicy?.writableRuntimeHome) {
+      const policy = descriptor.runtimePolicy.writableRuntimeHome;
+      const userHome = process.env.HOME || process.env.USERPROFILE || '';
+      const userDefaultHome = policy.defaultHomeSubdir 
+        ? join(userHome, policy.defaultHomeSubdir) 
+        : userHome;
+
+      const workspaceRoot = deps.getEnvironmentCwd?.() || process.cwd();
+      const crypto = await import('crypto');
+      const workspaceHash = crypto.createHash('md5').update(workspaceRoot).digest('hex').slice(0, 8);
+      const runtimeHome = join(userHome, '.vectahub', 'agent-homes', descriptor.id, workspaceHash);
+
+      const fs = await import('fs');
+      for (const file of policy.bootstrapFiles) {
+        const sourcePath = join(userDefaultHome, file.relativePath);
+        const targetPath = join(runtimeHome, file.relativePath);
+        
+        if (fs.existsSync(sourcePath)) {
+          try {
+            fs.mkdirSync(dirname(targetPath), { recursive: true });
+            fs.copyFileSync(sourcePath, targetPath);
+          } catch (e) {
+            // 忽略非致命拷贝错误
+          }
+        }
+      }
+      
+      bootstrapEnvPatch[policy.envVar] = runtimeHome;
+    }
+
     const preflightArgs = resolvePreflightArgs(descriptor);
     try {
       const preflightResult = await deps.exec(
@@ -213,6 +245,7 @@ export const createDelegateHandler = (deps: DelegateHandlerDeps = {}): StepHandl
           ...options,
           timeout: Math.max(options.timeout || 0, 60000),
           allowedEnvVars,
+          env: { ...process.env, ...bootstrapEnvPatch } as Record<string, string>,
           cwd: deps.getEnvironmentCwd(),
         }
       );
@@ -243,7 +276,7 @@ export const createDelegateHandler = (deps: DelegateHandlerDeps = {}): StepHandl
         ...options,
         timeout: Math.max(options.timeout || 0, 300000),
         allowedEnvVars,
-        env: { ...process.env, ...adapterOutput.envPatch } as Record<string, string>,
+        env: { ...process.env, ...adapterOutput.envPatch, ...bootstrapEnvPatch } as Record<string, string>,
         cwd: deps.getEnvironmentCwd(),
         stdinInput: adapterOutput.stdinInput,
       });
