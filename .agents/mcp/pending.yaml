@@ -1,0 +1,15 @@
+pending:
+  # Add SkillHub MCP candidates here before approval.
+  #
+  # - id: github-readonly
+  #   source: skillhub
+  #   url: https://skillhub.cn/skills/example
+  #   reason: "Need GitHub issue and PR reading"
+  #   permissions:
+  #     - repo_read
+  #     - issue_read
+  #   network: true
+  #   write_access: false
+  #   secrets:
+  #     - GITHUB_TOKEN
+  #   reviewed: false

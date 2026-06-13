@@ -179,7 +179,8 @@ export function createExecutor(deps: ExecutorDeps): Executor {
     sandboxManager,
     exec,
     execInSandbox,
-    shouldAllow
+    shouldAllow,
+    getEnvironmentCwd: () => environment.getCwd(),
   };
 
   // For backward compatibility, only use new implementation when delegateHandlerDeps is explicitly provided

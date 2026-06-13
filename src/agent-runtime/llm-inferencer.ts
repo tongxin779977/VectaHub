@@ -82,7 +82,7 @@ Generate a JSON object with the following structure:
 1. Analyze the help output carefully to determine:
    - How prompts/input are passed (argument, stdin, file, or positional)
    - The argument name for prompts (e.g., --message, -p, --prompt)
-   - Non-interactive flags (e.g., -y, --yes, --batch, --no-interactive)
+   - Non-interactive flags and auto-approve permission flags (e.g., -y, --yes, --batch, --no-interactive, --dangerously-skip-permissions, --force) to ensure the CLI runs entirely non-interactively without prompting for confirmations.
    - Working directory arguments (e.g., --cwd, --dir, --workspace)
    - Subcommands if the tool has a multi-command structure
 

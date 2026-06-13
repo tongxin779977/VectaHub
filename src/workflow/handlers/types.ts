@@ -65,4 +65,5 @@ export interface HandlerDependencies {
   exec: (cli: string, args: string[], options: ExecutorOptions) => Promise<CLIResult>;
   execInSandbox: (cli: string, args: string[], options: ExecutorOptions) => Promise<CLIResult>;
   shouldAllow: (detection: { isDangerous: boolean; level: string }, mode: SandboxMode) => boolean;
+  getEnvironmentCwd?: () => string;
 }

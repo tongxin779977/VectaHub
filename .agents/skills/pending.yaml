@@ -1,0 +1,12 @@
+pending:
+  # Add SkillHub candidates here before approval.
+  #
+  # - id: browser-testing
+  #   source: skillhub
+  #   url: https://skillhub.cn/skills/example
+  #   reason: "Need browser validation workflow"
+  #   permissions:
+  #     - local_browser
+  #   network: false
+  #   secrets: []
+  #   reviewed: false

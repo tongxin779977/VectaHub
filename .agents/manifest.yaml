@@ -1,0 +1,72 @@
+version: 1
+
+scope:
+  applies_to:
+    - trae-solo
+    - opencode
+    - cline
+    - codex
+    - antigravity
+  excludes:
+    - minimax
+
+primary_agents:
+  full_cycle_development:
+    - trae-solo
+    - opencode
+    - cline
+
+support_agents:
+  review: codex
+  orchestration: antigravity
+
+skill_policy:
+  discovery_source: https://skillhub.cn/skills
+  installed_global_reference: /Users/xin.tong/.agents/skills
+  installed_global_validator: /Users/xin.tong/.agents/scripts/validate-skills.js
+  installed_global_anatomy: /Users/xin.tong/.agents/agentops/skill-anatomy.md
+  default_status: pending
+  require_review: true
+  development_guide: .agents/skill-development.md
+  approved_file: .agents/skills/approved.yaml
+  pending_file: .agents/skills/pending.yaml
+  rejected_file: .agents/skills/rejected.yaml
+
+mcp_policy:
+  discovery_source: https://skillhub.cn/skills
+  default_network: deny
+  default_write: deny
+  require_review: true
+  approved_file: .agents/mcp/approved.yaml
+  pending_file: .agents/mcp/pending.yaml
+  rejected_file: .agents/mcp/rejected.yaml
+  require_explicit_confirmation_for:
+    - secrets
+    - delete
+    - send
+    - publish
+    - deploy
+    - push
+    - external_write
+
+handoff_policy:
+  primary_agent_to_codex:
+    use_when:
+      - tests_fail
+      - architecture_uncertain
+      - security_or_persistence_changed
+      - review_needed_before_merge
+      - independent_second_opinion_needed
+  antigravity_to_primary_agents:
+    use_when:
+      - task_is_large
+      - multiple_independent_paths_exist
+      - browser_validation_needed
+      - complex_exploration_needed
+  primary_agent_self_review:
+    required_when:
+      - behavior_changed
+      - public_api_changed
+      - persistence_changed
+      - security_sensitive_code_changed
+      - multiple_files_changed

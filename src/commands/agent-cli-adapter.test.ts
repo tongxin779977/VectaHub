@@ -15,7 +15,7 @@ describe('agent-cli-adapter registry', () => {
   it('should register built-in known agent descriptors', () => {
     const descriptors = getBuiltInAgentDescriptors();
     const ids = descriptors.map(item => item.id).sort();
-    expect(ids).toEqual(['aider', 'claude', 'codex', 'gemini']);
+    expect(ids).toEqual(['agy', 'aider', 'claude', 'codex', 'gemini']);
   });
 
   it('should resolve descriptor by id with case-insensitive lookup', () => {

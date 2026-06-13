@@ -113,7 +113,7 @@ const BUILT_IN_AGENT_DESCRIPTORS: Record<string, AgentDescriptor> = {
     entryCommand: 'agy',
     promptTransport: 'arg',
     promptArgName: '--prompt',
-    nonInteractiveFlags: [],
+    nonInteractiveFlags: ['--dangerously-skip-permissions'],
     approvalPolicySupport: 'none',
     structuredOutputSupport: false,
     preflightSpec: {

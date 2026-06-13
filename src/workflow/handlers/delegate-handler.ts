@@ -205,7 +205,7 @@ export const createDelegateHandler = (deps: DelegateHandlerDeps = {}): StepHandl
       ...(descriptor.allowedEnvVars || [])
     ];
 
-    let bootstrapEnvPatch: Record<string, string> = {};
+    const bootstrapEnvPatch: Record<string, string> = {};
     if (descriptor.runtimePolicy?.writableRuntimeHome) {
       const policy = descriptor.runtimePolicy.writableRuntimeHome;
       const userHome = process.env.HOME || process.env.USERPROFILE || '';

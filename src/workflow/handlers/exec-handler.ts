@@ -52,7 +52,7 @@ export const createExecHandler = (deps: HandlerDependencies): StepHandler => {
       const { getAgentDescriptorById } = await import('../../commands/agent-cli-adapter.js');
       const descriptor = getAgentDescriptorById(interpolatedCli);
       
-      let bootstrapEnvPatch: Record<string, string> = {};
+      const bootstrapEnvPatch: Record<string, string> = {};
       let allowedEnvVars = options.allowedEnvVars || [];
       
       if (descriptor) {
