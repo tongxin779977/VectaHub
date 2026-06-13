@@ -29,6 +29,7 @@ export interface ExecOptions {
   confirmationPrompt?: string;
   useNamespace?: boolean;
   networkIsolation?: boolean;
+  allowedEnvVars?: string[];
 }
 
 /** @see ExecResult */

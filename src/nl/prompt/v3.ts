@@ -642,19 +642,25 @@ Git diff 摘要：
 
 function walkDirectory(dir: string): string[] {
   const files: string[] = [];
+  let items: string[];
   try {
-    const items = fs.readdirSync(dir);
-    for (const item of items) {
-      const fullPath = path.join(dir, item);
+    items = fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+  for (const item of items) {
+    const fullPath = path.join(dir, item);
+    try {
       const stat = fs.statSync(fullPath);
       if (stat.isDirectory()) {
         files.push(...walkDirectory(fullPath));
-      } else {
+      } else if (stat.isFile()) {
         files.push(fullPath);
       }
+    } catch {
+      // Skip file if statSync fails (e.g. socket, broken symlink, or permissions)
+      continue;
     }
-  } catch {
-    return [];
   }
   return files;
 }

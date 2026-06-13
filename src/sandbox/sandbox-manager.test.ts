@@ -174,4 +174,41 @@ describe('SandboxManager', () => {
       expect(validation.valid).toBe(false);
     });
   });
+
+  describe('filterEnv', () => {
+    it('should filter environment variables but pass allowed and extra allowed ones', () => {
+      const manager = new SandboxManager(
+        { allowedEnvVars: ['PATH', 'HOME'] },
+        { audit: createNoopAuditHelper() }
+      );
+      
+      const originalPath = process.env.PATH;
+      const originalHome = process.env.HOME;
+      
+      process.env.PATH = '/bin:/usr/bin';
+      process.env.HOME = '/home/user';
+      process.env.TEST_BLOCKED_KEY = 'secret';
+      process.env.TEST_ALLOWED_KEY = 'allowed-secret';
+
+      const userEnv = {
+        PATH: '/custom/bin',
+        CUSTOM_VAR: 'custom-value',
+      };
+
+      const filtered1 = (manager as any).filterEnv(userEnv);
+      expect(filtered1.PATH).toBe('/custom/bin');
+      expect(filtered1.HOME).toBe('/home/user');
+      expect(filtered1.TEST_BLOCKED_KEY).toBeUndefined();
+      expect(filtered1.CUSTOM_VAR).toBe('custom-value');
+
+      const filtered2 = (manager as any).filterEnv(userEnv, ['TEST_ALLOWED_KEY']);
+      expect(filtered2.TEST_ALLOWED_KEY).toBe('allowed-secret');
+      expect(filtered2.TEST_BLOCKED_KEY).toBeUndefined();
+
+      delete process.env.TEST_BLOCKED_KEY;
+      delete process.env.TEST_ALLOWED_KEY;
+      process.env.PATH = originalPath;
+      process.env.HOME = originalHome;
+    });
+  });
 });

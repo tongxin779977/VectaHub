@@ -74,7 +74,18 @@ const DEFAULT_CONFIG: SandboxConfig = {
   mode: 'RELAXED',
   maxMemoryMB: 512,
   timeoutMs: 60000,
-  allowedEnvVars: ['PATH', 'HOME', 'USER', 'LANG', 'LC_ALL'],
+  allowedEnvVars: [
+    'PATH', 'HOME', 'USER', 'LANG', 'LC_ALL',
+    'GEMINI_API_KEY',
+    'OPENAI_API_KEY',
+    'ANTHROPIC_API_KEY',
+    'GROQ_API_KEY',
+    'OLLAMA_API_KEY',
+    'DEEPSEEK_API_KEY',
+    'VECTAHUB_LLM_PROVIDER',
+    'VECTAHUB_LLM_MODEL',
+    'VECTAHUB_LLM_BASE_URL'
+  ],
   namespaceIsolation: true,
   defaultPolicy: 'passthrough',
 };
@@ -318,7 +329,7 @@ export class SandboxManager {
 
   private async executeInSandbox(cmd: string, args: string[], options: ExecOptions): Promise<ExecResult> {
     const cwd = options.cwd || this.config.workspace;
-    const env = this.filterEnv(options.env || {});
+    const env = this.filterEnv(options.env || {}, options.allowedEnvVars || []);
     env.SANDBOX_ROOT = this.config.root;
     env.SANDBOX_WORKSPACE = this.config.workspace;
     env.SANDBOX_TMP = this.config.tempDir;
@@ -345,9 +356,10 @@ export class SandboxManager {
     return executeInDirectory(cmd, args, options, cwd, env);
   }
 
-  private filterEnv(userEnv: Record<string, string>): Record<string, string> {
+  private filterEnv(userEnv: Record<string, string>, extraAllowed: string[] = []): Record<string, string> {
     const env: Record<string, string> = {};
-    for (const key of this.config.allowedEnvVars) {
+    const allowed = new Set([...this.config.allowedEnvVars, ...extraAllowed]);
+    for (const key of allowed) {
       if (process.env[key]) {
         env[key] = process.env[key];
       }

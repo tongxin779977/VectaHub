@@ -282,6 +282,69 @@ describe('LLM Client', () => {
       process.env.GROQ_API_KEY = originalGroq as string;
       process.env.OLLAMA_API_KEY = originalOllama as string;
     });
+
+    it('resolves apiKey from environment placeholders', () => {
+      const originalProvider = process.env.VECTAHUB_LLM_PROVIDER;
+      const originalModel = process.env.VECTAHUB_LLM_MODEL;
+      const originalBaseUrl = process.env.VECTAHUB_LLM_BASE_URL;
+      const originalOpenAI = process.env.OPENAI_API_KEY;
+      delete process.env.VECTAHUB_LLM_PROVIDER;
+      delete process.env.VECTAHUB_LLM_MODEL;
+      delete process.env.VECTAHUB_LLM_BASE_URL;
+      delete process.env.OPENAI_API_KEY;
+
+      process.env.TEST_PLACEHOLDER_KEY = 'resolved-secret-value';
+
+      mockedLoadConfig.mockReturnValue({
+        ai_providers: {
+          vectahub_llm: {
+            provider: 'openai',
+            enabled: true,
+            apiKey: '${env:TEST_PLACEHOLDER_KEY}',
+            baseUrl: 'https://api.openai.com/v1',
+            model: 'gpt-4o-mini',
+          },
+        },
+      } as any);
+
+      const resolution = resolveLLMConfig();
+      expect(resolution.state).toBe('configured');
+      expect(resolution.config?.apiKey).toBe('resolved-secret-value');
+
+      // Test with {env:VAR} format
+      mockedLoadConfig.mockReturnValue({
+        ai_providers: {
+          vectahub_llm: {
+            provider: 'openai',
+            enabled: true,
+            apiKey: '{env:TEST_PLACEHOLDER_KEY}',
+            baseUrl: 'https://api.openai.com/v1',
+            model: 'gpt-4o-mini',
+          },
+        },
+      } as any);
+      expect(resolveLLMConfig().config?.apiKey).toBe('resolved-secret-value');
+
+      // Test with plain key
+      mockedLoadConfig.mockReturnValue({
+        ai_providers: {
+          vectahub_llm: {
+            provider: 'openai',
+            enabled: true,
+            apiKey: 'plain-text-key',
+            baseUrl: 'https://api.openai.com/v1',
+            model: 'gpt-4o-mini',
+          },
+        },
+      } as any);
+      expect(resolveLLMConfig().config?.apiKey).toBe('plain-text-key');
+
+      delete process.env.TEST_PLACEHOLDER_KEY;
+      process.env.VECTAHUB_LLM_PROVIDER = originalProvider as string;
+      process.env.VECTAHUB_LLM_MODEL = originalModel as string;
+      process.env.VECTAHUB_LLM_BASE_URL = originalBaseUrl as string;
+      process.env.OPENAI_API_KEY = originalOpenAI as string;
+    });
   });
 
   describe('LLMClient', () => {

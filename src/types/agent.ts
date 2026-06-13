@@ -44,6 +44,7 @@ export interface AgentDescriptor {
   description?: string;
   usageHabits?: string;
   bestFor?: string[];
+  allowedEnvVars?: string[];
 }
 
 export interface AgentAdapterInput {

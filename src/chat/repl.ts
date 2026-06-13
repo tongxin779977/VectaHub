@@ -410,12 +410,19 @@ export function createREPL(deps: ReplDeps) {
     }
 
     rl.on('line', async (line: string) => {
-      const output = await processInput(line);
-      renderOutput(output);
+      try {
+        const output = await processInput(line);
+        renderOutput(output);
 
-      if (output.metadata?.exit) {
-        rl.close();
-        return;
+        if (output.metadata?.exit) {
+          rl.close();
+          return;
+        }
+      } catch (error) {
+        renderOutput({
+          type: 'error',
+          content: `❌ REPL 内部错误: ${error instanceof Error ? error.message : String(error)}`,
+        });
       }
 
       if (process.env.NODE_ENV === 'test') {

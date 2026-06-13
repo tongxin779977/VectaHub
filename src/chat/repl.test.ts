@@ -341,6 +341,30 @@ describe('createRepl', () => {
     expect(result.type).toBe('command-result');
     expect(result.content).toBe('bridge output');
   });
+
+  it('should catch error in line handler and render error message', async () => {
+    const readline = await import('node:readline');
+    const mockRl = (readline as any).__rl;
+    
+    let lineCallback: ((line: string) => Promise<void>) | undefined;
+    mockRl.on.mockImplementation((event: string, cb: any) => {
+      if (event === 'line') {
+        lineCallback = cb;
+      }
+    });
+
+    const deps = createMockDeps();
+    vi.spyOn(deps.nlProcessor, 'parse').mockRejectedValue(new Error('Process error'));
+
+    const repl = createRepl(deps);
+    await repl.start();
+
+    expect(lineCallback).toBeDefined();
+    
+    await lineCallback!('invalid input');
+
+    expect(mockRl.prompt).toHaveBeenCalled();
+  });
 });
 
 describe('Workflow Execution Modes', () => {

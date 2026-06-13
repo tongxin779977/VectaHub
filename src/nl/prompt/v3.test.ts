@@ -301,6 +301,49 @@ metadata:
 
       expect(registry.get('nested-prompt')).toBeDefined();
     });
+
+    it('should ignore socket/unreadable files and load other valid prompts', async () => {
+      const { vi } = await import('vitest');
+
+      const validPromptData = {
+        id: 'valid-prompt',
+        name: 'Valid Prompt',
+        version: '1.0.0',
+        description: 'Valid prompt description',
+        category: 'test',
+        tags: [],
+        systemTemplate: 'test',
+        userTemplate: '{{input}}',
+        variables: [{ name: 'input', type: 'string', required: true }],
+        metadata: {
+          author: 'Test',
+          createdAt: '2026-05-01',
+          lastUpdated: '2026-05-01',
+          effectiveness: 0.8,
+          uses: 0,
+        },
+      };
+
+      fs.writeFileSync(path.join(tmpDir, 'valid.json'), JSON.stringify(validPromptData));
+      fs.writeFileSync(path.join(tmpDir, 'socket.ipc'), 'some-socket-data');
+
+      const originalStatSync = fs.statSync;
+      const statSpy = vi.spyOn(fs, 'statSync').mockImplementation((filePath) => {
+        if (typeof filePath === 'string' && filePath.endsWith('socket.ipc')) {
+          throw new Error('Operation not supported on socket');
+        }
+        return originalStatSync(filePath);
+      });
+
+      try {
+        await registry.loadFromDirectory(tmpDir);
+        const validPrompt = registry.get('valid-prompt');
+        expect(validPrompt).toBeDefined();
+        expect(validPrompt!.name).toBe('Valid Prompt');
+      } finally {
+        statSpy.mockRestore();
+      }
+    });
   });
 
   describe('evaluate', () => {

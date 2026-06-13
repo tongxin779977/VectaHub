@@ -199,6 +199,11 @@ export const createDelegateHandler = (deps: DelegateHandlerDeps = {}): StepHandl
       };
     }
 
+    const allowedEnvVars = [
+      ...(options.allowedEnvVars || []),
+      ...(descriptor.allowedEnvVars || [])
+    ];
+
     const preflightArgs = resolvePreflightArgs(descriptor);
     try {
       const preflightResult = await deps.exec(
@@ -206,6 +211,7 @@ export const createDelegateHandler = (deps: DelegateHandlerDeps = {}): StepHandl
         preflightArgs,
         {
           ...options,
+          allowedEnvVars,
           cwd: deps.getEnvironmentCwd(),
         }
       );
@@ -234,6 +240,7 @@ export const createDelegateHandler = (deps: DelegateHandlerDeps = {}): StepHandl
     try {
       execResult = await deps.exec(adapterOutput.command, adapterOutput.args, {
         ...options,
+        allowedEnvVars,
         env: { ...process.env, ...adapterOutput.envPatch } as Record<string, string>,
         cwd: deps.getEnvironmentCwd(),
         stdinInput: adapterOutput.stdinInput,

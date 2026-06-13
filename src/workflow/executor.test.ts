@@ -770,6 +770,58 @@ describe('Executor', () => {
         expect.objectContaining({ stdinInput: 'Write a fix' })
       );
     });
+
+    it('should merge allowedEnvVars from descriptor and options and pass to exec', async () => {
+      const execMock = vi
+        .fn()
+        .mockResolvedValue({
+          success: true,
+          exitCode: 0,
+          stdout: 'done',
+          stderr: '',
+          duration: 1,
+        });
+
+      const { getAgentRegistry } = await import('../agent-runtime/registry.js');
+      const registry = getAgentRegistry();
+      const codexDescriptor = registry.getAgentDescriptor('codex');
+      expect(codexDescriptor).not.toBeNull();
+      
+      const originalAllowedEnvVars = codexDescriptor!.allowedEnvVars;
+      codexDescriptor!.allowedEnvVars = ['CUSTOM_AGENT_VAR'];
+
+      const delegateExecutor = createExecutor({
+        audit: createNoopAuditHelper(),
+        environment,
+        delegateHandlerDeps: {
+          exec: execMock,
+          getEnvironmentCwd: () => '/repo',
+        },
+      });
+
+      const step: Step = {
+        id: 'd-test-env',
+        type: 'delegate',
+        delegateTo: 'codex',
+        delegatePrompt: 'Hello',
+      };
+      
+      await delegateExecutor.execute(step, {
+        mode: 'RELAXED',
+        allowedEnvVars: ['CUSTOM_GLOBAL_VAR'],
+      });
+
+      expect(execMock).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Array),
+        expect.objectContaining({
+          allowedEnvVars: expect.arrayContaining(['CUSTOM_GLOBAL_VAR', 'CUSTOM_AGENT_VAR']),
+        })
+      );
+      
+      // Restore descriptor
+      codexDescriptor!.allowedEnvVars = originalAllowedEnvVars;
+    });
   });
 
   describe('validateStep', () => {

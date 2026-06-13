@@ -160,6 +160,7 @@ export function createExecutor(deps: ExecutorDeps): Executor {
       cwd: options.cwd,
       env: options.env,
       sessionId: options.sessionId,
+      allowedEnvVars: options.allowedEnvVars,
     });
     return {
       success: result.success,

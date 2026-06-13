@@ -180,6 +180,25 @@ export function getConfiguredLLMTemperature(): number {
   return Number.isFinite(parsed) ? parsed : DEFAULT_LLM_TEMPERATURE;
 }
 
+function resolveApiKey(apiKey: string | undefined): string | undefined {
+  if (!apiKey) return undefined;
+  
+  const envPattern1 = /^\$\{env:(\w+)\}$/;
+  const envPattern2 = /^\{env:(\w+)\}$/;
+  const envPattern3 = /^\$\{(\w+)\}$/;
+  
+  const match1 = apiKey.match(envPattern1);
+  if (match1) return process.env[match1[1]];
+  
+  const match2 = apiKey.match(envPattern2);
+  if (match2) return process.env[match2[1]];
+  
+  const match3 = apiKey.match(envPattern3);
+  if (match3) return process.env[match3[1]];
+  
+  return apiKey;
+}
+
 function resolveConfigFileLLMSource(): ResolvedLLMConfigSource | null {
   const config = loadConfig();
   const llmConfig = config.ai_providers?.vectahub_llm;
@@ -193,7 +212,7 @@ function resolveConfigFileLLMSource(): ResolvedLLMConfigSource | null {
     );
   }
 
-  let apiKey = llmConfig.apiKey;
+  let apiKey = resolveApiKey(llmConfig.apiKey);
   let baseUrl = llmConfig.baseUrl;
 
   if (!apiKey) {
