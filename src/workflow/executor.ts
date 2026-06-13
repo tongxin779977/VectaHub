@@ -110,7 +110,7 @@ export function createExecutor(deps: ExecutorDeps): Executor {
       const mergedEnv = { ...environment.getAllEnv(), ...options.env };
       const filteredEnv: Record<string, string | undefined> = {};
       for (const [key, value] of Object.entries(mergedEnv)) {
-        if (!key.startsWith('ANTIGRAVITY_')) {
+        if (key !== 'ANTIGRAVITY_LS_ADDRESS') {
           filteredEnv[key] = value;
         }
       }
