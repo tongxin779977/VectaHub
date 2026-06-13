@@ -107,9 +107,17 @@ export function createExecutor(deps: ExecutorDeps): Executor {
     }
 
     return new Promise((resolve, reject) => {
+      const mergedEnv = { ...environment.getAllEnv(), ...options.env };
+      const filteredEnv: Record<string, string | undefined> = {};
+      for (const [key, value] of Object.entries(mergedEnv)) {
+        if (!key.startsWith('ANTIGRAVITY_')) {
+          filteredEnv[key] = value;
+        }
+      }
+
       const child = environment.spawn(cli, args, {
         cwd: options.cwd || environment.getCwd(),
-        env: { ...environment.getAllEnv(), ...options.env },
+        env: filteredEnv,
       });
 
       currentChildProcess = child;
