@@ -129,6 +129,8 @@ export function createExecutor(deps: ExecutorDeps): Executor {
       if (options.stdinInput !== undefined && child.stdin) {
         child.stdin.write(options.stdinInput);
         child.stdin.end();
+      } else if (child.stdin) {
+        child.stdin.end();
       }
 
       child.on('close', (code: number | null, signal: string | null) => {

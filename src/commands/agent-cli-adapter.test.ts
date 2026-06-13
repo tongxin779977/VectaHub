@@ -168,8 +168,8 @@ describe('agent-cli-adapter registry', () => {
     expect(rendered.preview).toContain('codex exec --cd /workspace/project --sandbox workspace-write');
   });
 
-  it('should keep aider and gemini on inherited user-default config semantics only', () => {
-    for (const agentId of ['aider', 'gemini'] as const) {
+  it('should keep aider, gemini and agy on inherited user-default config semantics only', () => {
+    for (const agentId of ['aider', 'gemini', 'agy'] as const) {
       const descriptor = getAgentDescriptorById(agentId);
       expect(descriptor?.runtimePolicy?.configSemantics).toBe('inherit-user-default');
       expect(descriptor?.runtimePolicy?.writableRuntimeHome).toBeUndefined();

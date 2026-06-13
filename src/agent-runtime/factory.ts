@@ -124,15 +124,6 @@ const BUILT_IN_AGENT_DESCRIPTORS: Record<string, AgentDescriptor> = {
     dryRunRenderMode: 'prompt-only',
     runtimePolicy: {
       configSemantics: 'inherit-user-default',
-      writableRuntimeHome: {
-        envVar: 'HOME',
-        defaultHomeSubdir: '',
-        bootstrapFiles: [
-          { relativePath: '.local/share/opencode/auth.json', required: true },
-          { relativePath: '.local/share/opencode/account.json', required: false },
-        ],
-        requireAnyBootstrapFile: true,
-      },
     },
   },
 };
