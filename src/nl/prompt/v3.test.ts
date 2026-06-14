@@ -444,5 +444,28 @@ metadata:
       expect(p).toBeDefined();
       expect(p!.category).toBe('assistant');
     });
+
+    it('should have nl-processor-tool-calling with decision-priority guidance', () => {
+      const p = registry.get('nl-processor-tool-calling');
+      expect(p).toBeDefined();
+      expect(p!.category).toBe('parsing');
+      const system = p!.systemTemplate;
+      expect(system).toContain('决策优先级');
+      expect(system).toContain('禁止调用任何工具');
+      expect(system).toContain('vectahub config show');
+      const constraints = p!.constraints ?? [];
+      expect(
+        constraints.some((c) => c.rule.includes('禁止使用 tool_calls')),
+      ).toBe(true);
+    });
+
+    it('should have nl-intent-classifier-v1 for two-stage routing', () => {
+      const p = registry.get('nl-intent-classifier-v1');
+      expect(p).toBeDefined();
+      expect(p!.category).toBe('parsing');
+      expect(p!.systemTemplate).toContain('query');
+      expect(p!.systemTemplate).toContain('task');
+      expect(p!.systemTemplate).toContain('dialog');
+    });
   });
 });

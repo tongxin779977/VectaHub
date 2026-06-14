@@ -19,9 +19,8 @@ vi.mock('../llm.js', async () => {
     constructor() {}
     async complete(promptId: string, userInput: string, context?: any, options?: { tools?: LLMTool[] }) {
       capturedTools = options?.tools; // 捕获传给大模型的工具列表以验证修剪行为
-      
       if (typeof mockLLMResponse === 'function') {
-        return mockLLMResponse();
+        return mockLLMResponse(promptId, userInput);
       }
       return mockLLMResponse;
     }
@@ -206,10 +205,13 @@ describe('E2E User Simulation Tests (深度用户测试模拟)', () => {
 
   // 场景 E：多意图 Split 合并决策
   it('Scenario E: Multi-intent parsing and steps merging', async () => {
-    let callIndex = 0;
-    mockLLMResponse = () => {
-      callIndex++;
-      if (callIndex === 1) {
+    mockLLMResponse = (promptId: string, userInput: string) => {
+      // 两阶段路由下，每个子句都先调分类器，再调 tool-calling；
+      // 子句并行执行，因此不能依赖全局 callIndex 序列。
+      if (promptId === 'nl-intent-classifier-v1') {
+        return { reply: '{"kind":"task"}' };
+      }
+      if (userInput.includes('aider')) {
         return {
           tool_calls: [{
             id: 'call_aider_multi',

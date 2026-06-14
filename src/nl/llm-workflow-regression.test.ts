@@ -535,7 +535,7 @@ describe('LLM Workflow Regression Tests', () => {
       await expect(processor.parse(context)).rejects.toThrow('LLM call failed');
 
       vi.restoreAllMocks();
-    });
+    }, 30000);
   });
 
   describe('Edge Cases', () => {

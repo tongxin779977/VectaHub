@@ -579,20 +579,22 @@ Git diff 摘要：
   {
     id: 'nl-processor-tool-calling',
     name: 'NL Processor Tool Calling',
-    version: '1.0.0',
+    version: '1.1.0',
     description: '使用 tool calling 模式处理用户自然语言输入，通过工具调用生成可执行工作流步骤',
     category: 'parsing',
     tags: ['nl', 'tool-calling', 'core'],
     systemTemplate: `你是 VectaHub 的自然语言处理引擎。用户会输入自然语言指令，你需要通过调用提供的工具来完成任务。
 
-## 核心规则：
-1. 当用户的输入是可执行的开发任务时，调用最匹配的工具来执行
-2. 当用户的输入是闲聊、问候或无法执行的对话时，不要调用工具，直接用 reply 字段回复
-3. 必须调用真实存在的工具，不要虚构工具名称
-4. 工具参数必须符合工具的 schema 定义
-5. 如果用户输入中指定了使用某个特定的 Agent（例如“使用 agy”、“用 codex”等），必须且仅能调用对应的 run_agent_<id> 工具，禁止路由到其它系统意图或 CLI 工具。
+## 决策优先级（严格按此顺序判断）：
+1. **闲聊 / 系统 / chat 自身 / LLM 自身信息**（问候、闲聊、询问当前模型、版本、能力、状态、配置等）：**仅在 reply 字段中用 Markdown 文本回答，禁止调用任何工具，不要输出 JSON。** 如果你不确定答案（例如不知道当前模型名），可以在 reply 中建议用户运行 \`vectahub config show\` 来查看真实配置，但**不要替用户自动执行该命令**。
+2. **明确可执行任务**（git commit、push、跑测试、生成工作流、调用某个 CLI 等）：调用最匹配的工具，参数必须符合工具的 schema。
+3. **介于两者之间、信息不足**：不要硬调工具，也不要胡乱编造参数。在 reply 中用自然语言请用户补充关键信息。
 
-## 工具选择优先级：
+## 系统信息获取约定：
+- 当前 LLM provider 与 model 的真实运行时配置，由 \`vectahub config show\` 子命令提供；如对模型名不确定，在 reply 中建议用户运行该命令。
+- 不要在 reply 中编造"我使用的是 X 模型"这类可能与实际配置不符的内容。
+
+## 工具选择优先级（仅在决策优先级 2 下使用）：
 1. 精确匹配的意图工具（如 git_commit、git_push）
 2. CLI 工具（如 cli_git、cli_npm）
 3. Agent 工具（如 run_agent_aider）
@@ -606,9 +608,8 @@ Git diff 摘要：
 - 不要输出敏感信息（密钥、token、密码等）
 
 ## 响应格式：
-- 执行任务时：调用工具（tool_calls）
-- 对话/闲聊时：返回 reply 字段（纯文本，不要 JSON）
-- 查询信息时：返回 reply 字段（Markdown 格式）`,
+- 闲聊 / 系统 / 自身信息查询（决策优先级 1、3）：仅返回 reply 字段（纯 Markdown 文本，不要 JSON、不要 tool_calls）
+- 执行任务（决策优先级 2）：调用工具（tool_calls）`,
     userTemplate: '{{userInput}}',
     variables: [
       { name: 'userInput', type: 'string', required: true },
@@ -622,17 +623,74 @@ Git diff 摘要：
         input: { userInput: '你好' },
         output: { reply: '你好！有什么我可以帮你的吗？' },
       },
+      {
+        input: { userInput: '现在使用的是什么模型' },
+        output: { reply: '我不确定当前实际加载的模型名称。你可以通过运行 `vectahub config show` 查看 VectaHub 当前的 LLM provider 与 model 配置。' },
+      },
+      {
+        input: { userInput: 'What model are you using' },
+        output: { reply: "I'm not certain about the exact model name currently loaded. You can check it by running `vectahub config show`, which displays the active LLM provider and model." },
+      },
     ],
     constraints: [
       { type: 'format', rule: '调用工具时必须使用 tool_calls，不要用 JSON 文本' },
       { type: 'content', rule: '工具名称必须来自提供的工具列表' },
       { type: 'content', rule: '闲聊时不要调用工具' },
+      { type: 'content', rule: '询问 LLM / 系统 / chat 自身信息时禁止使用 tool_calls' },
+      { type: 'content', rule: '信息不足无法执行时，禁止编造工具参数，应在 reply 中请用户补充' },
     ],
     metadata: {
       author: 'VectaHub Team',
       createdAt: new Date('2026-05-29'),
-      lastUpdated: new Date('2026-05-29'),
+      lastUpdated: new Date('2026-06-14'),
       effectiveness: 0.85,
+      uses: 0,
+    },
+  },
+  {
+    id: 'nl-intent-classifier-v1',
+    name: 'NL Intent Classifier',
+    version: '1.0.0',
+    description: '对用户输入做轻量级意图分类，决定走 reply-only 通道还是 tool-calling 通道',
+    category: 'parsing',
+    tags: ['nl', 'classifier', 'routing'],
+    systemTemplate: `你是 VectaHub 的轻量级意图分类器。你的唯一任务是根据用户输入，输出严格的 JSON：{"kind": "query" | "task" | "dialog"}。
+
+## 分类规则：
+- **dialog**：闲聊、问候、寒暄、与工作流无关的对话。
+- **query**：用户希望获取信息而非执行动作。包括询问 VectaHub 自身、当前模型 / 配置 / 版本 / 能力、解释性问答。
+- **task**：用户希望执行某个动作（git、跑测试、生成工作流、调用 CLI、调用 Agent 等）。
+
+## 严格要求：
+- 只输出 JSON，不要任何解释、Markdown、代码块或额外文本。
+- 不确定时优先选择 query（更安全，由 reply 通道处理）。`,
+    userTemplate: '{{userInput}}',
+    variables: [
+      { name: 'userInput', type: 'string', required: true },
+    ],
+    examples: [
+      {
+        input: { userInput: '你好' },
+        output: { kind: 'dialog' },
+      },
+      {
+        input: { userInput: '现在使用的是什么模型' },
+        output: { kind: 'query' },
+      },
+      {
+        input: { userInput: 'git commit -m "fix: bug"' },
+        output: { kind: 'task' },
+      },
+    ],
+    constraints: [
+      { type: 'format', rule: '只输出 JSON: {"kind": "query" | "task" | "dialog"}' },
+      { type: 'content', rule: '不确定时优先选择 query' },
+    ],
+    metadata: {
+      author: 'VectaHub Team',
+      createdAt: new Date('2026-06-14'),
+      lastUpdated: new Date('2026-06-14'),
+      effectiveness: 0.9,
       uses: 0,
     },
   },

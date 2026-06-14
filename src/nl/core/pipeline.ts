@@ -139,6 +139,10 @@ export function createNLProcessor(deps: NLProcessorDeps): NLProcessor {
     }
 
     try {
+      const kind = await classifyIntent(input, llmClient);
+      if (kind === 'query' || kind === 'dialog') {
+        return await executeReplyOnly(input, llmClient, kind);
+      }
       return await executeLLMToolCalling(input, llmClient, domains);
     } catch (err) {
       logger.error(`LLM Tool Calling failed: ${err}`);
@@ -149,15 +153,165 @@ export function createNLProcessor(deps: NLProcessorDeps): NLProcessor {
   return { parse };
 }
 
+type IntentKind = 'query' | 'task' | 'dialog';
+
+/**
+ * 两阶段路由第一阶段：用 `nl-intent-classifier-v1` 提示词对输入做轻量分类。
+ * 失败/解析错误返回 `null`，调用方应静默回退到现有 tool-calling 流程。
+ */
+async function classifyIntent(input: string, llmClient: ILLMClient): Promise<IntentKind | null> {
+  try {
+    const response = await llmClient.complete('nl-intent-classifier-v1', input, {}, { toolChoice: 'none' });
+    const kind = parseClassifierKind(response.reply);
+    return kind;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    moduleLogger.debug({ error: message }, 'Intent classifier call failed, falling back to tool-calling');
+    return null;
+  }
+}
+
+function parseClassifierKind(raw: string | undefined): IntentKind | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  let candidate = trimmed;
+  if (candidate.startsWith('```')) {
+    const fenceMatch = candidate.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fenceMatch) candidate = fenceMatch[1].trim();
+  }
+  try {
+    const parsed = JSON.parse(candidate) as { kind?: string };
+    if (parsed.kind === 'query' || parsed.kind === 'task' || parsed.kind === 'dialog') {
+      return parsed.kind;
+    }
+  } catch {
+    const loose = trimmed.match(/["']?kind["']?\s*[:=]\s*["'](query|task|dialog)["']/i);
+    if (loose) {
+      const v = loose[1].toLowerCase();
+      if (v === 'query' || v === 'task' || v === 'dialog') return v;
+    }
+  }
+  return null;
+}
+
+/**
+ * 两阶段路由第二阶段：reply-only 通道。
+ * 使用同一个 `nl-processor-tool-calling` 提示词但禁用工具调用（toolChoice='none'），
+ * 强制 LLM 在 `reply` 字段中用 Markdown 直接回答。
+ */
+async function executeReplyOnly(input: string, llmClient: ILLMClient, kind: IntentKind): Promise<NLResult> {
+  const response = await llmClient.complete('nl-processor-tool-calling', input, {}, { toolChoice: 'none' });
+  const reply = response.reply ? sanitizeReply(response.reply) : undefined;
+  if (!reply) {
+    if (DIALOG_DEFAULT_REPLIES[response.intent]) {
+      return {
+        success: true,
+        intent: response.intent as IntentName,
+        confidence: response.confidence || 0.7,
+        reply: DIALOG_DEFAULT_REPLIES[response.intent],
+        metadata: { path: 'dialog', classifierKind: kind },
+      };
+    }
+    return {
+      success: true,
+      intent: (response.intent || 'UNKNOWN') as IntentName,
+      confidence: response.confidence || 0.5,
+      reply: '收到，但当前没有可展示的回复内容。请换个方式提问或提供更多信息。',
+      metadata: { path: 'dialog', classifierKind: kind },
+    };
+  }
+  return {
+    success: true,
+    intent: (response.intent || 'QUERY_INFO') as IntentName,
+    confidence: response.confidence || 0.7,
+    reply,
+    metadata: { path: 'reply-only', classifierKind: kind },
+  };
+}
+
+/**
+ * 工具调用因"缺少必填参数"失败时，让 LLM 自我修正：用追加反馈再调用一次，
+ * 期望 LLM 要么改用 reply 字段、要么用补全后的参数重新调工具。
+ * 自我修正失败返回 `null`，调用方应回退到现有兜底文案。
+ */
+async function tryLLMSelfCorrection(
+  originalInput: string,
+  llmClient: ILLMClient,
+  tools: ReturnType<typeof buildAllTools>,
+  failedToolCall: { function: { name: string; arguments: string } },
+  errorMessage: string,
+): Promise<NLResult | null> {
+  const missingKeysMatch = errorMessage.match(/Missing required parameters:?\s*(.+)$/);
+  const missingKeys = missingKeysMatch ? missingKeysMatch[1].trim() : '(unknown)';
+  const feedback = [
+    `用户原始输入：${originalInput}`,
+    '',
+    '（系统反馈：你上一轮调用了工具 `' + failedToolCall.function.name + '`，但缺少必填参数：' + missingKeys + '。',
+    '请按以下优先级重新响应：',
+    '1. 如果信息不足以执行该工具，请改用 reply 字段用 Markdown 直接回答用户；',
+    '2. 如果能在不编造的前提下从用户输入里补出参数，请重新调用该工具并填齐参数；',
+    '3. 不要再次用相同的缺失参数调用该工具。）',
+  ].join('\n');
+
+  try {
+    const response = await llmClient.complete('nl-processor-tool-calling', feedback, {}, { tools, toolChoice: 'auto' });
+    if (response.tool_calls && response.tool_calls.length > 0) {
+      try {
+        const parsed = convertToolCallToSteps(response.tool_calls[0]);
+        if (parsed.steps.length > 0) {
+          for (let i = 0; i < parsed.steps.length; i++) {
+            validateWorkflowStep(parsed.steps[i], `steps[${i}]`);
+          }
+          const workflowYAML = YAML.stringify({ steps: parsed.steps });
+          return {
+            success: true,
+            intent: parsed.intent as IntentName,
+            confidence: response.confidence || 0.8,
+            workflowYAML,
+            params: parsed.params,
+            metadata: {
+              path: 'llm-tool-calling',
+              usedSkills: [],
+              fallbackReason: 'self-corrected after Missing required parameters',
+            },
+            taskList: createTaskListFromWorkflow(workflowYAML, originalInput),
+          };
+        }
+      } catch (retryToolError) {
+        const retryMsg = retryToolError instanceof Error ? retryToolError.message : String(retryToolError);
+        moduleLogger.debug({ error: retryMsg }, 'LLM self-correction retry still failed to convert tool call');
+      }
+    }
+    if (response.reply) {
+      return {
+        success: true,
+        intent: (response.intent || failedToolCall.function.name) as IntentName,
+        confidence: response.confidence || 0.7,
+        reply: sanitizeReply(response.reply),
+        metadata: {
+          path: 'dialog',
+          fallbackReason: 'self-corrected to reply after Missing required parameters',
+        },
+      };
+    }
+    return null;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    moduleLogger.debug({ error: message }, 'LLM self-correction call failed');
+    return null;
+  }
+}
+
 async function executeLLMToolCalling(
   input: string,
   llmClient: ILLMClient,
   domains?: string[]
 ): Promise<NLResult> {
   const tools = buildAllTools(domains);
-  
+
   const llmResponse = await llmClient.complete('nl-processor-tool-calling', input, {}, { tools, toolChoice: 'auto' });
-  
+
   if (llmResponse.tool_calls && llmResponse.tool_calls.length > 0) {
     const toolCall = llmResponse.tool_calls[0];
 
@@ -179,6 +333,8 @@ async function executeLLMToolCalling(
         };
       }
       if (errorMessage.includes('Missing required parameters')) {
+        const selfCorrected = await tryLLMSelfCorrection(input, llmClient, tools, toolCall, errorMessage);
+        if (selfCorrected) return selfCorrected;
         return {
           success: true,
           intent: 'UNKNOWN' as IntentName,

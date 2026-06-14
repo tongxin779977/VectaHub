@@ -555,8 +555,11 @@ describe('NLProcessor', () => {
       const result = await processor.parse({ input: '帮我使用 agy 全量审查项目' });
 
       expect(completeSpy).toHaveBeenCalled();
-      const lastCallArgs = completeSpy.mock.calls[0];
-      const toolsPassedToLLM = lastCallArgs[3]?.tools || [];
+      const toolCallingCall = completeSpy.mock.calls.find(
+        (call) => Array.isArray(call[3]?.tools) && (call[3]?.tools as unknown[]).length > 0,
+      );
+      expect(toolCallingCall, 'expected a tool-calling complete() invocation with non-empty tools').toBeDefined();
+      const toolsPassedToLLM = (toolCallingCall![3]?.tools as unknown[]) || [];
 
       const runAgentTools = toolsPassedToLLM.filter((t: any) => t.function.name.startsWith('run_agent_'));
       expect(runAgentTools.length).toBe(1);
@@ -568,6 +571,210 @@ describe('NLProcessor', () => {
       expect(result.intent).toBe('run_agent_agy');
 
       resetAgentRegistry();
+    });
+  });
+
+  describe('Two-stage intent routing', () => {
+    it('routes query kind through reply-only path (toolChoice=none)', async () => {
+      const completeSpy = vi.spyOn(LLMClient.prototype, 'complete');
+      completeSpy
+        .mockResolvedValueOnce({ reply: '{"kind":"query"}' } as any)
+        .mockResolvedValueOnce({
+          reply: '当前模型是 ollama/qwen3:1.7b，如需查看可运行 `vectahub config show`。',
+        } as any);
+
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig, auditHelper: mockAuditHelper, logger: mockLogger });
+      const result = await processor.parse({ input: '现在使用的是什么模型' });
+
+      expect(completeSpy).toHaveBeenCalledTimes(2);
+      const classifierCall = completeSpy.mock.calls[0];
+      expect(classifierCall[0]).toBe('nl-intent-classifier-v1');
+      expect(classifierCall[3]?.toolChoice).toBe('none');
+      const replyCall = completeSpy.mock.calls[1];
+      expect(replyCall[0]).toBe('nl-processor-tool-calling');
+      expect(replyCall[3]?.toolChoice).toBe('none');
+
+      expect(result.success).toBe(true);
+      expect(result.reply).toContain('qwen3:1.7b');
+      expect(result.metadata.path).toBe('reply-only');
+      expect(result.metadata.classifierKind).toBe('query');
+    });
+
+    it('routes dialog kind through reply-only path', async () => {
+      vi.spyOn(LLMClient.prototype, 'complete')
+        .mockResolvedValueOnce({ reply: '{"kind":"dialog"}' } as any)
+        .mockResolvedValueOnce({ reply: '你好！有什么我可以帮你的吗？' } as any);
+
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig, auditHelper: mockAuditHelper, logger: mockLogger });
+      const result = await processor.parse({ input: '你好呀' });
+
+      expect(result.success).toBe(true);
+      expect(result.reply).toContain('你好');
+      expect(result.metadata.path).toBe('reply-only');
+      expect(result.metadata.classifierKind).toBe('dialog');
+    });
+
+    it('routes task kind through the original tool-calling path', async () => {
+      const completeSpy = vi.spyOn(LLMClient.prototype, 'complete');
+      completeSpy
+        .mockResolvedValueOnce({ reply: '{"kind":"task"}' } as any)
+        .mockResolvedValueOnce({
+          tool_calls: [{
+            id: 'call_1',
+            type: 'function',
+            function: { name: 'git_commit', arguments: JSON.stringify({ message: 'fix bug' }) },
+          }],
+          confidence: 0.9,
+        } as any);
+
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig, auditHelper: mockAuditHelper, logger: mockLogger });
+      const result = await processor.parse({ input: 'git commit -m "fix bug"' });
+
+      expect(completeSpy).toHaveBeenCalledTimes(2);
+      const toolCall = completeSpy.mock.calls[1];
+      expect(toolCall[3]?.toolChoice).toBe('auto');
+      expect(result.success).toBe(true);
+      expect(result.workflowYAML).toBeDefined();
+      expect(result.metadata.path).toBe('llm-tool-calling');
+    });
+
+    it('falls back to tool-calling when classifier output is unparseable', async () => {
+      const completeSpy = vi.spyOn(LLMClient.prototype, 'complete');
+      completeSpy
+        .mockResolvedValueOnce({ reply: 'not-json-and-no-keyword' } as any)
+        .mockResolvedValueOnce({
+          tool_calls: [{
+            id: 'call_1',
+            type: 'function',
+            function: { name: 'git_commit', arguments: JSON.stringify({ message: 'fix' }) },
+          }],
+          confidence: 0.8,
+        } as any);
+
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig, auditHelper: mockAuditHelper, logger: mockLogger });
+      const result = await processor.parse({ input: 'git commit -m "fix"' });
+
+      expect(completeSpy).toHaveBeenCalledTimes(2);
+      const toolCall = completeSpy.mock.calls[1];
+      expect(toolCall[3]?.toolChoice).toBe('auto');
+      expect(result.metadata.path).toBe('llm-tool-calling');
+    });
+
+    it('falls back to tool-calling when classifier LLM call throws', async () => {
+      const completeSpy = vi.spyOn(LLMClient.prototype, 'complete');
+      completeSpy
+        .mockRejectedValueOnce(new Error('classifier down'))
+        .mockResolvedValueOnce({
+          tool_calls: [{
+            id: 'call_1',
+            type: 'function',
+            function: { name: 'git_commit', arguments: JSON.stringify({ message: 'fix' }) },
+          }],
+          confidence: 0.8,
+        } as any);
+
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig, auditHelper: mockAuditHelper, logger: mockLogger });
+      const result = await processor.parse({ input: 'git commit -m "fix"' });
+
+      expect(completeSpy).toHaveBeenCalledTimes(2);
+      expect(result.success).toBe(true);
+      expect(result.metadata.path).toBe('llm-tool-calling');
+    });
+  });
+
+  describe('LLM self-correction on missing required parameters', () => {
+    it('retry succeeds with reply and avoids generic fallback message', async () => {
+      const completeSpy = vi.spyOn(LLMClient.prototype, 'complete');
+      completeSpy
+        .mockResolvedValueOnce({ reply: '{"kind":"task"}' } as any)
+        .mockResolvedValueOnce({
+          tool_calls: [{
+            id: 'call_1',
+            type: 'function',
+            function: { name: 'QUERY_INFO', arguments: '{}' },
+          }],
+          confidence: 0.7,
+        } as any)
+        .mockResolvedValueOnce({
+          reply: '我无法直接告诉你当前模型名。建议运行 `vectahub config show` 查看。',
+        } as any);
+
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig, auditHelper: mockAuditHelper, logger: mockLogger });
+      const result = await processor.parse({ input: '现在使用的是什么模型' });
+
+      expect(completeSpy).toHaveBeenCalledTimes(3);
+      const retryCall = completeSpy.mock.calls[2];
+      expect(retryCall[0]).toBe('nl-processor-tool-calling');
+      expect(String(retryCall[1])).toContain('QUERY_INFO');
+      expect(String(retryCall[1])).toContain('缺少必填参数');
+      expect(String(retryCall[1])).toContain('用户原始输入');
+
+      expect(result.success).toBe(true);
+      expect(result.reply).toContain('vectahub config show');
+      expect(result.metadata.path).toBe('dialog');
+      expect(result.metadata.fallbackReason).toContain('self-corrected to reply');
+    });
+
+    it('retry succeeds with corrected tool call parameters', async () => {
+      const completeSpy = vi.spyOn(LLMClient.prototype, 'complete');
+      completeSpy
+        .mockResolvedValueOnce({ reply: '{"kind":"task"}' } as any)
+        .mockResolvedValueOnce({
+          tool_calls: [{
+            id: 'call_1',
+            type: 'function',
+            function: { name: 'git_commit', arguments: '{}' },
+          }],
+          confidence: 0.7,
+        } as any)
+        .mockResolvedValueOnce({
+          tool_calls: [{
+            id: 'call_2',
+            type: 'function',
+            function: { name: 'git_commit', arguments: JSON.stringify({ message: 'fix: correct' }) },
+          }],
+          confidence: 0.8,
+        } as any);
+
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig, auditHelper: mockAuditHelper, logger: mockLogger });
+      const result = await processor.parse({ input: 'git commit' });
+
+      expect(completeSpy).toHaveBeenCalledTimes(3);
+      expect(result.success).toBe(true);
+      expect(result.workflowYAML).toBeDefined();
+      expect(result.metadata.path).toBe('llm-tool-calling');
+      expect(result.metadata.fallbackReason).toContain('self-corrected after Missing required parameters');
+    });
+
+    it('falls back to generic message when retry also fails', async () => {
+      const completeSpy = vi.spyOn(LLMClient.prototype, 'complete');
+      completeSpy
+        .mockResolvedValueOnce({ reply: '{"kind":"task"}' } as any)
+        .mockResolvedValueOnce({
+          tool_calls: [{
+            id: 'call_1',
+            type: 'function',
+            function: { name: 'QUERY_INFO', arguments: '{}' },
+          }],
+          confidence: 0.7,
+        } as any)
+        .mockResolvedValueOnce({
+          tool_calls: [{
+            id: 'call_2',
+            type: 'function',
+            function: { name: 'QUERY_INFO', arguments: '{}' },
+          }],
+          confidence: 0.7,
+        } as any);
+
+      const processor = createNLProcessor({ llmConfig: mockLLMConfig, auditHelper: mockAuditHelper, logger: mockLogger });
+      const result = await processor.parse({ input: '现在使用的是什么模型' });
+
+      expect(completeSpy).toHaveBeenCalledTimes(3);
+      expect(result.success).toBe(true);
+      expect(result.reply).toBe('收到，但缺少必要参数，无法执行。请提供更具体的信息后重试。');
+      expect(result.metadata.path).toBe('dialog');
+      expect(result.metadata.fallbackReason).toContain('tool_call failed');
     });
   });
 });

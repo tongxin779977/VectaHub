@@ -78,11 +78,12 @@ export interface NLResult {
   reply?: string;
   params?: Record<string, unknown>;
   metadata: {
-    path: 'category-router' | 'llm-tool-calling' | 'no-match' | 'direct-query' | 'dialog';
+    path: 'category-router' | 'llm-tool-calling' | 'no-match' | 'direct-query' | 'dialog' | 'reply-only';
     usedSkills?: string[];
     fallbackReason?: string;
     multiIntent?: MultiIntentResult;
     requiresLLM?: boolean;
+    classifierKind?: 'query' | 'task' | 'dialog';
   };
 }
 
