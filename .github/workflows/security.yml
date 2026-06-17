@@ -155,6 +155,31 @@ jobs:
               });
             }
 
+      - name: Close resolved security issue
+        if: steps.npm-audit.outputs.vulnerable != 'true' && (steps.dependabot.outputs.status != 'available' || steps.dependabot.outputs.alert_count == '0')
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'Security automation report';
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'automation,security',
+              per_page: 100
+            });
+            const existing = issues.find((issue) => issue.title === title);
+            if (existing) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                state: 'closed',
+                state_reason: 'completed'
+              });
+              core.notice(`Closed resolved security issue #${existing.number}`);
+            }
+
       - name: Upload audit results
         if: always()
         uses: actions/upload-artifact@v4
