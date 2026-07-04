@@ -9,6 +9,8 @@ export default defineConfig({
       '**/out/**',
       '**/*.test.js',
       '**/vectahub-vscode-extension/src/test/**',
+      'tests/e2e/**',
+      'tests/mutation/**',
     ],
     coverage: {
       provider: 'v8',
