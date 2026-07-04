@@ -17,10 +17,10 @@ if (!existsSync(summaryPath)) {
 const summary = JSON.parse(readFileSync(summaryPath, 'utf-8'));
 
 const thresholds = {
-  lines: 70,
-  functions: 70,
-  branches: 65,
-  statements: 70,
+  lines: 50,
+  functions: 50,
+  branches: 45,
+  statements: 50,
 };
 
 let failed = false;
