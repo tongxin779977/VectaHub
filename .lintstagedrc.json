@@ -1,0 +1,5 @@
+export default {
+  '*.{ts,tsx,js,mjs,cjs}': ['eslint --fix --max-warnings=0', 'prettier --write'],
+  '*.{json,yml,yaml,md}': ['prettier --write'],
+  'src/**/*.{ts,tsx}': () => 'npm run typecheck -- --noEmit',
+};
