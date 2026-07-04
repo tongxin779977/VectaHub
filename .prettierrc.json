@@ -1,0 +1,37 @@
+{
+  "printWidth": 100,
+  "singleQuote": true,
+  "trailingComma": "all",
+  "semi": true,
+  "tabWidth": 2,
+  "useTabs": false,
+  "endOfLine": "lf",
+  "arrowParens": "always",
+  "bracketSpacing": true,
+  "overrides": [
+    {
+      "files": "*.md",
+      "options": {
+        "proseWrap": "preserve"
+      }
+    },
+    {
+      "files": "*.yml",
+      "options": {
+        "singleQuote": false
+      }
+    }
+  ],
+  "ignore": [
+    "node_modules",
+    "dist",
+    "coverage",
+    "playwright-report",
+    "reports",
+    ".stryker-tmp",
+    "benchmarks/results",
+    "**/out/**",
+    "package-lock.json",
+    "agent-homes"
+  ]
+}
