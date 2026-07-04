@@ -1,0 +1,45 @@
+# VectaHub issue & PR 自动分类规则
+
+## issue 自动 label
+
+| 触发条件 | 标签 |
+|---|---|
+| 标题以 `[Bug]` 开头 | `bug` |
+| 标题以 `[Feature]` 开头 | `enhancement` |
+| 标题以 `[Docs]` 开头 | `documentation` |
+| 标题以 `[Security]` 开头 | `security` |
+| 任何模板提交 | `triage` |
+| 包含 `agent`、`workflow`、`provider`、`template` 任一关键词 | `area:agent` / `area:workflow` / `area:provider` / `area:template` |
+| 包含 `vscode` / `extension` | `area:vscode-extension` |
+| 由 `.github/workflows/security.yml` 自动开 | `automation`、`security` |
+| 由 `.github/workflows/self-healing.yml` 自动开 | `automation`、`ci` |
+
+## PR 自动 label
+
+| 触发条件 | 标签 |
+|---|---|
+| 修改 `src/**` | `area:core` |
+| 修改 `packages/vectahub-vscode-extension/**` | `area:vscode-extension` |
+| 修改 `packages/doc-task-contract-core/**` | `area:doc-task-contract` |
+| 修改 `templates/**` | `area:template` |
+| 修改 `docs/**` | `docs` |
+| 修改 `.github/**` | `ci` |
+| 修改 `package.json` / `package-lock.json` | `deps` |
+| Commit message 含 `feat:` | `feature` |
+| Commit message 含 `fix:` | `bug` |
+| Commit message 含 `perf:` | `performance` |
+| Commit message 含 `refactor:` | `refactor` |
+| Commit message 含 `BREAKING CHANGE` / `!` | `breaking` |
+
+## stale 规则
+
+| 资源 | 空闲时长 | 动作 |
+|---|---|---|
+| 无标签 issue | 30 天 | 标记 `stale`,附提示评论 |
+| 无标签 issue stale 后 | 7 天 | 自动关闭 |
+| 带 `bug` / `security` / `enhancement` 标签的 issue | 不进入 stale |
+| 开放 PR 无 commit > 14 天 | 标记 `stale`,附提示评论 |
+| 开放 PR stale 后 | 7 天 | 自动关闭 |
+| draft PR | 不进入 stale |
+
+所有 stale 操作均可由维护者在评论中用 `/unsticky` / `/keep-open` 取消。

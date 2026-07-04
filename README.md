@@ -5,8 +5,14 @@
 [![Version](https://img.shields.io/badge/version-1.0.14-blue)]()
 [![Node.js](https://img.shields.io/badge/node-%3E%3D21.0.0-brightgreen)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue)]()
+[![CI](https://github.com/tongxin779977/VectaHub/actions/workflows/ci.yml/badge.svg)](https://github.com/tongxin779977/VectaHub/actions/workflows/ci.yml)
+[![Security](https://github.com/tongxin779977/VectaHub/actions/workflows/security.yml/badge.svg)](https://github.com/tongxin779977/VectaHub/actions/workflows/security.yml)
+[![CodeQL](https://github.com/tongxin779977/VectaHub/actions/workflows/codeql.yml/badge.svg)](https://github.com/tongxin779977/VectaHub/actions/workflows/codeql.yml)
+[![Release Drafter](https://github.com/tongxin779977/VectaHub/actions/workflows/release-drafter.yml/badge.svg)](https://github.com/tongxin779977/VectaHub/actions/workflows/release-drafter.yml)
+[![Release](https://github.com/tongxin779977/VectaHub/actions/workflows/publish.yml/badge.svg)](https://github.com/tongxin779977/VectaHub/actions/workflows/publish.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-[中文介绍](#中文介绍) · [Documentation](./docs/README.md) · [Repository Policy](./docs/repository-permissions.md)
+[中文介绍](#中文介绍) · [Documentation](./docs/README.md) · [Contributing](./CONTRIBUTING.md) · [Security](./SECURITY.md) · [Repository Policy](./docs/repository-permissions.md)
 
 ## English Overview
 
