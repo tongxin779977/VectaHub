@@ -6,6 +6,9 @@ on:
       - main
       - develop
   pull_request:
+    branches:
+      - main
+      - develop
 
 permissions:
   contents: read
@@ -16,21 +19,38 @@ concurrency:
 
 jobs:
   root:
-    name: Root package
-    runs-on: ubuntu-latest
+    name: Root package (${{ matrix.node }} / ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ['20', '22', '24']
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup pnpm cache key (cross-platform)
+        id: cache-key
+        run: echo "key=npm-${{ runner.os }}-${{ matrix.node }}-${{ hashFiles('**/package-lock.json') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js ${{ matrix.node }}
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
           cache: npm
 
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ steps.cache-key.outputs.key }}
+          restore-keys: |
+            npm-${{ runner.os }}-${{ matrix.node }}-
+
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --no-audit --no-fund
 
       - name: Typecheck
         run: npm run typecheck
@@ -44,13 +64,29 @@ jobs:
       - name: Check documentation links
         run: npm run check:docs
 
-      - name: Test
-        run: npm exec -- vitest --run --exclude '**/packages/vectahub-vscode-extension/**'
+      - name: Test with coverage
+        run: npm run test:coverage
+
+      - name: Upload coverage artifact
+        if: matrix.os == 'ubuntu-latest' && matrix.node == '22'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            coverage/**
+            .nyc_output/**
+          if-no-files-found: ignore
+
+      - name: Coverage threshold gate
+        if: matrix.os == 'ubuntu-latest' && matrix.node == '22'
+        run: |
+          node scripts/check-coverage-threshold.mjs
 
       - name: Build
         run: npm run build
 
       - name: Smoke test built CLI
+        shell: bash
         run: |
           node dist/cli.js --version
           node dist/cli.js version --json
@@ -59,7 +95,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: root-failure-diagnostics
+          name: root-failure-diagnostics-${{ matrix.os }}-${{ matrix.node }}
           path: |
             .test-reports/**
             logs/**
@@ -67,7 +103,7 @@ jobs:
           if-no-files-found: ignore
 
   vscode-extension:
-    name: VS Code extension
+    name: VS Code extension (ubuntu)
     runs-on: ubuntu-latest
 
     steps:
@@ -81,7 +117,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --no-audit --no-fund
 
       - name: Compile extension
         run: npm run compile -w packages/vectahub-vscode-extension
@@ -101,3 +137,52 @@ jobs:
             packages/vectahub-vscode-extension/.vscode-test/**
             packages/vectahub-vscode-extension/out/**
           if-no-files-found: ignore
+
+  benchmark:
+    name: Benchmark regression check
+    runs-on: ubuntu-latest
+    needs: root
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Run benchmarks
+        run: npm run bench
+
+      - name: Compare against baseline
+        run: node scripts/check-bench-regression.mjs
+
+      - name: Upload benchmark artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            benchmarks/results/**
+          if-no-files-found: ignore
+
+  required-checks:
+    name: Required status check
+    runs-on: ubuntu-latest
+    needs: [root, vscode-extension, benchmark]
+    if: always()
+    steps:
+      - name: Aggregate result
+        run: |
+          if [ "${{ needs.root.result }}" != "success" ] || \
+             [ "${{ needs.vscode-extension.result }}" != "success" ] || \
+             [ "${{ needs.benchmark.result }}" != "success" ]; then
+            echo "One or more required jobs failed."
+            exit 1
+          fi
+          echo "All required jobs passed."
