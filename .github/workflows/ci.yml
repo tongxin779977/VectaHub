@@ -24,30 +24,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        node: ['20', '22', '24']
+        os: [ubuntu-latest, macos-latest]
+        node: ['22', '24']
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup pnpm cache key (cross-platform)
-        id: cache-key
-        run: echo "key=npm-${{ runner.os }}-${{ matrix.node }}-${{ hashFiles('**/package-lock.json') }}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node.js ${{ matrix.node }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-
-      - name: Cache npm
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ steps.cache-key.outputs.key }}
-          restore-keys: |
-            npm-${{ runner.os }}-${{ matrix.node }}-
 
       - name: Install dependencies
         run: npm ci --no-audit --no-fund

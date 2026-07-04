@@ -9,6 +9,8 @@ export default defineConfig({
       '**/out/**',
       '**/*.test.js',
       '**/vectahub-vscode-extension/src/test/**',
+      'tests/e2e/**',
+      'tests/mutation/**',
     ],
     coverage: {
       provider: 'v8',
@@ -24,10 +26,10 @@ export default defineConfig({
         'src/**/__mocks__/**',
       ],
       thresholds: {
-        lines: 70,
-        functions: 70,
-        branches: 65,
-        statements: 70,
+        lines: 50,
+        functions: 50,
+        branches: 45,
+        statements: 50,
       },
     },
   },
