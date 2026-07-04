@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json.schemastore.org/stryker-config.json",
+  "packageManager": "npm",
+  "reporters": ["html", "clear-text", "json"],
+  "testRunner": "vitest",
+  "vitest": {
+    "configFile": "vitest.config.ts"
+  },
+  "coverageAnalysis": "perTest",
+  "mutate": [
+    "src/**/*.ts",
+    "!src/**/*.test.ts",
+    "!src/**/*.spec.ts",
+    "!src/**/*.bench.ts",
+    "!src/**/__mocks__/**",
+    "!src/**/index.ts",
+    "!src/**/types.ts"
+  ],
+  "thresholds": {
+    "high": 80,
+    "low": 60,
+    "break": null
+  },
+  "ignorePatterns": ["dist", "node_modules", "coverage"],
+  "inPlace": false,
+  "tempDirName": ".stryker-tmp",
+  "timeoutMS": 60_000,
+  "timeoutFactor": 1.5,
+  "plugins": ["@stryker-mutator/typescript-checker"],
+  "checkers": ["typescript"],
+  "tsconfigFile": "tsconfig.json"
+}

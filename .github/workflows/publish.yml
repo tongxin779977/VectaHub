@@ -10,6 +10,11 @@ on:
         description: Version tag to publish, for example v1.0.14
         required: true
         type: string
+      dry_run:
+        description: Dry run (build + verify only, do not publish)
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -20,10 +25,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  preflight:
+    name: Preflight & secrets check
+    runs-on: ubuntu-latest
+    outputs:
+      dry_run: ${{ steps.dry-run.outputs.dry_run }}
+    steps:
+      - name: Resolve flags
+        id: dry-run
+        env:
+          DRY_RUN_INPUT: ${{ inputs.dry_run }}
+        run: |
+          if [ "$DRY_RUN_INPUT" = "true" ]; then
+            echo "dry_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "dry_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   publish:
     name: Publish npm package and VSIX
     runs-on: ubuntu-latest
-
+    needs: preflight
     steps:
       - name: Resolve release tag
         id: release-tag
@@ -55,9 +77,10 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --no-audit --no-fund
 
       - name: Verify publish secrets
+        if: needs.preflight.outputs.dry_run != 'true'
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
@@ -71,16 +94,15 @@ jobs:
         run: |
           ROOT_VERSION="$(node -p "require('./package.json').version")"
           EXTENSION_VERSION="$(node -p "require('./packages/vectahub-vscode-extension/package.json').version")"
+          CORE_VERSION="$(node -p "require('./packages/doc-task-contract-core/package.json').version")"
 
-          if [ "$ROOT_VERSION" != "$RELEASE_VERSION" ]; then
-            echo "Root package version $ROOT_VERSION does not match release version $RELEASE_VERSION" >&2
-            exit 1
-          fi
-
-          if [ "$EXTENSION_VERSION" != "$RELEASE_VERSION" ]; then
-            echo "Extension package version $EXTENSION_VERSION does not match release version $RELEASE_VERSION" >&2
-            exit 1
-          fi
+          for VAR in ROOT EXTENSION CORE; do
+            eval "V=\$${VAR}_VERSION"
+            if [ "$V" != "$RELEASE_VERSION" ]; then
+              echo "Package ${VAR} version $V does not match release version $RELEASE_VERSION" >&2
+              exit 1
+            fi
+          done
 
       - name: Typecheck
         run: npm run typecheck
@@ -91,8 +113,11 @@ jobs:
       - name: Check default context usage
         run: npm run check:default-context-usage
 
-      - name: Test
-        run: npm exec -- vitest --run --exclude '**/packages/vectahub-vscode-extension/**'
+      - name: Test with coverage
+        run: npm run test:coverage
+
+      - name: Verify coverage threshold
+        run: node scripts/check-coverage-threshold.mjs
 
       - name: Build
         run: npm run build
@@ -124,27 +149,37 @@ jobs:
           fi
           echo "path=$VSIX_PATH" >> "$GITHUB_OUTPUT"
 
+      - name: Compute SHA256SUMS
+        run: |
+          (cd dist && sha256sum -- *.js > ../dist/SHA256SUMS.txt 2>/dev/null || shasum -a 256 *.js > ../dist/SHA256SUMS.txt)
+          (cd packages/vectahub-vscode-extension && sha256sum -- *.vsix > ../../dist/SHA256SUMS.txt 2>/dev/null || shasum -a 256 *.vsix >> ../../dist/SHA256SUMS.txt)
+          cat dist/SHA256SUMS.txt
+
       - name: Verify publish artifacts
         run: |
           test -f dist/cli.js
           test -f "${{ steps.vsix.outputs.path }}"
+          test -f dist/SHA256SUMS.txt
 
       - name: Publish npm package
+        if: needs.preflight.outputs.dry_run != 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --provenance --access public
 
       - name: Publish VS Code extension
+        if: needs.preflight.outputs.dry_run != 'true'
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: npx @vscode/vsce publish --packagePath "${{ steps.vsix.outputs.path }}"
 
       - name: Create GitHub Release
+        if: needs.preflight.outputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
           VSIX_PATH: ${{ steps.vsix.outputs.path }}
-        run: gh release create "$RELEASE_TAG" "$VSIX_PATH" --title "$RELEASE_TAG" --generate-notes
+        run: gh release create "$RELEASE_TAG" "$VSIX_PATH" dist/SHA256SUMS.txt --title "$RELEASE_TAG" --generate-notes
 
       - name: Upload failure diagnostics
         if: failure()
@@ -157,4 +192,72 @@ jobs:
             fail_*.log
             packages/vectahub-vscode-extension/*.vsix
             packages/vectahub-vscode-extension/.vscode-test/**
+            dist/SHA256SUMS.txt
           if-no-files-found: ignore
+
+  rollback:
+    name: Rollback failed publish
+    runs-on: ubuntu-latest
+    needs: publish
+    if: failure() && needs.preflight.outputs.dry_run != 'true'
+    steps:
+      - name: Mark release for review
+        uses: actions/github-script@v7
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.version_tag }}
+          FALLBACK_TAG: ${{ github.ref_name }}
+        with:
+          script: |
+            const tag = process.env.RELEASE_TAG || process.env.FALLBACK_TAG;
+            if (!tag || !tag.startsWith('v')) {
+              core.warning('Cannot determine tag for rollback tracking.');
+              return;
+            }
+            const { data: releases } = await github.rest.repos.listReleases({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 10,
+            });
+            const release = releases.find((r) => r.tag_name === tag);
+            if (release) {
+              await github.rest.repos.updateRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: release.id,
+                draft: true,
+              });
+              core.notice(`Converted release ${tag} to draft for manual review.`);
+            } else {
+              core.notice(`Release ${tag} not found; nothing to rollback.`);
+            }
+
+      - name: Open rollback issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `Publish rollback required: ${context.runId}`;
+            const body = [
+              'The `Publish` workflow failed mid-flight.',
+              `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              '',
+              '**Manual checks**:',
+              '1. Did `npm publish` succeed before failure? Verify `npm view vectahub versions`.',
+              '2. Did `vsce publish` succeed before failure? Verify VS Code Marketplace.',
+              '3. Was a GitHub Release already created? If so, mark it draft and re-tag manually.',
+              '4. Re-run `workflow_dispatch` with the corrected tag once fixed.',
+            ].join('\n');
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'automation,release,incident',
+              per_page: 5,
+            });
+            if (issues.some((i) => i.title === title)) return;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['automation', 'release', 'incident'],
+            });
