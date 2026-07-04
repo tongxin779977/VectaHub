@@ -9,6 +9,10 @@ on:
       - tsup.config.ts
       - .github/workflows/release-check.yml
       - packages/vectahub-vscode-extension/**
+      - packages/doc-task-contract-core/**
+      - src/cli.ts
+      - src/index.ts
+      - tsup.config.ts
 
 permissions:
   contents: read

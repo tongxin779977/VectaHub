@@ -1,0 +1,124 @@
+name: Notify on Failure
+
+on:
+  workflow_run:
+    workflows: [CI, Security Automation, VectaHub Self-Healing CI, Publish, Release Check]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: notify-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    name: Send failure notification
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'failure'
+    steps:
+      - name: Compose notification payload
+        id: payload
+        env:
+          WORKFLOW: ${{ github.event.workflow_run.name }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          COMMIT: ${{ github.event.workflow_run.head_sha }}
+          TITLE: ${{ github.event.workflow_run.display_title }}
+        run: |
+          BODY=$(cat <<EOF
+          ## 🚨 CI Failure Alert
+
+          - Workflow: ${WORKFLOW}
+          - Title: ${TITLE}
+          - Branch: \`${BRANCH}\`
+          - Commit: \`${COMMIT}\`
+          - [View run](${RUN_URL})
+          EOF
+          )
+          {
+            echo "body<<EOF"
+            echo "$BODY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post Slack notification
+        if: env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          WORKFLOW: ${{ github.event.workflow_run.name }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          curl -fsS -X POST -H 'Content-Type: application/json' \
+            --data "$(cat <<EOF
+          {
+            "text": "🚨 *${WORKFLOW}* failed on \`${BRANCH}\`\n${RUN_URL}"
+          }
+          EOF
+          )" "$SLACK_WEBHOOK_URL" || echo "Slack notify failed (non-fatal)"
+
+      - name: Post Discord notification
+        if: env.DISCORD_WEBHOOK_URL != ''
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          WORKFLOW: ${{ github.event.workflow_run.name }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          curl -fsS -X POST -H 'Content-Type: application/json' \
+            --data "$(cat <<EOF
+          {
+            "content": "🚨 **${WORKFLOW}** failed on \`${BRANCH}\`\n${RUN_URL}"
+          }
+          EOF
+          )" "$DISCORD_WEBHOOK_URL" || echo "Discord notify failed (non-fatal)"
+
+      - name: Create tracking issue
+        uses: actions/github-script@v7
+        env:
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          WORKFLOW: ${{ github.event.workflow_run.name }}
+          TITLE: ${{ github.event.workflow_run.display_title }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          COMMIT: ${{ github.event.workflow_run.head_sha }}
+        with:
+          script: |
+            const title = `CI failure: ${process.env.WORKFLOW}`;
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'automation,ci',
+              per_page: 50,
+            });
+            const existing = issues.find((i) => i.title.startsWith('CI failure: ' + process.env.WORKFLOW));
+            const body = [
+              `Workflow: ${process.env.WORKFLOW}`,
+              `Title: ${process.env.TITLE}`,
+              `Branch: \`${process.env.BRANCH}\``,
+              `Commit: \`${process.env.COMMIT}\``,
+              `Run: ${process.env.RUN_URL}`,
+              '',
+              'Auto-created by Notify on Failure workflow.',
+            ].join('\n');
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `New failure: ${process.env.RUN_URL}`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['automation', 'ci', 'workflow-failure'],
+              });
+            }

@@ -16,6 +16,16 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
+    groups:
+      patch-and-minor:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    # Auto-merge for patch/minor updates only.
+    # Configure `gh pr merge --auto --squash dependabot/...` via workflow
+    # to actually perform the merge after CI passes.
 
   - package-ecosystem: "npm"
     directory: "/packages/vectahub-vscode-extension"
@@ -30,6 +40,13 @@ updates:
       - "dependencies"
       - "automated"
       - "extension"
+    groups:
+      patch-and-minor:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -40,6 +57,13 @@ updates:
       - "dependencies"
       - "automated"
       - "github-actions"
+    groups:
+      patch-and-minor:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "docker"
     directory: "/"
@@ -50,3 +74,10 @@ updates:
       - "dependencies"
       - "automated"
       - "docker"
+    groups:
+      patch-and-minor:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"

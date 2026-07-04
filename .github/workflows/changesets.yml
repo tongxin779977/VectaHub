@@ -1,0 +1,40 @@
+name: Changesets
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    branches:
+      - develop
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate:
+    name: Validate changeset on PR
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changeset
+        id: detect
+        run: |
+          CHANGESET_COUNT=$(git diff --name-only origin/develop...HEAD | grep -c '^.changeset/.*\.md$' || true)
+          echo "count=$CHANGESET_COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Warn when missing changeset
+        if: steps.detect.outputs.count == '0'
+        run: |
+          {
+            echo "### ⚠️ No changeset detected"
+            echo ""
+            echo "This PR changes \`develop\` but no \`.changeset/*.md\` entry was added."
+            echo "If this PR has user-visible impact, please run \`npx changeset\` locally and commit the result."
+          } >> "$GITHUB_STEP_SUMMARY"
