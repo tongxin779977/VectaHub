@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { TraceContext } from './types.js';
 
 const TRACE_ID_ENV = 'VECTAHUB_TRACE_ID';
@@ -5,9 +6,7 @@ const TRACE_PARENT_SPAN_ENV = 'VECTAHUB_PARENT_SPAN_ID';
 const TRACE_SOURCE_ENV = 'VECTAHUB_TRACE_SOURCE';
 
 function randomIdPart(): string {
-  return Math.floor((Date.now() ^ Number(process.hrtime.bigint() % BigInt(1_000_000))) + Math.random() * 1_000_000)
-    .toString(36)
-    .slice(0, 10);
+  return randomBytes(6).toString('base64url').slice(0, 10);
 }
 
 export function createTraceId(): string {

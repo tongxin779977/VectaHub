@@ -433,15 +433,7 @@ function waitForWriterSettled(writer: NodeJS.WritableStream): Promise<void> {
   });
 }
 
-function buildCommandString(command: string, args: string[]): string {
-  const escaped = args.map(a => {
-    if (/[\s"']/.test(a)) {
-      return `"${a.replace(/"/g, '\\"')}"`;
-    }
-    return a;
-  });
-  return [command, ...escaped].join(' ');
-}
+import { buildCommandString } from './run-task-shared.js';
 
 function summarizeAgentCommandForLog(input: {
   command: string;

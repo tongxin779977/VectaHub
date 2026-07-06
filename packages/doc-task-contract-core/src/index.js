@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { isAbsolute, normalize, relative, resolve, posix, win32 } from 'node:path';
+import { isAbsolute, normalize, resolve, posix, win32 } from 'node:path';
 
 const DEFAULT_MAX_EXCERPT_CHARS = 8000;
 const DEFAULT_WINDOW_BEFORE = 2000;
@@ -74,7 +74,7 @@ async function scanDocExcerptAsync(source, input) {
     const line = `${raw}\n`;
     head = appendBounded(head, line, captureLimit);
 
-    const headingMatch = raw.match(/^(#{1,6})\s+(.+)$/);
+    const headingMatch = raw.match(/^(#{1,6})[ \t]+(.+)$/);
     if (!hasHeadingSection && headingMatch && raw.includes(input.taskId)) {
       inHeadingSection = true;
       hasHeadingSection = true;
@@ -146,7 +146,7 @@ function scanDocExcerptSync(source, input) {
     const line = `${raw}\n`;
     head = appendBounded(head, line, captureLimit);
 
-    const headingMatch = raw.match(/^(#{1,6})\s+(.+)$/);
+    const headingMatch = raw.match(/^(#{1,6})[ \t]+(.+)$/);
     if (!hasHeadingSection && headingMatch && raw.includes(input.taskId)) {
       inHeadingSection = true;
       hasHeadingSection = true;
@@ -391,7 +391,7 @@ function extractExplicitFileSections(text) {
     if (!currentSection) continue;
 
     // 显式文件分区是安全边界来源，只读取列表项，避免把说明文字误当成文件路径。
-    const item = line.match(/^[-*]\s+(.+)$/);
+    const item = line.match(/^[-*][ \t]+(.+)$/);
     if (!item) continue;
 
     const candidates = extractCandidateFiles(item[1]);
@@ -412,10 +412,10 @@ function detectFileSection(line) {
     .trim()
     .toLowerCase();
 
-  if (/^allowedfiles\s*:?\s*$/.test(normalized) || /^allowed files\s*:?\s*$/.test(normalized)) {
+  if (/^allowedfiles[\s:]*$/.test(normalized) || /^allowed files[\s:]*$/.test(normalized)) {
     return 'allowed';
   }
-  if (/^forbiddenfiles\s*:?\s*$/.test(normalized) || /^forbidden files\s*:?\s*$/.test(normalized)) {
+  if (/^forbiddenfiles[\s:]*$/.test(normalized) || /^forbidden files[\s:]*$/.test(normalized)) {
     return 'forbidden';
   }
   return null;
@@ -489,7 +489,8 @@ function stripLeadingCurrentDir(projectRelativePath) {
 }
 
 function sanitizeCandidatePath(value) {
-  return value.replace(/[.,，。;；:：)）\]】]+$/g, '');
+  const m = value.match(/[.,，。;；:：)）\]】]+$/);
+  return m ? value.slice(0, -m[0].length) : value;
 }
 
 function looksLikeProjectPath(value) {
