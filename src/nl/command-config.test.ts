@@ -1,9 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { writeFileSync, mkdirSync, rmSync, existsSync } from 'fs';
+import { writeFileSync, rmSync, mkdtempSync, existsSync } from 'fs';
+import { tmpdir } from 'node:os';
 import { join } from 'path';
-import { loadCommandConfig, loadIntentConfig, CommandConfig, IntentConfig } from './command-config.js';
-
-const TEST_DIR = '/tmp/vectahub-test-command-config';
+import { loadCommandConfig, loadIntentConfig } from './command-config.js';
 
 const TEMPLATES_YAML = `
 version: '1.0.0'
@@ -77,17 +76,13 @@ intents:
 `;
 
 describe('CommandConfig', () => {
+  let TEST_DIR: string;
   beforeEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true });
-    }
-    mkdirSync(TEST_DIR, { recursive: true });
+    TEST_DIR = mkdtempSync(join(tmpdir(), 'vectahub-command-config-'));
   });
 
   afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true });
-    }
+    rmSync(TEST_DIR, { recursive: true, force: true });
   });
 
   describe('loadCommandConfig', () => {
