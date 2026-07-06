@@ -188,11 +188,7 @@ export async function createAPIServer(
         const input = (body.input as string) || '';
         const workflowFile = (body.workflowFile as string);
 
-        let executionResult: APIExecutionSummary = {
-          status: 'PENDING',
-          steps: [],
-          warnings: [],
-        };
+        let executionResult!: APIExecutionSummary;
 
         if (workflowFile && existsSync(workflowFile)) {
           const content = readFileSync(workflowFile, 'utf-8');

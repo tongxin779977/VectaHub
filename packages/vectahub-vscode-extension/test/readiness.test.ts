@@ -435,14 +435,15 @@ describe('processAllQueue 队列快照对比逻辑', () => {
     expect(buildParts(0, 0, 0, 2)).toEqual(['⚠️ 待确认 2']);
   });
 
+  function determineHistoryStatus(failedCount: number): 'failed' | 'success' {
+    return failedCount > 0 ? 'failed' : 'success';
+  }
+
   it('history 状态: 有 failed 时为 failed', () => {
-    const historyStatus = 1 > 0 ? 'failed' : 'success';
-    expect(historyStatus).toBe('failed');
+    expect(determineHistoryStatus(5)).toBe('failed');
   });
 
   it('history 状态: 无 failed 时为 success', () => {
-    const failedCount = 0;
-    const historyStatus = failedCount > 0 ? 'failed' : 'success';
-    expect(historyStatus).toBe('success');
+    expect(determineHistoryStatus(0)).toBe('success');
   });
 });
