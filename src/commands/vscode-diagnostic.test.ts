@@ -15,6 +15,11 @@ describe('vscode diagnostic command output', () => {
     process.env.VECTAHUB_HOME = tempHome;
     writeFileSync(join(tempHome, 'bridge-port'), 'not-a-port', 'utf-8');
     resetDefaultContext();
+    // action 的 catch 分支会调 logger.error(),触发 pino/file worker 异步
+    // 落盘到 <tempHome>/logs/app/<date>.log。worker 的 open 晚于本 afterEach
+    // 的 rmSync(tempHome) 时,父目录已不存在 → ENOENT;macOS CI 上浮为
+    // vitest unhandled error → exit 1。muted 后 worker 不 IO,避开 race。
+    getDefaultContext().logger.setMuted(true);
     vi.restoreAllMocks();
   });
 
@@ -25,6 +30,9 @@ describe('vscode diagnostic command output', () => {
       process.env.VECTAHUB_HOME = oldHome;
     }
     rmSync(tempHome, { recursive: true, force: true });
+    // 还原 muted 状态,防止泄漏到后续 test file 的 default context worker。
+    const ctx = getDefaultContext();
+    ctx.logger.setMuted(false);
     resetDefaultContext();
     vi.restoreAllMocks();
   });
