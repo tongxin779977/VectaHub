@@ -105,7 +105,11 @@ export class ToolCacheManager {
       discoveredAt: new Date().toISOString(),
     };
     await this.ensureCacheDir();
-    await writeFile(this.getCachePath(toolName), JSON.stringify(entry, null, 2), 'utf-8');
+    await writeFile(
+      this.getCachePath(toolName),
+      JSON.stringify(entry, null, 2),
+      { encoding: 'utf-8', mode: 0o600 },
+    );
   }
 
   async discoverToolHelp(toolName: string, options?: { skipCapabilityInference?: boolean }): Promise<ToolCacheEntry> {

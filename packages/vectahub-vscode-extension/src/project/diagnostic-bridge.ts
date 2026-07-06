@@ -131,8 +131,9 @@ export class DiagnosticBridge implements vscode.Disposable {
           data: serialized,
         }));
       } catch (err) {
+        console.error('[diagnostic-bridge] handler failed', err);
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: false, error: String(err) }));
+        res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : 'Internal error' }));
       }
     });
 

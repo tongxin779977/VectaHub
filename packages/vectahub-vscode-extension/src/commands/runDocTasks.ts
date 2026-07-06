@@ -506,7 +506,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
             taskId: task.id,
             taskLabel: task.label,
             status: 'started',
-            agentCli: agentCli || '',
+            agentCli,
           },
         });
         await vscode.window.withProgress({
@@ -838,7 +838,7 @@ export function registerDocTaskCommands(context: vscode.ExtensionContext, tasksP
           taskId: 'batch',
           taskLabel: `count:${tasksToRun.length}`,
           status: 'started',
-          agentCli: agentCli || '',
+          agentCli,
           concurrencyMode: concurrencyDecision.mode,
           concurrencyReason: concurrencyDecision.reason,
           maxConcurrent,

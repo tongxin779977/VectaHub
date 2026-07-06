@@ -22,12 +22,22 @@ if (!existsSync(resultPath)) {
 
 const result = JSON.parse(readFileSync(resultPath, 'utf-8'));
 
-if (!existsSync(baselinePath)) {
+try {
+  mkdirSync(dirname(baselinePath), { recursive: true });
+  writeFileSync(
+    baselinePath,
+    JSON.stringify(result, null, 2) + '\n',
+    { encoding: 'utf-8', flag: 'wx' },
+  );
   console.warn(`No baseline found at ${baselinePath}.`);
   console.warn('Creating baseline from current results; future runs will be compared against this.');
-  mkdirSync(dirname(baselinePath), { recursive: true });
-  writeFileSync(baselinePath, JSON.stringify(result, null, 2) + '\n', 'utf-8');
   process.exit(0);
+} catch (err) {
+  if (err && err.code === 'EEXIST') {
+    console.log(`Baseline already exists at ${baselinePath}, continuing.`);
+  } else {
+    throw err;
+  }
 }
 
 const baseline = JSON.parse(readFileSync(baselinePath, 'utf-8'));

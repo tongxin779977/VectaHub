@@ -204,7 +204,7 @@ export function createTemplatesCmd(context: InfrastructureContext): Command {
         await addSource(context.environment, {
           name,
           url,
-          type: url.includes('github.com') ? 'github' : 'git',
+          type: isGithubUrl(url) ? 'github' : 'git',
           branch: options.branch,
           path: options.path,
         });
@@ -349,4 +349,13 @@ export function createTemplatesCmd(context: InfrastructureContext): Command {
   templatesCmd.addCommand(templatesSaveCmd);
 
   return templatesCmd;
+}
+
+function isGithubUrl(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl);
+    return parsed.hostname === 'github.com';
+  } catch {
+    return false;
+  }
 }

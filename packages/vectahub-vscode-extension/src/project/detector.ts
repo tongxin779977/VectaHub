@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { readFile, access } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { ProjectTask } from './taskModel.js';
 import { detectPackageManager } from './packageManager.js';
 import { detectPackageTasks, PackageJson } from './packageScripts.js';
@@ -26,7 +26,7 @@ export async function detectProjectTasks(): Promise<ProjectTask[]> {
   const packageJsonPath = path.join(workspaceFolder, 'package.json');
   let pkg: PackageJson | undefined;
   try {
-    await access(packageJsonPath);
+
     const content = await readFile(packageJsonPath, 'utf-8');
     pkg = JSON.parse(content);
   } catch {

@@ -280,17 +280,19 @@ export async function createAPIServer(
       const statusCode = (err instanceof RequestBodyParseError)
         ? 400
         : (err instanceof BodyTooLargeError) ? 413 : 500;
+      const stack = err instanceof Error ? err.stack : undefined;
       deps.audit.log({
         event: AuditEventType.WORKFLOW_END,
         timestamp: new Date().toISOString(),
         sessionId,
         module: 'API',
         action: `${method} ${url.pathname}`,
-        output: { error: message },
+        output: { error: message, stack },
         success: false,
         error: message,
       });
-      jsonResponse(res, statusCode, { success: false, error: message });
+      const safeMessage = statusCode === 500 ? 'Internal server error' : message;
+      jsonResponse(res, statusCode, { success: false, error: safeMessage });
     }
   });
 

@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import * as path from 'path';
 
 /**
  * 更新 Markdown 文档中指定任务的状态。
@@ -11,10 +10,14 @@ import * as path from 'path';
  * 4. 如果没找到表格，尝试寻找以 ID 开头的列表项并标记完成。
  */
 export async function updateMarkdownDocTaskStatus(filePath: string, taskId: string): Promise<boolean> {
-  if (!fs.existsSync(filePath)) return false;
-
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
+    let content: string;
+    try {
+      content = fs.readFileSync(filePath, 'utf-8');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw err;
+    }
     const lines = content.split('\n');
     let modified = false;
 
