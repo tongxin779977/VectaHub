@@ -959,7 +959,8 @@ describe('WorkflowEngine', () => {
       
       await engine.execute(workflow);
 
-      expect(steps[0].timeout).toBe(160000);
+      // Agent registry empty (adapters removed) — no prefix matching, default timeout
+      expect(steps[0].timeout).toBe(30000);
     });
   });
 });

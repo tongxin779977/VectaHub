@@ -41,12 +41,9 @@ vi.mock('../setup/first-run-wizard-bridge.js', () => ({
   })),
 }));
 
-import { LLMClient } from '../nl/llm.js';
 import { createTestInfrastructureContext } from '../infrastructure/testing/index.js';
-import * as llmModule from '../nl/llm.js';
 import { resetDefaultContext, setDefaultContext } from '../infrastructure/context.js';
 import {
-  parseTasksFromLLMOutput,
   findChunkBoundary,
   splitDocIntoChunks,
   mergeAndDeduplicateDocTasks,
@@ -61,85 +58,6 @@ afterEach(() => {
   vi.restoreAllMocks();
   resetDefaultContext();
   delete process.env.VECTAHUB_HOME;
-});
-
-describe('parseTasksFromLLMOutput', () => {
-  it('should parse valid JSON array', () => {
-    const output = '[{"id": "1.1", "label": "实现登录"}, {"id": "1.2", "label": "实现注册"}]';
-    const tasks = parseTasksFromLLMOutput(output);
-
-    expect(tasks).toHaveLength(2);
-    expect(tasks[0].id).toBe('1.1');
-    expect(tasks[0].label).toBe('实现登录');
-    expect(tasks[1].id).toBe('1.2');
-    expect(tasks[1].label).toBe('实现注册');
-  });
-
-  it('should parse JSON wrapped in markdown code block', () => {
-    const output = '```json\n[{"id": "1", "label": "task"}]\n```';
-    const tasks = parseTasksFromLLMOutput(output);
-
-    expect(tasks).toHaveLength(1);
-    expect(tasks[0].id).toBe('1');
-  });
-
-  it('should parse JSON wrapped in plain code block', () => {
-    const output = '```\n[{"id": "2", "label": "task2"}]\n```';
-    const tasks = parseTasksFromLLMOutput(output);
-
-    expect(tasks).toHaveLength(1);
-    expect(tasks[0].id).toBe('2');
-  });
-
-  it('should extract JSON array from surrounding text', () => {
-    const output = 'Here are the tasks:\n[{"id": "1.1", "label": "build UI"}]\nDone.';
-    const tasks = parseTasksFromLLMOutput(output);
-
-    expect(tasks).toHaveLength(1);
-    expect(tasks[0].label).toBe('build UI');
-  });
-
-  it('should throw on empty output', () => {
-    expect(() => parseTasksFromLLMOutput('')).toThrow('LLM 输出中未找到有效的 JSON 数组');
-  });
-
-  it('should throw when no JSON array found', () => {
-    expect(() => parseTasksFromLLMOutput('no json here')).toThrow('LLM 输出中未找到有效的 JSON 数组');
-  });
-
-  it('should include output preview in error when no JSON array found', () => {
-    expect(() => parseTasksFromLLMOutput('This is plain text output')).toThrow(/输出前 200 字符/);
-  });
-
-  it('should throw on malformed JSON', () => {
-    expect(() => parseTasksFromLLMOutput('[{broken json')).toThrow();
-  });
-
-  it('should throw when tasks lack id field', () => {
-    const output = '[{"label": "no id"}]';
-    expect(() => parseTasksFromLLMOutput(output)).toThrow('每个任务必须包含 id 和 label');
-  });
-
-  it('should throw when tasks lack label field', () => {
-    const output = '[{"id": "1"}]';
-    expect(() => parseTasksFromLLMOutput(output)).toThrow('每个任务必须包含 id 和 label');
-  });
-
-  it('should prefer first valid array when multiple candidates exist', () => {
-    const output = 'Example: [{"id": "x", "label": "example"}]\nActual: [{"id": "1", "label": "real task"}]';
-    const tasks = parseTasksFromLLMOutput(output);
-
-    expect(tasks).toHaveLength(1);
-    expect(tasks[0].id).toBe('x');
-  });
-
-  it('should handle nested JSON with extra whitespace', () => {
-    const output = '  \n  [{"id": "1.1", "label": "  spaced  "}]\n  ';
-    const tasks = parseTasksFromLLMOutput(output);
-
-    expect(tasks).toHaveLength(1);
-    expect(tasks[0].label).toBe('  spaced  ');
-  });
 });
 
 describe('findChunkBoundary', () => {
@@ -402,14 +320,13 @@ describe('parseRoadmapTableTasks', () => {
 });
 
 describe('parseDocTaskResult', () => {
-  it('should report explicit regex fallback when LLM is unconfigured', async () => {
+  it('should report explicit regex fallback when no roadmap table detected', async () => {
     const context = createTestInfrastructureContext();
     const docPath = '/test/docs/tasks.md';
     const tempHome = mkdtempSync(join(tmpdir(), 'vectahub-parse-doc-home-'));
     setDefaultContext(context);
     process.env.VECTAHUB_HOME = tempHome;
 
-    vi.spyOn(llmModule, 'createLLMConfig').mockReturnValue(null);
     context.environment.writeFile(docPath, [
       '## Tasks',
       '### P1-1：实现登录',
@@ -420,46 +337,8 @@ describe('parseDocTaskResult', () => {
 
     expect(result.source).toBe('regex-fallback');
     expect(result.degraded).toBe(true);
-    expect(result.warnings[0]).toContain('LLM 未配置');
+    expect(result.warnings[0]).toContain('LLM 解析已移除');
     expect(result.tasks.map(task => task.id)).toEqual(['P1-1', 'P1-2']);
-    rmSync(tempHome, { recursive: true, force: true });
-  });
-
-  it('should report degraded LLM result when some chunks fail', async () => {
-    const context = createTestInfrastructureContext();
-    const docPath = '/test/docs/tasks.md';
-    const tempHome = mkdtempSync(join(tmpdir(), 'vectahub-parse-doc-home-'));
-    setDefaultContext(context);
-    process.env.VECTAHUB_HOME = tempHome;
-
-    vi.spyOn(llmModule, 'createLLMConfig').mockReturnValue({
-      provider: 'openai',
-      model: 'gpt-4',
-      apiKey: 'test-key',
-      baseUrl: 'https://api.openai.com/v1',
-    });
-    context.environment.setEnv('PARSE_DOC_MAX_LENGTH', '40');
-    context.environment.setEnv('PARSE_DOC_MAX_RETRIES', '0');
-    context.environment.writeFile(docPath, [
-      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-      '',
-      'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
-      '',
-      'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',
-    ].join('\n'));
-
-    const completeRawSpy = vi.spyOn(LLMClient.prototype, 'completeRaw')
-      .mockResolvedValueOnce('[{"id":"P2-1","label":"第一段"}]')
-      .mockRejectedValueOnce(new Error('chunk failed'))
-      .mockRejectedValueOnce(new Error('chunk failed'));
-
-    const result = await parseDocTaskResult(context, docPath);
-
-    expect(completeRawSpy).toHaveBeenCalled();
-    expect(result.source).toBe('llm');
-    expect(result.degraded).toBe(true);
-    expect(result.warnings[0]).toContain('部分分段 LLM 解析失败');
-    expect(result.tasks).toEqual([{ id: 'P2-1', label: '第一段' }]);
     rmSync(tempHome, { recursive: true, force: true });
   });
 });
@@ -473,7 +352,6 @@ describe('createParseDocCmd', () => {
     setDefaultContext(context);
     process.env.VECTAHUB_HOME = tempHome;
 
-    vi.spyOn(llmModule, 'createLLMConfig').mockReturnValue(null);
     context.environment.writeFile(docPath, '### P3-1：补充测试');
 
     try {
@@ -491,7 +369,7 @@ describe('createParseDocCmd', () => {
       expect(payload.ok).toBe(true);
       expect(payload.source).toBe('regex-fallback');
       expect(payload.degraded).toBe(true);
-      expect(payload.warnings?.[0]).toContain('LLM 未配置');
+      expect(payload.warnings?.[0]).toContain('LLM 解析已移除');
     } finally {
       stdoutSpy.mockRestore();
       rmSync(tempHome, { recursive: true, force: true });
@@ -506,7 +384,6 @@ describe('createParseDocCmd', () => {
     setDefaultContext(context);
     process.env.VECTAHUB_HOME = tempHome;
 
-    vi.spyOn(llmModule, 'createLLMConfig').mockReturnValue(null);
     context.environment.writeFile(docPath, [
       '### P3-1：补充测试',
       '### P3-2：继续验证',

@@ -652,29 +652,21 @@ describe('Executor', () => {
       expect(result.error).toContain('cannot handle delegation');
     });
 
-    it('should run agent preflight before delegate execution', async () => {
-      const execMock = vi
-        .fn()
-        .mockResolvedValueOnce({
-          success: true,
-          exitCode: 0,
-          stdout: 'help output',
-          stderr: '',
-          duration: 1,
-        })
-        .mockResolvedValueOnce({
-          success: true,
-          exitCode: 0,
-          stdout: 'delegate output',
-          stderr: '',
-          duration: 1,
-        });
+    it('should execute delegate via transport and return completed', async () => {
+      const transportExecute = vi.fn().mockResolvedValue({
+        success: true,
+        output: 'delegate output',
+        toolCalls: [],
+        stopReason: 'end_turn',
+        changedFiles: [],
+        events: [],
+      });
 
       const delegateExecutor = createExecutor({
         audit: createNoopAuditHelper(),
         environment,
         delegateHandlerDeps: {
-          exec: execMock,
+          getTransport: () => ({ execute: transportExecute, kind: 'acp', probe: vi.fn() }),
           getEnvironmentCwd: () => '/repo',
         },
       });
@@ -688,29 +680,31 @@ describe('Executor', () => {
       const result = await delegateExecutor.execute(step, { mode: 'RELAXED' });
 
       expect(result.status).toBe('COMPLETED');
-      expect(execMock).toHaveBeenNthCalledWith(
-        1,
-        'claude',
-        ['code', '--help'],
-        expect.objectContaining({ cwd: '/repo' })
+      expect(transportExecute).toHaveBeenCalledTimes(1);
+      expect(transportExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workspaceRoot: '/repo',
+          taskPrompt: 'Analyze the bug',
+        }),
       );
-      expect(execMock).toHaveBeenCalledTimes(2);
     });
 
-    it('should stop delegate execution when preflight fails', async () => {
-      const execMock = vi.fn().mockResolvedValue({
+    it('should fail when transport returns failure', async () => {
+      const transportExecute = vi.fn().mockResolvedValue({
         success: false,
-        exitCode: 1,
-        stdout: '',
-        stderr: 'not ready',
-        duration: 1,
+        output: '',
+        toolCalls: [],
+        stopReason: 'error',
+        changedFiles: [],
+        events: [],
+        error: { code: 'AGENT_CRASHED', message: 'agent crashed' },
       });
 
       const delegateExecutor = createExecutor({
         audit: createNoopAuditHelper(),
         environment,
         delegateHandlerDeps: {
-          exec: execMock,
+          getTransport: () => ({ execute: transportExecute, kind: 'acp', probe: vi.fn() }),
           getEnvironmentCwd: () => '/repo',
         },
       });
@@ -724,33 +718,25 @@ describe('Executor', () => {
       const result = await delegateExecutor.execute(step, { mode: 'RELAXED' });
 
       expect(result.status).toBe('FAILED');
-      expect(result.error).toContain('failed preflight');
-      expect(execMock).toHaveBeenCalledTimes(1);
+      expect(result.error).toContain('agent crashed');
+      expect(transportExecute).toHaveBeenCalledTimes(1);
     });
 
-    it('should pass stdin prompt transport to delegate execution', async () => {
-      const execMock = vi
-        .fn()
-        .mockResolvedValueOnce({
-          success: true,
-          exitCode: 0,
-          stdout: 'ready',
-          stderr: '',
-          duration: 1,
-        })
-        .mockResolvedValueOnce({
-          success: true,
-          exitCode: 0,
-          stdout: 'done',
-          stderr: '',
-          duration: 1,
-        });
+    it('should pass task prompt to transport request', async () => {
+      const transportExecute = vi.fn().mockResolvedValue({
+        success: true,
+        output: 'done',
+        toolCalls: [],
+        stopReason: 'end_turn',
+        changedFiles: [],
+        events: [],
+      });
 
       const delegateExecutor = createExecutor({
         audit: createNoopAuditHelper(),
         environment,
         delegateHandlerDeps: {
-          exec: execMock,
+          getTransport: () => ({ execute: transportExecute, kind: 'acp', probe: vi.fn() }),
           getEnvironmentCwd: () => '/repo',
         },
       });
@@ -763,38 +749,41 @@ describe('Executor', () => {
       };
       await delegateExecutor.execute(step, { mode: 'RELAXED' });
 
-      expect(execMock).toHaveBeenNthCalledWith(
-        2,
-        'codex',
-        expect.any(Array),
-        expect.objectContaining({ stdinInput: 'Write a fix' })
+      expect(transportExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskPrompt: 'Write a fix',
+        }),
       );
     });
 
-    it('should merge allowedEnvVars from descriptor and options and pass to exec', async () => {
-      const execMock = vi
-        .fn()
-        .mockResolvedValue({
-          success: true,
-          exitCode: 0,
-          stdout: 'done',
-          stderr: '',
-          duration: 1,
-        });
+    it('should use descriptor from getDescriptor when provided', async () => {
+      const transportExecute = vi.fn().mockResolvedValue({
+        success: true,
+        output: 'done',
+        toolCalls: [],
+        stopReason: 'end_turn',
+        changedFiles: [],
+        events: [],
+      });
 
-      const { getAgentRegistry } = await import('../agent-runtime/registry.js');
-      const registry = getAgentRegistry();
-      const codexDescriptor = registry.getAgentDescriptor('codex');
-      expect(codexDescriptor).not.toBeNull();
-      
-      const originalAllowedEnvVars = codexDescriptor!.allowedEnvVars;
-      codexDescriptor!.allowedEnvVars = ['CUSTOM_AGENT_VAR'];
+      const mockDescriptor = {
+        id: 'codex',
+        displayName: 'Codex',
+        entryCommand: 'codex',
+        promptTransport: 'positional' as const,
+        nonInteractiveFlags: [],
+        approvalPolicySupport: 'none' as const,
+        structuredOutputSupport: false,
+        preflightSpec: { versionArgs: ['--version'] },
+        dryRunRenderMode: 'prompt-only' as const,
+      };
 
       const delegateExecutor = createExecutor({
         audit: createNoopAuditHelper(),
         environment,
         delegateHandlerDeps: {
-          exec: execMock,
+          getTransport: () => ({ execute: transportExecute, kind: 'acp', probe: vi.fn() }),
+          getDescriptor: () => mockDescriptor,
           getEnvironmentCwd: () => '/repo',
         },
       });
@@ -805,22 +794,14 @@ describe('Executor', () => {
         delegateTo: 'codex',
         delegatePrompt: 'Hello',
       };
-      
-      await delegateExecutor.execute(step, {
-        mode: 'RELAXED',
-        allowedEnvVars: ['CUSTOM_GLOBAL_VAR'],
-      });
 
-      expect(execMock).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.any(Array),
+      await delegateExecutor.execute(step, { mode: 'RELAXED' });
+
+      expect(transportExecute).toHaveBeenCalledWith(
         expect.objectContaining({
-          allowedEnvVars: expect.arrayContaining(['CUSTOM_GLOBAL_VAR', 'CUSTOM_AGENT_VAR']),
-        })
+          descriptor: expect.objectContaining({ id: 'codex' }),
+        }),
       );
-      
-      // Restore descriptor
-      codexDescriptor!.allowedEnvVars = originalAllowedEnvVars;
     });
   });
 

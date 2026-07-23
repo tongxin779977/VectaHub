@@ -86,7 +86,6 @@ describe('chat command bridge to REPL', () => {
     expect(createReplMock).toHaveBeenCalledTimes(1);
     const passedDeps = createReplMock.mock.calls[0][0] as Record<string, unknown>;
     // 关键字段必须在场（其余行为由 REPL 自身的测试覆盖）
-    expect(passedDeps.nlProcessor).toBeDefined();
     expect(passedDeps.contextBuilder).toBeDefined();
     expect(passedDeps.commandBridge).toBeDefined();
     expect(passedDeps.paramExtractor).toBeDefined();
@@ -106,7 +105,6 @@ describe('chat command bridge to REPL', () => {
     const context = new ctx();
     const deps = chatModule.buildReplDeps(context);
 
-    expect(deps.nlProcessor).toBeDefined();
     expect(deps.contextBuilder).toBeDefined();
     expect(deps.commandBridge).toBeDefined();
     expect(deps.paramExtractor).toBeDefined();

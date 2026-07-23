@@ -26,7 +26,7 @@ describe('createSkillSystem', () => {
     expect(fileSkills.length).toBeGreaterThanOrEqual(0);
   });
 
-  it('should register workflowSkill when llmConfig is provided', async () => {
+  it('should register command skill when llmConfig is provided', async () => {
     const mockLLMConfig = {
       provider: 'openai' as const,
       model: 'gpt-4o-mini',
@@ -36,6 +36,7 @@ describe('createSkillSystem', () => {
 
     const system = await createSkillSystem({ llmConfig: mockLLMConfig, logger });
 
-    expect(system.registry.has('vectahub.workflow')).toBe(true);
+    // workflowSkill removed with LLM modules — command skill remains registered
+    expect(system.registry.has('vectahub.file-ops')).toBe(true);
   });
 });

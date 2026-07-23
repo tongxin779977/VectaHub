@@ -155,39 +155,6 @@ describe('orchestrateIntent', () => {
     expect(parseMock).not.toHaveBeenCalled();
   });
 
-  it('processInput requires llmConfig only when entering fallback', async () => {
-    routeMock.mockReturnValueOnce({
-      route: 'fallback',
-      matchedCapability: undefined,
-      score: 0.1,
-      reason: 'no capability',
-      plan: null,
-    });
-
-    await expect(processInput('unknown intent')).rejects.toThrow(
-      'LLM config required for fallback processing'
-    );
-  });
-
-  it('processInput requires audit helper when entering fallback', async () => {
-    routeMock.mockReturnValueOnce({
-      route: 'fallback',
-      matchedCapability: undefined,
-      score: 0.1,
-      reason: 'no capability',
-      plan: null,
-    });
-
-    await expect(processInput('unknown intent', {
-      provider: 'openai',
-      model: 'mock-model',
-      baseUrl: 'http://localhost:11434/v1',
-      apiKey: 'mock',
-    })).rejects.toThrow(
-      'Audit helper required for fallback processing'
-    );
-  });
-
   it('processInput capability plan preserves outputVar/runId binding chain', async () => {
     routeMock.mockReturnValueOnce({
       route: 'auto',
@@ -222,72 +189,6 @@ describe('orchestrateIntent', () => {
     const commands = result.taskList?.tasks[0]?.commands ?? [];
     expect(commands[0]?.outputVar).toBe('runId');
     expect(commands[1]?.args).toContain('${runId}');
-  });
-
-  it('fallback route enters LLM pipeline', async () => {
-    routeMock
-      .mockReturnValueOnce({
-        route: 'fallback',
-        matchedCapability: undefined,
-        score: 0.1,
-        reason: 'no capability',
-        plan: null,
-      })
-      .mockReturnValueOnce({
-        route: 'fallback',
-        matchedCapability: undefined,
-        score: 0.1,
-        reason: 'no capability',
-        plan: null,
-      });
-    parseMock.mockResolvedValueOnce({
-      success: true,
-      confidence: 0.88,
-      intent: 'RUN_SCRIPT',
-      taskList: {
-        version: '1.0.0',
-        generatedAt: new Date().toISOString(),
-        originalInput: 'fallback route',
-        intent: 'RUN_SCRIPT',
-        confidence: 0.88,
-        entities: { FILE_PATH: [], CLI_TOOL: [], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: [], HOST: [], PORT: [], OWNER: [], MODE: [], FILE1: [], FILE2: [] },
-        tasks: [{
-          id: 't1',
-          type: 'QUERY_EXEC',
-          description: 'llm step',
-          status: 'PENDING',
-          commands: [{ cli: 'git', args: ['status'], outputVar: 'gitStatus' }],
-          dependencies: [],
-        }],
-        warnings: [],
-      },
-      metadata: { path: 'llm-tool-calling', usedSkills: [] },
-    });
-
-    const result = await orchestrateIntent('fallback route', {
-      cwd: process.cwd(),
-      logger: { error: loggerErrorMock },
-      auditHelper: {
-        log: vi.fn(),
-        cliCommand: vi.fn(),
-        cliOutput: vi.fn(),
-        workflowStart: vi.fn(),
-        workflowEnd: vi.fn(),
-        workflowStep: vi.fn(),
-        securityAlert: vi.fn(),
-        securityAction: vi.fn(),
-        configChange: vi.fn(),
-        intentMatch: vi.fn(),
-        executorResult: vi.fn(),
-        fileOperation: vi.fn(),
-        sandboxDetect: vi.fn(),
-      },
-    });
-    expect(result.intentRecognitionMethod).toBe('llm');
-    expect(result.steps).toHaveLength(1);
-    expect(result.steps[0].cli).toBe('git');
-    expect(result.steps[0].args).toEqual(['status']);
-    expect(result.steps[0].outputVar).toBe('gitStatus');
   });
 
   it('routes capability plan and returns executable steps', async () => {

@@ -246,7 +246,6 @@ vi.mock('../utils/logger.js', () => ({
 
 import { runTask, runTaskCleanLogsCmd, collectGitChanges, formatRunTaskHumanOutput, formatRunTaskJson, runVerificationCommands, splitCommandArgs, buildDefaultPrompt, bindRunTaskContext, buildTaskRuntimeFeatures, formatPreflightEstimateSummary, buildRuntimeResolvedConfig, deriveTaskIdFromDocFile, type RunTaskResult } from './run-task.js';
 import { getDefaultContext } from '../infrastructure/context.js';
-import { createLLMConfig, createLLMConfigDigestSource } from '../nl/llm.js';
 import { assessCommandRisk } from '../security-protocol/engine.js';
 import { execFile, spawn } from 'node:child_process';
 import type { AgentTaskContract } from '../types/doc-task.js';
@@ -359,7 +358,6 @@ describe('runTask', () => {
       expect(json.agentTaskContract?.allowedFiles).toEqual(['src/commands/run-task.ts']);
       expect(json.agentTaskContract?.instructionHash).toMatch(/^[0-9a-f]{16}$/);
       expect(Object.prototype.hasOwnProperty.call(json.agentTaskContract ?? {}, 'docExcerpt')).toBe(false);
-      expect(createLLMConfig).not.toHaveBeenCalled();
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -387,7 +385,6 @@ describe('runTask', () => {
         dryRun: true,
       })).rejects.toThrow(`Task contract not found in doc: taskId=MISSING-TASK, docPath=${docPath}`);
 
-      expect(createLLMConfig).not.toHaveBeenCalled();
       expect(spawn).not.toHaveBeenCalled();
     } finally {
       rmSync(tempDir, { recursive: true, force: true });

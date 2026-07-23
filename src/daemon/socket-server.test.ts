@@ -45,7 +45,7 @@ describe('SocketServer.executeTask', () => {
     vi.clearAllMocks();
   });
 
-  it('passes unified llm config to processInput', async () => {
+  it('passes audit helper and logger to processInput', async () => {
     const llmConfig = {
       provider: 'openai',
       model: 'gpt-4o-mini',
@@ -75,7 +75,6 @@ describe('SocketServer.executeTask', () => {
 
     expect(processInputMock).toHaveBeenCalledWith(
       'check status',
-      llmConfig,
       expect.objectContaining({
         intentMatch: expect.any(Function),
       }),
