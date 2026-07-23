@@ -1,6 +1,6 @@
 # 08 — LLM 调用全面移除清单
 
-> **状态: 计划中 — LLM 完全移除未开始(402 处引用仍在)**
+> **状态: 已完成 — LLM 文件全部删除(30 个),消费者 broken imports 已修复(22 个文件)**
 
 > **依赖清单** — 本文档引用以下外部定义:
 > - `AgentTransport`, `TransportResult` → [01-acp-transport.md § 核心接口](./01-acp-transport.md#核心接口)
