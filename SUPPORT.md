@@ -5,10 +5,7 @@ VectaHub 提供以下支持渠道,按优先级排列:
 ## 1. 文档(优先自助)
 
 - [README.md](./README.md) — 项目导览
-- [docs/usage.md](./docs/usage.md) — CLI 用法
-- [docs/architecture.md](./docs/architecture.md) — 架构
-- [docs/capabilities-reference.md](./docs/capabilities-reference.md) — 公共 API
-- [docs/troubleshooting.md](./docs/troubleshooting.md) — 常见问题
+- [docs/README.md](./docs/README.md) — 文档索引(CLI 用法、架构、API、常见问题)
 
 ## 2. GitHub Discussions
 

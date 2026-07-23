@@ -101,7 +101,7 @@ VectaHub 使用 **Conventional Commits** 强制(由 commitlint + husky 校验):
 
 - 新功能必须有单元测试覆盖核心逻辑。
 - Bug 修复必须先写一个失败用例,再修。
-- 修改公共 API 必须更新 `docs/capabilities-reference.md`。
+- 修改公共 API 必须更新 `docs/README.md`。
 - 性能敏感路径请加 `*.bench.ts`(vitest bench)。
 
 ## 文档要求
@@ -120,4 +120,4 @@ VectaHub 使用 **Conventional Commits** 强制(由 commitlint + husky 校验):
 
 ## 仓库边界
 
-请阅读 [`docs/repository-permissions.md`](./docs/repository-permissions.md),明确哪些内容可以/不可以提交。
+请阅读 [`docs/README.md`](./docs/README.md),明确哪些内容可以/不可以提交。

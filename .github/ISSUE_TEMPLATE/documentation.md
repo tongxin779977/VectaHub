@@ -7,7 +7,7 @@ assignees: []
 
 ## 文档位置
 
-<!-- 文档路径或 URL,例如 `docs/architecture.md` 第 3.2 节 -->
+<!-- 文档路径或 URL,例如 `docs/01-acp-transport.md` 第 3.2 节 -->
 
 ## 类型
 

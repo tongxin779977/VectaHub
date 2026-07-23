@@ -29,7 +29,7 @@ export interface RunTaskJsonResult {
   output: string;
   outputTruncated: boolean;
   displayOutput?: string;
-  commandGenerationPath?: 'adapter' | 'llm-fallback';
+  commandGenerationPath?: 'adapter' | 'llm-fallback' | 'acp';
   fallbackUsed?: boolean;
   agentExecutionOutcome?: 'implemented' | 'planned_only';
   agentTaskContract?: AgentTaskContractSummary;

@@ -47,7 +47,7 @@ export interface RunTaskResult {
   success: boolean;
   output: string;
   command: string;
-  commandGenerationPath?: 'adapter' | 'llm-fallback';
+  commandGenerationPath?: 'adapter' | 'llm-fallback' | 'acp';
   fallbackUsed?: boolean;
   agentExecutionOutcome?: 'implemented' | 'planned_only';
   error?: {

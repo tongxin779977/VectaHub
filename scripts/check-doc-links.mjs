@@ -17,7 +17,7 @@ const failures = [];
 
 function listTrackedMarkdownFiles() {
   try {
-    const output = execFileSync('git', ['ls-files', '-z', 'README.md', 'AGENTS.md', 'docs/**/*.md'], {
+    const output = execFileSync('git', ['ls-files', '-z', 'README.md', 'AGENTS.md', 'docs/*.md'], {
       cwd: root,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],

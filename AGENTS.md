@@ -1,18 +1,18 @@
 # AGENTS.md
 
 > VectaHub 项目的开发 agent 单入口。
-> 详细规范见 `docs/agent-operating-guide.md`;本文只列高信号、repo-specific 的事实。
+> 详细规范见 `docs/README.md`;本文只列高信号、repo-specific 的事实。
 
 ## Project
 
 - **类型**:单用户、本地优先的 TypeScript CLI(workflow engine)
 - **包管理**:npm workspaces(`packages/*`)
-- **Node**:`>=21`(详见 `package.json:engines`)
+- **Node**:`>=21`(详见 `package.json:engines`),CI 测试 Node 22/24
 - **TypeScript**:5.9,strict,ESM(NodeNext),target ES2022
 - **构建**:tsup,产物在 `dist/`(gitignored)
 - **测试**:vitest 4.1
-- **当前版本**:见 `package.json:version`(同步在 3 个 `package.json`,见 `scripts/bump-version.mjs`)
-- **可见性**:**public repository** —— 任何提交都可被公开读取。详见 `docs/repository-permissions.md`
+- **当前版本**:`1.0.42`(同步在 3 个 `package.json`,见 `scripts/bump-version.mjs`)
+- **可见性**:**public repository** —— 任何提交都可被公开读取。详见 `docs/README.md`
 
 ## Required Commands(顺序敏感)
 
@@ -45,7 +45,7 @@ npm run package:vsix             # 打 .vsix(gitignored)
 ## Repository Layout
 
 - **CLI 入口**:`src/cli.ts` → `src/cli-bootstrap.ts`(`--version` 快速路径)→ `src/cli-main.ts`(命令注册)
-- **核心层**(`docs/architecture.md` 详述):
+- **核心层**(`docs/README.md` 详述):
   - `src/cli-main.ts` CLI 组装
   - `src/infrastructure/` DI、environment、config、logger、audit、trace、event
   - `src/nl/` 自然语言路由
@@ -62,7 +62,7 @@ npm run package:vsix             # 打 .vsix(gitignored)
 
 ## 已知文档缺口
 
-`docs/README.md:43-46` 引用了 `docs/contracts/` 和 `docs/standards/` 这两个目录,**实际不存在**(设计缺口)。这两个目录不要当作权威入口;权威文档是 `docs/architecture.md`、`docs/agent-operating-guide.md`、`docs/testing.md`、`docs/usage.md`、`docs/release.md`、`docs/repository-permissions.md` 等直接存在的文件。
+旧文档(`docs/architecture.md`、`docs/agent-operating-guide.md`、`docs/testing.md`、`docs/usage.md`、`docs/release.md`、`docs/repository-permissions.md` 等)已被删除,替换为 `docs/00-vision.md` 到 `docs/09-execution-plan.md` 的新文档集。权威入口是 `docs/README.md`。
 
 ## Mandatory Boundaries
 
@@ -75,7 +75,7 @@ npm run package:vsix             # 打 .vsix(gitignored)
 
 其他文件直接调用 `getDefaultContext()` 是 **contract violation**,会被 `npm run check:default-context-usage` 阻塞。普通业务模块必须接收 `InfrastructureContext` 或更窄依赖(构造函数 / `createX(ctx)` factory)。
 
-详见 `docs/agent-operating-guide.md` 的 "Default Context Boundary" 段。
+详见 `docs/README.md` 的 "Default Context Boundary" 段。
 
 ### Behavior vs Configuration
 
@@ -85,14 +85,14 @@ npm run package:vsix             # 打 .vsix(gitignored)
 
 ### Public Repository Safety
 
-不要提交:`.env`、token、private key、真实日志、未脱敏 trace、`.vectahub/`、Agent home、私有任务文档、`.vsix`。详见 `docs/repository-permissions.md`。
+不要提交:`.env`、token、private key、真实日志、未脱敏 trace、`.vectahub/`、Agent home、私有任务文档、`.vsix`。详见 `docs/README.md`。
 
 ## Testing
 
 - 主测试:`npm run test:run`(vitest)
 - 单元为主,优先在 `src/**/*.test.ts`(跟随源码)
-- 内存化测试:用 `createTestInfrastructureContext()` 避免文件系统副作用;参考 `docs/testing.md:115-144`
-- `src/commands/run-task.ts` 等核心命令的测试矩阵在 `docs/testing.md:147-164`,改这些文件前对照
+- 内存化测试:用 `createTestInfrastructureContext()` 避免文件系统副作用;参考 `docs/README.md`
+- `src/commands/run-task.ts` 等核心命令的测试矩阵在 `docs/README.md`,改这些文件前对照
 
 ## Local CLI Usage
 
@@ -109,7 +109,7 @@ npm run build
 node dist/cli.js <command>
 ```
 
-`<command>` 占位见 `docs/testing.md:96-103`:`<docPath>` / `<taskId>` / `<taskLabel>` / `<tool>` / `<runId>` / `<traceId>`。
+`<command>` 占位见 `docs/README.md`:`<docPath>` / `<taskId>` / `<taskLabel>` / `<tool>` / `<runId>` / `<traceId>`。
 
 ## Project-Level Agent System
 

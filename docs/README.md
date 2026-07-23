@@ -1,63 +1,84 @@
-# VectaHub 文档索引
+# VectaHub 项目蓝图 — ACP 全面改造
 
-VectaHub 是一个单用户、本地优先的 CLI 自动化内核，核心能力是自然语言编排、文档任务执行、结构化 workflow、安全治理、Agent CLI runtime、trace、验证和恢复。
+> 本文档集是 VectaHub 从"LLM + Agent CLI 黑盒调用"到"ACP 结构化通讯基座"全面改造的权威蓝图。
+> 所有现有功能作为需求底座,改造一个一个来完成,避免计划偏移。
 
-本文档索引只负责导航。能力细节以对应合同、标准、源码和测试为准。
+## 改造核心目标
 
-## 推荐阅读路径
+1. **全面弃用 LLM 直调** — 移除 `src/nl/llm*.ts`、`src/skills/llm-dialog-control/` 等全部 LLM HTTP 客户端
+2. **全面弃用 Agent CLI 黑盒 spawn** — 移除 `environment.spawn()` 调用 agent 的路径,改用 ACP 协议
+3. **ACP 作为通讯基座** — 初次启动时规定采用哪个 ACP agent(如 OpenCode),支持后期替换
+4. **Workflow 适配 ACP** — `delegate` step 改为 ACP session,`exec` step 保留用于本地命令
+5. **意图识别改造** — 从 LLM 分类改为 ACP agent 能力路由(详细计划待定)
+6. **文档任务分析改造** — 从 LLM 解析改为 ACP agent 结构化任务链
+7. **全链路可查验** — trace/audit 从 agent 内部到最终结果完整覆盖
 
-1. [仓库首页](../README.md)
-2. [CLI 使用手册](./usage.md)
-3. [能力地图](./capabilities.md)
-4. [能力明细](./capabilities-reference.md)
-5. [架构总览](./architecture.md)
-6. [仓库可见性与提交权限](./repository-permissions.md)
+## 文档导航
 
-## 面向用户
+| 文档 | 内容 | 状态 |
+|---|---|---|
+| [00-vision.md](./00-vision.md) | 项目愿景、改造目标、架构总览 | ✅ 完成 |
+| [01-acp-transport.md](./01-acp-transport.md) | ACP 通讯基座设计、传输层接口、降级策略 | ✅ 完成 |
+| [02-cli-commands.md](./02-cli-commands.md) | 43 个 CLI 命令清单与改造映射 | ✅ 完成 |
+| [03-workflow-engine.md](./03-workflow-engine.md) | Workflow 引擎 6 种 step 类型改造 | ✅ 完成 |
+| [04-document-task.md](./04-document-task.md) | 文档任务生命周期 5 阶段改造 | ✅ 完成 |
+| [05-nl-intent.md](./05-nl-intent.md) | 意图识别改造(待详细计划) | ⏳ 待定 |
+| [06-security-protocol.md](./06-security-protocol.md) | 安全协议与 ACP permission 映射 | ✅ 完成 |
+| [07-infrastructure.md](./07-infrastructure.md) | DI / trace / audit / event 基础设施 | ✅ 完成 |
+| [08-llm-removal.md](./08-llm-removal.md) | LLM 调用全面移除清单(30+ 触点) | ✅ 完成 |
+| [09-execution-plan.md](./09-execution-plan.md) | 分批执行计划与验证节点 | ✅ 完成 |
 
-- [CLI 使用手册](./usage.md)
-- [配置手册](./configuration.md)
-- [Workflow 规格](./workflow-spec.md)
-- [排障手册](./troubleshooting.md)
+## 现有功能盘点摘要
 
-## 面向维护者
+- **CLI 命令**: 43 个(6 个用 LLM,6 个用 Agent CLI,7 个用 Workflow,24 个纯 CLI)
+- **Workflow step 类型**: 6 种(exec / if / for_each / parallel / opencli / delegate)
+- **LLM 触点**: 30+ 处(NL pipeline、parse-doc、run-task、chat、serve、generate、self-healing、agent inferencer、tool cache、skills)
+- **Agent runtime**: 5 个内建(codex/claude/gemini/aider/agy)+ config-loaded + LLM-inferred
+- **安全协议**: 3 层评估器(CommandRule + SandboxSemantic + ProtocolRule)+ Redactor + RBAC
+- **基础设施**: InfrastructureContext(DI)、trace(JSONL)、audit(JSONL)、event bus、environment(spawn/exec)
 
-- [架构总览](./architecture.md)
-- [开发者指南](./development.md)
-- [测试指南](./testing.md)
-- [发布指南](./release.md)
-- [仓库可见性与提交权限](./repository-permissions.md)
-- [Agent 操作规范](./agent-operating-guide.md)
+## 改造原则
 
-## 能力与产品边界
+1. **需求底座不变** — 现有功能全部保留,只改实现方式
+2. **ACP 优先** — 能用 ACP 的全部走 ACP,不能用 ACP 的保留为本地 CLI
+3. **低耦合高内聚** — 传输层抽象为接口,策略模式选择 ACP vs CLI
+4. **全链路可追溯** — 每个 ACP 事件自动生成 trace span + audit 记录
+5. **渐进式执行** — 分批推进,每批有验证节点,防止计划偏移
 
-- [NL Workflow Orchestrator 产品入口](./nl-workflow-orchestrator.md)
-- [能力地图](./capabilities.md)
-- [能力明细](./capabilities-reference.md)
-- [开发队列入口](./development-backlog.md)
-- [开发队列详情](./backlog/)
+## 文档交叉引用矩阵
 
-## 合同、标准和设计
+每个文档顶部的「依赖清单」列出了它消费的外部类型。以下是全局依赖关系:
 
-| 区域 | 职责 |
-|------|------|
-| [contracts/](./contracts/) | 字段、状态机、协议、存储、trace、恢复、安全和生命周期合同。 |
-| [standards/](./standards/) | 文档治理、验证门禁、质量评分、智能系统和语义验收标准。 |
-| [design/](./design/) | 架构设计、迁移方案、目标设计和产品决策记录。 |
-| [ui/](./ui/) | VS Code extension 和 UI 工作流说明。 |
+| ↓ 消费方 \ 提供方 → | 00 | 01 | 02 | 03 | 04 | 05 | 06 | 07 | 08 | 09 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **00-vision** | — | ← | ← | ← | ← | ← | ← | ← | ← | |
+| **01-acp-transport** | ← | — | | | | | ← | ← | | |
+| **02-cli-commands** | | ← | — | | | | | | | |
+| **03-workflow-engine** | | ← | | — | | | ← | ← | | |
+| **04-document-task** | | ← | | | — | | ← | ← | | |
+| **05-nl-intent** | | ← | | | | — | | | | |
+| **06-security-protocol** | | ← | | | | | — | ← | | |
+| **07-infrastructure** | | ← | | | | | | — | | |
+| **08-llm-removal** | | ← | | | | | | | — | ← |
+| **09-execution-plan** | ← | ← | ← | ← | ← | ← | ← | ← | ← | — |
 
-## 文档状态规则
+> `←` 表示该行文档引用了该列文档的类型/接口/概念。
 
-- `Current Implementation`：已有源码入口和验证路径。
-- `Partial Implementation`：已有部分实现，但覆盖、合同闭环或 UI/运行时集成不完整。
-- `Target Design`：目标方案，不能写成当前可用能力。
-- `Migration Contract`：迁移期间必须遵守的过渡合同。
-- `Historical Reference`：历史参考，不应作为当前行为依据。
+### 类型权威定义点
 
-新增或重写文档时，优先复用这些状态词，并避免在用户入口文档里宣传未落地能力。
+以下类型只在**一个地方**定义,其他文档通过链接引用:
 
-## 提交安全
-
-本仓库是公开仓库。不要提交 secrets、私有任务文档、真实用户数据、未脱敏日志、完整 trace、`.vectahub/`、Agent home 或本地构建产物。
-
-详细规则见 [仓库可见性与提交权限](./repository-permissions.md)。
+| 类型 | 权威定义位置 |
+|---|---|
+| `AgentTransport`, `TransportRequest`, `TransportResult`, `TransportError` | [01 § 核心接口](./01-acp-transport.md#核心接口) |
+| `AcpConfig` | [01 § 传输工厂](./01-acp-transport.md#传输工厂) |
+| `TraceBridge` | [01 § Trace Span 桥接](./01-acp-transport.md#acp-事件--trace-span-桥接) |
+| `AuditBridge` | [01 § Audit 桥接](./01-acp-transport.md#acp-事件--audit-桥接) |
+| `handleAcpPermission` / 安全桥接 | [01 § ACP Permission → SecurityGuard 映射](./01-acp-transport.md#acp-permission--securityguard-映射) |
+| `AcpToolCallEvent`, `AcpEvent`, `AcpStopReason` | `src/agent-runtime/acp/acp-types.ts` |
+| `AgentDescriptor` | `src/types/agent.ts` |
+| `SecurityGuard`, `SecurityContext`, `CommandIntention`, `SecurityDecision` | `src/types/security.ts` |
+| `TraceContext`, `SpanHandle`, `startSpan` | `src/infrastructure/trace/tracer.ts` |
+| `AuditHelper` | `src/infrastructure/audit/index.ts` |
+| `TokenUsage`, `RunTaskResult` | `src/commands/run-task-shared.ts` |
+| `cli.run-task.verification` span | [02 § verification trace span](./02-cli-commands.md#verification-trace-span) |
