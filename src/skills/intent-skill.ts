@@ -1,6 +1,5 @@
 import type { Skill, SkillContext, SkillResult } from './types.js';
 import type { PromptRegistry } from '../nl/prompt/types.js';
-import type { LLMDialogControlSkill } from './llm-dialog-control/index.js';
 import { getAllIntentNames } from '../nl/templates/index.js';
 import type pino from 'pino';
 
@@ -26,7 +25,7 @@ export interface IntentSkillOutput {
  */
 export function createIntentSkill(
   promptRegistry: PromptRegistry,
-  llmDialogSkill: LLMDialogControlSkill,
+  llmDialogSkill: unknown,
   logger: Pick<pino.Logger, 'debug'> = { debug: () => {} },
 ): Skill<string, IntentSkillOutput> {
   return {
@@ -66,7 +65,7 @@ export function createIntentSkill(
           conversationHistory
         });
 
-        const result = await llmDialogSkill.generateJSON(user, system);
+        const result = await (llmDialogSkill as any).generateJSON(user, system);
 
         logger.debug(`LLM result: success=${result.success}, output length=${result.output?.length || 0}`);
         logger.debug(`First 200 chars: ${result.output?.substring(0, 200)}`);

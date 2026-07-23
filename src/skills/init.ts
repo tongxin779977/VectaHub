@@ -5,7 +5,6 @@ import { createIntentSkill } from './intent-skill.js';
 import { createWorkflowSkill } from './workflow-skill.js';
 import { createPipelineSkill } from './pipeline-skill.js';
 import { createPromptRegistry } from '../nl/prompt/v3.js';
-import { createLLMDialogControlSkill } from './llm-dialog-control/index.js';
 import type { SkillExecutorOptions } from './executor.js';
 import type { AIModuleRegistry as IAIModuleRegistry, AIModule, AIModuleMetadata } from './ai-modules/types.js';
 import type { AIModuleConfig } from '../infrastructure/config/index.js';
@@ -54,26 +53,6 @@ export async function createSkillSystem(options: SkillSystemOptions): Promise<Sk
 
   const commandSkill = createCommandSkill();
   registry.register(commandSkill);
-
-  if (options.llmConfig) {
-    try {
-      const promptRegistry = createPromptRegistry();
-      const llmDialogSkill = createLLMDialogControlSkill(options.llmConfig, { maxRetries: 3 });
-
-      const loggerWithChild = logger as (pino.Logger & { child?: (bindings: Record<string, unknown>) => pino.Logger }) | undefined;
-      const intentLogger = loggerWithChild?.child ? loggerWithChild.child({ module: 'intent-skill' }) : logger;
-      const workflowLogger = loggerWithChild?.child ? loggerWithChild.child({ module: 'workflow-skill' }) : logger;
-      const intentSkill = createIntentSkill(promptRegistry, llmDialogSkill, intentLogger);
-      const workflowSkill = createWorkflowSkill(promptRegistry, llmDialogSkill, workflowLogger);
-      const pipelineSkill = createPipelineSkill(intentSkill, workflowSkill);
-
-      registry.register(intentSkill);
-      registry.register(workflowSkill);
-      registry.register(pipelineSkill);
-    } catch (error) {
-      logger.error({ error: error instanceof Error ? error.message : String(error) }, 'Failed to register LLM skills');
-    }
-  }
 
   return { registry, executor };
 }

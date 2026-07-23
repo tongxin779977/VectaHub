@@ -1,6 +1,5 @@
 import type { Skill, SkillContext, SkillResult } from './types.js';
 import type { PromptRegistry } from '../nl/prompt/types.js';
-import type { LLMDialogControlSkill } from './llm-dialog-control/index.js';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import type pino from 'pino';
@@ -67,7 +66,7 @@ async function readDocContent(filePath: string): Promise<string | null> {
  */
 export function createWorkflowSkill(
   promptRegistry: PromptRegistry,
-  llmDialogSkill: LLMDialogControlSkill,
+  llmDialogSkill: unknown,
   logger: Pick<pino.Logger, 'debug'> = { debug: () => {} },
 ): Skill<WorkflowSkillInput, WorkflowSkillOutput> {
   return {
@@ -112,7 +111,7 @@ export function createWorkflowSkill(
           commands: JSON.stringify(input.commands)
         });
 
-        const result = await llmDialogSkill.generateYAML(user, system);
+        const result = await (llmDialogSkill as any).generateYAML(user, system);
 
         if (!result.success) {
           return {
