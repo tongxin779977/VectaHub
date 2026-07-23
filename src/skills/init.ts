@@ -9,7 +9,6 @@ import { createLLMDialogControlSkill } from './llm-dialog-control/index.js';
 import type { SkillExecutorOptions } from './executor.js';
 import type { AIModuleRegistry as IAIModuleRegistry, AIModule, AIModuleMetadata } from './ai-modules/types.js';
 import type { AIModuleConfig } from '../infrastructure/config/index.js';
-import type { LLMConfig } from '../nl/llm.js';
 import type pino from 'pino';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -35,7 +34,7 @@ export interface SkillSystem {
  * @property logger - Logger instance for system messages
  */
 export interface SkillSystemOptions extends Omit<SkillExecutorOptions, 'logger'> {
-  llmConfig?: LLMConfig | null;
+  llmConfig?: unknown;
   logger: pino.Logger;
 }
 

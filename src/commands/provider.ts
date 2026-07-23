@@ -1,7 +1,5 @@
 import { Command } from 'commander';
 import { format } from 'node:util';
-import { getProviderRegistrar } from '../agent-runtime/provider-registrar.js';
-import { loadProvidersFromConfig } from '../agent-runtime/config-loader.js';
 import { getAgentRegistry } from '../agent-runtime/registry.js';
 import type { AgentDescriptor } from '../types/agent.js';
 import type { InfrastructureContext } from '../infrastructure/context.js';
@@ -112,9 +110,8 @@ export function createProviderCmd(_context: InfrastructureContext): Command {
     .description('List all registered providers')
     .option('--json', 'Output results in JSON format')
     .action(async (options: { json?: boolean }) => {
-      await loadProvidersFromConfig();
-      const registrar = getProviderRegistrar();
-      const descriptors = registrar.list();
+      const registry = getAgentRegistry();
+      const descriptors = registry.getAllDescriptors();
 
       if (options.json) {
         cliOutput.json({
@@ -138,30 +135,9 @@ export function createProviderCmd(_context: InfrastructureContext): Command {
     .option('-n, --name <displayName>', 'Display name for the provider')
     .option('-d, --description <description>', 'Description for the provider')
     .option('--json', 'Output results in JSON format')
-    .action(async (cliCommand: string, options: { name?: string; description?: string; json?: boolean }) => {
-      const registrar = getProviderRegistrar();
-
+    .action(async (cliCommand: string, _options: { name?: string; description?: string; json?: boolean }) => {
       cliOutput.log(`\n🔍 Detecting CLI: ${cliCommand}...`);
-
-      const result = await registrar.register({
-        cliCommand,
-        displayName: options.name,
-        description: options.description,
-      });
-
-      if (options.json) {
-        cliOutput.json(result);
-        return;
-      }
-
-      if (result.success) {
-        cliOutput.log(`\n✅ Successfully registered provider: ${result.providerId}`);
-        if (result.descriptor) {
-          cliOutput.log(formatProviderDetail(result.descriptor));
-        }
-      } else {
-        cliOutput.error(`\n❌ Failed to register provider: ${result.error}`);
-      }
+      cliOutput.error('\n❌ Provider registrar 已移除，待 ACP 模式接入');
     });
 
   providerCmd
@@ -169,20 +145,11 @@ export function createProviderCmd(_context: InfrastructureContext): Command {
     .description('Remove a registered provider')
     .option('--json', 'Output results in JSON format')
     .action(async (providerId: string, options: { json?: boolean }) => {
-      const registrar = getProviderRegistrar();
-
-      const success = await registrar.unregister(providerId);
-
       if (options.json) {
-        cliOutput.json({ ok: success, providerId });
+        cliOutput.json({ ok: false, providerId });
         return;
       }
-
-      if (success) {
-        cliOutput.log(`\n✅ Successfully removed provider: ${providerId}`);
-      } else {
-        cliOutput.error(`\n❌ Provider not found: ${providerId}`);
-      }
+      cliOutput.error(`\n❌ Provider registrar 已移除，待 ACP 模式接入: ${providerId}`);
     });
 
   providerCmd
@@ -190,9 +157,9 @@ export function createProviderCmd(_context: InfrastructureContext): Command {
     .description('Test if a provider is available')
     .option('--json', 'Output results in JSON format')
     .action(async (providerId: string, options: { json?: boolean }) => {
-      const registrar = getProviderRegistrar();
-
-      const result = await registrar.test(providerId);
+      const registry = getAgentRegistry();
+      const descriptor = registry.getAgentDescriptor(providerId);
+      const result = { available: !!descriptor, error: descriptor ? undefined : 'Provider not found' };
 
       if (options.json) {
         cliOutput.json({ ok: true, providerId, ...result });
@@ -228,25 +195,12 @@ export function createProviderCmd(_context: InfrastructureContext): Command {
     .description('Refresh provider configuration')
     .option('--json', 'Output results in JSON format')
     .action(async (providerId: string, options: { json?: boolean }) => {
-      const registrar = getProviderRegistrar();
-
       cliOutput.log(`\n🔄 Refreshing provider: ${providerId}...`);
-
-      const result = await registrar.refresh(providerId);
-
       if (options.json) {
-        cliOutput.json(result);
+        cliOutput.json({ ok: false, providerId, error: 'Provider registrar 已移除' });
         return;
       }
-
-      if (result.success) {
-        cliOutput.log(`\n✅ Successfully refreshed provider: ${providerId}`);
-        if (result.descriptor) {
-          cliOutput.log(formatProviderDetail(result.descriptor));
-        }
-      } else {
-        cliOutput.error(`\n❌ Failed to refresh provider: ${result.error}`);
-      }
+      cliOutput.error('\n❌ Provider registrar 已移除，待 ACP 模式接入');
     });
 
   return providerCmd;

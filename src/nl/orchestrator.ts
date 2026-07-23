@@ -3,9 +3,7 @@ import type { TaskList, IntentName, StepType } from '../types/index.js';
 import type { ExecutionPlan, RouterResult } from './capabilities/types.js';
 import type { ProjectContext } from './core/goal-types.js';
 import type { AuditHelper } from '../infrastructure/audit/index.js';
-import { createNLProcessor } from './core/pipeline.js';
 import { createIntentSplitter } from './core/intent-splitter.js';
-import { createLLMConfig, type LLMConfig } from './llm.js';
 import { parseGoal } from './core/goal-parser.js';
 import { createCapabilityRouter } from './capabilities/router.js';
 import { executionPlanToSteps } from './capabilities/plan-adapter.js';
@@ -27,18 +25,16 @@ export function initializeRouter(_intentEntries: Array<{ intent: string; categor
  * 处理流程：
  * 1. 意图拆分：检测是否为多意图输入
  * 2. Capability 路由：优先匹配已注册的 Capability
- * 3. LLM 降级：Capability 未匹配时使用 LLM 解析
+ * 3. LLM 降级已移除（ACP 迁移待定）
  *
  * @param input - 用户原始输入
- * @param llmConfig - 可选的 LLM 配置（LLM 降级时必需）
- * @param auditHelper - 可选的审计助手（LLM 降级时必需）
+ * @param auditHelper - 可选的审计助手
  * @param logger - 可选的日志记录器
  * @returns NL 解析结果
  * @throws 多意图包含不可执行子句时抛出错误
  */
 export async function processInput(
   input: string,
-  llmConfig?: LLMConfig,
   auditHelper?: AuditHelper,
   logger?: NLLogger,
 ): Promise<NLResult> {
@@ -47,7 +43,7 @@ export async function processInput(
 
   const clauses = splitResult.clauses?.map(clause => clause.text.trim()).filter(Boolean) ?? [];
   if (splitResult.isMultiIntent && clauses.length > 1) {
-    return handleMultiIntent(clauses, llmConfig, auditHelper, logger);
+    return handleMultiIntent(clauses, auditHelper, logger);
   }
 
   const normalizedInput = input.trim();
@@ -63,29 +59,17 @@ export async function processInput(
     return capabilityNoTaskNLResult(normalizedInput, routeResult, 'clarification required before execution');
   }
 
-  const processor = createNLProcessor({
-    llmConfig: requireLLMConfigForFallback(llmConfig),
-    auditHelper: requireAuditHelperForFallback(auditHelper),
-    logger: requireLoggerForFallback(logger),
-  });
-  return processor.parse({ input: normalizedInput });
+  // LLM fallback removed — ACP migration pending
+  throw new Error('Capability routing returned fallback; LLM fallback has been removed.');
 }
 
 export async function processInputWithTaskContract(
   input: string,
-  llmConfig?: LLMConfig,
   auditHelper?: AuditHelper,
   logger?: NLLogger,
 ): Promise<TaskContractEnvelope<NLResult>> {
-  const legacy = await processInput(input, llmConfig, auditHelper, logger);
+  const legacy = await processInput(input, auditHelper, logger);
   return toTaskContractEnvelope(input, legacy);
-}
-
-function requireLLMConfigForFallback(llmConfig?: LLMConfig): LLMConfig {
-  if (!llmConfig) {
-    throw new Error('LLM config required for fallback processing. Configure llmConfig when capability routing returns fallback.');
-  }
-  return llmConfig;
 }
 
 function requireAuditHelperForFallback(auditHelper?: AuditHelper): AuditHelper {
@@ -104,22 +88,9 @@ function requireLoggerForFallback(logger?: NLLogger): NLLogger {
 
 async function handleMultiIntent(
   clauses: string[],
-  llmConfig?: LLMConfig,
-  auditHelper?: AuditHelper,
-  logger?: NLLogger,
+  _auditHelper?: AuditHelper,
+  _logger?: NLLogger,
 ): Promise<NLResult> {
-  let fallbackProcessor: ReturnType<typeof createNLProcessor> | null = null;
-  const getFallbackProcessor = (): ReturnType<typeof createNLProcessor> => {
-    if (!fallbackProcessor) {
-      fallbackProcessor = createNLProcessor({
-        llmConfig: requireLLMConfigForFallback(llmConfig),
-        auditHelper: requireAuditHelperForFallback(auditHelper),
-        logger: requireLoggerForFallback(logger),
-      });
-    }
-    return fallbackProcessor;
-  };
-
   const clauseResults = await Promise.all(clauses.map(async clause => {
     const context = buildProjectContext(clause);
     const routeResult = routeCapability(clause, context);
@@ -133,7 +104,8 @@ async function handleMultiIntent(
       return capabilityNoTaskNLResult(clause, routeResult, 'clarification required before execution');
     }
 
-    return getFallbackProcessor().parse({ input: clause });
+    // LLM fallback removed — ACP migration pending
+    throw new Error('Capability routing returned fallback; LLM fallback has been removed.');
   }));
 
   const hasNonExecutableClause = clauseResults.some(result => mapTaskListToSteps(result.taskList).length === 0 && !result.reply);
@@ -422,25 +394,8 @@ async function orchestrateSingleIntent(
     }
   }
 
-  const llmConfig = createLLMConfig();
-  if (!llmConfig) {
-    throw new Error('LLM not configured. Run `vectahub setup` or set VECTAHUB_LLM_* environment variables.');
-  }
-
-  const llmResult = await processInput(input, llmConfig, options?.auditHelper, options?.logger);
-  const steps = mapTaskListToSteps(llmResult.taskList);
-  
-  if (steps.length === 0 && !llmResult.reply) {
-    throw new Error('NL parsing produced no executable steps');
-  }
-
-  return {
-    steps,
-    reply: llmResult.reply,
-    intentRecognitionMethod: 'llm',
-    recognizedIntent: llmResult.intent as string | undefined,
-    score: llmResult.confidence,
-  };
+  // LLM fallback removed — ACP migration pending
+  throw new Error('Capability routing returned fallback; LLM fallback has been removed.');
 }
 
 /**

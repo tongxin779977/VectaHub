@@ -10,8 +10,6 @@ import type { UIRenderer } from './ui-renderer.js';
 import type { NLResult } from '../nl/core/types.js';
 import type { TaskContractEnvelope } from '../types/task-contract.js';
 import type { Workflow } from '../types/index.js';
-import { LLMClient } from '../nl/llm.js';
-import { buildAllTools } from '../nl/tool-calling.js';
 import { toTaskContractEnvelope } from '../nl/task-contract-adapter.js';
 import { resolveTaskContractAction } from '../nl/task-contract-runtime.js';
 import { parseWorkflowSteps } from './workflow-parser.js';
@@ -79,20 +77,6 @@ export function createNLHandler(
   }
 
   async function handleNLInput(input: string): Promise<ChatOutput> {
-    if (deps.config.executeMode === 'auto' && deps.useLLM && deps.llmConfig) {
-      try {
-        const llmClient = new LLMClient(deps.llmConfig, { auditHelper: deps.auditHelper });
-        await llmClient.complete(
-          'intent-parser-chat',
-          input,
-          {},
-          { tools: buildAllTools() }
-        );
-      } catch (err) {
-        deps.logger.debug({ err }, 'LLM preflight failed, falling back to NL processor');
-      }
-    }
-
     const cacheKey = buildIntentCacheKey(input);
     let envelope: TaskContractEnvelope<NLResult>;
 

@@ -1,7 +1,5 @@
 import { Command } from 'commander';
 import { format } from 'node:util';
-import { createLLMConfig, LLMClient } from '../nl/llm.js';
-import { DOC_TASK_PARSER_ID } from '../nl/prompt-manager.js';
 import type { DocTask } from '../types/index.js';
 import { type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
@@ -336,8 +334,6 @@ export function fallbackParseByRegex(content: string): DocTask[] {
 
 export async function parseDocTaskResult(context: InfrastructureContext, filePath: string): Promise<ParseDocResult> {
   const logger = context.logger.getLogger('parse-doc');
-  const maxDocLength = context.environment.getEnvNumber('PARSE_DOC_MAX_LENGTH', DEFAULT_MAX_DOC_LENGTH) ?? DEFAULT_MAX_DOC_LENGTH;
-  const maxRetries = context.environment.getEnvNumber('PARSE_DOC_MAX_RETRIES', DEFAULT_MAX_RETRIES) ?? DEFAULT_MAX_RETRIES;
 
   const absolutePath = context.environment.resolvePath(filePath);
   if (!context.environment.exists(absolutePath)) {
@@ -359,125 +355,24 @@ export async function parseDocTaskResult(context: InfrastructureContext, filePat
     };
   }
 
-  const llmConfig = createLLMConfig();
-  if (!llmConfig) {
-    const warning = 'LLM 未配置，已降级为正则解析';
-    logger.warn(warning);
-    const fallbackTasks = fallbackParseByRegex(docContent);
-    if (fallbackTasks.length === 0) {
-      throw new VectaHubError('LLM 未配置且正则解析未提取到任务，请先运行 vectahub setup 配置 AI 提供商', ErrorType.CONFIGURATION);
-    }
-    logger.info(`正则 fallback 解析到 ${fallbackTasks.length} 个任务`);
-    return {
-      tasks: fallbackTasks,
-      source: 'regex-fallback',
-      degraded: true,
-      warnings: [warning],
-    };
+  const warning = 'LLM 解析已移除，已降级为正则解析';
+  logger.warn(warning);
+  const fallbackTasks = fallbackParseByRegex(docContent);
+  if (fallbackTasks.length === 0) {
+    throw new VectaHubError('正则解析未提取到任务，待 ACP 模式接入', ErrorType.CONFIGURATION);
   }
-
-  const client = new LLMClient(llmConfig, { auditHelper: context.audit.getHelper() });
-
-  if (docContent.length <= maxDocLength) {
-    return {
-      tasks: await callLLMWithRetry(logger, client, docContent, maxRetries),
-      source: 'llm',
-      degraded: false,
-      warnings: [],
-    };
-  }
-
-  logger.info(`文档长度 ${docContent.length} 超出限制 ${maxDocLength}，启用分段解析`);
-  const chunks = splitDocIntoChunks(docContent, maxDocLength);
-  logger.info(`文档分为 ${chunks.length} 段`);
-
-  const allTasks: DocTask[][] = [];
-
-  for (let i = 0; i < chunks.length; i++) {
-    let content = chunks[i];
-    if (i > 0) {
-      content = CONTINUATION_PREFIX + content;
-    }
-    if (i < chunks.length - 1) {
-      content = content + CONTINUATION_SUFFIX;
-    }
-
-    logger.info(`正在解析第 ${i + 1}/${chunks.length} 段 (${content.length} 字符)...`);
-
-    try {
-      const tasks = await callLLMWithRetry(logger, client, content, maxRetries);
-      allTasks.push(tasks);
-      logger.info(`第 ${i + 1}/${chunks.length} 段解析成功，得到 ${tasks.length} 个任务`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.warn(`第 ${i + 1}/${chunks.length} 段解析失败: ${message}，继续处理其余段`);
-    }
-  }
-
-  if (allTasks.length === 0) {
-    const warning = '所有分段 LLM 解析均失败，已降级为正则解析';
-    logger.warn(warning);
-    const fallbackTasks = fallbackParseByRegex(docContent);
-    if (fallbackTasks.length === 0) {
-      throw new VectaHubError(
-        `所有分段解析均失败且正则 fallback 未提取到任务。\n` +
-        `  文档路径: ${absolutePath}\n` +
-        `  文档大小: ${docContent.length} 字节\n` +
-        `  分段数: ${chunks.length}\n` +
-        `  LLM 提供商: ${llmConfig.provider}/${llmConfig.model}`,
-        ErrorType.RUNTIME
-      );
-    }
-    logger.info(`正则 fallback 解析到 ${fallbackTasks.length} 个任务`);
-    return {
-      tasks: fallbackTasks,
-      source: 'regex-fallback',
-      degraded: true,
-      warnings: [warning],
-    };
-  }
-
-  const merged = mergeAndDeduplicateDocTasks(allTasks);
-  logger.info(`分段解析完成：${allTasks.length} 段共解析 ${merged.length} 个任务（已去重）`);
-
-  const warnings = allTasks.length < chunks.length
-    ? [`部分分段 LLM 解析失败，已基于 ${allTasks.length}/${chunks.length} 个成功分段汇总任务`]
-    : [];
-
+  logger.info(`正则 fallback 解析到 ${fallbackTasks.length} 个任务`);
   return {
-    tasks: merged,
-    source: 'llm',
-    degraded: warnings.length > 0,
-    warnings,
+    tasks: fallbackTasks,
+    source: 'regex-fallback',
+    degraded: true,
+    warnings: [warning],
   };
 }
 
 export async function parseDocTasks(context: InfrastructureContext, filePath: string): Promise<DocTask[]> {
   const result = await parseDocTaskResult(context, filePath);
   return result.tasks;
-}
-
-async function callLLMWithRetry(logger: ReturnType<InfrastructureContext['logger']['getLogger']>, client: LLMClient, docContent: string, maxRetries: number): Promise<DocTask[]> {
-  let lastError: Error | null = null;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      if (attempt > 0) {
-        logger.info(`第 ${attempt + 1} 次尝试 (共 ${maxRetries + 1} 次)...`);
-      }
-      const rawOutput = await client.completeRaw(DOC_TASK_PARSER_ID, '请只提取尚需开发或补齐的任务缺口', {
-        docContent,
-      });
-      return parseTasksFromLLMOutput(rawOutput);
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      if (attempt < maxRetries) {
-        logger.warn(`第 ${attempt + 1} 次 LLM 解析失败: ${lastError.message}，将重试`);
-      }
-    }
-  }
-
-  throw lastError;
 }
 
 export function parseTasksFromLLMOutput(output: string): DocTask[] {

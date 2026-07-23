@@ -5,7 +5,6 @@ import type { InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import { Workflow } from '../types/index.js';
 import YAML from 'yaml';
-import { createLLMDialogControlSkill } from '../skills/llm-dialog-control/index.js';
 
 interface GenerateCommandOutput {
   log(message?: unknown, ...optionalParams: unknown[]): void;
@@ -123,64 +122,8 @@ export function createGenerateCmd(context: InfrastructureContext): Command {
           throw new VectaHubError('LLM providers not configured', ErrorType.RUNTIME);
         }
 
-        const skill = createLLMDialogControlSkill({
-          provider,
-          model,
-          baseUrl,
-          temperature: 0.3
-        });
-
-        logger.info('正在生成工作流...');
-
-        const response = await skill.generateYAML(
-          description,
-          YAML_WORKFLOW_SYSTEM_PROMPT,
-          { maxRetries: 3 }
-        );
-
-        if (!response.success) {
-          logger.error(`生成失败: ${response.error}`);
-          logger.info(`尝试次数: ${response.attemptCount}`);
-          throw new VectaHubError(`Generation failed: ${response.error}`, ErrorType.RUNTIME);
-        }
-
-        logger.info(`生成成功！(尝试次数: ${response.attemptCount})`);
-
-        let workflow: Workflow;
-        try {
-          workflow = YAML.parse(response.output) as Workflow;
-        } catch (e) {
-          logger.error('生成的 YAML 无效');
-          output.log('\n' + response.output);
-          throw new VectaHubError('Generated YAML is invalid', ErrorType.RUNTIME, e);
-        }
-
-        logger.info('生成的工作流:');
-        output.log(response.output);
-
-        let outputPath: string;
-        if (options.output) {
-          outputPath = options.output;
-        } else {
-          const safeName = workflow.name.replace(/[^a-zA-Z0-9_-]/g, '_');
-          outputPath = `./${safeName}.yaml`;
-        }
-
-        env.writeFile(outputPath, response.output);
-        logger.info(`工作流已保存到: ${outputPath}`);
-
-        if (options.save) {
-          const storage = createStorage({ environment: env, logger });
-          await storage.saveWorkflow(workflow, 'yaml');
-          logger.info('工作流已保存到工作流库');
-        }
-
-        if (options.execute) {
-          logger.info('正在执行工作流...');
-          logger.info('使用命令: vectahub run --file ' + outputPath);
-        }
-
-        logger.info('提示: 使用 vectahub run --file ' + outputPath + ' 执行工作流');
+        // LLM skill 模块已删除，后续改为 ACP 模式
+        throw new VectaHubError('LLM dialog control skill 已移除，待 ACP 模式接入', ErrorType.RUNTIME);
 
       } catch (error) {
         if (error instanceof VectaHubError) {

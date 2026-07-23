@@ -3,7 +3,6 @@ import { createWorkflowEngine, type ProgressInfo } from '../workflow/engine.js';
 import { createStorage } from '../workflow/storage.js';
 import { isFirstRun, loadConfig, saveConfig } from '../setup/first-run-wizard.js';
 import { createDefaultInstaller } from '../setup/priority-installer.js';
-import { createLLMConfig } from '../nl/llm.js';
 import { orchestrateIntent } from '../nl/orchestrator.js';
 import { formatDryRunText, formatExecutionResultText } from '../nl/capabilities/user-report.js';
 import type { Workflow } from '../types/index.js';
@@ -15,7 +14,6 @@ import { type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import { markCliOutputHandled } from '../infrastructure/cli-output.js';
 import { createRecordManager } from '../execution/record-manager.js';
-import { runSelfHealingLoop } from './self-healing.js';
 import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { createRunDispatch, formatRunDispatchText } from './run-dispatch.js';
 import { interpolateStep, type InterpolationContext } from '../workflow/interpolation.js';
@@ -525,8 +523,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
           }
         } else if (intentRecognitionMethod !== 'none') {
           if (intentRecognitionMethod === 'llm') {
-            const llmConfig = createLLMConfig();
-            logger.info(`意图解析模式: 优先 LLM (provider=${llmConfig?.provider}, model=${llmConfig?.model})`);
+            logger.info(`意图解析模式: 优先 LLM`);
           } else {
             logger.info(`意图解析模式: 规则匹配 (LLM 未配置)`);
           }
@@ -666,13 +663,8 @@ export function createRunCmd(context: InfrastructureContext): Command {
         }
 
         if (result.status === 'FAILED') {
-          const llmConfig = createLLMConfig();
-          if (llmConfig && !options.dryRun && !options.json && context.environment.getEnv('CI') !== '1') {
-            shouldRetry = await runSelfHealingLoop(result, workflow!, llmConfig, context);
-            if (shouldRetry) {
-              logger.info('🔄 正在重试工作流...');
-              continue;
-            }
+          if (!options.dryRun && !options.json && context.environment.getEnv('CI') !== '1') {
+            logger.warn('工作流执行失败，self-healing 已移除，待 ACP 模式接入');
           }
           restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
           throw new VectaHubError('Workflow execution failed', ErrorType.RUNTIME);

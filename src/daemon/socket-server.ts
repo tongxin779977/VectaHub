@@ -7,7 +7,6 @@ import { createSandboxManager, type SandboxManager } from '../sandbox/sandbox.js
 import type { SandboxMode } from '../types/index.js';
 import { AuditEventType, type AuditHelper } from '../infrastructure/audit/index.js';
 import { processInput } from '../nl/orchestrator.js';
-import type { LLMConfig } from '../nl/llm.js';
 import type pino from 'pino';
 
 export interface Task {
@@ -29,7 +28,7 @@ export interface SocketServerDeps {
   auditHelper: AuditHelper;
   logger: Pick<pino.Logger, 'error'>;
   getSessionId: () => string;
-  llmConfigProvider?: () => LLMConfig | null | undefined;
+  llmConfigProvider?: () => unknown;
 }
 
 const DEFAULT_CONFIG: SocketServerConfig = {
@@ -45,7 +44,7 @@ export class SocketServer {
   private readonly auditHelper: AuditHelper;
   private readonly logger: Pick<pino.Logger, 'error'>;
   private readonly getSessionId: () => string;
-  private readonly llmConfigProvider: () => LLMConfig | null | undefined;
+  private readonly llmConfigProvider: () => unknown;
   private sandbox: SandboxManager;
   private tasks: Map<string, Task> = new Map();
   private socketBuffers: WeakMap<Socket, string> = new WeakMap();
