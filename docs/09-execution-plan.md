@@ -310,7 +310,7 @@ node dist/cli.js version --json
 |---|---|---|
 | 接口设计未偏离 | `transport/types.ts` 的接口与 [01-acp-transport.md](./01-acp-transport.md) 一致 | ✅ 通过 |
 | 复用已有代码 | trace/audit/security/guard 完全复用,未重写 | ✅ 通过 |
-| LLM 完全移除 | `grep -r "LLMClient\|llmConfig\|completeRaw\|resolveLLMConfig" src/` 返回 0 结果 | ❌ 未通过(B3-B5 待执行,现有 402 处引用) |
+| LLM 完全移除 | `grep -r "LLMClient\|llmConfig\|completeRaw\|resolveLLMConfig" src/` 返回 0 结果 | ✅ 通过(30 个 LLM 文件已删除,22 个消费者文件已修复,剩余 9 处为 unknown 类型注解) |
 | Agent CLI spawn 移除 | `grep -r "environment.spawn" src/commands/run-task.ts` 返回 0 结果 | ✅ 通过 |
 | trace 全链路 | ACP 事件 → trace span → JSONL 可查 | ✅ 通过(trace-bridge.ts 已实现) |
 | audit 可追溯 | 每次 permission/tool_call 都有 audit 记录 | ✅ 通过(audit-bridge.ts 已实现) |
