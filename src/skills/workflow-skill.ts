@@ -1,5 +1,4 @@
 import type { Skill, SkillContext, SkillResult } from './types.js';
-import type { PromptRegistry } from '../nl/prompt/types.js';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import type pino from 'pino';
@@ -65,7 +64,7 @@ async function readDocContent(filePath: string): Promise<string | null> {
  * @returns Skill instance for workflow generation
  */
 export function createWorkflowSkill(
-  promptRegistry: PromptRegistry,
+  promptRegistry: unknown,
   llmDialogSkill: unknown,
   logger: Pick<pino.Logger, 'debug'> = { debug: () => {} },
 ): Skill<WorkflowSkillInput, WorkflowSkillOutput> {
@@ -105,7 +104,7 @@ export function createWorkflowSkill(
 
         const extendedUserInput = input.userInput + docContent;
 
-        const { system, user } = await promptRegistry.build('workflow-generator-v1', {
+        const { system, user } = await (promptRegistry as any).build('workflow-generator-v1', {
           userInput: extendedUserInput,
           intent: input.intent,
           commands: JSON.stringify(input.commands)

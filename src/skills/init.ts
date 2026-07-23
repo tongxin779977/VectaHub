@@ -4,7 +4,6 @@ import { createCommandSkill } from './command-skill.js';
 import { createIntentSkill } from './intent-skill.js';
 import { createWorkflowSkill } from './workflow-skill.js';
 import { createPipelineSkill } from './pipeline-skill.js';
-import { createPromptRegistry } from '../nl/prompt/v3.js';
 import type { SkillExecutorOptions } from './executor.js';
 import type { AIModuleRegistry as IAIModuleRegistry, AIModule, AIModuleMetadata } from './ai-modules/types.js';
 import type { AIModuleConfig } from '../infrastructure/config/index.js';

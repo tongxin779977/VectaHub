@@ -1,5 +1,4 @@
 import type { Skill, SkillContext, SkillResult } from './types.js';
-import type { PromptRegistry } from '../nl/prompt/types.js';
 import { getAllIntentNames } from '../nl/templates/index.js';
 import type pino from 'pino';
 
@@ -24,7 +23,7 @@ export interface IntentSkillOutput {
  * @returns Skill instance for intent recognition
  */
 export function createIntentSkill(
-  promptRegistry: PromptRegistry,
+  promptRegistry: unknown,
   llmDialogSkill: unknown,
   logger: Pick<pino.Logger, 'debug'> = { debug: () => {} },
 ): Skill<string, IntentSkillOutput> {
@@ -57,7 +56,7 @@ export function createIntentSkill(
       const conversationHistory = context.executionHistory ? JSON.stringify(context.executionHistory) : '';
 
       try {
-        const { system, user } = await promptRegistry.build('intent-parser-v1', {
+        const { system, user } = await (promptRegistry as any).build('intent-parser-v1', {
           intentList,
           userInput,
           projectContext,

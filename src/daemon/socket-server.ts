@@ -69,7 +69,7 @@ export class SocketServer {
     const sessionId = this.getSessionId();
 
     try {
-      const result = await processInput(input, this.llmConfigProvider() ?? undefined, this.auditHelper, this.logger);
+      const result = await processInput(input, this.auditHelper, this.logger);
       this.auditHelper.intentMatch(result.intent ?? 'UNKNOWN', result.confidence, result.params as Record<string, unknown> ?? {}, sessionId);
 
       const tasks = result.taskList?.tasks ?? [];
