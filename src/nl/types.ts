@@ -78,12 +78,16 @@ export interface NLResult {
   reply?: string;
   params?: Record<string, unknown>;
   metadata: {
-    path: 'category-router' | 'llm-tool-calling' | 'no-match' | 'direct-query' | 'dialog' | 'reply-only';
+    path: 'category-router' | 'llm-tool-calling' | 'no-match' | 'direct-query' | 'dialog' | 'reply-only' | 'acp-fallback';
     usedSkills?: string[];
     fallbackReason?: string;
     multiIntent?: MultiIntentResult;
     requiresLLM?: boolean;
     classifierKind?: 'query' | 'task' | 'dialog';
+    /** ACP fallback 触发时记录的 agent tool calls(仅 path='acp-fallback' 时存在) */
+    acpToolCalls?: unknown[];
+    /** ACP fallback 触发时记录的变更文件列表(仅 path='acp-fallback' 时存在) */
+    acpChangedFiles?: string[];
   };
 }
 

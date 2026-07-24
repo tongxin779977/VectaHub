@@ -328,26 +328,7 @@ describe('orchestrateIntent', () => {
       });
 
     await expect(
-      processInput('先修复 CI 然后运行测试', {
-        provider: 'openai',
-        model: 'mock-model',
-        baseUrl: 'http://localhost:11434/v1',
-        apiKey: 'mock',
-      }, {
-        log: vi.fn(),
-        cliCommand: vi.fn(),
-        cliOutput: vi.fn(),
-        workflowStart: vi.fn(),
-        workflowEnd: vi.fn(),
-        workflowStep: vi.fn(),
-        securityAlert: vi.fn(),
-        securityAction: vi.fn(),
-        configChange: vi.fn(),
-        intentMatch: vi.fn(),
-        executorResult: vi.fn(),
-        fileOperation: vi.fn(),
-        sandboxDetect: vi.fn(),
-      })
+      processInput('先修复 CI 然后运行测试')
     ).rejects.toThrow('Multi-intent contains non-executable clause; clarification or preview required');
   });
 

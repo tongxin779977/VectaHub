@@ -4,6 +4,10 @@ import type { DocTask } from '../types/index.js';
 import { type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import { planFromDocTasks } from '../orchestration-plan/index.js';
+import type { AgentDescriptor } from '../types/agent.js';
+import type { AgentTransport } from '../agent-runtime/transport/types.js';
+import { createTransport, type AcpConfig } from '../agent-runtime/transport/factory.js';
+import { getAgentDescriptorById } from './agent-cli-adapter.js';
 
 const DEFAULT_MAX_DOC_LENGTH = 50000;
 const DEFAULT_MAX_RETRIES = 2;
@@ -52,13 +56,23 @@ function createParseDocCommandOutput(): ParseDocCommandOutput {
   };
 }
 
-export type ParseDocSource = 'roadmap-table' | 'llm' | 'regex-fallback';
+export type ParseDocSource = 'roadmap-table' | 'acp' | 'llm' | 'regex-fallback';
 
 export interface ParseDocResult {
   tasks: DocTask[];
   source: ParseDocSource;
   degraded: boolean;
   warnings: string[];
+}
+
+/**
+ * parse-doc 任务的可选依赖。
+ * 提供 transport + descriptor 时启用 ACP 路径(第二层);
+ * 缺省时跳过 ACP,直接降级到 regex fallback(第三层)。
+ */
+export interface ParseDocDeps {
+  transport?: AgentTransport;
+  descriptor?: AgentDescriptor;
 }
 
 export function findChunkBoundary(content: string, target: number, maxDocLength: number = target): number {
@@ -332,7 +346,81 @@ export function fallbackParseByRegex(content: string): DocTask[] {
   return tasks;
 }
 
-export async function parseDocTaskResult(context: InfrastructureContext, filePath: string): Promise<ParseDocResult> {
+/**
+ * 构造 parse-doc ACP agent 的 task prompt。
+ *
+ * 要求 agent 读取文档并返回结构化 JSON 数组,每个任务包含
+ * id / label / docExcerpt / allowedFiles / forbiddenFiles。
+ * agent 可使用 read / search 工具探索代码库以补充上下文。
+ * @param docContent 文档全文
+ * @returns 组装好的 task prompt
+ */
+export function buildParseDocPrompt(docContent: string): string {
+  return [
+    'Analyze the following document and extract structured tasks as a JSON array.',
+    'Each task object must have:',
+    '  - id: string (unique identifier, e.g. "T1" or "IMP-005")',
+    '  - label: string (human-readable label, concise action description)',
+    '  - docExcerpt: string (relevant excerpt from the document)',
+    '  - allowedFiles: string[] (files the task may modify, empty if unknown)',
+    '  - forbiddenFiles: string[] (files the task must not touch, empty if unknown)',
+    '',
+    'You may use read and search tools to explore the codebase for context.',
+    'Respond with ONLY the JSON array, no markdown fences, no extra prose.',
+    '',
+    'Document:',
+    docContent,
+  ].join('\n');
+}
+
+/**
+ * 通过 ACP transport 调用 agent 解析文档,提取结构化任务列表(第二层)。
+ *
+ * 构造 TransportRequest → transport.execute() → 解析 agent 返回的 JSON 数组。
+ * 复用 parseTasksFromLLMOutput() 处理 code fence / 多候选 / id+label 校验。
+ *
+ * @param docContent 文档全文
+ * @param transport ACP transport 实例
+ * @param descriptor 目标 agent 描述符
+ * @returns 解析结果(source='acp')
+ */
+export async function parseDocViaAcp(
+  docContent: string,
+  transport: AgentTransport,
+  descriptor: AgentDescriptor,
+): Promise<ParseDocResult> {
+  const workspaceRoot = process.cwd();
+  const traceId = `parse-doc-${Date.now()}`;
+  const result = await transport.execute({
+    descriptor,
+    workspaceRoot,
+    taskPrompt: buildParseDocPrompt(docContent),
+    mode: 'run',
+    traceContext: { traceId, source: 'cli' },
+    parentSpanId: '',
+    securityContext: { cwd: workspaceRoot, sessionId: traceId },
+    timeoutMs: 120_000,
+  });
+
+  if (!result.success) {
+    throw new Error(`ACP parse-doc failed: ${result.error?.message ?? 'unknown error'}`);
+  }
+
+  // agent 返回 JSON 数组(可能包裹在 markdown fence 中),复用已有解析器
+  const tasks = parseTasksFromLLMOutput(result.output);
+  return {
+    tasks,
+    source: 'acp',
+    degraded: false,
+    warnings: [],
+  };
+}
+
+export async function parseDocTaskResult(
+  context: InfrastructureContext,
+  filePath: string,
+  deps?: ParseDocDeps,
+): Promise<ParseDocResult> {
   const logger = context.logger.getLogger('parse-doc');
 
   const absolutePath = context.environment.resolvePath(filePath);
@@ -355,6 +443,22 @@ export async function parseDocTaskResult(context: InfrastructureContext, filePat
     };
   }
 
+  // 第二层:ACP agent 解析(transport 可用时)
+  if (deps?.transport && deps?.descriptor) {
+    try {
+      const acpResult = await parseDocViaAcp(docContent, deps.transport, deps.descriptor);
+      if (acpResult.tasks.length > 0) {
+        logger.info(`ACP agent 解析到 ${acpResult.tasks.length} 个任务`);
+        return acpResult;
+      }
+      logger.warn('ACP agent 解析未提取到任务，降级为正则解析');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.warn(`ACP agent 解析失败，降级为正则解析: ${message}`);
+    }
+  }
+
+  // 第三层:regex fallback(transport 不可用或 ACP 失败时)
   const warning = 'LLM 解析已移除，已降级为正则解析';
   logger.warn(warning);
   const fallbackTasks = fallbackParseByRegex(docContent);
@@ -370,8 +474,12 @@ export async function parseDocTaskResult(context: InfrastructureContext, filePat
   };
 }
 
-export async function parseDocTasks(context: InfrastructureContext, filePath: string): Promise<DocTask[]> {
-  const result = await parseDocTaskResult(context, filePath);
+export async function parseDocTasks(
+  context: InfrastructureContext,
+  filePath: string,
+  deps?: ParseDocDeps,
+): Promise<DocTask[]> {
+  const result = await parseDocTaskResult(context, filePath, deps);
   return result.tasks;
 }
 
@@ -429,14 +537,39 @@ export function createParseDocCmd(context: InfrastructureContext): Command {
     .argument('<path>', '文档文件路径')
     .option('--json', '以 JSON 格式输出')
     .option('--plan', '生成 OrchestrationPlan 作为执行计划')
-    .action(async (filePath: string, options: { json?: boolean; plan?: boolean }) => {
+    .option('--tool <name>', '指定 ACP agent(如 opencode),启用 ACP 解析路径')
+    .action(async (filePath: string, options: { json?: boolean; plan?: boolean; tool?: string }) => {
       if (options.json || options.plan) {
         context.logger.setMuted(true);
       }
       try {
         logger.info(`正在解析文档: ${filePath}`);
 
-        const result = await parseDocTaskResult(context, filePath);
+        // 可选构造 ACP transport:--tool 提供时按 run-task 同款方式构建
+        let deps: ParseDocDeps | undefined;
+        if (options.tool) {
+          const descriptor = getAgentDescriptorById(options.tool) ?? {
+            id: options.tool,
+            displayName: options.tool,
+            entryCommand: options.tool,
+            promptTransport: 'arg' as const,
+            nonInteractiveFlags: [],
+            approvalPolicySupport: 'none' as const,
+            structuredOutputSupport: false,
+            preflightSpec: { versionArgs: [] },
+            dryRunRenderMode: 'prompt-only' as const,
+          };
+          const acpConfig: AcpConfig = {
+            agentId: options.tool,
+            command: descriptor.entryCommand,
+            args: descriptor.subcommand ? [descriptor.subcommand, 'acp'] : ['acp'],
+            defaultTimeoutMs: 120_000,
+            permissionMode: 'ask',
+          };
+          deps = { transport: createTransport(acpConfig), descriptor };
+        }
+
+        const result = await parseDocTaskResult(context, filePath, deps);
         const { tasks } = result;
 
         if (options.plan) {

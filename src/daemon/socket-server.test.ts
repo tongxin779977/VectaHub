@@ -76,10 +76,12 @@ describe('SocketServer.executeTask', () => {
     expect(processInputMock).toHaveBeenCalledWith(
       'check status',
       expect.objectContaining({
-        intentMatch: expect.any(Function),
-      }),
-      expect.objectContaining({
-        error: expect.any(Function),
+        auditHelper: expect.objectContaining({
+          intentMatch: expect.any(Function),
+        }),
+        logger: expect.objectContaining({
+          error: expect.any(Function),
+        }),
       }),
     );
     expect(result).toContain('Execution delegated to Skill System.');

@@ -1,6 +1,6 @@
 # 04 — 文档任务系统改造
 
-> **状态: 部分完成 — run-task Execute + parse-doc LLM 路径已移除,ACP transport 路径待接入**
+> **状态: 已完成 — run-task + parse-doc 均已走 ACP transport**
 
 > **依赖清单** — 本文档引用以下外部定义,实现时须加载:
 > - `AgentTransport`, `TransportRequest`, `TransportResult`, `TransportError` → [01-acp-transport.md § 核心接口](./01-acp-transport.md#核心接口)
@@ -46,6 +46,66 @@
 //    → ACP agent 返回结构化 JSON
 // 3. ACP 不可用 → regex fallback — 保留
 ```
+
+#### parse-doc ACP 路径实现设计
+
+```typescript
+// src/commands/parse-doc.ts 中新增
+
+async function parseDocViaAcp(
+  docContent: string,
+  transport: AgentTransport,
+  descriptor: AgentDescriptor,
+): Promise<DocTaskParseResult> {
+  const result = await transport.execute({
+    descriptor,
+    workspaceRoot: process.cwd(),
+    taskPrompt: buildParseDocPrompt(docContent),
+    mode: 'run',
+    traceContext: { traceId: `parse-doc-${Date.now()}` },
+    securityContext: {
+      cwd: process.cwd(),
+      sessionId: `parse-doc-${Date.now()}`,
+    },
+    timeoutMs: 120_000,
+  });
+
+  if (!result.success) {
+    throw new Error(`ACP parse-doc failed: ${result.error?.message}`);
+  }
+
+  // ACP agent 返回 JSON 格式的任务列表
+  // agent 可以用 read 工具读取文档,用 search 探索代码库
+  const tasks = JSON.parse(result.output) as DocTask[];
+  return { tasks, source: 'acp', rawOutput: result.output };
+}
+
+function buildParseDocPrompt(docContent: string): string {
+  return [
+    'Analyze the following document and extract structured tasks as a JSON array.',
+    'Each task object must have:',
+    '  - taskId: string (unique identifier)',
+    '  - taskLabel: string (human-readable label)',
+    '  - docExcerpt: string (relevant excerpt from the document)',
+    '  - allowedFiles: string[] (files the task may modify)',
+    '  - forbiddenFiles: string[] (files the task must not touch)',
+    '',
+    'You may use read and search tools to explore the codebase for context.',
+    'Respond with ONLY the JSON array, no markdown fences.',
+    '',
+    'Document:',
+    docContent,
+  ].join('\n');
+}
+```
+
+**parse-doc 三层降级策略:**
+
+| 层级 | 方法 | 触发条件 | 准确性 |
+|---|---|---|---|
+| 1 | roadmap-table 解析(确定性) | 文档含标准 roadmap 表格 | 100% |
+| 2 | ACP agent 解析 | 表格解析失败,transport 可用 | 高(agent 有工具约束) |
+| 3 | regex fallback | transport 不可用 | 中(正则匹配) |
 
 **关键改进:**
 - 不再需要 LLM HTTP 客户端
