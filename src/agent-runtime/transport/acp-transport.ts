@@ -19,6 +19,7 @@ import {
 import type { AcpEvent, AcpPromptResult } from '../acp/acp-types.js';
 import type { AgentDescriptor } from '../../types/agent.js';
 import type { AuditHelper } from '../../infrastructure/audit/index.js';
+import type { IEventBus } from '../../infrastructure/interfaces/event-bus.js';
 import type { SecurityGuard } from '../../types/security.js';
 import { createNoopAuditHelper } from '../../infrastructure/audit/index.js';
 import { createSecurityGuard } from '../../security-protocol/factory.js';
@@ -61,6 +62,7 @@ export class AcpTransport implements AgentTransport {
       auditBridge?: AuditBridge;
       guard?: SecurityGuard;
       audit?: AuditHelper;
+      eventBus?: IEventBus;
     },
   ) {}
 
@@ -69,6 +71,7 @@ export class AcpTransport implements AgentTransport {
     const audit = this.deps?.audit ?? createNoopAuditHelper();
     const auditBridge = this.deps?.auditBridge ?? createAuditBridge(audit);
     const guard = this.deps?.guard ?? createSecurityGuard();
+    const eventBus = this.deps?.eventBus;
 
     const executeSpan = traceBridge.onTransportExecute(request);
     const taskId = request.securityContext.taskId ?? 'unknown';
@@ -86,6 +89,7 @@ export class AcpTransport implements AgentTransport {
       acpOptions.onEvent = (event: AcpEvent) => {
         traceBridge.onAcpEvent(event);
         auditBridge.onAcpEvent(event);
+        publishAcpEventToBus(eventBus, event);
       };
       acpOptions.onPermission = async (toolTitle, options) => {
         const acpPermissionRequest = {
@@ -93,12 +97,17 @@ export class AcpTransport implements AgentTransport {
           options,
         };
         const result = await handleAcpPermission(acpPermissionRequest, guard, request.securityContext, audit);
-        if ('cancelled' in result) return { cancelled: true as const };
+        if ('cancelled' in result) {
+          eventBus?.emit('acp:permission', { toolTitle, decision: 'cancelled' });
+          return { cancelled: true as const };
+        }
+        eventBus?.emit('acp:permission', { toolTitle, decision: result.optionId });
         return { optionId: result.optionId };
       };
 
       const acpResult = await prompt(request.taskPrompt, acpOptions);
       const stopResult = mapStopReason(acpResult.stopReason);
+      eventBus?.emit('acp:stop', { stopReason: acpResult.stopReason });
 
       const result: TransportResult = {
         success: stopResult.success,
@@ -184,6 +193,39 @@ export class AcpTransport implements AgentTransport {
       changedFiles: [],
       events: [],
     };
+  }
+}
+
+/**
+ * 将 ACP 事件发布到 event bus,供 UI/日志订阅。
+ * 按 docs/07-infrastructure.md § ACP 事件 → Event Bus 的 5 种事件映射。
+ * eventBus 为可选依赖,未提供时跳过发布。
+ * @param eventBus 事件总线(可选)
+ * @param event ACP 事件
+ */
+function publishAcpEventToBus(eventBus: IEventBus | undefined, event: AcpEvent): void {
+  if (eventBus === undefined) return;
+  switch (event.type) {
+    case 'message':
+      eventBus.emit('acp:message', { messageId: event.event.messageId, text: event.event.text });
+      break;
+    case 'tool_call':
+    case 'tool_call_update':
+      eventBus.emit('acp:tool_call', {
+        toolCallId: event.event.toolCallId,
+        kind: event.event.kind,
+        status: event.event.status,
+      });
+      break;
+    case 'usage':
+      eventBus.emit('acp:usage', {
+        used: event.event.usedTokens,
+        max: event.event.maxContextTokens,
+      });
+      break;
+    case 'plan':
+      // plan 事件不在 § ACP 事件 → Event Bus 的 5 种映射中,跳过
+      break;
   }
 }
 

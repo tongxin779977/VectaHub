@@ -1,6 +1,6 @@
 # 07 — 基础设施层
 
-> **状态: 部分完成 — trace/audit 桥接已实现,ACP Event Bus 集成未开始**
+> **状态: 已完成 — trace/audit 桥接 + ACP Event Bus 集成均已实现**
 
 > **依赖清单** — 本文档引用以下外部定义,实现时须加载:
 > - `AcpToolCallEvent`, `AcpEvent`, `AcpStopReason` → `src/agent-runtime/acp/acp-types.ts`
