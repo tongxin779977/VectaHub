@@ -433,6 +433,7 @@ function capabilityNoTaskNLResult(
 async function orchestrateSingleIntent(
   input: string,
   options?: { cwd?: string; auditHelper?: AuditHelper; logger?: NLLogger },
+  deps?: NLProcessorDeps,
 ): Promise<OrchestrateResult> {
   const context = buildProjectContext(input, options);
   const routeResult = routeCapability(input, context);
@@ -482,8 +483,19 @@ async function orchestrateSingleIntent(
     }
   }
 
-  // LLM fallback removed — ACP migration pending
-  throw new Error('Capability routing returned fallback; LLM fallback has been removed.');
+  // ACP fallback: 确定性路由未匹配时,交给 ACP agent 处理
+  if (deps?.transport) {
+    const nlResult = await executeAcpFallback(input, deps, context);
+    return {
+      steps: [],
+      reply: nlResult.reply,
+      plan: routeResult.plan ?? undefined,
+      intentRecognitionMethod: 'none',
+      matchedCapability: routeResult.matchedCapability,
+      score: routeResult.score,
+    };
+  }
+  throw new Error('Capability routing returned fallback; ACP transport not provided. Pass NLProcessorDeps.transport to enable ACP fallback.');
 }
 
 /**
@@ -496,12 +508,14 @@ async function orchestrateSingleIntent(
  * @param options.cwd - 可选的工作目录
  * @param options.auditHelper - 可选的审计助手
  * @param options.logger - 可选的日志记录器
+ * @param deps - NL 处理器依赖(transport/agentDescriptor/acpConfig),用于 ACP fallback
  * @returns 编排结果
  * @throws 多意图包含不可执行子句或无步骤产出时抛出错误
  */
 export async function orchestrateIntent(
   input: string,
   options?: { cwd?: string; auditHelper?: AuditHelper; logger?: NLLogger },
+  deps?: NLProcessorDeps,
 ): Promise<OrchestrateResult> {
   const splitter = createIntentSplitter();
   const splitResult = await splitter.split(input);
@@ -509,7 +523,7 @@ export async function orchestrateIntent(
 
   if (splitResult.isMultiIntent && clauses.length > 1) {
     const clauseResults = await Promise.all(
-      clauses.map(clause => orchestrateSingleIntent(clause, options))
+      clauses.map(clause => orchestrateSingleIntent(clause, options, deps))
     );
 
     const hasNonExecutableClause = clauseResults.some(result => result.steps.length === 0 && !result.reply);
@@ -535,5 +549,5 @@ export async function orchestrateIntent(
   }
 
   const singleInput = clauses[0] ?? input.trim();
-  return orchestrateSingleIntent(singleInput, options);
+  return orchestrateSingleIntent(singleInput, options, deps);
 }

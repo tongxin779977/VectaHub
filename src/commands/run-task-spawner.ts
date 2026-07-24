@@ -1,3 +1,11 @@
+/**
+ * @deprecated This module has been replaced by AcpTransport.
+ *   - spawn + RedactionTransform → AcpTransport.execute()
+ *   - heuristic functions → deterministic stopReason + toolCall mapping
+ *   - RedactionTransform → Redactor.redact() in AcpTransport
+ *   See docs/01-acp-transport.md for the replacement.
+ *   Kept temporarily for exec-handler.ts RedactionTransform usage.
+ */
 import { Transform, type TransformOptions } from 'node:stream';
 import { createRedactor } from '../security-protocol/redactor.js';
 import {
@@ -15,6 +23,9 @@ import { collectGitChanges, type GitDiffSnapshot } from './run-task-git.js';
 
 const redactor = createRedactor();
 
+/**
+ * @deprecated Use AcpTransport.execute() with Redactor.redact() instead.
+ */
 export class RedactionTransform extends Transform {
   private carry = '';
   private onTokenUsage?: (usage: TokenUsage) => void;
@@ -71,6 +82,9 @@ export class RedactionTransform extends Transform {
   }
 }
 
+/**
+ * @deprecated Use AcpTransport's built-in token usage reporting instead.
+ */
 export function parseTokenUsage(output: string): TokenUsage | undefined {
   try {
     const jsonMatch = extractOutermostJson(output);
@@ -125,6 +139,9 @@ const HARDCODED_DEFAULTS = {
   AGENT_MAX_WALL_CLOCK_MS: 900000,
 } as const;
 
+/**
+ * @deprecated Use AcpTransport.execute() with its own timeout configuration instead.
+ */
 export function buildRuntimeResolvedConfig(
   estimate: { progressIntervalMs?: number; noCloseTimeoutMs?: number; heartbeatTimeoutMs?: number; idleTimeoutMs?: number; gracePeriodMs?: number; agentCliTimeoutMs?: number; extensionMs?: number; maxExtensions?: number; maxWallClockMs?: number } | undefined,
   getEnvNumber: (name: string, defaultValue?: number) => number | undefined,
@@ -166,6 +183,9 @@ export interface SpawnAgentOptions {
   outputLastMessagePath?: string;
 }
 
+/**
+ * @deprecated Use AcpTransport.execute() instead.
+ */
 export async function spawnAgent(options: SpawnAgentOptions): Promise<SpawnAgentResult> {
   const { command, args, stdinInput, runtimeConfig, gitDiffBefore, outputLastMessagePath } = options;
 

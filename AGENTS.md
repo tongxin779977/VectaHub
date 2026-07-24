@@ -48,21 +48,23 @@ npm run package:vsix             # 打 .vsix(gitignored)
 - **核心层**(`docs/README.md` 详述):
   - `src/cli-main.ts` CLI 组装
   - `src/infrastructure/` DI、environment、config、logger、audit、trace、event
-  - `src/nl/` 自然语言路由
+  - `src/nl/` 自然语言路由(确定性 routing + ACP fallback)
   - `src/workflow/` workflow 引擎(`exec`/`if`/`for_each`/`parallel`/`opencli`/`delegate`)
-  - `src/skills/` skills 与 AI module 系统
-  - `src/agent-runtime/` Agent CLI registry / descriptor / adapter
+  - `src/skills/` skills 系统
+  - `src/agent-runtime/` Agent registry / descriptor / transport(适配器已移除)
+  - `src/agent-runtime/transport/` ACP 传输层(AcpTransport/trace-bridge/audit-bridge/security-bridge)
+  - `src/agent-runtime/acp/` ACP 客户端(acp-client/acp-types/acp-result-mapper)
   - `src/security-protocol/` 命令风险、策略、脱敏
-  - `src/commands/` 命令实现
+  - `src/commands/` 命令实现(LLM 命令已移除)
 - **Workspace 包**:
   - `packages/doc-task-contract-core/` 共享文档任务合同逻辑(`@vectahub/doc-task-contract-core`)
   - `packages/vectahub-vscode-extension/` VS Code extension(独立 tsc + vitest)
 - **运行时数据(用户层,不要提交)**:`.vectahub/`、`.vectahub-workflows/`、agent-homes/、logs/
 - **构建/缓存(gitignored)**:`dist/`、`*.tsbuildinfo`、`out/`、`.test-reports/`、`*.vsix`
 
-## 已知文档缺口
+## 文档集
 
-旧文档(`docs/architecture.md`、`docs/agent-operating-guide.md`、`docs/testing.md`、`docs/usage.md`、`docs/release.md`、`docs/repository-permissions.md` 等)已被删除,替换为 `docs/00-vision.md` 到 `docs/09-execution-plan.md` 的新文档集。权威入口是 `docs/README.md`。
+`docs/00-vision.md` 到 `docs/09-execution-plan.md`(ACP 改造蓝图,全部完成),入口 `docs/README.md`。
 
 ## Mandatory Boundaries
 
