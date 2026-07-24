@@ -1,6 +1,6 @@
 # 03 — Workflow 引擎改造
 
-> **状态: 部分完成 — delegate handler 已改为 transport.execute(),exec-handler agent runtime bootstrap 待移除**
+> **状态: 已完成 — delegate handler 走 ACP transport,exec-handler agent runtime bootstrap 已移除**
 
 > **依赖清单** — 本文档引用以下外部定义,实现时须加载:
 > - `AgentTransport`, `TransportRequest`, `TransportResult`, `TransportError` → [01-acp-transport.md § 核心接口](./01-acp-transport.md#核心接口)
