@@ -1,6 +1,6 @@
 # 06 — 安全协议与 ACP 权限映射
 
-> **状态: 部分完成 — security-bridge 已实现,Redactor ACP 事件层适配未开始**
+> **状态: 已完成 — security-bridge + Redactor ACP 事件层适配均已实现**
 
 > **依赖清单** — 本文档引用以下外部定义,实现时须加载:
 > - `AcpToolKind`, `AcpPermissionRequest` → `src/agent-runtime/acp/acp-types.ts` / 本文 § ACP Permission 映射

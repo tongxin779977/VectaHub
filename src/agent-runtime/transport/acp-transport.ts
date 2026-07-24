@@ -40,6 +40,7 @@ import {
   mapErrorToTransportError,
   stopToErrorCode,
 } from './error-mapper.js';
+import { createRedactor, type Redactor } from '../../security-protocol/redactor.js';
 import type { AcpConfig } from './factory.js';
 import type {
   AgentTransport,
@@ -49,6 +50,9 @@ import type {
 
 export class AcpTransport implements AgentTransport {
   readonly kind = 'acp';
+
+  // Redactor 实例无状态且轻量,复用同一个实例避免每次 execute 重复构建正则
+  private readonly redactor: Redactor = createRedactor();
 
   constructor(
     private config: AcpConfig,
@@ -109,6 +113,14 @@ export class AcpTransport implements AgentTransport {
           message: stopResult.errorMessage ?? 'Unknown error',
         },
       };
+
+      // 脱敏:output 和 tool_call.rawOutput 是 agent 产出,可能包含敏感信息;
+      // rawInput 是 VectaHub 发出的输入,不脱敏。详见 docs/06-security-protocol.md § Redactor 适配到 ACP 事件层
+      result.output = this.redactor.redact(result.output);
+      result.toolCalls = result.toolCalls.map(tc => ({
+        ...tc,
+        rawOutput: tc.rawOutput != null ? this.redactor.redact(String(tc.rawOutput)) : tc.rawOutput,
+      }));
 
       traceBridge.onTransportExecuteEnd(executeSpan, result.success, result.stopReason, result.error);
       auditBridge.onTransportEnd(taskId, result.success, 0);
