@@ -1,6 +1,6 @@
 # 05 — 意图识别改造
 
-> **状态: 待详细计划**
+> **状态: 部分完成 — LLM fallback 已移除,确定性路由保留,ACP fallback 待定方案**
 
 > **依赖清单** — 本文档引用以下外部定义:
 > - `AgentTransport`, `TransportRequest`, `TransportResult` → [01-acp-transport.md § 核心接口](./01-acp-transport.md#核心接口)

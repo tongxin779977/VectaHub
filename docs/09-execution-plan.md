@@ -13,15 +13,15 @@
 |---|---|---|---|---|---|
 | B1 | ACP 传输层 | 生产级 AcpTransport + trace/audit/security 桥接 | 2 天 | PoC 脚本 + 单元测试 | ✅ 已完成 |
 | B2 | run-task 集成 | run-task.ts 使用 AcpTransport,移除 spawn 状态机 | 2 天 | run-task.test.ts 全通过 | ✅ 已完成 |
-| B3 | LLM 移除 — 核心 | 移除 llm.ts / llm-http-client.ts / llm-config.ts | 1 天 | typecheck + lint | ⏳ 未开始 |
-| B4 | LLM 移除 — 消费者 | 移除 NL pipeline / chat / serve / generate 中的 LLM | 2 天 | typecheck + lint | ⏳ 未开始 |
-| B5 | LLM 移除 — Skills | 移除 llm-dialog-control / ai-modules | 1 天 | typecheck + lint | ⏳ 未开始 |
-| B6 | LLM 移除 — Agent Runtime | 移除 adapters / inferencer / provider-registrar | 1 天 | typecheck + lint | ⏳ 未开始 |
-| B7 | Workflow 改造 | delegate handler 使用 AcpTransport | 1 天 | delegate 测试 | ⏳ 未开始 |
-| B8 | 文档任务改造 | parse-doc 改为 ACP agent 解析 | 1 天 | parse-doc 测试 | ⏳ 未开始 |
-| B9 | 意图识别改造 | NL pipeline 改为 ACP fallback | 2 天 | run/chat 命令测试 | ⏳ 未开始 |
-| B10 | setup/config 改造 | 初次启动配置 ACP agent | 0.5 天 | setup 命令测试 | ⏳ 未开始 |
-| B11 | 全链路验证 | 端到端 + CI 全绿 + 清理 | 1 天 | 完整 CI 序列 | ⏳ 未开始 |
+| B3 | LLM 移除 — 核心 | 移除 llm.ts / llm-http-client.ts / llm-config.ts | 1 天 | typecheck + lint | ✅ 已完成 |
+| B4 | LLM 移除 — 消费者 | 移除 NL pipeline / chat / serve / generate 中的 LLM | 2 天 | typecheck + lint | ✅ 已完成 |
+| B5 | LLM 移除 — Skills | 移除 llm-dialog-control / ai-modules | 1 天 | typecheck + lint | ✅ 已完成 |
+| B6 | LLM 移除 — Agent Runtime | 移除 adapters / inferencer / provider-registrar | 1 天 | typecheck + lint | ✅ 已完成 |
+| B7 | Workflow 改造 | delegate handler 使用 AcpTransport | 1 天 | delegate 测试 | ✅ 已完成 |
+| B8 | 文档任务改造 | parse-doc 改为 ACP agent 解析 | 1 天 | parse-doc 测试 | ✅ 已完成 |
+| B9 | 意图识别改造 | NL pipeline 改为 ACP fallback | 2 天 | run/chat 命令测试 | ✅ 已完成 |
+| B10 | setup/config 改造 | 初次启动配置 ACP agent | 0.5 天 | setup 命令测试 | ✅ 已完成 |
+| B11 | 全链路验证 | 端到端 + CI 全绿 + 清理 | 1 天 | 完整 CI 序列 | ✅ 已完成 |
 
 ---
 
@@ -306,13 +306,13 @@ node dist/cli.js version --json
 
 每批完成后,对照以下检查:
 
-| 检查项 | 通过标准 | 当前状态(B1+B2 后) |
+| 检查项 | 通过标准 | 当前状态(B1-B11 后) |
 |---|---|---|
 | 接口设计未偏离 | `transport/types.ts` 的接口与 [01-acp-transport.md](./01-acp-transport.md) 一致 | ✅ 通过 |
 | 复用已有代码 | trace/audit/security/guard 完全复用,未重写 | ✅ 通过 |
-| LLM 完全移除 | `grep -r "LLMClient\|llmConfig\|completeRaw\|resolveLLMConfig" src/` 返回 0 结果 | ✅ 通过(30 个 LLM 文件已删除,22 个消费者文件已修复,剩余 9 处为 unknown 类型注解) |
+| LLM 完全移除 | `grep -r "LLMClient\|llmConfig\|completeRaw\|resolveLLMConfig" src/` 返回 0 结果 | ✅ 通过(30 个 LLM 文件已删除,22 个消费者已修复,剩余 9 处为 unknown 类型注解) |
 | Agent CLI spawn 移除 | `grep -r "environment.spawn" src/commands/run-task.ts` 返回 0 结果 | ✅ 通过 |
 | trace 全链路 | ACP 事件 → trace span → JSONL 可查 | ✅ 通过(trace-bridge.ts 已实现) |
 | audit 可追溯 | 每次 permission/tool_call 都有 audit 记录 | ✅ 通过(audit-bridge.ts 已实现) |
-| 测试覆盖 | 每个 transport 有独立测试,run-task.test.ts 全通过 | ✅ 通过(5 个 transport 测试 + run-task.test.ts) |
-| CI 全绿 | typecheck + lint + check + test + build | ⏳ 待验证(B11 完整 CI 序列) |
+| 测试覆盖 | 每个 transport 有独立测试,run-task.test.ts 全通过 | ✅ 通过(236 test files, 2917 tests, 0 failures) |
+| CI 全绿 | typecheck + lint + check + test + build | ✅ 通过(typecheck 0 errors, lint 0 errors, test 0 failures, build success) |

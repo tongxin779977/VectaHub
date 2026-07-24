@@ -1,6 +1,6 @@
 # 04 — 文档任务系统改造
 
-> **状态: 部分完成 — run-task Execute 阶段已完成,parse-doc 改造未开始**
+> **状态: 部分完成 — run-task Execute + parse-doc LLM 路径已移除,ACP transport 路径待接入**
 
 > **依赖清单** — 本文档引用以下外部定义,实现时须加载:
 > - `AgentTransport`, `TransportRequest`, `TransportResult`, `TransportError` → [01-acp-transport.md § 核心接口](./01-acp-transport.md#核心接口)
