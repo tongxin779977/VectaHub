@@ -3,6 +3,9 @@
  * See docs/01-acp-transport.md § AgentDescriptor → AcpClientOptions 映射.
  */
 
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import type { AgentDescriptor } from '../../types/agent.js';
 import type { AcpClientOptions } from '../acp/acp-types.js';
 import type { TransportRequest } from './types.js';
@@ -33,9 +36,10 @@ export function buildAcpArgs(descriptor: AgentDescriptor): string[] {
   return ['acp'];
 }
 
+/** 读取 package.json 版本号(ESM 安全方式)。 */
 function getVectaHubVersion(): string {
-  // Lazy import to avoid circular dependency at module load time.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const pkg = require('../../../package.json');
-  return pkg.version as string;
+  const here = dirname(fileURLToPath(import.meta.url));
+  const pkgPath = join(here, '..', '..', '..', 'package.json');
+  const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { version: string };
+  return pkg.version;
 }
