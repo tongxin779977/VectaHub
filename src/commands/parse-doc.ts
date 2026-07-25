@@ -365,8 +365,7 @@ export function buildParseDocPrompt(docContent: string): string {
     '  - allowedFiles: string[] (files the task may modify, empty if unknown)',
     '  - forbiddenFiles: string[] (files the task must not touch, empty if unknown)',
     '',
-    'You may use read and search tools to explore the codebase for context.',
-    'Respond with ONLY the JSON array, no markdown fences, no extra prose.',
+    'Do not use any tools. Respond with ONLY the JSON array, no markdown fences, no extra prose.',
     '',
     'Document:',
     docContent,
@@ -486,14 +485,36 @@ export async function parseDocTasks(
 export function parseTasksFromLLMOutput(output: string): DocTask[] {
   const cleaned = output.trim();
 
+  // 去除 markdown code fence
   const codeBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
   const jsonSource = codeBlockMatch ? codeBlockMatch[1].trim() : cleaned;
 
+  // 优先尝试直接解析整个字符串(ACP agent 通常返回纯 JSON)
+  try {
+    const parsed = JSON.parse(jsonSource);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return validateTasks(parsed as DocTask[]);
+    }
+  } catch {
+    // 不是纯 JSON,继续尝试提取
+  }
+
+  // 降级:用括号匹配提取 JSON 数组(处理嵌套对象中的 ])
   const candidates: string[] = [];
-  const arrayRegex = /\[[\s\S]*?\]/g;
-  let match: RegExpExecArray | null;
-  while ((match = arrayRegex.exec(jsonSource)) !== null) {
-    candidates.push(match[0]);
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < jsonSource.length; i++) {
+    const ch = jsonSource[i];
+    if (ch === '[') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === ']') {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        candidates.push(jsonSource.slice(start, i + 1));
+        start = -1;
+      }
+    }
   }
 
   if (candidates.length === 0) {
@@ -501,31 +522,27 @@ export function parseTasksFromLLMOutput(output: string): DocTask[] {
     throw new Error(`LLM 输出中未找到有效的 JSON 数组 (输出前 200 字符: ${preview})`);
   }
 
-  let tasks: DocTask[] | null = null;
-  let lastError: Error | null = null;
-
   for (const candidate of candidates) {
     try {
       const parsed = JSON.parse(candidate);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        tasks = parsed as DocTask[];
-        break;
+        return validateTasks(parsed as DocTask[]);
       }
-    } catch (e) {
-      lastError = e instanceof Error ? e : new Error(String(e));
+    } catch {
+      // 继续尝试下一个候选
     }
   }
 
-  if (!tasks) {
-    throw new Error(`JSON 解析失败: ${lastError?.message || '未找到有效数组'}`);
-  }
+  throw new Error('JSON 解析失败: 所有候选均无法解析');
+}
 
+/** 校验任务列表,确保每个任务有 id 和 label。 */
+function validateTasks(tasks: DocTask[]): DocTask[] {
   for (const task of tasks) {
     if (!task.id || !task.label) {
       throw new Error('任务格式无效：每个任务必须包含 id 和 label');
     }
   }
-
   return tasks;
 }
 
