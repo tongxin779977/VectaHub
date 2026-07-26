@@ -18,21 +18,29 @@
 
 CI(`.github/workflows/ci.yml`)按此顺序执行。**先跑过再声明通过**。
 
+CI 实际跑的是 `test:coverage`(非 `test:run`),且 smoke test 有两条,还有 coverage 门禁和 benchmark 回归 job:
+
 ```bash
 npm run typecheck               # tsc --noEmit
 npm run lint                    # eslint src --ext .ts
 npm run check:default-context-usage   # getDefaultContext() 白名单
 npm run check:docs               # 文档内部链接检查
-npm run test:run                 # vitest --run(主 CI 排除 vscode-extension)
+npm run test:coverage            # vitest --run --coverage(主 CI 排除 vscode-extension)
+node scripts/check-coverage-threshold.mjs  # 覆盖率门禁(ubuntu+node22 only)
 npm run build                    # tsup
-node dist/cli.js --version       # 构建产物 smoke test
+node dist/cli.js --version       # 构建产物 smoke test #1
+node dist/cli.js version --json  # 构建产物 smoke test #2
 ```
 
-定向测试:
+CI 还有独立 job:`benchmark`(`npm run bench` + `scripts/check-bench-regression.mjs`,>10% WARN,>25% FAIL)和 `vscode-extension`(`compile` + `lint` + `test`)。
+
+本地开发常用(非 CI 顺序):
 
 ```bash
-npx vitest run src/path/to/file.test.ts
-npm test -w packages/vectahub-vscode-extension
+npm run test:run                 # vitest --run(无 coverage,本地首选)
+npx vitest run src/path/to/file.test.ts  # 定向测试
+npm test -w packages/vectahub-vscode-extension  # 扩展测试
+npm run dev -- <command>         # tsx 开发入口(不依赖全局安装)
 ```
 
 VS Code extension:
@@ -44,23 +52,56 @@ npm run package:vsix             # 打 .vsix(gitignored)
 
 ## Repository Layout
 
-- **CLI 入口**:`src/cli.ts` → `src/cli-bootstrap.ts`(`--version` 快速路径)→ `src/cli-main.ts`(命令注册)
-- **核心层**(`docs/README.md` 详述):
-  - `src/cli-main.ts` CLI 组装
-  - `src/infrastructure/` DI、environment、config、logger、audit、trace、event
+- **CLI 入口**:`src/cli.ts`(2 行 shim)→ `src/cli-bootstrap.ts`(`--version` 快速路径)→ `src/cli-main.ts`(DI composition root + 命令注册)→ `src/cli-command-registry.ts`(34 个 lazy proxy 命令)
+- **核心层**(各目录有独立 AGENTS.md,详见下方 Hierarchy):
+  - `src/cli-main.ts` + `src/cli-command-registry.ts` CLI 组装与命令注册
+  - `src/infrastructure/` DI 容器(InfrastructureContext)、environment、config、logger、audit、trace、event、testing
+  - `src/types/` 共享领域类型(28 文件,纯 interface/type,无运行时逻辑)
+  - `src/utils/` 遗留兼容层(re-export 代理 + 未迁移工具,正在向 infrastructure/ 迁移)
   - `src/nl/` 自然语言路由(确定性 routing + ACP fallback)
+  - `src/orchestration-plan/` 编排计划层(Intent/DocTask → OrchestrationPlan → WorkflowDraft → execute)
+  - `src/execution/` 执行持久化层(ExecutionRecord JSONL 存储、rerun/resume/archive、queue)
   - `src/workflow/` workflow 引擎(`exec`/`if`/`for_each`/`parallel`/`opencli`/`delegate`)
-  - `src/skills/` skills 系统
+  - `src/skills/` skills 系统(registry/executor/manager + ai-modules/iterative-refinement/llm-dialog-control)
+  - `src/chat/` 交互式 REPL(`vectahub chat` 命令,NL → workflow → execute)
   - `src/agent-runtime/` Agent registry / descriptor / transport(适配器已移除)
   - `src/agent-runtime/transport/` ACP 传输层(AcpTransport/trace-bridge/audit-bridge/security-bridge)
   - `src/agent-runtime/acp/` ACP 客户端(acp-client/acp-types/acp-result-mapper)
-  - `src/security-protocol/` 命令风险、策略、脱敏
-  - `src/commands/` 命令实现(LLM 命令已移除)
-- **Workspace 包**:
-  - `packages/doc-task-contract-core/` 共享文档任务合同逻辑(`@vectahub/doc-task-contract-core`)
-  - `packages/vectahub-vscode-extension/` VS Code extension(独立 tsc + vitest)
+  - `src/security-protocol/` 命令风险评估 pipeline(3 层 evaluator + circuit-breaker)
+  - `src/sandbox/` 进程/文件系统隔离(sandbox-exec/bubblewrap/unshare/directory)
+  - `src/command-rules/` 静态 blocklist/allowlist 规则引擎
+  - `src/commands/` 命令实现(95 文件,LLM 命令已移除)
+- **Workspace 包**(详见 `packages/AGENTS.md`):
+  - `packages/doc-task-contract-core/` 共享文档任务合同逻辑(`@vectahub/doc-task-contract-core`,纯 JS + .d.ts,无构建)
+  - `packages/vectahub-vscode-extension/` VS Code extension(独立 tsc + vitest,通过 child_process + --json 协议消费 CLI)
+- **文档**:
+  - `docs/` 公开 ACP 改造蓝图(`00-vision.md` 到 `09-execution-plan.md`,入口 `docs/README.md`)
+  - `docs-private/` 私有开发文档(已 gitignored,含 backlog/design/contracts/standards/ui)
 - **运行时数据(用户层,不要提交)**:`.vectahub/`、`.vectahub-workflows/`、agent-homes/、logs/
 - **构建/缓存(gitignored)**:`dist/`、`*.tsbuildinfo`、`out/`、`.test-reports/`、`*.vsix`
+
+### AGENTS.md Hierarchy
+
+每个有 AGENTS.md 的目录只记载该目录的非显然事实,不重复父级内容:
+
+```
+./AGENTS.md                          ← 你在这里
+├── src/commands/AGENTS.md
+├── src/orchestration-plan/AGENTS.md
+├── src/infrastructure/AGENTS.md
+├── src/workflow/AGENTS.md
+├── src/security-protocol/AGENTS.md
+├── src/sandbox/AGENTS.md
+├── src/nl/AGENTS.md
+├── src/agent-runtime/AGENTS.md
+├── src/execution/AGENTS.md
+├── src/skills/AGENTS.md
+├── src/types/AGENTS.md
+├── src/utils/AGENTS.md
+├── src/chat/AGENTS.md
+├── packages/AGENTS.md
+└── docs-private/AGENTS.md
+```
 
 ## 文档集
 
@@ -91,10 +132,12 @@ npm run package:vsix             # 打 .vsix(gitignored)
 
 ## Testing
 
-- 主测试:`npm run test:run`(vitest)
-- 单元为主,优先在 `src/**/*.test.ts`(跟随源码)
-- 内存化测试:用 `createTestInfrastructureContext()` 避免文件系统副作用;参考 `docs/README.md`
-- `src/commands/run-task.ts` 等核心命令的测试矩阵在 `docs/README.md`,改这些文件前对照
+- 主测试:`npm run test:run`(vitest,本地首选)或 `npm run test:coverage`(CI 用)
+- 单元为主,优先在 `src/**/*.test.ts`(跟随源码);扩展测试在 `packages/vectahub-vscode-extension/test/`
+- 内存化测试:用 `createTestInfrastructureContext()`(MockEnvironmentService + MockLoggerService + MockAuditService)避免文件系统副作用
+- 用 `setDefaultContext()` 的测试必须在 `afterEach` 调 `resetDefaultContext()`;设 `process.env.VECTAHUB_HOME` 的测试必须清理
+- 覆盖率门禁:lines/functions/statements >= 50%,branches >= 45%(`scripts/check-coverage-threshold.mjs`)
+- benchmark 回归:`npm run bench` + `scripts/check-bench-regression.mjs`(>10% WARN,>25% FAIL)
 
 ## Local CLI Usage
 
