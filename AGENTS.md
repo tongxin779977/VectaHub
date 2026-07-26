@@ -131,6 +131,12 @@ node dist/cli.js <command>
 - **AGENTS.md / 文档 / skill 改动**:不在硬性 commit 流程中 —— 完成后询问用户,不要自动 `bump + build + commit`
 - commit message 格式:`<type>(<scope>): <lowercase active-voice description>`
 
+## Token Discipline
+
+- explore agent 默认用 `thoroughness: "quick"`,只在明确要求"very thorough"时才升级
+- 多个独立搜索任务用 `run_in_background: true` 并行,不要串行
+- 派发 3+ 个独立 task 时,一次性全部 `run_in_background: true`,等全部完成再收集结果
+
 ## Output Contract
 
 完成任何实现任务必须报告:
