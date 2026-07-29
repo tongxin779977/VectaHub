@@ -20,12 +20,6 @@ vi.mock('./llm.js', async () => {
   const actual = await vi.importActual<typeof import('./llm.js')>('./llm.js');
   return {
     ...actual,
-    createLLMConfig: vi.fn(() => ({
-      provider: 'openai',
-      model: 'mock-model',
-      baseUrl: 'http://localhost:11434/v1',
-      apiKey: 'mock',
-    })),
   };
 });
 
@@ -110,7 +104,7 @@ describe('orchestrateIntent', () => {
     expect(parseMock).not.toHaveBeenCalled();
   });
 
-  it('processInput uses capability-first and does not require llmConfig for auto route', async () => {
+  it('processInput uses capability-first for auto route', async () => {
     routeMock.mockReturnValueOnce({
       route: 'auto',
       matchedCapability: 'mock-cap',
@@ -140,7 +134,7 @@ describe('orchestrateIntent', () => {
     expect(parseMock).not.toHaveBeenCalled();
   });
 
-  it('processInput uses capability-first and does not require llmConfig for clarify route', async () => {
+  it('processInput uses capability-first for clarify route', async () => {
     routeMock.mockReturnValueOnce({
       route: 'clarify',
       matchedCapability: 'mock-clarify',
@@ -257,7 +251,7 @@ describe('orchestrateIntent', () => {
     expect(result.steps.every(step => step.cli.trim().length > 0)).toBe(true);
     expect(result.steps.every(step => Array.isArray(step.args))).toBe(true);
     expect(result.plan).toBeUndefined();
-    expect(result.intentRecognitionMethod).toBe('none');
+    expect(result.intentRecognitionMethod).toBe('capability');
   });
 
   it('multi-intent fails fast when any clause is preview or clarify', async () => {

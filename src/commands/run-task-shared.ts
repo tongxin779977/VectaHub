@@ -1,5 +1,5 @@
 import type { InfrastructureContext } from '../infrastructure/context.js';
-import { getVectaHubPath, djb2Hash } from '../infrastructure/paths/index.js';
+import { djb2Hash } from '../infrastructure/paths/index.js';
 import type { DocTaskFailureKind } from '../types/doc-task.js';
 import type { RunTaskReviewFinding } from './run-task-review.js';
 
@@ -282,7 +282,7 @@ export function normalizeContractPath(path: string): string {
 }
 
 export function getRunTaskOutputDir(): string {
-  return getVectaHubPath('outputs', 'run-task', djb2Hash(getContext().environment.getCwd()));
+  return getContext().environment.getPath('outputs', 'run-task', djb2Hash(getContext().environment.getCwd()));
 }
 
 export function getRunTaskOutputDirCandidates(): string[] {

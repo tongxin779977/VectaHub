@@ -39,7 +39,7 @@ export interface IntentMatch {
   matchedKeywords: string[];
   matchedPhrases?: string[];
   triggeredNegatives?: string[];
-  matchPath?: 'phrase' | 'keyword' | 'llm' | 'context';
+  matchPath?: 'phrase' | 'keyword' | 'context';
   needsClarification?: boolean;
 }
 
@@ -78,7 +78,7 @@ export interface NLResult {
   reply?: string;
   params?: Record<string, unknown>;
   metadata: {
-    path: 'category-router' | 'llm-tool-calling' | 'no-match' | 'direct-query' | 'dialog' | 'reply-only' | 'acp-fallback';
+    path: 'category-router' | 'rule-based' | 'no-match' | 'direct-query' | 'dialog' | 'reply-only' | 'acp-fallback';
     usedSkills?: string[];
     fallbackReason?: string;
     multiIntent?: MultiIntentResult;
@@ -94,9 +94,6 @@ export interface NLResult {
 export interface NLContext {
   input: string;
   sessionId?: string;
-  options?: {
-    useLLM?: boolean;
-  };
 }
 
 export interface CoreIntentMatch {

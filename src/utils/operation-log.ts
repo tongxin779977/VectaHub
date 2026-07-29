@@ -3,13 +3,15 @@ import {
   type OperationLogConfig,
   type OperationLogDeps,
 } from '../infrastructure/data/operation-log.js';
-import { getLogger } from '../infrastructure/logger/index.js';
-import { getVectaHubPath } from '../infrastructure/paths/index.js';
+import { LoggerService } from '../infrastructure/logger/service.js';
+import { getLoggerWithDeps } from '../infrastructure/logger/facade.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 
-function createCompatDeps(): OperationLogDeps {
+function createCompatDeps(environment: IEnvironmentService): OperationLogDeps {
+  const loggerService = new LoggerService(environment);
   return {
-    logger: getLogger('operation-log'),
-    resolveStoragePath: getVectaHubPath,
+    logger: getLoggerWithDeps({ logger: loggerService }, 'operation-log'),
+    resolveStoragePath: (...segments: string[]) => environment.getPath(...segments),
   };
 }
 
@@ -18,8 +20,8 @@ function createCompatDeps(): OperationLogDeps {
  * @deprecated 建议直接使用 infrastructure/data/operation-log 中的显式依赖 API
  */
 export class OperationLog extends InfrastructureOperationLog {
-  constructor(config?: Partial<OperationLogConfig>) {
-    super({ config, deps: createCompatDeps() });
+  constructor(environment: IEnvironmentService, config?: Partial<OperationLogConfig>) {
+    super({ config, deps: createCompatDeps(environment) });
   }
 }
 
@@ -27,8 +29,8 @@ export class OperationLog extends InfrastructureOperationLog {
  * 兼容桥接层：为历史工厂签名注入默认基础设施依赖
  * @deprecated 建议直接使用 infrastructure/data/operation-log 中的显式依赖 API
  */
-export function createOperationLog(config?: Partial<OperationLogConfig>): OperationLog {
-  return new OperationLog(config);
+export function createOperationLog(environment: IEnvironmentService, config?: Partial<OperationLogConfig>): OperationLog {
+  return new OperationLog(environment, config);
 }
 
 export type { OperationLogConfig, OperationLogDeps, OperationLogEntry, OperationLogOptions } from '../infrastructure/data/operation-log.js';

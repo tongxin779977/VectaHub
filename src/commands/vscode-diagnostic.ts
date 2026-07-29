@@ -1,5 +1,4 @@
 import { Command } from 'commander';
-import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import { createCliOutput, isCliOutputHandledError, markCliOutputHandled } from '../infrastructure/cli-output.js';
@@ -35,7 +34,7 @@ export interface BridgeInfo {
 }
 
 export async function getBridgeInfo(context: InfrastructureContext): Promise<BridgeInfo> {
-  const portFile = getVectaHubPath('bridge-port');
+  const portFile = context.environment.getPath('bridge-port');
   const content = await context.environment.readFileAsync(portFile);
   const trimmed = content.trim();
 

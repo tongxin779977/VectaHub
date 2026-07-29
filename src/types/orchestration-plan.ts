@@ -20,7 +20,7 @@ export type SafetyFindingCategory = 'filesystem' | 'network' | 'command' | 'agen
 
 export type SafetyFindingAction = 'allow' | 'confirm' | 'block';
 
-export type IntentRecognitionMethod = 'capability' | 'llm' | 'direct' | 'document' | 'manual';
+export type IntentRecognitionMethod = 'capability' | 'direct' | 'document' | 'manual';
 
 export type PlanInputKind = 'text' | 'file' | 'artifact' | 'previous_output';
 

@@ -5,6 +5,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { createSandboxManager, type SandboxManager } from '../sandbox/sandbox.js';
 import type { SandboxMode } from '../types/index.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 import { AuditEventType, type AuditHelper } from '../infrastructure/audit/index.js';
 import { processInput } from '../nl/orchestrator.js';
 import type pino from 'pino';
@@ -25,10 +26,10 @@ export interface SocketServerConfig {
 }
 
 export interface SocketServerDeps {
+  environment: IEnvironmentService;
   auditHelper: AuditHelper;
   logger: Pick<pino.Logger, 'error'>;
   getSessionId: () => string;
-  llmConfigProvider?: () => unknown;
 }
 
 const DEFAULT_CONFIG: SocketServerConfig = {
@@ -44,7 +45,6 @@ export class SocketServer {
   private readonly auditHelper: AuditHelper;
   private readonly logger: Pick<pino.Logger, 'error'>;
   private readonly getSessionId: () => string;
-  private readonly llmConfigProvider: () => unknown;
   private sandbox: SandboxManager;
   private tasks: Map<string, Task> = new Map();
   private socketBuffers: WeakMap<Socket, string> = new WeakMap();
@@ -54,10 +54,9 @@ export class SocketServer {
     this.auditHelper = deps.auditHelper;
     this.logger = deps.logger;
     this.getSessionId = deps.getSessionId;
-    this.llmConfigProvider = deps.llmConfigProvider ?? (() => undefined);
     this.sandbox = createSandboxManager(
       { mode: this.config.sandboxMode! },
-      { audit: this.auditHelper }
+      { environment: deps.environment, audit: this.auditHelper }
     );
   }
 

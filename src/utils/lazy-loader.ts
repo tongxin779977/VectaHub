@@ -100,7 +100,9 @@ export class LazyModuleLoader {
 
     this.preloadQueue.clear();
 
-    const loadPromises = sortedIds.map(id => this.get(id).catch(() => {}));
+    const loadPromises = sortedIds.map(id => this.get(id).catch(e => {
+      console.warn({ moduleId: id, error: e instanceof Error ? e.message : String(e) }, 'Lazy module preload failed');
+    }));
     await Promise.allSettled(loadPromises);
   }
 

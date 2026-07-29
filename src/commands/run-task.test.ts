@@ -15,16 +15,6 @@ vi.mock('node:child_process', async (importOriginal) => {
   };
 });
 
-vi.mock('../nl/llm.js', () => ({
-  createLLMConfig: vi.fn(() => ({ provider: 'openai', model: 'test', apiKey: 'test', baseUrl: 'http://localhost' })),
-  createLLMConfigDigestSource: vi.fn(() => ({ provider: 'openai', model: 'test', temperature: 0.1 })),
-  LLMClient: class MockLLMClient {
-    async completeRaw() {
-      return '{"command": "aider", "args": ["--message", "test"], "explanation": "test command"}';
-    }
-  },
-}));
-
 vi.mock('../cli-tools/discovery/cache-manager.js', () => ({
   discoverToolHelpMock: vi.fn(() => ({
     toolName: 'aider',

@@ -8,7 +8,7 @@ import { getTraceContextFromEnv, startSpan, type SpanHandle } from '../infrastru
 import { deriveAgentTaskBoundary, deriveDocExcerpt, computeInstructionHash } from './agent-task-contract.js';
 import type { AgentTaskContract } from '../types/doc-task.js';
 import { splitPosixArgs } from '../utils/shell.js';
-import { getVectaHubPath, djb2Hash } from '../infrastructure/paths/index.js';
+import { djb2Hash } from '../infrastructure/paths/index.js';
 import { getAgentDescriptorById } from './agent-cli-adapter.js';
 import {
   createRunTaskReviewReport,
@@ -693,7 +693,7 @@ export function splitCommandArgs(cmd: string): string[] {
 }
 
 function getRunTaskOutputDir(): string {
-  return getVectaHubPath('outputs', 'run-task', djb2Hash(getContext().environment.getCwd()));
+  return getContext().environment.getPath('outputs', 'run-task', djb2Hash(getContext().environment.getCwd()));
 }
 
 function getRunTaskOutputDirCandidates(): string[] {
@@ -1650,7 +1650,9 @@ export async function runTask(options: {
       model: undefined,
       workspaceHash,
     };
-    const sampleStore = createRuntimeSampleStore();
+    const sampleStore = createRuntimeSampleStore({
+      resolvePath: (...segments: string[]) => getContext().environment.getPath('runtime-samples', ...segments),
+    });
     const history = await sampleStore.load(profileKey);
     const runtimeEstimate = combineRuntimeEstimates({
       profileKey,
@@ -1792,7 +1794,7 @@ export async function runTask(options: {
         defaultTimeoutMs: runtimeConfig.cliTimeoutMs,
         permissionMode: 'ask',
       };
-      const transport = createTransport(acpConfig);
+      const transport = createTransport(acpConfig, getContext().environment);
 
       const acpResult = await executeViaAcpTransport({
         transport,

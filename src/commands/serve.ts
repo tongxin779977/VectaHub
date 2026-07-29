@@ -84,6 +84,7 @@ export function createServeCommands(context: InfrastructureContext): { serveCmd:
       });
 
       socketServer = new SocketServer({}, {
+        environment: context.environment,
         auditHelper: context.audit.getHelper(),
         logger: context.logger.getLogger('nl-pipeline'),
         getSessionId: () => context.audit.getLogger().getSessionId(),

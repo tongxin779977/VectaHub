@@ -6,6 +6,7 @@
  */
 import { spawn } from 'node:child_process';
 import type { ChatOutput } from './types.js';
+import { ShellTokenizer } from '../utils/shell-tokenizer.js';
 
 /** 默认命令执行超时时间（毫秒），30 秒 */
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -37,7 +38,17 @@ export function executeDirectShellCommand(command: string, options?: ShellExecut
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   return new Promise((resolve) => {
-    const [cmd, ...args] = command.split(/\s+/);
+    const tokens = ShellTokenizer.tokenize(command);
+    if (tokens.length === 0) {
+      resolve({ type: 'error', content: '❌ 空命令' });
+      return;
+    }
+    if (tokens.length > 1) {
+      resolve({ type: 'error', content: '❌ 多命令管道在 shell:false 模式下不受支持' });
+      return;
+    }
+    const cmd = tokens[0].cli;
+    const args = tokens[0].args ?? [];
     const child = spawn(cmd, args, { signal: AbortSignal.timeout(timeoutMs) });
     let stdout = '';
     let stderr = '';

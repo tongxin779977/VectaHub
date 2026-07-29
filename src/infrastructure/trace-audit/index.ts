@@ -11,7 +11,6 @@ export { QueryEngine, createQueryEngine } from './query-engine.js';
 export { LogRotationManager, createLogRotationManager } from './log-rotation.js';
 export { AlertSystem, createAlertSystem } from './alert-system.js';
 export { TraceAuditSystem, createTraceAuditSystemWithDeps, type TraceAuditSystemDeps } from './system.js';
-export { createTraceAuditSystem } from './compat-bridge.js';
 
 export type {
   TraceId,

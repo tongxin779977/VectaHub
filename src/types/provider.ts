@@ -28,12 +28,6 @@ export interface CliDetectionResult {
   error?: string;
 }
 
-export interface LlmInferenceResult {
-  descriptor: AgentDescriptor;
-  adapterLogic: string;
-  usageNotes: string;
-}
-
 export interface IProviderRegistrar {
   register(request: ProviderRegistrationRequest): Promise<ProviderRegistrationResult>;
   unregister(providerId: string): Promise<boolean>;
@@ -44,8 +38,4 @@ export interface IProviderRegistrar {
 
 export interface ICliDetector {
   detect(cliCommand: string): Promise<CliDetectionResult>;
-}
-
-export interface ILlmInferencer {
-  infer(cliCommand: string, detectionResult: CliDetectionResult): Promise<LlmInferenceResult>;
 }

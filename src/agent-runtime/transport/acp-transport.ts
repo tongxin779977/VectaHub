@@ -20,6 +20,7 @@ import type { AcpEvent, AcpPromptResult } from '../acp/acp-types.js';
 import type { AgentDescriptor } from '../../types/agent.js';
 import type { AuditHelper } from '../../infrastructure/audit/index.js';
 import type { IEventBus } from '../../infrastructure/interfaces/event-bus.js';
+import type { IEnvironmentService } from '../../infrastructure/interfaces/index.js';
 import type { SecurityGuard } from '../../types/security.js';
 import { createNoopAuditHelper } from '../../infrastructure/audit/index.js';
 import { createSecurityGuard } from '../../security-protocol/factory.js';
@@ -63,6 +64,7 @@ export class AcpTransport implements AgentTransport {
       guard?: SecurityGuard;
       audit?: AuditHelper;
       eventBus?: IEventBus;
+      environment?: IEnvironmentService;
     },
   ) {}
 
@@ -70,7 +72,7 @@ export class AcpTransport implements AgentTransport {
     const traceBridge = this.deps?.traceBridge ?? createTraceBridge(request.traceContext, request.parentSpanId);
     const audit = this.deps?.audit ?? createNoopAuditHelper();
     const auditBridge = this.deps?.auditBridge ?? createAuditBridge(audit);
-    const guard = this.deps?.guard ?? createSecurityGuard();
+    const guard = this.deps?.guard ?? createSecurityGuard({ environment: this.deps?.environment });
     const eventBus = this.deps?.eventBus;
 
     const executeSpan = traceBridge.onTransportExecute(request);

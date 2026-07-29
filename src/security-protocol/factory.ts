@@ -3,6 +3,7 @@ import { SecurityGuardImpl } from './guard.js';
 import { CommandRuleEvaluator } from './evaluators/command-rule.js';
 import { SandboxSemanticEvaluator } from './evaluators/sandbox-semantic.js';
 import { ProtocolRuleEvaluator } from './evaluators/protocol-rule.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 
 /**
  * SecurityGuard 依赖注入接口
@@ -10,6 +11,7 @@ import { ProtocolRuleEvaluator } from './evaluators/protocol-rule.js';
  */
 export interface SecurityGuardDeps {
   evaluators?: SecurityEvaluator[];
+  environment?: IEnvironmentService;
 }
 
 let guardInstance: SecurityGuard | null = null;
@@ -21,7 +23,10 @@ let guardInstance: SecurityGuard | null = null;
  */
 export function createSecurityGuard(deps: SecurityGuardDeps = {}): SecurityGuard {
   const evaluators = deps.evaluators ?? [
-    new CommandRuleEvaluator(),
+    new CommandRuleEvaluator({
+      logger: console,
+      getGlobalConfigPath: () => deps.environment?.getPath('command-rules') ?? '',
+    }),
     new SandboxSemanticEvaluator(),
     new ProtocolRuleEvaluator(),
   ];

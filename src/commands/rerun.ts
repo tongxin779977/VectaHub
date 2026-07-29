@@ -12,7 +12,7 @@ export function createRerunCmd(context: InfrastructureContext): Command {
     .argument('<executionId>', 'Execution ID to rerun')
     .option('-m, --mode <mode>', 'Execution mode (strict|relaxed|consensus)')
     .action(async (executionId: string, options: { mode?: string }) => {
-      const recordManager = createRecordManager();
+      const recordManager = createRecordManager(context.environment.getPath('executions'));
       const record = await recordManager.get(executionId);
 
       if (!record) {

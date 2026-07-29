@@ -1,12 +1,68 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { createKnowledgeBase } from './knowledge-base.js';
 import type { ToolInfo, CommandInfo } from '../types/command.js';
+import type { IEnvironmentService } from '../../infrastructure/interfaces/index.js';
+
+function createMockLogger() {
+  return {
+    warn: () => {},
+    error: () => {},
+    info: () => {},
+    debug: () => {},
+    trace: () => {},
+    level: 'info',
+  } as any;
+}
+
+const mockEnvironment: IEnvironmentService = {
+  getHomePath(): string { return '/tmp/test-vectahub-home'; },
+  getPath(..._segments: string[]): string { return '/tmp/test-vectahub-home/commands.json'; },
+  resolvePath(..._segments: string[]): string { return '/tmp/test-vectahub-home'; },
+  joinPath(..._segments: string[]): string { return '/tmp/test-vectahub-home'; },
+  getDirname(_path: string): string { return '/tmp/test-vectahub-home'; },
+  readFile(_path: string): string { return ''; },
+  readFileAsync(_path: string): Promise<string> { return Promise.resolve(''); },
+  readLines(_path: string): AsyncIterable<string> { return (async function* () {})(); },
+  writeFile(_path: string, _content: string): void { /* noop */ },
+  exists(_path: string): boolean { return false; },
+  ensureDir(_path: string): void { /* noop */ },
+  mkdirAsync(_path: string, _options?: { recursive?: boolean }): Promise<void> { return Promise.resolve(); },
+  readDir(_path: string): string[] { return []; },
+  readDirObjects(_path: string): { name: string; isDirectory(): boolean }[] { return []; },
+  rm(_path: string, _options?: { recursive?: boolean; force?: boolean }): void { /* noop */ },
+  copyFile(_src: string, _dest: string): void { /* noop */ },
+  createWriteStream(_path: string, _options?: { encoding?: BufferEncoding; flags?: string }) {
+    return { write() { return true; }, end() { /* noop */ } } as any;
+  },
+  stat(_path: string) { return { size: 0, isDirectory() { return false; } }; },
+  getTmpDir(): string { return '/tmp'; },
+  getEnv(_name: string, _defaultValue?: string): string | undefined { return undefined; },
+  setEnv(_name: string, _value: string): void { /* noop */ },
+  deleteEnv(_name: string): void { /* noop */ },
+  getEnvBoolean(_name: string, _defaultValue?: boolean): boolean { return false; },
+  getEnvNumber(_name: string, _defaultValue?: number): number | undefined { return undefined; },
+  getAllEnv(): Record<string, string | undefined> { return {}; },
+  exec(_command: string, _options?: { cwd?: string; env?: Record<string, string | undefined>; timeout?: number }): Promise<{ stdout: string; stderr: string }> {
+    return Promise.resolve({ stdout: '', stderr: '' });
+  },
+  spawn(_command: string, _args: string[], _options?: { cwd?: string; env?: Record<string, string | undefined>; stdio?: any }) {
+    return { pid: 0, kill() { /* noop */ } } as any;
+  },
+  exit(_code?: number): never { throw new Error('exit'); },
+  getArgv(): string[] { return []; },
+  getCwd(): string { return '/tmp'; },
+  getPlatform(): string { return 'darwin'; },
+  onSignal(_signal: any, _listener: () => void | Promise<void>): void { /* noop */ },
+  onUncaughtException(_listener: (error: Error) => void | Promise<void>): void { /* noop */ },
+  onUnhandledRejection(_listener: (reason: unknown) => void | Promise<void>): void { /* noop */ },
+  onWarning(_listener: (warning: Error) => void): void { /* noop */ },
+};
 
 describe('KnowledgeBase', () => {
   let kb: ReturnType<typeof createKnowledgeBase>;
 
   beforeEach(async () => {
-    kb = createKnowledgeBase();
+    kb = createKnowledgeBase(mockEnvironment, createMockLogger());
   });
 
   it('should add and retrieve tool', () => {

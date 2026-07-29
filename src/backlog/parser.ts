@@ -24,7 +24,11 @@ export function writeBacklogItem(filePath: string, item: BacklogItem) {
   fs.writeFileSync(filePath, content, "utf8");
 }
 
-export function getAllBacklogItems(itemsDir: string): Map<string, BacklogItem> {
+export function getAllBacklogItems(
+  itemsDir: string,
+  logger?: { log: (...args: unknown[]) => void; error: (...args: unknown[]) => void; warn: (...args: unknown[]) => void }
+): Map<string, BacklogItem> {
+  const log = logger ?? console;
   const items = new Map<string, BacklogItem>();
   const files = fs.readdirSync(itemsDir);
   for (const file of files) {
@@ -34,7 +38,7 @@ export function getAllBacklogItems(itemsDir: string): Map<string, BacklogItem> {
         const item = parseBacklogItem(filePath);
         items.set(item.id, item);
       } catch (e) {
-        console.warn(`Failed to parse ${file}:`, e);
+        log.warn(`Failed to parse ${file}:`, e);
       }
     }
   }

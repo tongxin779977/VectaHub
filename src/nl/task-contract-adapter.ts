@@ -30,8 +30,8 @@ function mapRouteSource(result: NLResult): TaskContractRouteSource {
   switch (result.metadata.path) {
     case 'category-router':
       return 'capability';
-    case 'llm-tool-calling':
-      return 'llm-tool-calling';
+    case 'rule-based':
+      return 'rule-based';
     case 'direct-query':
       return 'rule';
     default:

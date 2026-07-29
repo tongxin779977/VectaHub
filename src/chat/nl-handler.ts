@@ -14,9 +14,6 @@ import { toTaskContractEnvelope } from '../nl/task-contract-adapter.js';
 import { resolveTaskContractAction } from '../nl/task-contract-runtime.js';
 import { parseWorkflowSteps } from './workflow-parser.js';
 import { formatError, SimpleCache } from './utils.js';
-import { getLogger } from '../infrastructure/logger/index.js';
-
-const moduleLogger = getLogger('nl-handler');
 
 /** 意图解析缓存 TTL（毫秒），120 秒 */
 const INTENT_CACHE_TTL_MS = 120_000;
@@ -31,8 +28,6 @@ export interface NLHandlerDeps {
   nlProcessor: ReplDeps['nlProcessor'];
   taskContractProcessor?: ReplDeps['taskContractProcessor'];
   sessionManager: ReplDeps['sessionManager'];
-  useLLM: boolean;
-  llmConfig: ReplDeps['llmConfig'];
   auditHelper: ReplDeps['auditHelper'];
   workflowEngine: ReplDeps['workflowEngine'];
   commandExecutor: ReplDeps['commandExecutor'];
@@ -72,7 +67,7 @@ export function createNLHandler(
     if (deps.taskContractProcessor) {
       return deps.taskContractProcessor(input);
     }
-    const nlResult = await deps.nlProcessor.parse({ input, sessionId, options: { useLLM: deps.useLLM } });
+    const nlResult = await deps.nlProcessor.parse({ input, sessionId });
     return toTaskContractEnvelope(input, nlResult);
   }
 
@@ -231,9 +226,7 @@ function sanitizeReply(reply: string): string {
       return tail ? `${sanitized}\n\n${tail}` : sanitized;
     }
     return reply;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    moduleLogger.debug({ error: message, input: trimmed.slice(0, 100) }, 'NL reply JSON parse failed');
+  } catch {
     if (/^\{[a-zA-Z_]+\}$/.test(trimmed) || /^\{[a-zA-Z_]+:\s*.+\}$/.test(trimmed)) {
       return '收到，但未生成有效回复。请重试或换个方式提问。';
     }
@@ -270,9 +263,8 @@ function sanitizeSingleValue(val: string): string {
       try {
         const innerParsed: Record<string, unknown> = JSON.parse(innerJson);
         return sanitizeParsedJSON(innerParsed) || trimmed;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        moduleLogger.debug({ error: message }, 'Inner JSON sanitize fallback');
+      } catch {
+        // JSON parse failed; fall through to return trimmed original value
       }
     }
   }

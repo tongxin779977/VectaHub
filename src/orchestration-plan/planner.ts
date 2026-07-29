@@ -48,7 +48,7 @@ export function createEmptyPlan(options: PlannerOptions & { traceId?: string; au
     metadata: {
       createdAt: now,
       cwd: options.cwd || process.cwd(),
-      intentRecognitionMethod: 'llm',
+      intentRecognitionMethod: 'capability',
       confidence: 0.5,
     },
   };

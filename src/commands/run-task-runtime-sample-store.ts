@@ -1,6 +1,5 @@
 import { join } from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import type { AgentRuntimeSample, AgentRuntimeProfileKey, TaskComplexityLevel } from './run-task-runtime-estimator.js';
 
 const MAX_SAMPLES_PER_AGENT = 100;
@@ -25,13 +24,17 @@ export interface RuntimeSampleStore {
 }
 
 export function createRuntimeSampleStore(deps?: Partial<RuntimeSampleStoreDeps>): RuntimeSampleStore {
-  const resolvePath = deps?.resolvePath ?? ((...segments: string[]) => getVectaHubPath(SAMPLES_DIR, ...segments));
+  const resolvePath = deps?.resolvePath;
+  if (!resolvePath) {
+    throw new Error('resolvePath is required');
+  }
+  const resolvePathFn: (...segments: string[]) => string = resolvePath;
   const ensureDir = deps?.ensureDir ?? ((path: string) => mkdir(path, { recursive: true }));
   const readFileImpl = deps?.readFile ?? readFile;
   const writeFileImpl = deps?.writeFile ?? writeFile;
 
   function getSampleFilePath(profileKey: AgentRuntimeProfileKey): string {
-    return resolvePath(profileKey.workspaceHash, `${profileKey.agentId}.jsonl`);
+    return resolvePathFn(profileKey.workspaceHash, `${profileKey.agentId}.jsonl`);
   }
 
   async function load(profileKey: AgentRuntimeProfileKey): Promise<AgentRuntimeSample[]> {

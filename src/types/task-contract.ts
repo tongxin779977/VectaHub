@@ -1,6 +1,6 @@
 export type TaskContractLanguage = 'zh-CN' | 'en-US' | 'mixed' | 'unknown';
 
-export type TaskContractRouteSource = 'capability' | 'llm-tool-calling' | 'rule' | 'mixed';
+export type TaskContractRouteSource = 'capability' | 'rule-based' | 'rule' | 'mixed';
 
 export interface TaskContractBase {
   schemaVersion: '1.0';

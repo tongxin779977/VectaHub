@@ -9,6 +9,7 @@ const allowlistedFiles = new Set([
   'src/infrastructure/context.ts',
   'src/cli-main.ts',
   'src/cli-bootstrap.ts',
+  'src/infrastructure/event/event-manager.ts',
 ]);
 
 const sourceExtensions = new Set(['.ts', '.tsx', '.mts', '.cts']);

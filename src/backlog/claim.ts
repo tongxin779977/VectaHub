@@ -24,17 +24,19 @@ export function ensureClaimDirExists(): void {
 export function createAtomicClaim(
   taskId: string,
   runId: string,
-  owner: string
+  owner: string,
+  logger?: { log: (...args: unknown[]) => void; error: (...args: unknown[]) => void; warn: (...args: unknown[]) => void }
 ): Claim | null {
+  const log = logger ?? console;
   ensureClaimDirExists();
   const claimPath = getClaimPath(taskId);
-  
+
   try {
     fs.mkdirSync(claimPath);
-    
+
     const now = new Date();
     const expiresAt = new Date(now.getTime() + 60 * 60 * 1000);
-    
+
     const claim: Claim = {
       task_id: taskId,
       run_id: runId,
@@ -42,13 +44,13 @@ export function createAtomicClaim(
       claimed_at: now.toISOString(),
       expires_at: expiresAt.toISOString(),
     };
-    
+
     fs.writeFileSync(path.join(claimPath, "claim.json"), JSON.stringify(claim, null, 2), "utf8");
-    
+
     return claim;
   } catch (e: any) {
     if (e.code === "EEXIST") {
-      console.warn(`Claim already exists for task ${taskId}`);
+      log.warn(`Claim already exists for task ${taskId}`);
       return null;
     }
     throw e;
@@ -77,36 +79,44 @@ export function isClaimExpired(claim: Claim): boolean {
   return now > expires;
 }
 
-export function deleteClaim(taskId: string, expectedRunId: string): boolean {
+export function deleteClaim(
+  taskId: string,
+  expectedRunId: string,
+  logger?: { log: (...args: unknown[]) => void; error: (...args: unknown[]) => void; warn: (...args: unknown[]) => void }
+): boolean {
+  const log = logger ?? console;
   const claim = getClaim(taskId);
   if (!claim) {
     return false;
   }
-  
+
   if (claim.run_id !== expectedRunId) {
-    console.warn(`Cannot delete claim: run_id mismatch. Expected ${expectedRunId}, got ${claim.run_id}`);
+    log.warn(`Cannot delete claim: run_id mismatch. Expected ${expectedRunId}, got ${claim.run_id}`);
     return false;
   }
-  
+
   const claimPath = getClaimPath(taskId);
   try {
     fs.rmSync(claimPath, { recursive: true, force: true });
     return true;
   } catch (e) {
-    console.warn(`Failed to delete claim for ${taskId}:`, e);
+    log.warn(`Failed to delete claim for ${taskId}:`, e);
     return false;
   }
 }
 
-export function cleanupStaleClaims(): string[] {
+export function cleanupStaleClaims(
+  logger?: { log: (...args: unknown[]) => void; error: (...args: unknown[]) => void; warn: (...args: unknown[]) => void }
+): string[] {
+  const log = logger ?? console;
   const claimDir = getClaimDir();
   if (!fs.existsSync(claimDir)) {
     return [];
   }
-  
+
   const cleaned: string[] = [];
   const taskIds = fs.readdirSync(claimDir);
-  
+
   for (const taskId of taskIds) {
     const claim = getClaim(taskId);
     if (claim && isClaimExpired(claim)) {
@@ -114,13 +124,13 @@ export function cleanupStaleClaims(): string[] {
         const claimPath = getClaimPath(taskId);
         fs.rmSync(claimPath, { recursive: true, force: true });
         cleaned.push(taskId);
-        console.log(`Cleaned up stale claim for ${taskId}`);
+        log.log(`Cleaned up stale claim for ${taskId}`);
       } catch (e) {
-        console.warn(`Failed to clean up claim for ${taskId}:`, e);
+        log.warn(`Failed to clean up claim for ${taskId}:`, e);
       }
     }
   }
-  
+
   return cleaned;
 }
 

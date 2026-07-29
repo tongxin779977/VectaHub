@@ -56,7 +56,7 @@ function createParseDocCommandOutput(): ParseDocCommandOutput {
   };
 }
 
-export type ParseDocSource = 'roadmap-table' | 'acp' | 'llm' | 'regex-fallback';
+export type ParseDocSource = 'roadmap-table' | 'acp' | 'regex-fallback';
 
 export interface ParseDocResult {
   tasks: DocTask[];

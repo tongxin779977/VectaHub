@@ -7,12 +7,6 @@ import { SpanKind } from './types.js';
 
 const TMP_DIR = join(import.meta.dirname, '__writer_test_tmp__');
 
-// Override getVectaHubPath to use temp dir
-vi.mock('../paths/index.js', () => ({
-  getVectaHubPath: (...segments: string[]) => join(TMP_DIR, ...segments),
-  getProjectLogDir: (projectRoot: string, ...segments: string[]) => join(projectRoot, '.vectahub', ...segments),
-}));
-
 describe('trace writer', () => {
   beforeEach(async () => {
     await mkdir(TMP_DIR, { recursive: true });
@@ -21,6 +15,10 @@ describe('trace writer', () => {
   afterEach(async () => {
     await rm(TMP_DIR, { recursive: true, force: true });
   });
+
+  const writerDeps = {
+    resolveGlobalPath: (...segments: string[]) => join(TMP_DIR, ...segments),
+  };
 
   it('should preserve traceId and spanId without redaction', async () => {
     const record: TraceSpanRecord = {
@@ -38,7 +36,7 @@ describe('trace writer', () => {
       },
     };
 
-    await writeTraceSpan(record);
+    await writeTraceSpan(record, writerDeps);
 
     // Read the written file
     const datePart = new Date(record.endTime).toISOString().slice(0, 10);
@@ -68,7 +66,7 @@ describe('trace writer', () => {
       durationMs: 50,
     };
 
-    await writeTraceSpan(record);
+    await writeTraceSpan(record, writerDeps);
 
     const datePart = new Date(record.endTime).toISOString().slice(0, 10);
     const filePath = join(TMP_DIR, 'logs', 'traces', `${datePart}.jsonl`);

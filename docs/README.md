@@ -22,7 +22,7 @@
 | [02-cli-commands.md](./02-cli-commands.md) | 43 个 CLI 命令清单与改造映射 | ✅ 完成 |
 | [03-workflow-engine.md](./03-workflow-engine.md) | Workflow 引擎 6 种 step 类型改造 | ✅ 完成 |
 | [04-document-task.md](./04-document-task.md) | 文档任务生命周期 5 阶段改造 | ✅ 完成 |
-| [05-nl-intent.md](./05-nl-intent.md) | 意图识别改造(待详细计划) | ⏳ 待定 |
+| [05-nl-intent.md](./05-nl-intent.md) | 意图识别改造(确定性路由 + ACP fallback) | ✅ 完成 |
 | [06-security-protocol.md](./06-security-protocol.md) | 安全协议与 ACP permission 映射 | ✅ 完成 |
 | [07-infrastructure.md](./07-infrastructure.md) | DI / trace / audit / event 基础设施 | ✅ 完成 |
 | [08-llm-removal.md](./08-llm-removal.md) | LLM 调用全面移除清单(30+ 触点) | ✅ 完成 |

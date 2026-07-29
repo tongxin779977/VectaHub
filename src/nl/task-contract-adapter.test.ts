@@ -173,7 +173,7 @@ describe('task-contract adapter', () => {
       intent: 'doctor',
       workflowYAML: 'name: doctor\nsteps:\n  - run: vectahub doctor\n',
       metadata: {
-        path: 'llm-tool-calling',
+        path: 'rule-based',
       },
       taskList: {
         version: '1.0',

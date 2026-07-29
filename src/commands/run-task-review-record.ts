@@ -1,7 +1,6 @@
 import { join } from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { getVectaHubPath } from '../infrastructure/paths/index.js';
 
 const MAX_RECORDS_PER_AGENT = 200;
 const REVIEW_RECORDS_DIR = 'review-records';
@@ -33,13 +32,17 @@ export interface ReviewRecordStore {
 }
 
 export function createReviewRecordStore(deps?: Partial<ReviewRecordStoreDeps>): ReviewRecordStore {
-  const resolvePath = deps?.resolvePath ?? ((...segments: string[]) => getVectaHubPath(REVIEW_RECORDS_DIR, ...segments));
+  const resolvePath = deps?.resolvePath;
+  if (!resolvePath) {
+    throw new Error('resolvePath is required');
+  }
+  const resolvePathFn: (...segments: string[]) => string = resolvePath;
   const ensureDir = deps?.ensureDir ?? ((path: string) => mkdir(path, { recursive: true }));
   const readFileImpl = deps?.readFile ?? readFile;
   const writeFileImpl = deps?.writeFile ?? writeFile;
 
   function getRecordFilePath(agentId: string, workspaceHash: string): string {
-    return resolvePath(workspaceHash, `${agentId}.jsonl`);
+    return resolvePathFn(workspaceHash, `${agentId}.jsonl`);
   }
 
   async function load(agentId: string, workspaceHash: string): Promise<ExecutionReviewRecord[]> {

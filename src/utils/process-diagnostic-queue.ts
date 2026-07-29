@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { parse } from 'shell-quote';
 import { getQueueManager, type QueueManager } from '../execution/queue-manager.js';
 import type { DiagnosticTask } from '../types/diagnostic.js';
-import { getVectaHubHome } from '../infrastructure/paths/index.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
+import { createEnvironmentService } from '../infrastructure/environment/index.js';
 
 export interface QueuedCommand {
   cli: string;
@@ -32,8 +33,8 @@ const diagnosticQueueOutput: DiagnosticQueueOutput = {
   error: (message: string) => process.stderr.write(`${message}\n`),
 };
 
-function createCliQueueManager(): QueueManager {
-  const queueFile = join(getVectaHubHome(), 'diagnostic-queue.json');
+function createCliQueueManager(environment: IEnvironmentService): QueueManager {
+  const queueFile = join(environment.getHomePath(), 'diagnostic-queue.json');
   return getQueueManager(queueFile, {
     logger: {
       error: (message: string) => process.stderr.write(`${message}\n`),
@@ -154,13 +155,14 @@ export async function processDiagnosticTask(
 
 async function main(): Promise<void> {
   const [action, taskId] = process.argv.slice(2);
+  const environment = createEnvironmentService();
 
   if (!action) {
     throw new Error('No action provided');
   }
 
   if (action === 'list-pending') {
-    const tasks = await listPendingDiagnosticTasks(createCliQueueManager());
+    const tasks = await listPendingDiagnosticTasks(createCliQueueManager(environment));
     diagnosticQueueOutput.log(JSON.stringify(tasks));
     return;
   }
@@ -171,7 +173,7 @@ async function main(): Promise<void> {
     }
 
     const result = await processDiagnosticTask(taskId, {
-      queueManager: createCliQueueManager(),
+      queueManager: createCliQueueManager(environment),
     });
     process.exit(result.exitCode);
     return;

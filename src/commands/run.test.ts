@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { LLMResponse } from '../nl/llm.js';
 import type { ParseResult, TaskType } from '../types/index.js';
 
 function getConfidenceLevelText(confidence: number): 'HIGH' | 'MEDIUM' | 'LOW' | 'UNCERTAIN' {
@@ -28,7 +27,7 @@ function mapIntentToTaskType(intent: string): TaskType {
   }
 }
 
-function convertLLMResultToTaskList(llmResult: LLMResponse, originalInput: string): ParseResult {
+function convertLLMResultToTaskList(llmResult: unknown, originalInput: string): ParseResult {
   const tasks = llmResult.workflow.steps.map((step, index) => ({
     id: `task_${index + 1}`,
     type: mapIntentToTaskType(llmResult.intent),
@@ -115,7 +114,7 @@ describe('run command - LLM integration', () => {
 
   describe('convertLLMResultToTaskList', () => {
     it('converts LLM response with steps to ParseResult with tasks', () => {
-      const llmResult: LLMResponse = {
+      const llmResult = {
         intent: 'SYSTEM_INFO',
         confidence: 0.95,
         params: {},
@@ -141,7 +140,7 @@ describe('run command - LLM integration', () => {
     });
 
     it('creates task with echo command when step has no cli', () => {
-      const llmResult: LLMResponse = {
+      const llmResult = {
         intent: 'UNKNOWN',
         confidence: 0.8,
         params: {},
@@ -162,7 +161,7 @@ describe('run command - LLM integration', () => {
 
   describe('LLM fallback logic simulation', () => {
     it('should use LLM when confidence >= 0.7 and steps exist', () => {
-      const llmResult: LLMResponse = {
+      const llmResult = {
         intent: 'SYSTEM_INFO',
         confidence: 0.95,
         params: {},
@@ -177,7 +176,7 @@ describe('run command - LLM integration', () => {
     });
 
     it('should fallback when confidence < 0.7', () => {
-      const llmResult: LLMResponse = {
+      const llmResult = {
         intent: 'SYSTEM_INFO',
         confidence: 0.5,
         params: {},
@@ -192,7 +191,7 @@ describe('run command - LLM integration', () => {
     });
 
     it('should fallback when steps is empty', () => {
-      const llmResult: LLMResponse = {
+      const llmResult = {
         intent: 'SYSTEM_INFO',
         confidence: 0.8,
         params: {},

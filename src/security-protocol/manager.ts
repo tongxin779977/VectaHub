@@ -3,6 +3,8 @@ import { getDefaultRules } from './default-rules.js';
 import { SecurityConfigStore, type TestState } from './security-config-store.js';
 import { SecurityRuleStore } from './security-rule-store.js';
 import { CommandDetector } from './command-detector.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
+import { createEnvironmentService } from '../infrastructure/environment/index.js';
 
 const testState: TestState = {
   mode: false,
@@ -14,6 +16,7 @@ let managerInstance: SecurityProtocolManager | null = null;
 
 export interface SecurityProtocolManagerOptions {
   configPath?: string;
+  environment?: IEnvironmentService;
   logger?: Pick<Console, 'warn'>;
 }
 
@@ -71,7 +74,12 @@ export class SecurityProtocolManager {
       : configPathOrOptions ?? {};
     this.logger = options.logger ?? silentSecurityProtocolLogger;
 
-    this.configStore = new SecurityConfigStore(options, testState);
+    // 构建 SecurityConfigStore 选项：优先使用传入的 environment，否则创建默认 environment
+    const environment = options.environment ?? createEnvironmentService();
+    const storeOptions = options.configPath
+      ? { configPath: options.configPath, logger: options.logger }
+      : { environment, logger: options.logger };
+    this.configStore = new SecurityConfigStore(storeOptions, testState);
     this.ruleStore = new SecurityRuleStore(this.configStore, testState.mode);
     this.detector = new CommandDetector();
   }

@@ -2,8 +2,7 @@ import { mkdirSync, existsSync, appendFileSync, readFileSync, readdirSync } from
 import { join } from 'node:path';
 import { VectaHubError, ErrorType } from '../errors/index.js';
 import { redactSensitiveData } from '../../utils/sensitive-data.js';
-import { getVectaHubPath } from '../paths/index.js';
-import { getLogger } from '../logger/index.js';
+import pino from 'pino';
 
 // 导出 AuditService
 export { AuditService } from './service.js';
@@ -94,9 +93,9 @@ export class AuditLogger {
   private filePath: string;
   private readonly onError: (error: Error) => void;
 
-  constructor(sessionId?: string, baseDir?: string, options?: { onError?: (error: Error) => void }) {
-    this.sessionId = sessionId || generateSessionId();
-    this.baseDir = baseDir ?? getVectaHubPath('logs', 'audit');
+  constructor(sessionId: string, baseDir: string, options?: { onError?: (error: Error) => void }) {
+    this.sessionId = sessionId;
+    this.baseDir = baseDir;
     this.filePath = getAuditFilePath(this.baseDir);
     this.onError = options?.onError ?? ((error) => {
       throw error;
@@ -165,7 +164,7 @@ export class AuditLogger {
           if (results.length >= limit) break;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          getLogger('audit').debug({ error: message }, 'Skipping malformed JSONL line in audit log');
+          pino({ level: 'silent' }).debug({ error: message }, 'Skipping malformed JSONL line in audit log');
           continue;
         }
       }
@@ -205,7 +204,7 @@ export function generateSessionId(): string {
   return `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 }
 
-export function initAuditLogger(sessionId?: string, baseDir?: string): AuditLogger {
+export function initAuditLogger(sessionId: string, baseDir: string): AuditLogger {
   auditInstance = new AuditLogger(sessionId, baseDir);
   return auditInstance;
 }
@@ -213,9 +212,9 @@ export function initAuditLogger(sessionId?: string, baseDir?: string): AuditLogg
 /**
  * @deprecated 使用 new AuditLogger() 构造函数代替，支持依赖注入
  */
-export function getAuditInstance(): AuditLogger {
+export function getAuditInstance(baseDir: string): AuditLogger {
   if (!auditInstance) {
-    auditInstance = initAuditLogger();
+    auditInstance = initAuditLogger(generateSessionId(), baseDir);
   }
   return auditInstance;
 }
@@ -226,13 +225,13 @@ export function queryAuditLogs(options: {
   eventType?: string;
   module?: string;
   limit?: number;
-} = {}): AuditEvent[] {
-  const auditLogger = getAuditInstance();
+} = {}, baseDir: string): AuditEvent[] {
+  const auditLogger = getAuditInstance(baseDir);
   return auditLogger.query(options);
 }
 
-export function getCurrentSessionId(): string {
-  return getAuditInstance().getSessionId();
+export function getCurrentSessionId(baseDir: string): string {
+  return getAuditInstance(baseDir).getSessionId();
 }
 
 /**
@@ -446,8 +445,8 @@ export function createAuditHelper(logger: AuditLogger): AuditHelper {
  * 兼容桥接层：历史全局 audit 对象仍通过全局 AuditLogger 转发。
  * @deprecated 推荐使用 createAuditHelper(logger) 注入 AuditLogger 实例
  */
-export function createCompatAuditHelper(): AuditHelper {
-  const resolveHelper = (): AuditHelper => createAuditHelper(getAuditInstance());
+export function createCompatAuditHelper(baseDir: string): AuditHelper {
+  const resolveHelper = (): AuditHelper => createAuditHelper(getAuditInstance(baseDir));
 
   return {
     log(event: AuditEvent): void {
@@ -496,4 +495,6 @@ export function createCompatAuditHelper(): AuditHelper {
  * 全局审计便捷方法对象（向后兼容）
  * @deprecated 推荐使用 createAuditHelper(logger) 注入 AuditLogger 实例
  */
-export const audit: AuditHelper = createCompatAuditHelper();
+export function createAudit(baseDir: string): AuditHelper {
+  return createCompatAuditHelper(baseDir);
+}

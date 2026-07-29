@@ -1,9 +1,21 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createSandbox } from './sandbox.js';
+import { MockEnvironmentService } from '../infrastructure/testing/mock-services.js';
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...actual,
+    existsSync: vi.fn(() => false),
+    mkdirSync: vi.fn(),
+  };
+});
+
+const env = new MockEnvironmentService();
 
 describe('Sandbox', () => {
   describe('STRICT mode', () => {
-    const sandbox = createSandbox('STRICT');
+    const sandbox = createSandbox('STRICT', env);
 
     it('should block all dangerous commands', () => {
       expect(sandbox.shouldBlock('sudo rm -rf /')).toBe(true);
@@ -24,7 +36,7 @@ describe('Sandbox', () => {
   });
 
   describe('RELAXED mode', () => {
-    const sandbox = createSandbox('RELAXED');
+    const sandbox = createSandbox('RELAXED', env);
 
     it('should block critical and high level commands', () => {
       expect(sandbox.shouldBlock('sudo rm -rf /')).toBe(true);
@@ -45,7 +57,7 @@ describe('Sandbox', () => {
   });
 
   describe('CONSENSUS mode', () => {
-    const sandbox = createSandbox('CONSENSUS');
+    const sandbox = createSandbox('CONSENSUS', env);
 
     it('should not block any commands', () => {
       expect(sandbox.shouldBlock('sudo rm -rf /')).toBe(false);
@@ -61,7 +73,7 @@ describe('Sandbox', () => {
 
   describe('setMode', () => {
     it('should update the mode', () => {
-      const sandbox = createSandbox('STRICT');
+      const sandbox = createSandbox('STRICT', env);
       expect(sandbox.mode).toBe('STRICT');
 
       sandbox.setMode('RELAXED');
@@ -72,7 +84,7 @@ describe('Sandbox', () => {
     });
 
     it('should apply new mode immediately', () => {
-      const sandbox = createSandbox('STRICT');
+      const sandbox = createSandbox('STRICT', env);
       expect(sandbox.shouldBlock('rm -rf node_modules')).toBe(true);
 
       sandbox.setMode('RELAXED');

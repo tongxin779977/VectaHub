@@ -4,17 +4,15 @@
  * 注意：大部分工具已迁移至 `infrastructure/` 模块，
  * 新代码建议从 `@vectahub/infrastructure` 导入。
  */
-export { createLogger, LogLevel, type Logger } from './logger.js';
-export { loadConfig, type Config } from './config.js';
+export { LogLevel, type Logger } from './logger.js';
+export { type Config } from './config.js';
 export { formatErrorMessage } from './errors.js';
-export { audit } from './audit.js';
+export { createAudit } from './audit.js';
 
 // 路径工具已迁移至 infrastructure/paths/
+// 新代码请从 infrastructure/paths/facade.js 使用 *WithDeps 函数
 export {
-  getVectaHubHome,
-  getVectaHubPath,
   djb2Hash,
-  getProjectQueuePath,
 } from '../infrastructure/paths/index.js';
 
 // 安全相关已迁移至 infrastructure/security/

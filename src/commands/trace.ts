@@ -1,6 +1,5 @@
 import { Command } from 'commander';
 import { format } from 'node:util';
-import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { TraceSpanRecord } from '../infrastructure/trace/types.js';
 import type { InfrastructureContext } from '../infrastructure/context.js';
 import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
@@ -74,7 +73,7 @@ async function readSpans(env: IEnvironmentService, options?: {
   maxSpans?: number;
   scanAllFiles?: boolean;
 }): Promise<TraceSpanRecord[]> {
-  const dir = getVectaHubPath('logs', 'traces');
+  const dir = env.getPath('logs', 'traces');
   let files: string[];
   const maxDays = options?.maxDays ?? 14;
   const recentDateSet = options?.scanAllFiles

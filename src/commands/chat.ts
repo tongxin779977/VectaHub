@@ -65,7 +65,6 @@ export function buildReplDeps(context: InfrastructureContext): ReplDeps {
   const deps: ReplDeps = {
     nlProcessor: undefined as never,
     contextBuilder,
-    useLLM: false,
     config,
     commandBridge,
     paramExtractor,

@@ -1,9 +1,9 @@
 import { appendFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { getVectaHubPath, getProjectLogDir } from '../paths/index.js';
+import { getProjectLogDir } from '../paths/index.js';
 import { Redactor } from '../../security-protocol/redactor.js';
 import { TraceSpanRecord } from './types.js';
-import { getLogger } from '../logger/index.js';
+import pino from 'pino';
 
 const redactor = new Redactor({ skipKeys: ['traceId', 'spanId', 'parentSpanId'] });
 
@@ -14,6 +14,8 @@ const redactor = new Redactor({ skipKeys: ['traceId', 'spanId', 'parentSpanId'] 
 export interface TraceWriterDeps {
   /** 项目根目录，设置后 trace 日志写入 {projectRoot}/.vectahub/logs/traces/ */
   projectRoot?: string;
+  /** 全局路径解析函数，用于解析 VECTAHUB_HOME 下的路径（如 logs/traces/） */
+  resolveGlobalPath?: (...segments: string[]) => string;
 }
 
 /**
@@ -25,7 +27,10 @@ function getTraceFilePath(deps: TraceWriterDeps, date: Date): string {
   if (deps.projectRoot) {
     return getProjectLogDir(deps.projectRoot, 'traces', `${datePart}.jsonl`);
   }
-  return getVectaHubPath('logs', 'traces', `${datePart}.jsonl`);
+  if (deps.resolveGlobalPath) {
+    return deps.resolveGlobalPath('logs', 'traces', `${datePart}.jsonl`);
+  }
+  return getProjectLogDir(process.cwd(), 'traces', `${datePart}.jsonl`);
 }
 
 /**
@@ -41,6 +46,6 @@ export async function writeTraceSpan(record: TraceSpanRecord, deps: TraceWriterD
     await appendFile(file, `${JSON.stringify(redacted)}\n`, 'utf8');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    getLogger('trace-writer').debug({ error: message }, 'Trace span write failed, skipping');
+    pino({ level: 'silent' }).debug({ error: message }, 'Trace span write failed, skipping');
   }
 }

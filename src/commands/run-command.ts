@@ -161,7 +161,7 @@ export function createRunCommandCmd(context: InfrastructureContext): Command {
           dryRun: options.dryRun
         });
 
-        const recordManager = createRecordManager();
+        const recordManager = createRecordManager(context.environment.getPath('executions'));
         const metadata: ExecutionMetadata = {
           source: 'direct',
           cwd: context.environment.getCwd(),

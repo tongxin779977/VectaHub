@@ -1,18 +1,9 @@
 import { promises as fs } from 'node:fs';
-import { getVectaHubHome, getVectaHubPath } from '../../infrastructure/paths/index.js';
 import type { ToolInfo, CommandInfo, KnowledgeBaseData } from '../types/command.js';
-import { getLogger } from '../../infrastructure/logger/index.js';
 import type { Logger } from '../../infrastructure/logger/index.js';
+import type { IEnvironmentService } from '../../infrastructure/interfaces/index.js';
 
 const KB_VERSION = '1.0.0';
-
-function getKnowledgeBaseDir(): string {
-  return getVectaHubHome();
-}
-
-function getKnowledgeBasePath(): string {
-  return getVectaHubPath('commands.json');
-}
 
 export interface KnowledgeBase {
   load(): Promise<void>;
@@ -23,20 +14,26 @@ export interface KnowledgeBase {
   getAllTools(): ToolInfo[];
 }
 
-export function createKnowledgeBase(logger?: Logger): KnowledgeBase {
-  return new KnowledgeBaseImpl(logger);
+export function createKnowledgeBase(environment: IEnvironmentService, logger?: Logger): KnowledgeBase {
+  return new KnowledgeBaseImpl(environment, logger);
 }
 
 class KnowledgeBaseImpl implements KnowledgeBase {
   private tools: ToolInfo[] = [];
   private logger: Logger;
 
-  constructor(logger?: Logger) {
-    this.logger = logger ?? getLogger('knowledge-base');
+  constructor(
+    private readonly environment: IEnvironmentService,
+    logger?: Logger,
+  ) {
+    if (!logger) {
+      throw new Error('KnowledgeBaseImpl requires a Logger');
+    }
+    this.logger = logger;
   }
 
   async load(): Promise<void> {
-    const knowledgeBasePath = getKnowledgeBasePath();
+    const knowledgeBasePath = this.environment.getPath('commands.json');
     try {
       if (await this.exists(knowledgeBasePath)) {
         const content = await fs.readFile(knowledgeBasePath, 'utf-8');
@@ -52,8 +49,8 @@ class KnowledgeBaseImpl implements KnowledgeBase {
   }
 
   async save(): Promise<void> {
-    const knowledgeBaseDir = getKnowledgeBaseDir();
-    const knowledgeBasePath = getKnowledgeBasePath();
+    const knowledgeBaseDir = this.environment.getHomePath();
+    const knowledgeBasePath = this.environment.getPath('commands.json');
     await fs.mkdir(knowledgeBaseDir, { recursive: true });
     const data: KnowledgeBaseData = {
       version: KB_VERSION,

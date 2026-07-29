@@ -95,7 +95,7 @@ const PlanTraceLinkSchema = z.object({
 const OrchestrationPlanMetadataSchema = z.object({
   createdAt: z.string(),
   cwd: z.string(),
-  intentRecognitionMethod: z.enum(['capability', 'llm', 'direct', 'document', 'manual']),
+  intentRecognitionMethod: z.enum(['capability', 'direct', 'document', 'manual']),
   matchedCapability: z.string().optional(),
   confidence: z.number().min(0).max(1).optional(),
 });

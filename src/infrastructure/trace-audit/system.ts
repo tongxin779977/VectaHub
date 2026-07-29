@@ -1,5 +1,4 @@
 import type { IEnvironmentService, ILoggerService } from '../interfaces/index.js';
-import { getVectaHubPathWithDeps } from '../paths/facade.js';
 import type { Logger } from '../logger/index.js';
 import { AsyncLogWriter } from './async-writer.js';
 import { TraceCore } from './trace-core.js';
@@ -23,7 +22,7 @@ export interface TraceAuditSystemDeps {
 }
 
 function getDefaultLogDir(environment: IEnvironmentService): string {
-  return getVectaHubPathWithDeps({ environment }, 'logs', 'traces');
+  return environment.getPath('logs', 'traces');
 }
 
 function createModuleLoggers(loggerService: ILoggerService): {

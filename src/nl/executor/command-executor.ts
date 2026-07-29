@@ -1,9 +1,10 @@
-import { exec } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { ShellTokenizer } from '../../utils/shell-tokenizer.js';
 import type { KnowledgeBase } from '../knowledge/knowledge-base.js';
 import type { FailureHandler } from '../handler/failure-handler.js';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export interface CommandExecutor {
   execute(input: string): Promise<string>;
@@ -45,17 +46,33 @@ class CommandExecutorImpl implements CommandExecutor {
   }
 
   private parseInput(input: string) {
-    const parts = input.trim().split(' ');
+    const tokens = ShellTokenizer.tokenize(input);
     return {
-      command: parts[0],
-      args: parts.slice(1),
+      command: tokens[0]?.cli ?? '',
+      args: tokens[0]?.args ?? [],
       fullCommand: input.trim()
     };
   }
 
   private async runCommand(command: string): Promise<{ success: boolean; output: string; error?: string }> {
+    const tokens = ShellTokenizer.tokenize(command);
+    if (tokens.length > 1) {
+      return {
+        success: false,
+        output: '',
+        error: 'Multi-command pipelines are not supported'
+      };
+    }
+    const token = tokens[0];
+    if (!token) {
+      return {
+        success: false,
+        output: '',
+        error: 'No command found'
+      };
+    }
     try {
-      const { stdout, stderr } = await execAsync(command, { timeout: 30000 });
+      const { stdout, stderr } = await execFileAsync(token.cli, token.args, { timeout: 30000 });
       return {
         success: true,
         output: stdout.trim() || stderr.trim()

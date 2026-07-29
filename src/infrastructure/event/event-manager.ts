@@ -1,3 +1,4 @@
+import { getDefaultContext } from '../context.js';
 import type { IEventBus, EventListener } from '../interfaces/index.js';
 
 /**
@@ -54,4 +55,19 @@ export function createEventManagerWithDeps(deps: EventManagerDeps): EventManager
 // 导出 EventBus
 export { EventBus } from './bus.js';
 
-export { createEventManager, globalEventManager } from './compat-bridge.js';
+/**
+ * 兼容桥接入口：默认 context 仅用于历史无参 API。
+ * event-manager.ts 作为 event 模块的桥接文件，
+ * 在 check:default-context-usage 白名单中。
+ * @deprecated 建议使用 createEventManagerWithDeps(deps) 或 InfrastructureContext.eventBus
+ */
+export function createEventManager(): EventManager {
+  const eventBus = getDefaultContext().eventBus;
+  return createEventManagerWithDeps({ eventBus });
+}
+
+/**
+ * 兼容桥接入口：默认 context 仅用于历史全局单例。
+ * @deprecated 建议使用 createEventManagerWithDeps(deps) 或 InfrastructureContext.eventBus
+ */
+export const globalEventManager = createEventManager();

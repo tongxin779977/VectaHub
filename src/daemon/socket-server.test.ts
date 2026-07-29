@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuditHelper } from '../infrastructure/audit/index.js';
+import { MockEnvironmentService } from '../infrastructure/testing/mock-services.js';
+
+const env = new MockEnvironmentService();
 
 const processInputMock = vi.fn();
 const auditIntentMatchMock = vi.fn();
@@ -46,12 +49,6 @@ describe('SocketServer.executeTask', () => {
   });
 
   it('passes audit helper and logger to processInput', async () => {
-    const llmConfig = {
-      provider: 'openai',
-      model: 'gpt-4o-mini',
-      apiKey: 'secret',
-      baseUrl: 'https://api.openai.com/v1',
-    };
     processInputMock.mockResolvedValue({
       success: true,
       intent: 'RUN_SCRIPT',
@@ -66,10 +63,10 @@ describe('SocketServer.executeTask', () => {
 
     const { SocketServer } = await import('./socket-server.js');
     const server = new SocketServer({}, {
+      environment: env,
       auditHelper: createAuditHelper(),
       logger: { error: loggerErrorMock },
       getSessionId: () => 'session-test',
-      llmConfigProvider: () => llmConfig,
     });
     const result = await (server as any).executeTask('check status');
 
@@ -104,6 +101,7 @@ describe('SocketServer.executeTask', () => {
 
     const { SocketServer } = await import('./socket-server.js');
     const server = new SocketServer({}, {
+      environment: env,
       auditHelper: createAuditHelper(),
       logger: { error: loggerErrorMock },
       getSessionId: () => 'session-test',
@@ -117,6 +115,7 @@ describe('SocketServer.executeTask', () => {
   it('rejects invalid setMode value and does not call sandbox.setMode', async () => {
     const { SocketServer } = await import('./socket-server.js');
     const server = new SocketServer({}, {
+      environment: env,
       auditHelper: createAuditHelper(),
       logger: { error: loggerErrorMock },
       getSessionId: () => 'session-test',
@@ -135,6 +134,7 @@ describe('SocketServer.executeTask', () => {
   it('parses newline-delimited socket stream with sticky and split packets', async () => {
     const { SocketServer } = await import('./socket-server.js');
     const server = new SocketServer({}, {
+      environment: env,
       auditHelper: createAuditHelper(),
       logger: { error: loggerErrorMock },
       getSessionId: () => 'session-test',

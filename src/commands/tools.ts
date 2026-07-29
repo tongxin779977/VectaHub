@@ -480,7 +480,7 @@ toolsCmd
   .description('Register a known tool (or all known tools with "all")')
   .action(async (toolName: string) => {
     const registry = getCliToolRegistry();
-    const config = await loadConfig(context.config);
+    const config = await loadConfig(context.environment, context.config);
 
     if (toolName === 'all') {
       cliOutput.log('\n🚀 注册所有已知工具...');
@@ -499,7 +499,7 @@ toolsCmd
         cliOutput.log('   ✅ 已注册 npm');
       }
 
-      await saveConfig(config, context.config);
+      await saveConfig(config, context.environment, context.config);
       cliOutput.log('\n   总计新注册: ' + registeredCount + ' 个工具\n');
     } else {
       const known = getKnownTool(toolName);
@@ -517,7 +517,7 @@ toolsCmd
       if (toolName === 'npm') {
         registry.register(npmTool);
         config.registeredTools.push('npm');
-        await saveConfig(config, context.config);
+        await saveConfig(config, context.environment, context.config);
         cliOutput.log('\n✅ 成功注册:', toolName);
       } else {
         cliOutput.log('\n⚠️  工具定义尚未完全实现:', toolName);

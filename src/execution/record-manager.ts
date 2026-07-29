@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { mkdir, readFile, writeFile, readdir, rm } from 'node:fs/promises';
 import type { ExecutionRecord, ExecutionFilter, ExecutionSearchResult, ExecutionMetadata } from './types.js';
-import { getVectaHubPath, getProjectExecutionDir } from '../infrastructure/paths/index.js';
+import { getProjectExecutionDir } from '../infrastructure/paths/index.js';
 import { parseStartedAt, toDatePartitionKey } from './utils.js';
 
 interface LoggerLike {
@@ -43,17 +43,21 @@ const DEFAULT_LIST_LIMIT = 50;
  * Records are partitioned by date into `YYYYMMDD.jsonl` files.
  * Supports listing, filtering, searching, and metadata retrieval.
  *
- * @param baseDir - Base directory for record storage. Defaults to `<VectaHub>/executions`.
+ * @param baseDir - Base directory for record storage.
  * @param deps - Optional dependencies. Pass `{ logger }` to receive warnings for malformed lines,
  *               `{ projectRoot }` to write records to `{projectRoot}/.vectahub/executions/` instead.
  * @returns A {@link RecordManager} instance
  */
 export function createRecordManager(baseDir?: string, deps?: RecordManagerDeps): RecordManager {
-  const dir = baseDir || (deps?.projectRoot ? getProjectExecutionDir(deps.projectRoot) : getVectaHubPath('executions'));
+  const dir = baseDir || (deps?.projectRoot ? getProjectExecutionDir(deps.projectRoot) : undefined);
+  if (!dir) {
+    throw new Error('createRecordManager requires baseDir or projectRoot');
+  }
+  const resolvedDir = dir;
   const logger = deps?.logger ?? noopLogger;
 
   async function ensureDir(): Promise<void> {
-    await mkdir(dir, { recursive: true });
+    await mkdir(resolvedDir, { recursive: true });
   }
 
   /**
@@ -62,7 +66,7 @@ export function createRecordManager(baseDir?: string, deps?: RecordManagerDeps):
    */
   async function readRecords(options: { limit?: number; filter?: (r: ExecutionRecord) => boolean } = {}): Promise<ExecutionRecord[]> {
     await ensureDir();
-    const files = await readdir(dir);
+    const files = await readdir(resolvedDir);
     // Sort files in reverse order to get newest dates first
     const jsonlFiles = files.filter((f) => f.endsWith('.jsonl')).sort().reverse();
     const records: ExecutionRecord[] = [];
@@ -71,7 +75,7 @@ export function createRecordManager(baseDir?: string, deps?: RecordManagerDeps):
     for (const file of jsonlFiles) {
       if (records.length >= targetLimit) break;
 
-      const content = await readFile(join(dir, file), 'utf-8');
+      const content = await readFile(join(resolvedDir, file), 'utf-8');
       const lines = content.split('\n').filter((line) => line.trim()).reverse(); // Newest in file first
       
       for (const line of lines) {
@@ -97,7 +101,7 @@ export function createRecordManager(baseDir?: string, deps?: RecordManagerDeps):
       await ensureDir();
       const startedAtStr = parseStartedAt(record);
       const dateStr = toDatePartitionKey(startedAtStr);
-      const filePath = getDayFile(dir, dateStr);
+      const filePath = getDayFile(resolvedDir, dateStr);
       const line = JSON.stringify(record) + '\n';
       try {
         const existing = await readFile(filePath, 'utf-8');
@@ -161,16 +165,16 @@ export function createRecordManager(baseDir?: string, deps?: RecordManagerDeps):
       }
 
       await ensureDir();
-      const files = await readdir(dir);
+    const files = await readdir(resolvedDir);
       const jsonlFiles = files.filter((f) => f.endsWith('.jsonl'));
 
       for (const file of jsonlFiles) {
-        await rm(join(dir, file), { force: true });
+        await rm(join(resolvedDir, file), { force: true });
       }
 
       for (const [dateStr, recs] of grouped) {
         const content = recs.map((r) => JSON.stringify(r)).join('\n') + '\n';
-        await writeFile(join(dir, `${dateStr}.jsonl`), content, 'utf-8');
+        await writeFile(join(resolvedDir, `${dateStr}.jsonl`), content, 'utf-8');
       }
 
       return true;

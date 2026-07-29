@@ -7,5 +7,4 @@ export {
   updateConfigWithDeps,
   type ConfigFacadeDeps,
 } from './facade.js';
-export { getDefaultConfig, loadConfig, saveConfig, updateConfig } from './compat-bridge.js';
 export { ConfigService } from './service.js';

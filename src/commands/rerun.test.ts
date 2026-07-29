@@ -60,7 +60,7 @@ function createMockContext() {
       getHelper: () => ({ log: vi.fn(), cliOutput: vi.fn(), securityAlert: vi.fn(), securityAction: vi.fn() }),
       getLogger: () => ({ getSessionId: () => 'test-session' }),
     },
-    environment: {} as never,
+    environment: { getPath: vi.fn(() => '/test/vectahub/executions') } as any,
     logger: {
       getLogger: () => ({ info: mockInfo, error: mockError, debug: vi.fn(), warn: vi.fn() }),
       setMuted: vi.fn(),

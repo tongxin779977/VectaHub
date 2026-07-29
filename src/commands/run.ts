@@ -14,7 +14,6 @@ import { type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import { markCliOutputHandled } from '../infrastructure/cli-output.js';
 import { createRecordManager } from '../execution/record-manager.js';
-import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { createRunDispatch, formatRunDispatchText } from './run-dispatch.js';
 import { interpolateStep, type InterpolationContext } from '../workflow/interpolation.js';
 import { resolveRunTaskContract } from './run-task-contract-resolver.js';
@@ -349,7 +348,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
           let filepath = context.environment.resolvePath(options.file);
           
           if (!context.environment.exists(filepath)) {
-            const workflowsDir = getVectaHubPath('workflows');
+            const workflowsDir = context.environment.getPath('workflows');
             const fallbackPath = context.environment.resolvePath(workflowsDir, options.file);
             if (context.environment.exists(fallbackPath)) {
               filepath = fallbackPath;
@@ -522,11 +521,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
             return;
           }
         } else if (intentRecognitionMethod !== 'none') {
-          if (intentRecognitionMethod === 'llm') {
-            logger.info(`意图解析模式: 优先 LLM`);
-          } else {
-            logger.info(`意图解析模式: 规则匹配 (LLM 未配置)`);
-          }
+          logger.info(`意图解析模式: ${intentRecognitionMethod}`);
           logger.info(`识别到意图: ${recognizedIntent}`);
         }
 
@@ -611,7 +606,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
           onProgress: createProgressCallback(workflow!.steps.length, output, options.json),
         }, initialVariables);
 
-        const recordManager = createRecordManager();
+        const recordManager = createRecordManager(context.environment.getPath('executions'));
         const metadata: ExecutionMetadata = {
           source: options.file ? 'file' : 'nl',
           nlInput: options.file ? undefined : (intent.length > 0 ? intent.join(' ') : undefined),

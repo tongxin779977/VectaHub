@@ -1,5 +1,5 @@
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { getVectaHubPath, getVectaHubHome } from '../infrastructure/paths/index.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 import { ShellTokenizer } from '../utils/shell-tokenizer.js';
 import { matchBlockedCommand } from './pattern-matcher.js';
 
@@ -53,15 +53,15 @@ export interface RBACManager {
   loadConfig(): RoleConfig[];
 }
 
-function ensureRbacDir(): void {
-  const dir = getVectaHubHome();
+function ensureRbacDir(environment: IEnvironmentService): void {
+  const dir = environment.getHomePath();
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
 }
 
-function getRbacFile(): string {
-  return getVectaHubPath('rbac.json');
+function getRbacFile(environment: IEnvironmentService): string {
+  return environment.getPath('rbac.json');
 }
 
 const VARIABLE_INJECTION_PATTERNS = [
@@ -147,18 +147,20 @@ function splitCompoundCommand(command: string): string[] {
  * Supports compound command splitting, bypass detection, and wildcard pattern matching.
  *
  * @param deps - Optional dependencies. Pass `{ logger }` to receive warnings on config load failure.
+ *               Pass `{ environment }` to inject the environment service for path resolution.
  * @returns An RBACManager instance with role CRUD and execution permission checks
  */
-export function createRBACManager(deps?: { logger?: LoggerLike }): RBACManager {
+export function createRBACManager(deps?: { logger?: LoggerLike; environment: IEnvironmentService }): RBACManager {
   const logger = deps?.logger ?? noopLogger;
+  const environment = deps!.environment;
 
   /**
    * Loads role configuration from the RBAC config file.
    * Falls back to default roles if the file is missing or malformed.
    */
   function loadConfig(): RoleConfig[] {
-    const rbacFile = getRbacFile();
-    ensureRbacDir();
+    const rbacFile = getRbacFile(environment);
+    ensureRbacDir(environment);
     if (!existsSync(rbacFile)) {
       return DEFAULT_ROLES;
     }
@@ -177,8 +179,8 @@ export function createRBACManager(deps?: { logger?: LoggerLike }): RBACManager {
    * @param roles - The role configuration array to save
    */
   function saveConfig(roles: RoleConfig[]): void {
-    const rbacFile = getRbacFile();
-    ensureRbacDir();
+    const rbacFile = getRbacFile(environment);
+    ensureRbacDir(environment);
     writeFileSync(rbacFile, JSON.stringify(roles, null, 2), 'utf-8');
   }
 

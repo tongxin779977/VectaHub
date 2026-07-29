@@ -39,16 +39,4 @@ export interface SessionContext {
   lastWorkflowYaml?: string;
 }
 
-export interface LLMOptions {
-  useLLM: boolean;
-  fallbackToKeyword: boolean;
-  promptVersion: string;
-  useFewShot: boolean;
-  useContext: boolean;
-  temperature: number;
-  maxTokens: number;
-  autoRefine: boolean;
-  maxRetries: number;
-  useCheapModelForSimpleTasks: boolean;
-  maxCostPerDay: number;
-}
+

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import type { SecurityDatabase, SecurityConfig } from './types.js';
 import { getDefaultRules } from './default-rules.js';
-import { getVectaHubPath } from '../infrastructure/paths/index.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 
 function toError(error: unknown, message: string): Error {
   return error instanceof Error ? new Error(message, { cause: error }) : new Error(`${message}: ${String(error)}`);
@@ -16,6 +16,7 @@ export interface TestState {
 
 export interface SecurityConfigStoreOptions {
   configPath?: string;
+  environment?: IEnvironmentService;
   logger?: Pick<Console, 'warn'>;
 }
 
@@ -44,7 +45,7 @@ export class SecurityConfigStore {
       return;
     }
 
-    this.configPath = options.configPath || getVectaHubPath('security-config.json');
+    this.configPath = options.configPath || (options.environment?.getPath('security-config.json') ?? '');
     this.databasePath = join(dirname(this.configPath), 'security-database.json');
     this.config = this.loadConfig();
     this.database = this.loadDatabase();

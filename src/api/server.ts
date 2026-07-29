@@ -6,11 +6,10 @@ import { createStorage } from '../workflow/storage.js';
 import { createScheduleManager } from '../workflow/scheduler.js';
 import { AuditEventType, type AuditHelper, type AuditLogger } from '../infrastructure/audit/index.js';
 import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
-import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import type pino from 'pino';
 
-function getWorkflowsDir(): string {
-  return getVectaHubPath('workflows');
+function getWorkflowsDir(environment: IEnvironmentService): string {
+  return environment.getPath('workflows');
 }
 
 interface APIResponse {
@@ -122,8 +121,8 @@ async function parseRequestBody(req: IncomingMessage): Promise<Record<string, un
   });
 }
 
-function listWorkflows(): { id: string; name: string; steps: unknown[] }[] {
-  const workflowsDir = getWorkflowsDir();
+function listWorkflows(environment: IEnvironmentService): { id: string; name: string; steps: unknown[] }[] {
+  const workflowsDir = getWorkflowsDir(environment);
 
   if (!existsSync(workflowsDir)) return [];
   return readdirSync(workflowsDir)
@@ -152,7 +151,7 @@ export async function createAPIServer(
 
     try {
       if (method === 'GET' && url.pathname === '/api/workflows') {
-        const workflows = listWorkflows();
+        const workflows = listWorkflows(deps.environment);
         jsonResponse(res, 200, { success: true, data: workflows });
       } else if (method === 'GET' && url.pathname === '/api/executions') {
         const storage = createStorage({ environment: deps.environment, logger: deps.logger });

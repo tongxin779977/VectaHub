@@ -404,7 +404,7 @@ export function createWorkflowEngine(deps: WorkflowEngineDeps): WorkflowEngine {
   const workflows = new Map<string, Workflow>();
   const environment = deps.environment;
   const logger = deps.logger;
-  const securityGuard: SecurityGuard = deps.securityGuard ?? createSecurityGuard();
+  const securityGuard: SecurityGuard = deps.securityGuard ?? createSecurityGuard({ environment: deps.environment });
   const executor = deps.executor ?? createExecutor({
     environment,
     audit: deps.audit,

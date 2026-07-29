@@ -165,7 +165,7 @@ export function createMonitorAlertManager(): MonitorAlertManager {
           try {
             const result = rule.action(alert);
             if (result instanceof Promise) {
-              result.catch(() => {});
+              result.catch(e => console.warn({ alertId: alert.id, error: e instanceof Error ? e.message : String(e) }, 'Alert action failed'));
             }
           } catch {
             // 告警动作失败不阻断评估

@@ -130,10 +130,6 @@ export interface ReplDeps {
   contextBuilder: { buildContext(sessionId?: string): Promise<ContextBuilderResult> };
   /** 会话管理器（可选） */
   sessionManager?: SessionManager;
-  /** 是否启用 LLM */
-  useLLM: boolean;
-  /** LLM 配置（可选,过渡期保留字段） */
-  llmConfig?: unknown;
   /** 审计助手 */
   auditHelper: AuditHelper;
   /** 工作流引擎（可选） */
@@ -199,8 +195,6 @@ export interface SessionMetadata {
   lastActivity: Date;
   /** 待执行工作流数量 */
   pendingWorkflowCount: number;
-  /** 是否已启用 LLM */
-  llmEnabled: boolean;
   /** 执行模式 */
   executeMode: ChatConfig['executeMode'];
 }

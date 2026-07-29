@@ -235,7 +235,7 @@ async function handleMultiIntent(
     confidence: minConfidence,
     taskList,
     metadata: {
-      path: 'llm-tool-calling',
+      path: 'rule-based',
     },
   };
 }
@@ -260,7 +260,7 @@ export interface OrchestrateResult {
   steps: OrchestrateStep[];
   plan?: ExecutionPlan;
   reply?: string;
-  intentRecognitionMethod: 'capability' | 'llm' | 'none';
+  intentRecognitionMethod: 'capability' | 'none';
   matchedCapability?: string;
   score?: number;
   recognizedIntent?: string;
@@ -538,12 +538,11 @@ export async function orchestrateIntent(
       throw new Error('Multi-intent parsing produced no executable steps');
     }
     const allCapability = clauseResults.every(result => result.intentRecognitionMethod === 'capability');
-    const hasLLM = clauseResults.some(result => result.intentRecognitionMethod === 'llm');
 
     return {
       steps,
       reply: combinedReply || undefined,
-      intentRecognitionMethod: allCapability ? 'none' : (hasLLM ? 'llm' : 'none'),
+      intentRecognitionMethod: allCapability ? 'capability' : 'none',
       score: Math.min(...clauseResults.map(result => result.score ?? 0)),
     };
   }

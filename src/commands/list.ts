@@ -1,9 +1,9 @@
 import { Command } from 'commander';
 import { format } from 'node:util';
-import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { createStorage } from '../workflow/storage.js';
 import { listVersions, rollbackVersion } from '../workflow/versioning.js';
 import type { InfrastructureContext } from '../infrastructure/context.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 
 interface ListCommandOutput {
@@ -25,8 +25,8 @@ function createListCommandOutput(): ListCommandOutput {
   };
 }
 
-function getVectaHubDir(): string {
-  return getVectaHubPath();
+function getVectaHubDir(env: IEnvironmentService): string {
+  return env.getPath();
 }
 
 /**
@@ -75,7 +75,7 @@ export function createListCmd(context: InfrastructureContext): Command {
     .argument('<workflowId>', 'Workflow ID')
     .action((workflowId: string) => {
       const env = context.environment;
-      const versions = listVersions(env, getVectaHubDir(), workflowId);
+      const versions = listVersions(env, getVectaHubDir(env), workflowId);
       if (versions.length === 0) {
         logger.info(`No versions found for workflow ${workflowId}`);
         return;
@@ -112,7 +112,7 @@ export function createRollbackCmd(context: InfrastructureContext): Command {
       const env = context.environment;
       try {
         const version = parseInt(versionStr, 10);
-        const yaml = rollbackVersion(env, getVectaHubDir(), workflowId, version);
+        const yaml = rollbackVersion(env, getVectaHubDir(env), workflowId, version);
 
         if (options.output) {
           env.writeFile(options.output, yaml);

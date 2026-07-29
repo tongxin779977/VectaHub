@@ -11,15 +11,6 @@ import type { TestContext } from 'vitest';
 
 type SkippableTestContext = TestContext & { skip: (message?: string) => never };
 
-vi.mock('../nl/llm.js', async () => {
-  const actual = await vi.importActual('../nl/llm.js');
-  return {
-    ...actual,
-    isLLMAvailable: vi.fn(() => false),
-    createLLMConfig: vi.fn(() => null),
-  };
-});
-
 describe('API Server', () => {
   const host = '127.0.0.1';
   const originalVectaHubHome = process.env.VECTAHUB_HOME;
