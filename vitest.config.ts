@@ -24,6 +24,12 @@ export default defineConfig({
         'src/**/index.ts',
         'src/**/types.ts',
         'src/**/__mocks__/**',
+        // CLI composition roots — tested via e2e smoke tests, not unit tests
+        'src/cli-main.ts',
+        'src/cli-version-checker.ts',
+        'src/cli-config-validator.ts',
+        // Deprecated modules — replaced by AcpTransport, kept for backward compat
+        'src/commands/run-task-spawner.ts',
       ],
       thresholds: {
         lines: 50,

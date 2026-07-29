@@ -2,7 +2,6 @@ import { beforeEach, describe, it, expect, vi } from 'vitest';
 
 const routeMock = vi.fn();
 const parseMock = vi.fn();
-const loggerErrorMock = vi.fn();
 
 vi.mock('./capabilities/router.js', () => ({
   createCapabilityRouter: () => ({

@@ -1,5 +1,6 @@
 import { mkdirSync, existsSync, appendFileSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { VectaHubError, ErrorType } from '../errors/index.js';
 import { redactSensitiveData } from '../../utils/sensitive-data.js';
 import pino from 'pino';
@@ -201,7 +202,7 @@ export class AuditLogger {
 }
 
 export function generateSessionId(): string {
-  return `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  return `sess_${Date.now()}_${randomBytes(4).toString('hex')}`;
 }
 
 export function initAuditLogger(sessionId: string, baseDir: string): AuditLogger {

@@ -19,7 +19,7 @@ async function main(): Promise<void> {
     Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>,
   );
 
-  const result = await acp
+  await acp
     .client({ name: 'debug-client' })
     .onRequest(acp.methods.client.session.requestPermission, (ctx) => {
       console.log('\n>>> PERMISSION REQUEST <<<');

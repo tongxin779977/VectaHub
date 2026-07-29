@@ -234,13 +234,11 @@ vi.mock('../utils/logger.js', () => ({
   })),
 }));
 
-import { runTask, runTaskCleanLogsCmd, collectGitChanges, formatRunTaskHumanOutput, formatRunTaskJson, runVerificationCommands, splitCommandArgs, buildDefaultPrompt, bindRunTaskContext, buildTaskRuntimeFeatures, formatPreflightEstimateSummary, buildRuntimeResolvedConfig, deriveTaskIdFromDocFile, type RunTaskResult } from './run-task.js';
+import { runTask, collectGitChanges, formatRunTaskHumanOutput, formatRunTaskJson, runVerificationCommands, splitCommandArgs, buildDefaultPrompt, bindRunTaskContext, buildTaskRuntimeFeatures, formatPreflightEstimateSummary, buildRuntimeResolvedConfig, deriveTaskIdFromDocFile, type RunTaskResult } from './run-task.js';
 import { getDefaultContext } from '../infrastructure/context.js';
 import { assessCommandRisk } from '../security-protocol/engine.js';
 import { execFile, spawn } from 'node:child_process';
 import type { AgentTaskContract } from '../types/doc-task.js';
-import { getAgentDescriptorById } from './agent-cli-adapter.js';
-import { computeInstructionHash } from './agent-task-contract.js';
 import { initializeBuiltInAgents } from '../agent-runtime/factory.js';
 import { djb2Hash } from '../infrastructure/paths/index.js';
 

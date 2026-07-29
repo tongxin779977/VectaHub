@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { SandboxManager, createSandboxManager } from './sandbox.js';
 import { createNoopAuditHelper } from '../infrastructure/audit/index.js';
 import { MockEnvironmentService } from '../infrastructure/testing/mock-services.js';
