@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { writeFileSync, mkdirSync, rmSync, existsSync } from 'fs';
+import { writeFileSync, rmSync, existsSync, mkdtempSync } from 'fs';
 import { join } from 'path';
+import { tmpdir } from 'os';
 import {
   loadTemplate,
   listTemplates,
@@ -11,7 +12,7 @@ import { createEnvironmentService } from '../infrastructure/environment/index.js
 
 const environment = createEnvironmentService();
 
-const TEST_DIR = '/tmp/vectahub-test-templates';
+let TEST_DIR: string;
 
 const SAMPLE_TEMPLATE = `
 name: git-commit
@@ -52,10 +53,7 @@ steps:
 
 describe('WorkflowTemplate', () => {
   beforeEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true });
-    }
-    mkdirSync(TEST_DIR, { recursive: true });
+    TEST_DIR = mkdtempSync(join(tmpdir(), 'vectahub-test-templates-'));
   });
 
   afterEach(() => {
