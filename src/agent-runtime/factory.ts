@@ -1,10 +1,4 @@
-import { getAgentRegistry } from './registry.js';
 import type { AgentDescriptor } from '../types/agent.js';
-import { CodexAdapter } from './adapters/codex.js';
-import { AiderAdapter } from './adapters/aider.js';
-import { GeminiAdapter } from './adapters/gemini.js';
-import { ClaudeAdapter } from './adapters/claude.js';
-import { AgyAdapter } from './adapters/agy.js';
 
 const BUILT_IN_AGENT_DESCRIPTORS: Record<string, AgentDescriptor> = {
   codex: {
@@ -129,11 +123,5 @@ const BUILT_IN_AGENT_DESCRIPTORS: Record<string, AgentDescriptor> = {
 };
 
 export function initializeBuiltInAgents(): void {
-  const registry = getAgentRegistry();
-  
-  registry.register(BUILT_IN_AGENT_DESCRIPTORS.codex, new CodexAdapter());
-  registry.register(BUILT_IN_AGENT_DESCRIPTORS.aider, new AiderAdapter());
-  registry.register(BUILT_IN_AGENT_DESCRIPTORS.gemini, new GeminiAdapter());
-  registry.register(BUILT_IN_AGENT_DESCRIPTORS.claude, new ClaudeAdapter());
-  registry.register(BUILT_IN_AGENT_DESCRIPTORS.agy, new AgyAdapter());
+  // Adapter classes have been removed; no-op until adapters are restored.
 }

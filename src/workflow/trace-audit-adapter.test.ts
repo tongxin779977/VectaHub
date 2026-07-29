@@ -17,8 +17,13 @@ const mockTraceSystem = {
 };
 
 vi.mock('../infrastructure/trace-audit/index.js', () => ({
-  createTraceAuditSystem: vi.fn(() => mockTraceSystem),
+  createTraceAuditSystemWithDeps: vi.fn(() => mockTraceSystem),
 }));
+
+const mockDeps = {
+  environment: { getPath: vi.fn().mockReturnValue('/tmp/test-logs') } as any,
+  logger: { getLogger: vi.fn().mockReturnValue({ info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() }) } as any,
+};
 
 describe('WorkflowTraceAuditAdapter', () => {
   let adapter: WorkflowTraceAuditAdapter;
@@ -44,7 +49,7 @@ describe('WorkflowTraceAuditAdapter', () => {
       byModule: {},
     });
     mockTraceSystem.getAlerts.mockReturnValue([]);
-    adapter = new WorkflowTraceAuditAdapter({ enabled: true });
+    adapter = new WorkflowTraceAuditAdapter(mockDeps, { enabled: true });
   });
 
   it('should start trace on workflow start', async () => {
@@ -108,7 +113,7 @@ describe('WorkflowTraceAuditAdapter', () => {
   });
 
   it('should expose typed empty defaults when trace system is disabled', () => {
-    const disabledAdapter = new WorkflowTraceAuditAdapter({ enabled: false });
+    const disabledAdapter = new WorkflowTraceAuditAdapter(mockDeps, { enabled: false });
 
     const queryResult: TraceQueryResult = disabledAdapter.query();
     const metrics: TraceMetrics = disabledAdapter.getMetrics();

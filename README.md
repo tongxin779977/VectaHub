@@ -12,7 +12,7 @@
 [![Release](https://github.com/tongxin779977/VectaHub/actions/workflows/publish.yml/badge.svg)](https://github.com/tongxin779977/VectaHub/actions/workflows/publish.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-[中文介绍](#中文介绍) · [Documentation](./docs/README.md) · [Contributing](./CONTRIBUTING.md) · [Security](./SECURITY.md) · [Repository Policy](./docs/repository-permissions.md)
+[中文介绍](#中文介绍) · [Documentation](./docs/README.md) · [Contributing](./CONTRIBUTING.md) · [Security](./SECURITY.md) · [Repository Policy](./docs/README.md)
 
 ## English Overview
 
@@ -71,11 +71,11 @@ vectahub run-task --tool codex --task-id T1 --task-label "Add tests" --doc ./doc
 ## Documentation
 
 - [Documentation index](./docs/README.md)
-- [CLI usage](./docs/usage.md)
-- [Capability map](./docs/capabilities.md)
-- [Architecture overview](./docs/architecture.md)
-- [Repository visibility and permissions](./docs/repository-permissions.md)
-- [Release guide](./docs/release.md)
+- [CLI usage](./docs/README.md)
+- [Capability map](./docs/README.md)
+- [Architecture overview](./docs/README.md)
+- [Repository visibility and permissions](./docs/README.md)
+- [Release guide](./docs/README.md)
 
 ## Development
 
@@ -99,7 +99,7 @@ This repository is public. Anything committed here should be treated as public i
 
 Do not commit secrets, private task documents, real user data, raw trace output, `.vectahub/`, Agent home directories, local logs, generated VSIX files, or local build artifacts.
 
-See [Repository Visibility and Permissions](./docs/repository-permissions.md) for the maintained policy.
+See [Documentation index](./docs/README.md) for the maintained policy.
 
 ---
 
@@ -162,8 +162,8 @@ vectahub run-task --tool codex --task-id T1 --task-label "补测试" --doc ./doc
 ### 文档入口
 
 - [文档索引](./docs/README.md)
-- [CLI 使用手册](./docs/usage.md)
-- [能力地图](./docs/capabilities.md)
-- [架构总览](./docs/architecture.md)
-- [仓库可见性与提交权限](./docs/repository-permissions.md)
-- [发布指南](./docs/release.md)
+- [CLI 使用手册](./docs/README.md)
+- [能力地图](./docs/README.md)
+- [架构总览](./docs/README.md)
+- [仓库可见性与提交权限](./docs/README.md)
+- [发布指南](./docs/README.md)

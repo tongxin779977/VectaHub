@@ -3,7 +3,6 @@ import { createWorkflowEngine, type ProgressInfo } from '../workflow/engine.js';
 import { createStorage } from '../workflow/storage.js';
 import { isFirstRun, loadConfig, saveConfig } from '../setup/first-run-wizard.js';
 import { createDefaultInstaller } from '../setup/priority-installer.js';
-import { createLLMConfig } from '../nl/llm.js';
 import { orchestrateIntent } from '../nl/orchestrator.js';
 import { formatDryRunText, formatExecutionResultText } from '../nl/capabilities/user-report.js';
 import type { Workflow } from '../types/index.js';
@@ -15,8 +14,6 @@ import { type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import { markCliOutputHandled } from '../infrastructure/cli-output.js';
 import { createRecordManager } from '../execution/record-manager.js';
-import { runSelfHealingLoop } from './self-healing.js';
-import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { createRunDispatch, formatRunDispatchText } from './run-dispatch.js';
 import { interpolateStep, type InterpolationContext } from '../workflow/interpolation.js';
 import { resolveRunTaskContract } from './run-task-contract-resolver.js';
@@ -351,7 +348,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
           let filepath = context.environment.resolvePath(options.file);
           
           if (!context.environment.exists(filepath)) {
-            const workflowsDir = getVectaHubPath('workflows');
+            const workflowsDir = context.environment.getPath('workflows');
             const fallbackPath = context.environment.resolvePath(workflowsDir, options.file);
             if (context.environment.exists(fallbackPath)) {
               filepath = fallbackPath;
@@ -524,12 +521,7 @@ export function createRunCmd(context: InfrastructureContext): Command {
             return;
           }
         } else if (intentRecognitionMethod !== 'none') {
-          if (intentRecognitionMethod === 'llm') {
-            const llmConfig = createLLMConfig();
-            logger.info(`意图解析模式: 优先 LLM (provider=${llmConfig?.provider}, model=${llmConfig?.model})`);
-          } else {
-            logger.info(`意图解析模式: 规则匹配 (LLM 未配置)`);
-          }
+          logger.info(`意图解析模式: ${intentRecognitionMethod}`);
           logger.info(`识别到意图: ${recognizedIntent}`);
         }
 
@@ -603,83 +595,72 @@ export function createRunCmd(context: InfrastructureContext): Command {
       // 处理初始变量
       const initialVariables = buildInitialVariables(options.variable);
 
-      
-      let shouldRetry = true;
-      while (shouldRetry) {
-        shouldRetry = false;
-        logger.info('执行工作流...');
-        const result = await (await getWorkflowEngine()).execute(workflow!, { 
-          mode: options.mode, 
-          dryRun: options.dryRun,
-          onProgress: createProgressCallback(workflow!.steps.length, output, options.json),
-        }, initialVariables);
+      logger.info('执行工作流...');
+      const result = await (await getWorkflowEngine()).execute(workflow!, { 
+        mode: options.mode, 
+        dryRun: options.dryRun,
+        onProgress: createProgressCallback(workflow!.steps.length, output, options.json),
+      }, initialVariables);
 
-        const recordManager = createRecordManager();
-        const metadata: ExecutionMetadata = {
-          source: options.file ? 'file' : 'nl',
-          nlInput: options.file ? undefined : (intent.length > 0 ? intent.join(' ') : undefined),
-          sourceFile: options.file ? context.environment.resolvePath(options.file) : undefined,
-          cwd: context.environment.getCwd(),
-        };
-        const recordToSave = normalizeExecutionRecord(result, metadata);
-        await recordManager.save(recordToSave);
+      const recordManager = createRecordManager(context.environment.getPath('executions'));
+      const metadata: ExecutionMetadata = {
+        source: options.file ? 'file' : 'nl',
+        nlInput: options.file ? undefined : (intent.length > 0 ? intent.join(' ') : undefined),
+        sourceFile: options.file ? context.environment.resolvePath(options.file) : undefined,
+        cwd: context.environment.getCwd(),
+      };
+      const recordToSave = normalizeExecutionRecord(result, metadata);
+      await recordManager.save(recordToSave);
 
-        if (options.json) {
-          output.json({
-            ok: result.status === 'COMPLETED',
-            status: result.status,
-            duration: result.duration,
-            steps: result.steps.map(s => ({
-              stepId: s.stepId,
-              status: s.status,
-              output: s.output,
-              error: s.error
-            }))
-          });
-        } else {
-          logger.info(`\n执行${result.status === 'COMPLETED' ? '✅ 成功' : '❌ 失败'}`);
-          logger.info(`耗时: ${result.duration}ms`);
+      if (options.json) {
+        output.json({
+          ok: result.status === 'COMPLETED',
+          status: result.status,
+          duration: result.duration,
+          steps: result.steps.map(s => ({
+            stepId: s.stepId,
+            status: s.status,
+            output: s.output,
+            error: s.error
+          }))
+        });
+      } else {
+        logger.info(`\n执行${result.status === 'COMPLETED' ? '✅ 成功' : '❌ 失败'}`);
+        logger.info(`耗时: ${result.duration}ms`);
 
-          if (currentPlan) {
-            const reportText = formatExecutionResultText(currentPlan, result.steps.map(s => ({
-              stepId: s.stepId,
-              status: s.status,
-              output: s.output?.map(l => String(l)),
-              error: s.error,
-            })));
-            logger.info(`\n${reportText}`);
-          } else if (result.steps.length > 0) {
-            logger.info('\n📊 步骤结果:');
-            for (const step of result.steps) {
-              logger.info(`  ${step.stepId}: ${step.status}`);
-              if (step.output && step.output.length > 0) {
-                logger.info(`  输出:`);
-                for (const line of step.output) {
-                  logger.info(`    ${String(line).trim()}`);
-                }
+        if (currentPlan) {
+          const reportText = formatExecutionResultText(currentPlan, result.steps.map(s => ({
+            stepId: s.stepId,
+            status: s.status,
+            output: s.output?.map(l => String(l)),
+            error: s.error,
+          })));
+          logger.info(`\n${reportText}`);
+        } else if (result.steps.length > 0) {
+          logger.info('\n📊 步骤结果:');
+          for (const step of result.steps) {
+            logger.info(`  ${step.stepId}: ${step.status}`);
+            if (step.output && step.output.length > 0) {
+              logger.info(`  输出:`);
+              for (const line of step.output) {
+                logger.info(`    ${String(line).trim()}`);
               }
-              if (step.error) {
-                logger.error(`  错误: ${step.error}`);
-              }
+            }
+            if (step.error) {
+              logger.error(`  错误: ${step.error}`);
             }
           }
         }
-
-        if (result.status === 'FAILED') {
-          const llmConfig = createLLMConfig();
-          if (llmConfig && !options.dryRun && !options.json && context.environment.getEnv('CI') !== '1') {
-            shouldRetry = await runSelfHealingLoop(result, workflow!, llmConfig, context);
-            if (shouldRetry) {
-              logger.info('🔄 正在重试工作流...');
-              continue;
-            }
-          }
-          restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
-          throw new VectaHubError('Workflow execution failed', ErrorType.RUNTIME);
-        }
-        break;
       }
-    
+
+      if (result.status === 'FAILED') {
+        if (!options.dryRun && !options.json && context.environment.getEnv('CI') !== '1') {
+          logger.warn('工作流执行失败，self-healing 已移除，待 ACP 模式接入');
+        }
+        restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
+        throw new VectaHubError('Workflow execution failed', ErrorType.RUNTIME);
+      }
+  
       restoreEnvValue(context, 'VECTAHUB_AUDIT_DISABLED', previousAuditDisabled);
     
       } catch (error) {

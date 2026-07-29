@@ -4,7 +4,6 @@ import { createGzip, createGunzip } from 'node:zlib';
 import { pipeline } from 'node:stream/promises';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
-import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import type { ArchiveInfo, ArchiveResult } from './types.js';
 
 export interface Archiver {
@@ -24,16 +23,20 @@ interface ArchiveEntry {
  *
  * Archives are stored as `<archiveId>.json.gz` under the configured base directory.
  *
- * @param options - Optional configuration for base directory and archive age
+ * @param options - Configuration for base directory, executions directory, and archive age
  * @returns An {@link Archiver} instance
  */
-export function createArchiver(options?: {
-  baseDir?: string;
-  executionsDir?: string;
+export function createArchiver(options: {
+  baseDir: string;
+  executionsDir: string;
   archiveAge?: number;
 }): Archiver {
-  const baseDir = options?.baseDir || getVectaHubPath('archives');
-  const executionsDir = options?.executionsDir || getVectaHubPath('executions');
+  const baseDir = options?.baseDir;
+  const executionsDir = options?.executionsDir;
+
+  if (!baseDir || !executionsDir) {
+    throw new Error('createArchiver requires baseDir and executionsDir');
+  }
 
   async function ensureDir(): Promise<void> {
     await mkdir(baseDir, { recursive: true });
@@ -111,17 +114,60 @@ export function createArchiver(options?: {
       const files = await readdir(baseDir);
       const gzFiles = files.filter((f) => f.endsWith('.json.gz'));
 
+      // Streaming helper: decompress a .json.gz archive and accumulate
+      // originalSize (total decompressed bytes) and archivedCount (non-empty lines).
+      async function decompressStats(archivePath: string): Promise<{
+        originalSize: number;
+        archivedCount: number;
+      }> {
+        return new Promise((resolve, reject) => {
+          let originalSize = 0;
+          let archivedCount = 0;
+          let pendingBytes = '';
+
+          const readStream = createReadStream(archivePath);
+          const gunzip = createGunzip();
+
+          readStream
+            .pipe(gunzip)
+            .on('data', (chunk: Buffer) => {
+              originalSize += chunk.byteLength;
+              // Accumulate pending bytes to correctly count lines across chunk boundaries.
+              pendingBytes += chunk.toString('utf-8');
+              const lines = pendingBytes.split('\n');
+              // All but the last element are complete lines; the last may be partial.
+              archivedCount += lines.length - 1;
+              pendingBytes = lines[lines.length - 1];
+            })
+            .on('end', () => {
+              // Count the final line if it's non-empty.
+              if (pendingBytes.trim().length > 0) {
+                archivedCount += 1;
+              }
+              resolve({ originalSize, archivedCount });
+            })
+            .on('error', (err: Error) => reject(err));
+        });
+      }
+
       const archives: ArchiveInfo[] = [];
       for (const file of gzFiles) {
         const archiveId = file.replace('.json.gz', '');
         const stats = await stat(join(baseDir, file));
+        const compressedSize = stats.size;
+        const { originalSize, archivedCount } = await decompressStats(
+          join(baseDir, file),
+        );
+        const compressionRatio =
+          originalSize > 0 ? 1 - compressedSize / originalSize : 0;
+
         archives.push({
           archiveId,
-          archivedCount: 0, // TODO: decompress and count entries for accurate value
+          archivedCount,
           createdAt: stats.mtime.toISOString(),
-          originalSize: 0, // TODO: decompress and measure for accurate value
-          compressedSize: stats.size,
-          compressionRatio: 0, // TODO: compute from originalSize and compressedSize
+          originalSize,
+          compressedSize,
+          compressionRatio,
         });
       }
 

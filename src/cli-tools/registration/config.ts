@@ -1,8 +1,7 @@
 import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { stringify } from 'yaml';
-import type { IConfigService } from '../../infrastructure/interfaces/index.js';
-import { getVectaHubPath } from '../../infrastructure/paths/index.js';
+import type { IConfigService, IEnvironmentService } from '../../infrastructure/interfaces/index.js';
 import type { RegistrationConfig, ValidationResult } from './types.js';
 
 interface ToolRegistrationCandidate {
@@ -10,8 +9,8 @@ interface ToolRegistrationCandidate {
   description?: string;
 }
 
-function getConfigPath(): string {
-  return getVectaHubPath('config.yaml');
+function getConfigPath(environment: IEnvironmentService): string {
+  return environment.getPath('config.yaml');
 }
 
 let testMode = false;
@@ -30,7 +29,7 @@ export function setTestMode(enabled: boolean): void {
   }
 }
 
-export async function loadConfig(configService?: IConfigService): Promise<RegistrationConfig> {
+export async function loadConfig(environment: IEnvironmentService, configService?: IConfigService): Promise<RegistrationConfig> {
   if (testMode && testConfig) {
     return { ...testConfig };
   }
@@ -41,7 +40,7 @@ export async function loadConfig(configService?: IConfigService): Promise<Regist
   return config.cli_tools;
 }
 
-export async function saveConfig(config: RegistrationConfig, configService?: IConfigService): Promise<void> {
+export async function saveConfig(config: RegistrationConfig, environment: IEnvironmentService, configService?: IConfigService): Promise<void> {
   if (testMode) {
     testConfig = { ...config };
     return;
@@ -51,7 +50,7 @@ export async function saveConfig(config: RegistrationConfig, configService?: ICo
     throw new Error('configService is required when not in test mode');
   }
 
-  const configPath = getConfigPath();
+  const configPath = getConfigPath(environment);
   const configDir = path.dirname(configPath);
 
   if (!existsSync(configDir)) {

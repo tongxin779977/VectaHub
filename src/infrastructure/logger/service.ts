@@ -193,22 +193,19 @@ export class LoggerService implements ILoggerService {
     const key = prefix || 'vectahub';
     let cached = this.loggerCache.get(key);
     if (!cached) {
-      // pre-test log file writability. pino() configures an async worker
-      // transport that fails silently if the file cannot be opened
-      // (e.g. macOS com.apple.provenance xattr returns EPERM on existing
-      // log files for worker threads). Doing a sync openSync() here lets
-      // us detect the issue before the worker is even spawned, so we can
-      // skip the file target and fall back to the console logger.
-      const fileTargets = this.preflightLogFileTargets();
-      if (fileTargets) {
-        try {
-          cached = this.createFileLogger(prefix, fileTargets);
-        } catch {
-          // 文件日志创建失败时回退到控制台日志
+      if (this.muted) {
+        cached = this.createConsoleLogger(prefix);
+      } else {
+        const fileTargets = this.preflightLogFileTargets();
+        if (fileTargets) {
+          try {
+            cached = this.createFileLogger(prefix, fileTargets);
+          } catch {
+            cached = this.createConsoleLogger(prefix);
+          }
+        } else {
           cached = this.createConsoleLogger(prefix);
         }
-      } else {
-        cached = this.createConsoleLogger(prefix);
       }
       this.loggerCache.set(key, cached);
     }

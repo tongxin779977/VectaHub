@@ -46,7 +46,10 @@ describe('CommandRuleEvaluator', () => {
     vi.mocked(createCommandRuleEngine).mockReturnValue({
       evaluate: mockEvaluate,
     } as unknown as ReturnType<typeof createCommandRuleEngine>);
-    evaluator = new CommandRuleEvaluator();
+    evaluator = new CommandRuleEvaluator({
+      logger: console,
+      getGlobalConfigPath: () => '',
+    });
   });
 
   it('should have correct name', () => {

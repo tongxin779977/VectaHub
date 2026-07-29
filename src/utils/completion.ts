@@ -1,16 +1,16 @@
 import { promises as fs } from 'fs';
-import { getVectaHubPath } from './paths.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 
-function getWorkflowsDir(): string {
-  return getVectaHubPath('workflows');
+function getWorkflowsDir(environment: IEnvironmentService): string {
+  return environment.getPath('workflows');
 }
 
-function getTemplatesDir(): string {
-  return getVectaHubPath('templates');
+function getTemplatesDir(environment: IEnvironmentService): string {
+  return environment.getPath('templates');
 }
 
-export async function getWorkflowNames(): Promise<string[]> {
-  const workflowsDir = getWorkflowsDir();
+export async function getWorkflowNames(environment: IEnvironmentService): Promise<string[]> {
+  const workflowsDir = getWorkflowsDir(environment);
   try {
     await fs.access(workflowsDir);
     const files = await fs.readdir(workflowsDir);
@@ -22,8 +22,8 @@ export async function getWorkflowNames(): Promise<string[]> {
   }
 }
 
-export async function getTemplateNames(): Promise<string[]> {
-  const templatesDir = getTemplatesDir();
+export async function getTemplateNames(environment: IEnvironmentService): Promise<string[]> {
+  const templatesDir = getTemplatesDir(environment);
   try {
     await fs.access(templatesDir);
     const files = await fs.readdir(templatesDir);
@@ -43,12 +43,12 @@ export async function getShellTypes(): Promise<string[]> {
   return ['bash', 'zsh', 'fish'];
 }
 
-export async function completeWorkflowNames(): Promise<string[]> {
-  return getWorkflowNames();
+export async function completeWorkflowNames(environment: IEnvironmentService): Promise<string[]> {
+  return getWorkflowNames(environment);
 }
 
-export async function completeTemplateNames(): Promise<string[]> {
-  return getTemplateNames();
+export async function completeTemplateNames(environment: IEnvironmentService): Promise<string[]> {
+  return getTemplateNames(environment);
 }
 
 export async function completeConfigCommands(): Promise<string[]> {

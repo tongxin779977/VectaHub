@@ -39,8 +39,8 @@
 - [ ] 已运行 `npm run check:docs`
 - [ ] 已运行 `npm run check:default-context-usage`
 - [ ] 新增/修改的代码包含测试
-- [ ] 公共 API 变更已更新 `docs/capabilities-reference.md`
-- [ ] 未引入凭证、真实用户数据或私有路径(参见 `docs/repository-permissions.md`)
+- [ ] 公共 API 变更已更新 `docs/README.md`
+- [ ] 未引入凭证、真实用户数据或私有路径(参见 `docs/README.md`)
 - [ ] Commit message 符合 Conventional Commits(`feat:` / `fix:` / `chore:` / ...)
 
 ## 风险与影响

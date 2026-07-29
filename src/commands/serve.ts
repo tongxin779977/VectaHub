@@ -6,7 +6,6 @@ import { AuditEventType } from '../infrastructure/audit/index.js';
 import { SocketServer } from '../daemon/socket-server.js';
 import { type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
-import { createLLMConfig } from '../nl/llm.js';
 
 let socketServer: SocketServer | null = null;
 
@@ -85,10 +84,10 @@ export function createServeCommands(context: InfrastructureContext): { serveCmd:
       });
 
       socketServer = new SocketServer({}, {
+        environment: context.environment,
         auditHelper: context.audit.getHelper(),
         logger: context.logger.getLogger('nl-pipeline'),
         getSessionId: () => context.audit.getLogger().getSessionId(),
-        llmConfigProvider: () => createLLMConfig(),
       });
 
       try {

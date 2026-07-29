@@ -20,12 +20,4 @@ export {
   setMutedWithDeps,
   type LoggerFacadeDeps,
 } from './facade.js';
-export {
-  createConsoleLogger,
-  createLogger,
-  getLogger,
-  getLogLevel,
-  isLoggerMuted,
-  setLogLevel,
-  setMuted,
-} from './compat-bridge.js';
+

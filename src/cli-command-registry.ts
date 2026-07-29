@@ -241,8 +241,7 @@ async function loadAgentRuntime(ctx: InfrastructureContext): Promise<void> {
     if (getCliMainTestFailureMode(ctx) === 'agent-runtime') {
       throw new Error('forced agent-runtime failure');
     }
-    const { loadProvidersFromConfig } = await import('./agent-runtime/config-loader.js');
-    await loadProvidersFromConfig();
+    // config-loader removed; no-op for now
     loadedCommands.add('agent-runtime');
   } catch (error) {
     throw new Error(`Agent runtime initialization failed: ${formatErrorMessage(error, 'Agent 运行时')}`, { cause: error });

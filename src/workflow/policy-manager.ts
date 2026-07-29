@@ -1,5 +1,6 @@
 import { createRBACManager } from '../security-protocol/rbac.js';
 import type { AuditHelper } from '../infrastructure/audit/index.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 import { getCliToolRegistry, type CliToolRegistry } from '../cli-tools/index.js';
 import { ShellTokenizer } from '../utils/shell-tokenizer.js';
 import type { ExecutorOptions, CLIResult } from './executor.js';
@@ -12,12 +13,13 @@ import type { Step } from '../types/index.js';
  * 3. 安全沙箱判定 (部分逻辑在 executor 中，这里处理分层)
  */
 export class PolicyManager {
-  private rbac = createRBACManager();
+  private rbac: ReturnType<typeof createRBACManager>;
   private _toolRegistry?: CliToolRegistry;
   private auditHelper: AuditHelper;
 
-  constructor(auditHelper: AuditHelper) {
+  constructor(auditHelper: AuditHelper, environment: IEnvironmentService) {
     this.auditHelper = auditHelper;
+    this.rbac = createRBACManager({ environment });
   }
 
   private get toolRegistry() {

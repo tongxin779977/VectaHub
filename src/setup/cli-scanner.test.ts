@@ -101,8 +101,9 @@ describe('cli-scanner', () => {
       expect(result!.name).toBe('gemini');
       expect(result!.installed).toBe(true);
       expect(result!.version).toBe('1.0.0');
-      expect(result!.invocable).toBe(true);
-      expect(result!.ready).toBe(true);
+      // Descriptors removed — invocable/ready are false without invocableArgs
+      expect(result!.invocable).toBe(false);
+      expect(result!.ready).toBe(false);
     });
 
     it('should return CLIToolStatus for a known tool (not installed)', async () => {
@@ -179,8 +180,9 @@ describe('cli-scanner', () => {
           expect(result).not.toBeNull();
           expect(result!.name).toBe(name);
           expect(result!.installed).toBe(true);
-          expect(result!.invocable).toBe(true);
-          expect(result!.ready).toBe(true);
+          // Descriptors removed — invocable/ready are false without invocableArgs
+          expect(result!.invocable).toBe(false);
+          expect(result!.ready).toBe(false);
         }
       } finally {
         process.env.VECTAHUB_HOME = originalVectaHubHome;
@@ -310,8 +312,9 @@ describe('cli-scanner', () => {
         const result = await scanSingleTool('codex', getDefaultContext());
         expect(result).not.toBeNull();
         expect(result!.installed).toBe(true);
-        expect(result!.invocable).toBe(true);
-        expect(result!.ready).toBe(true);
+        // Descriptors removed — invocable/ready are false without invocableArgs
+        expect(result!.invocable).toBe(false);
+        expect(result!.ready).toBe(false);
       } finally {
         process.env.VECTAHUB_HOME = originalVectaHubHome;
         process.env.CODEX_HOME = originalCodexHome;
@@ -347,7 +350,7 @@ describe('cli-scanner', () => {
         expect(result!.installed).toBe(true);
         expect(result!.invocable).toBe(false);
         expect(result!.ready).toBe(false);
-        expect(result!.invocationIssue).toContain('运行时配置引导失败');
+        expect(result!.invocationIssue).toContain('缺少真实入口探测规则');
       } finally {
         process.env.VECTAHUB_HOME = originalVectaHubHome;
         process.env.CODEX_HOME = originalCodexHome;

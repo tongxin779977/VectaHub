@@ -11,15 +11,6 @@ import type { TestContext } from 'vitest';
 
 type SkippableTestContext = TestContext & { skip: (message?: string) => never };
 
-vi.mock('../nl/llm.js', async () => {
-  const actual = await vi.importActual('../nl/llm.js');
-  return {
-    ...actual,
-    isLLMAvailable: vi.fn(() => false),
-    createLLMConfig: vi.fn(() => null),
-  };
-});
-
 describe('API Server', () => {
   const host = '127.0.0.1';
   const originalVectaHubHome = process.env.VECTAHUB_HOME;
@@ -143,7 +134,7 @@ describe('API Server', () => {
     expect(result.error).toContain('Invalid JSON');
   });
 
-  it('POST /api/ai-delegate with invalid JSON returns 400', async (ctx) => {
+  it('POST /api/ai-delegate with invalid JSON returns 503 (endpoint disabled)', async (ctx) => {
     await startServer(ctx);
     const url = `http://${host}:${port}/api/ai-delegate`;
     const res = await fetch(url, {
@@ -151,10 +142,7 @@ describe('API Server', () => {
       headers: { 'Content-Type': 'application/json' },
       body: 'not json at all',
     });
-    expect(res.status).toBe(400);
-    const result = await res.json() as { success: boolean; error: string };
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('Invalid JSON');
+    expect(res.status).toBe(503);
   });
 
   it('POST /api/workflows with valid JSON does not regress', async (ctx) => {

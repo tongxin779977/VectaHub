@@ -1,11 +1,13 @@
 import { Command } from 'commander';
 import { format } from 'node:util';
-import { createLLMConfig, LLMClient } from '../nl/llm.js';
-import { DOC_TASK_PARSER_ID } from '../nl/prompt-manager.js';
 import type { DocTask } from '../types/index.js';
 import { type InfrastructureContext } from '../infrastructure/context.js';
 import { VectaHubError, ErrorType } from '../infrastructure/errors/index.js';
 import { planFromDocTasks } from '../orchestration-plan/index.js';
+import type { AgentDescriptor } from '../types/agent.js';
+import type { AgentTransport } from '../agent-runtime/transport/types.js';
+import { createTransport, type AcpConfig } from '../agent-runtime/transport/factory.js';
+import { getAgentDescriptorById } from './agent-cli-adapter.js';
 
 const DEFAULT_MAX_DOC_LENGTH = 50000;
 const DEFAULT_MAX_RETRIES = 2;
@@ -54,13 +56,23 @@ function createParseDocCommandOutput(): ParseDocCommandOutput {
   };
 }
 
-export type ParseDocSource = 'roadmap-table' | 'llm' | 'regex-fallback';
+export type ParseDocSource = 'roadmap-table' | 'acp' | 'regex-fallback';
 
 export interface ParseDocResult {
   tasks: DocTask[];
   source: ParseDocSource;
   degraded: boolean;
   warnings: string[];
+}
+
+/**
+ * parse-doc 任务的可选依赖。
+ * 提供 transport + descriptor 时启用 ACP 路径(第二层);
+ * 缺省时跳过 ACP,直接降级到 regex fallback(第三层)。
+ */
+export interface ParseDocDeps {
+  transport?: AgentTransport;
+  descriptor?: AgentDescriptor;
 }
 
 export function findChunkBoundary(content: string, target: number, maxDocLength: number = target): number {
@@ -334,10 +346,81 @@ export function fallbackParseByRegex(content: string): DocTask[] {
   return tasks;
 }
 
-export async function parseDocTaskResult(context: InfrastructureContext, filePath: string): Promise<ParseDocResult> {
+/**
+ * 构造 parse-doc ACP agent 的 task prompt。
+ *
+ * 要求 agent 读取文档并返回结构化 JSON 数组,每个任务包含
+ * id / label / docExcerpt / allowedFiles / forbiddenFiles。
+ * agent 可使用 read / search 工具探索代码库以补充上下文。
+ * @param docContent 文档全文
+ * @returns 组装好的 task prompt
+ */
+export function buildParseDocPrompt(docContent: string): string {
+  return [
+    'Analyze the following document and extract structured tasks as a JSON array.',
+    'Each task object must have:',
+    '  - id: string (unique identifier, e.g. "T1" or "IMP-005")',
+    '  - label: string (human-readable label, concise action description)',
+    '  - docExcerpt: string (relevant excerpt from the document)',
+    '  - allowedFiles: string[] (files the task may modify, empty if unknown)',
+    '  - forbiddenFiles: string[] (files the task must not touch, empty if unknown)',
+    '',
+    'Do not use any tools. Respond with ONLY the JSON array, no markdown fences, no extra prose.',
+    '',
+    'Document:',
+    docContent,
+  ].join('\n');
+}
+
+/**
+ * 通过 ACP transport 调用 agent 解析文档,提取结构化任务列表(第二层)。
+ *
+ * 构造 TransportRequest → transport.execute() → 解析 agent 返回的 JSON 数组。
+ * 复用 parseTasksFromLLMOutput() 处理 code fence / 多候选 / id+label 校验。
+ *
+ * @param docContent 文档全文
+ * @param transport ACP transport 实例
+ * @param descriptor 目标 agent 描述符
+ * @returns 解析结果(source='acp')
+ */
+export async function parseDocViaAcp(
+  docContent: string,
+  transport: AgentTransport,
+  descriptor: AgentDescriptor,
+): Promise<ParseDocResult> {
+  const workspaceRoot = process.cwd();
+  const traceId = `parse-doc-${Date.now()}`;
+  const result = await transport.execute({
+    descriptor,
+    workspaceRoot,
+    taskPrompt: buildParseDocPrompt(docContent),
+    mode: 'run',
+    traceContext: { traceId, source: 'cli' },
+    parentSpanId: '',
+    securityContext: { cwd: workspaceRoot, sessionId: traceId },
+    timeoutMs: 120_000,
+  });
+
+  if (!result.success) {
+    throw new Error(`ACP parse-doc failed: ${result.error?.message ?? 'unknown error'}`);
+  }
+
+  // agent 返回 JSON 数组(可能包裹在 markdown fence 中),复用已有解析器
+  const tasks = parseTasksFromLLMOutput(result.output);
+  return {
+    tasks,
+    source: 'acp',
+    degraded: false,
+    warnings: [],
+  };
+}
+
+export async function parseDocTaskResult(
+  context: InfrastructureContext,
+  filePath: string,
+  deps?: ParseDocDeps,
+): Promise<ParseDocResult> {
   const logger = context.logger.getLogger('parse-doc');
-  const maxDocLength = context.environment.getEnvNumber('PARSE_DOC_MAX_LENGTH', DEFAULT_MAX_DOC_LENGTH) ?? DEFAULT_MAX_DOC_LENGTH;
-  const maxRetries = context.environment.getEnvNumber('PARSE_DOC_MAX_RETRIES', DEFAULT_MAX_RETRIES) ?? DEFAULT_MAX_RETRIES;
 
   const absolutePath = context.environment.resolvePath(filePath);
   if (!context.environment.exists(absolutePath)) {
@@ -359,138 +442,79 @@ export async function parseDocTaskResult(context: InfrastructureContext, filePat
     };
   }
 
-  const llmConfig = createLLMConfig();
-  if (!llmConfig) {
-    const warning = 'LLM 未配置，已降级为正则解析';
-    logger.warn(warning);
-    const fallbackTasks = fallbackParseByRegex(docContent);
-    if (fallbackTasks.length === 0) {
-      throw new VectaHubError('LLM 未配置且正则解析未提取到任务，请先运行 vectahub setup 配置 AI 提供商', ErrorType.CONFIGURATION);
-    }
-    logger.info(`正则 fallback 解析到 ${fallbackTasks.length} 个任务`);
-    return {
-      tasks: fallbackTasks,
-      source: 'regex-fallback',
-      degraded: true,
-      warnings: [warning],
-    };
-  }
-
-  const client = new LLMClient(llmConfig, { auditHelper: context.audit.getHelper() });
-
-  if (docContent.length <= maxDocLength) {
-    return {
-      tasks: await callLLMWithRetry(logger, client, docContent, maxRetries),
-      source: 'llm',
-      degraded: false,
-      warnings: [],
-    };
-  }
-
-  logger.info(`文档长度 ${docContent.length} 超出限制 ${maxDocLength}，启用分段解析`);
-  const chunks = splitDocIntoChunks(docContent, maxDocLength);
-  logger.info(`文档分为 ${chunks.length} 段`);
-
-  const allTasks: DocTask[][] = [];
-
-  for (let i = 0; i < chunks.length; i++) {
-    let content = chunks[i];
-    if (i > 0) {
-      content = CONTINUATION_PREFIX + content;
-    }
-    if (i < chunks.length - 1) {
-      content = content + CONTINUATION_SUFFIX;
-    }
-
-    logger.info(`正在解析第 ${i + 1}/${chunks.length} 段 (${content.length} 字符)...`);
-
+  // 第二层:ACP agent 解析(transport 可用时)
+  if (deps?.transport && deps?.descriptor) {
     try {
-      const tasks = await callLLMWithRetry(logger, client, content, maxRetries);
-      allTasks.push(tasks);
-      logger.info(`第 ${i + 1}/${chunks.length} 段解析成功，得到 ${tasks.length} 个任务`);
+      const acpResult = await parseDocViaAcp(docContent, deps.transport, deps.descriptor);
+      if (acpResult.tasks.length > 0) {
+        logger.info(`ACP agent 解析到 ${acpResult.tasks.length} 个任务`);
+        return acpResult;
+      }
+      logger.warn('ACP agent 解析未提取到任务，降级为正则解析');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      logger.warn(`第 ${i + 1}/${chunks.length} 段解析失败: ${message}，继续处理其余段`);
+      logger.warn(`ACP agent 解析失败，降级为正则解析: ${message}`);
     }
   }
 
-  if (allTasks.length === 0) {
-    const warning = '所有分段 LLM 解析均失败，已降级为正则解析';
-    logger.warn(warning);
-    const fallbackTasks = fallbackParseByRegex(docContent);
-    if (fallbackTasks.length === 0) {
-      throw new VectaHubError(
-        `所有分段解析均失败且正则 fallback 未提取到任务。\n` +
-        `  文档路径: ${absolutePath}\n` +
-        `  文档大小: ${docContent.length} 字节\n` +
-        `  分段数: ${chunks.length}\n` +
-        `  LLM 提供商: ${llmConfig.provider}/${llmConfig.model}`,
-        ErrorType.RUNTIME
-      );
-    }
-    logger.info(`正则 fallback 解析到 ${fallbackTasks.length} 个任务`);
-    return {
-      tasks: fallbackTasks,
-      source: 'regex-fallback',
-      degraded: true,
-      warnings: [warning],
-    };
+  // 第三层:regex fallback(transport 不可用或 ACP 失败时)
+  const warning = 'LLM 解析已移除，已降级为正则解析';
+  logger.warn(warning);
+  const fallbackTasks = fallbackParseByRegex(docContent);
+  if (fallbackTasks.length === 0) {
+    throw new VectaHubError('正则解析未提取到任务，待 ACP 模式接入', ErrorType.CONFIGURATION);
   }
-
-  const merged = mergeAndDeduplicateDocTasks(allTasks);
-  logger.info(`分段解析完成：${allTasks.length} 段共解析 ${merged.length} 个任务（已去重）`);
-
-  const warnings = allTasks.length < chunks.length
-    ? [`部分分段 LLM 解析失败，已基于 ${allTasks.length}/${chunks.length} 个成功分段汇总任务`]
-    : [];
-
+  logger.info(`正则 fallback 解析到 ${fallbackTasks.length} 个任务`);
   return {
-    tasks: merged,
-    source: 'llm',
-    degraded: warnings.length > 0,
-    warnings,
+    tasks: fallbackTasks,
+    source: 'regex-fallback',
+    degraded: true,
+    warnings: [warning],
   };
 }
 
-export async function parseDocTasks(context: InfrastructureContext, filePath: string): Promise<DocTask[]> {
-  const result = await parseDocTaskResult(context, filePath);
+export async function parseDocTasks(
+  context: InfrastructureContext,
+  filePath: string,
+  deps?: ParseDocDeps,
+): Promise<DocTask[]> {
+  const result = await parseDocTaskResult(context, filePath, deps);
   return result.tasks;
-}
-
-async function callLLMWithRetry(logger: ReturnType<InfrastructureContext['logger']['getLogger']>, client: LLMClient, docContent: string, maxRetries: number): Promise<DocTask[]> {
-  let lastError: Error | null = null;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      if (attempt > 0) {
-        logger.info(`第 ${attempt + 1} 次尝试 (共 ${maxRetries + 1} 次)...`);
-      }
-      const rawOutput = await client.completeRaw(DOC_TASK_PARSER_ID, '请只提取尚需开发或补齐的任务缺口', {
-        docContent,
-      });
-      return parseTasksFromLLMOutput(rawOutput);
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      if (attempt < maxRetries) {
-        logger.warn(`第 ${attempt + 1} 次 LLM 解析失败: ${lastError.message}，将重试`);
-      }
-    }
-  }
-
-  throw lastError;
 }
 
 export function parseTasksFromLLMOutput(output: string): DocTask[] {
   const cleaned = output.trim();
 
+  // 去除 markdown code fence
   const codeBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
   const jsonSource = codeBlockMatch ? codeBlockMatch[1].trim() : cleaned;
 
+  // 优先尝试直接解析整个字符串(ACP agent 通常返回纯 JSON)
+  try {
+    const parsed = JSON.parse(jsonSource);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return validateTasks(parsed as DocTask[]);
+    }
+  } catch {
+    // 不是纯 JSON,继续尝试提取
+  }
+
+  // 降级:用括号匹配提取 JSON 数组(处理嵌套对象中的 ])
   const candidates: string[] = [];
-  const arrayRegex = /\[[\s\S]*?\]/g;
-  let match: RegExpExecArray | null;
-  while ((match = arrayRegex.exec(jsonSource)) !== null) {
-    candidates.push(match[0]);
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < jsonSource.length; i++) {
+    const ch = jsonSource[i];
+    if (ch === '[') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === ']') {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        candidates.push(jsonSource.slice(start, i + 1));
+        start = -1;
+      }
+    }
   }
 
   if (candidates.length === 0) {
@@ -498,31 +522,27 @@ export function parseTasksFromLLMOutput(output: string): DocTask[] {
     throw new Error(`LLM 输出中未找到有效的 JSON 数组 (输出前 200 字符: ${preview})`);
   }
 
-  let tasks: DocTask[] | null = null;
-  let lastError: Error | null = null;
-
   for (const candidate of candidates) {
     try {
       const parsed = JSON.parse(candidate);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        tasks = parsed as DocTask[];
-        break;
+        return validateTasks(parsed as DocTask[]);
       }
-    } catch (e) {
-      lastError = e instanceof Error ? e : new Error(String(e));
+    } catch {
+      // 继续尝试下一个候选
     }
   }
 
-  if (!tasks) {
-    throw new Error(`JSON 解析失败: ${lastError?.message || '未找到有效数组'}`);
-  }
+  throw new Error('JSON 解析失败: 所有候选均无法解析');
+}
 
+/** 校验任务列表,确保每个任务有 id 和 label。 */
+function validateTasks(tasks: DocTask[]): DocTask[] {
   for (const task of tasks) {
     if (!task.id || !task.label) {
       throw new Error('任务格式无效：每个任务必须包含 id 和 label');
     }
   }
-
   return tasks;
 }
 
@@ -534,14 +554,39 @@ export function createParseDocCmd(context: InfrastructureContext): Command {
     .argument('<path>', '文档文件路径')
     .option('--json', '以 JSON 格式输出')
     .option('--plan', '生成 OrchestrationPlan 作为执行计划')
-    .action(async (filePath: string, options: { json?: boolean; plan?: boolean }) => {
+    .option('--tool <name>', '指定 ACP agent(如 opencode),启用 ACP 解析路径')
+    .action(async (filePath: string, options: { json?: boolean; plan?: boolean; tool?: string }) => {
       if (options.json || options.plan) {
         context.logger.setMuted(true);
       }
       try {
         logger.info(`正在解析文档: ${filePath}`);
 
-        const result = await parseDocTaskResult(context, filePath);
+        // 可选构造 ACP transport:--tool 提供时按 run-task 同款方式构建
+        let deps: ParseDocDeps | undefined;
+        if (options.tool) {
+          const descriptor = getAgentDescriptorById(options.tool) ?? {
+            id: options.tool,
+            displayName: options.tool,
+            entryCommand: options.tool,
+            promptTransport: 'arg' as const,
+            nonInteractiveFlags: [],
+            approvalPolicySupport: 'none' as const,
+            structuredOutputSupport: false,
+            preflightSpec: { versionArgs: [] },
+            dryRunRenderMode: 'prompt-only' as const,
+          };
+          const acpConfig: AcpConfig = {
+            agentId: options.tool,
+            command: descriptor.entryCommand,
+            args: descriptor.subcommand ? [descriptor.subcommand, 'acp'] : ['acp'],
+            defaultTimeoutMs: 120_000,
+            permissionMode: 'ask',
+          };
+          deps = { transport: createTransport(acpConfig), descriptor };
+        }
+
+        const result = await parseDocTaskResult(context, filePath, deps);
         const { tasks } = result;
 
         if (options.plan) {

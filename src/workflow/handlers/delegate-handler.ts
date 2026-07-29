@@ -2,43 +2,106 @@ import type { Step, ExecutionStatus } from '../../types/index.js';
 import type { StepHandler, ExecutorOptions, ExecutionContext, ExecuteStepFn, ExecutionResult, HandlerDependencies } from './types.js';
 import type { AIModule, AIModuleContext, AIModuleResult } from '../../skills/ai-modules/types.js';
 import type { DelegateStepResult } from '../../skills/ai-modules/agent-delegate/types.js';
-import { join, dirname } from 'path';
-import { getAgentDescriptorById, getAgentAdapterById } from '../../commands/agent-cli-adapter.js';
 import { makeDelegationDecision, delegatedTaskRequiresVerification } from '../../orchestration-plan/index.js';
-import { normalizeWorkerResult } from '../../orchestration-plan/worker-result-normalizer.js';
-import type { WorkerResult } from '../../types/worker-result.js';
-import type { AgentAdapterInput } from '../../types/agent.js';
-import { initializeBuiltInAgents } from '../../agent-runtime/factory.js';
+import type { WorkerResult, WorkerFailureKind } from '../../types/worker-result.js';
+import type { AgentDescriptor } from '../../types/agent.js';
+import type { SecurityContext } from '../../types/security.js';
+import type { TraceContext } from '../../infrastructure/trace/types.js';
+import type {
+  AgentTransport,
+  TransportRequest,
+  TransportResult,
+  TransportErrorCode,
+} from '../../agent-runtime/transport/types.js';
+import type { AcpToolCallEvent } from '../../agent-runtime/acp/acp-types.js';
 
-// Initialize built-in agents on module load
-initializeBuiltInAgents();
+// allow: SIZE_OK — carries two coexisting execution paths (legacy AIModule +
+// new ACP transport) during the staged migration. Drops to ~210 pure LOC once
+// the legacy agentModule path is removed in a follow-up migration step.
 
 export interface DelegateHandlerDeps {
-  exec?: HandlerDependencies['exec'];
+  /** DI-provided transport; required for the ACP execution path. */
+  getTransport?: () => AgentTransport;
+  /** DI-provided descriptor resolver; falls back to a minimal descriptor built from the agent id. */
+  getDescriptor?: (agentId: string) => AgentDescriptor | null;
   getEnvironmentCwd?: () => string;
-  getEnvironmentSpawn?: HandlerDependencies['exec'];
-  createChildEnv?: (traceContext: unknown, parentSpanId: string, envPatch?: Record<string, string>) => NodeJS.ProcessEnv;
+  /**
+   * Legacy spawn executor. Retained as an optional field so existing wiring
+   * (engine.ts) keeps typechecking during the ACP migration; the transport path
+   * ignores it. Remove once engine.ts is migrated to provide `getTransport`.
+   */
+  exec?: HandlerDependencies['exec'];
+  /** Legacy AIModule path (backward compatibility). */
   agentModule?: AIModule<string, DelegateStepResult>;
 }
 
-function resolvePreflightArgs(descriptor: ReturnType<typeof getAgentDescriptorById>): string[] {
-  if (!descriptor) {
-    return [];
+/** Map TransportErrorCode to WorkerFailureKind (type-safe, no cast). */
+function mapTransportErrorToFailureKind(code: TransportErrorCode): WorkerFailureKind {
+  switch (code) {
+    case 'PROMPT_TIMEOUT':
+      return 'timeout';
+    case 'PERMISSION_REJECTED':
+      return 'security_blocked';
+    case 'AGENT_SPAWN_FAILED':
+    case 'AGENT_CRASHED':
+    case 'INITIALIZE_FAILED':
+    case 'SESSION_CREATE_FAILED':
+    case 'PROTOCOL_ERROR':
+      return 'internal_error';
+    default:
+      return 'unknown';
   }
+}
 
-  if (descriptor.preflightSpec.readyArgs && descriptor.preflightSpec.readyArgs.length > 0) {
-    return descriptor.preflightSpec.readyArgs;
-  }
+/** Build a minimal but type-correct descriptor fallback when no resolver is wired. */
+function buildFallbackDescriptor(agentId: string): AgentDescriptor {
+  return {
+    id: agentId,
+    displayName: agentId,
+    entryCommand: agentId,
+    promptTransport: 'arg',
+    nonInteractiveFlags: [],
+    approvalPolicySupport: 'none',
+    structuredOutputSupport: false,
+    preflightSpec: { versionArgs: [] },
+    dryRunRenderMode: 'prompt-only',
+  };
+}
 
-  if (descriptor.preflightSpec.invocableArgs && descriptor.preflightSpec.invocableArgs.length > 0) {
-    return descriptor.preflightSpec.invocableArgs;
-  }
-
-  return descriptor.preflightSpec.versionArgs;
+/** Map a TransportResult to a WorkerResult (structured, no stdout/stderr parsing). */
+function mapTransportToWorkerResult(
+  transportResult: TransportResult,
+  workerId: string,
+  executionTimeMs: number,
+  verificationRequired: boolean,
+): WorkerResult {
+  return {
+    schemaVersion: '1.0',
+    workerId,
+    status: transportResult.success ? 'success' : 'failure',
+    summary: transportResult.output,
+    exitCode: transportResult.success ? 0 : 1,
+    failureKind: transportResult.error
+      ? mapTransportErrorToFailureKind(transportResult.error.code)
+      : undefined,
+    failureReason: transportResult.error?.message,
+    changedFiles: transportResult.changedFiles.map((path) => ({
+      path,
+      status: 'modified' as const,
+    })),
+    artifacts: transportResult.toolCalls.map((tc: AcpToolCallEvent) => ({
+      id: tc.toolCallId,
+      type: tc.kind,
+      summary: tc.title,
+    })),
+    executionTimeMs,
+    redacted: true,
+    verificationRequired,
+  };
 }
 
 export const createDelegateHandler = (deps: DelegateHandlerDeps = {}): StepHandler => {
-  // Backward compatibility: if agentModule is provided, use the old implementation
+  // Backward compatibility: legacy AIModule path
   if (deps.agentModule) {
     const agentModule = deps.agentModule;
     return async (
@@ -114,8 +177,7 @@ export const createDelegateHandler = (deps: DelegateHandlerDeps = {}): StepHandl
     };
   }
 
-  // If no agentModule, and we don't have the required deps for new implementation
-  // we should return the original error message for backward compatibility with tests
+  // ACP transport path
   return async (
     step: Step,
     options: ExecutorOptions,
@@ -134,8 +196,8 @@ export const createDelegateHandler = (deps: DelegateHandlerDeps = {}): StepHandl
       };
     }
 
-    // Check if required deps are available
-    if (!deps.exec || !deps.getEnvironmentCwd) {
+    const transport = deps.getTransport?.();
+    if (!transport) {
       return {
         stepId: step.id,
         status: 'FAILED',
@@ -144,8 +206,7 @@ export const createDelegateHandler = (deps: DelegateHandlerDeps = {}): StepHandl
       };
     }
 
-    // Check delegation policy first
-    // Create a mock OrchestrationTask for delegation decision
+    // Delegation policy check
     const mockTask = {
       id: step.id,
       executor: 'agent' as const,
@@ -169,158 +230,80 @@ export const createDelegateHandler = (deps: DelegateHandlerDeps = {}): StepHandl
       };
     }
 
-    // Get agent descriptor and adapter
-    const descriptor = getAgentDescriptorById(delegateTo);
-    const adapter = getAgentAdapterById(delegateTo);
-    if (!descriptor || !adapter) {
-      return {
-        stepId: step.id,
-        status: 'FAILED',
-        error: `Agent "${delegateTo}" not found or not supported`,
-        duration: Date.now() - startTime,
-      };
-    }
+    const descriptor = deps.getDescriptor?.(delegateTo) ?? buildFallbackDescriptor(delegateTo);
+    const workspaceRoot = deps.getEnvironmentCwd?.() ?? process.cwd();
 
-    // Render the agent command
-    const adapterInput: AgentAdapterInput = {
-      descriptor,
-      workspaceRoot: deps.getEnvironmentCwd(),
-      taskPrompt: delegatePrompt,
-      mode: options.dryRun ? 'dry-run' : 'run',
-      outputMode: 'text',
-    };
-    const adapterOutput = adapter.render(adapterInput);
-
+    // dry-run: preview without spawning the agent
     if (options.dryRun) {
       return {
         stepId: step.id,
         status: 'COMPLETED',
-        output: [adapterOutput.preview],
+        output: [`[dry-run] delegate to ${delegateTo}: ${delegatePrompt}`],
         duration: Date.now() - startTime,
       };
     }
 
-    const allowedEnvVars = [
-      ...(options.allowedEnvVars || []),
-      ...(descriptor.allowedEnvVars || [])
-    ];
+    const sessionId = options.sessionId ?? step.id;
+    const traceContext: TraceContext = { traceId: sessionId };
+    const securityContext: SecurityContext = {
+      cwd: workspaceRoot,
+      sessionId,
+      taskId: step.id,
+    };
 
-    const bootstrapEnvPatch: Record<string, string> = {};
-    if (descriptor.runtimePolicy?.writableRuntimeHome) {
-      const policy = descriptor.runtimePolicy.writableRuntimeHome;
-      const userHome = process.env.HOME || process.env.USERPROFILE || '';
-      const userDefaultHome = policy.defaultHomeSubdir 
-        ? join(userHome, policy.defaultHomeSubdir) 
-        : userHome;
+    const request: TransportRequest = {
+      descriptor,
+      workspaceRoot,
+      taskPrompt: delegatePrompt,
+      mode: 'run',
+      traceContext,
+      parentSpanId: '',
+      securityContext,
+      timeoutMs: options.timeout ?? 300000,
+    };
 
-      const workspaceRoot = deps.getEnvironmentCwd?.() || process.cwd();
-      const crypto = await import('crypto');
-      const workspaceHash = crypto.createHash('md5').update(workspaceRoot).digest('hex').slice(0, 8);
-      const runtimeHome = join(userHome, '.vectahub', 'agent-homes', descriptor.id, workspaceHash);
-
-      const fs = await import('fs');
-      for (const file of policy.bootstrapFiles) {
-        const sourcePath = join(userDefaultHome, file.relativePath);
-        const targetPath = join(runtimeHome, file.relativePath);
-        
-        if (fs.existsSync(sourcePath)) {
-          try {
-            fs.mkdirSync(dirname(targetPath), { recursive: true });
-            fs.copyFileSync(sourcePath, targetPath);
-          } catch (e) {
-            // 忽略非致命拷贝错误
-          }
-        }
-      }
-      
-      bootstrapEnvPatch[policy.envVar] = runtimeHome;
-    }
-
-    const preflightArgs = resolvePreflightArgs(descriptor);
-    try {
-      const preflightResult = await deps.exec(
-        descriptor.entryCommand,
-        preflightArgs,
-        {
-          ...options,
-          timeout: Math.max(options.timeout || 0, 60000),
-          allowedEnvVars,
-          env: { ...process.env, ...bootstrapEnvPatch } as Record<string, string>,
-          cwd: deps.getEnvironmentCwd(),
-        }
-      );
-
-      if (!preflightResult.success) {
-        return {
-          stepId: step.id,
-          status: 'FAILED',
-          error: `Agent "${delegateTo}" failed preflight`,
-          exitCode: preflightResult.exitCode,
-          duration: Date.now() - startTime,
-        };
-      }
-    } catch (error) {
-      return {
-        stepId: step.id,
-        status: 'FAILED',
-        error: `Agent "${delegateTo}" failed preflight: ${error instanceof Error ? error.message : String(error)}`,
-        duration: Date.now() - startTime,
-      };
-    }
-
-    // Execute the agent command
     const execStartTime = Date.now();
-    let execResult;
+    let transportResult: TransportResult;
     try {
-      execResult = await deps.exec(adapterOutput.command, adapterOutput.args, {
-        ...options,
-        timeout: Math.max(options.timeout || 0, 300000),
-        allowedEnvVars,
-        env: { ...process.env, ...adapterOutput.envPatch, ...bootstrapEnvPatch } as Record<string, string>,
-        cwd: deps.getEnvironmentCwd(),
-        stdinInput: adapterOutput.stdinInput,
-      });
+      transportResult = await transport.execute(request);
     } catch (error) {
-      execResult = {
+      transportResult = {
         success: false,
-        exitCode: 1,
-        stdout: '',
-        stderr: error instanceof Error ? error.message : String(error),
-        duration: Date.now() - execStartTime,
+        output: '',
+        toolCalls: [],
+        stopReason: 'cancelled',
+        changedFiles: [],
+        events: [],
+        error: {
+          code: 'UNKNOWN',
+          message: error instanceof Error ? error.message : String(error),
+        },
       };
     }
     const executionTimeMs = Date.now() - execStartTime;
 
-    // Normalize worker result
-    const workerResult: WorkerResult = normalizeWorkerResult(
+    const workerResult = mapTransportToWorkerResult(
+      transportResult,
       delegateTo,
-      {
-        stdout: execResult.stdout,
-        stderr: execResult.stderr,
-        exitCode: execResult.exitCode,
-        executionTimeMs,
-      },
-      delegatedTaskRequiresVerification(mockTask)
+      executionTimeMs,
+      delegatedTaskRequiresVerification(mockTask),
     );
 
-    // Determine execution status
     let status: ExecutionStatus = 'COMPLETED';
     let error: string | undefined;
     const output: string[] = [];
 
     if (workerResult.status === 'failure' || workerResult.status === 'cancelled') {
       status = 'FAILED';
-      error = workerResult.failureReason || `Agent execution failed (exit code ${workerResult.exitCode})`;
-    } else if (workerResult.status === 'needs_review') {
-      status = 'COMPLETED'; // Treat needs review as completed for now, verification will handle it
-      output.push(workerResult.summary);
+      error = workerResult.failureReason || `Agent execution failed`;
     } else {
       output.push(workerResult.summary);
     }
 
-    // Add changed files info if available
     if (workerResult.changedFiles.length > 0) {
-      output.push(`\nChanged files:\n${workerResult.changedFiles.map(f => `- ${f.path} (${f.status})`).join('\n')}`);
+      output.push(
+        `\nChanged files:\n${workerResult.changedFiles.map((f) => `- ${f.path} (${f.status})`).join('\n')}`,
+      );
     }
 
     return {

@@ -212,6 +212,7 @@ describe('Bug Fix: credit card pattern false positives', () => {
 describe('Bug Fix: run.ts env variable cleanup', () => {
   it('restoreEnvValue should restore to undefined when previous was undefined', () => {
     function restoreEnvValue(name: string, previousValue: string | undefined): void {
+      // codeql[unneeded-defensive-code] regression test for run.ts env-leak fix
       if (previousValue === undefined) {
         delete process.env[name];
       } else {
@@ -227,6 +228,7 @@ describe('Bug Fix: run.ts env variable cleanup', () => {
 
   it('restoreEnvValue should restore to previous value', () => {
     function restoreEnvValue(name: string, previousValue: string | undefined): void {
+      // codeql[unneeded-defensive-code] regression test for run.ts env-leak fix
       if (previousValue === undefined) {
         delete process.env[name];
       } else {

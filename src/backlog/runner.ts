@@ -11,27 +11,30 @@ export interface RunnerOptions {
   itemsDir: string;
   runId: string;
   owner: string;
+  logger?: { log: (...args: unknown[]) => void; error: (...args: unknown[]) => void; warn: (...args: unknown[]) => void };
 }
 
 export function startTask(
   taskId: string,
   itemsDir: string,
   runId: string,
-  owner: string
+  owner: string,
+  logger?: RunnerOptions["logger"]
 ): BacklogItem | null {
+  const log = logger ?? console;
   const filePath = getItemFilePath(itemsDir, taskId);
   const item = parseBacklogItem(filePath);
-  
-  const claim = createAtomicClaim(taskId, runId, owner);
+
+  const claim = createAtomicClaim(taskId, runId, owner, logger);
   if (!claim) {
-    console.error(`Failed to create atomic claim for task ${taskId}`);
+    log.error(`Failed to create atomic claim for task ${taskId}`);
     return null;
   }
-  
+
   const previousStatus = item.status;
   const timestamp = getTimestamp();
   item.status = `in-progress:${timestamp}`;
-  
+
   item.lock = {
     owner: owner,
     run_id: runId,
@@ -39,10 +42,10 @@ export function startTask(
     expires_at: getTimestamp(),
     previous_status: previousStatus as "todo" | "needs-fix",
   };
-  
+
   writeBacklogItem(filePath, item);
-  console.log(`Started task ${taskId} (status: ${item.status})`);
-  
+  log.log(`Started task ${taskId} (status: ${item.status})`);
+
   return item;
 }
 
@@ -52,16 +55,18 @@ export function completeTask(
   runId: string,
   verificationResults: string[],
   changedFiles: string[],
-  commit: string
+  commit: string,
+  logger?: RunnerOptions["logger"]
 ): BacklogItem | null {
+  const log = logger ?? console;
   const filePath = getItemFilePath(itemsDir, taskId);
   const item = parseBacklogItem(filePath);
-  
+
   if (!item.lock || item.lock.run_id !== runId) {
-    console.error(`Cannot complete task ${taskId}: invalid lock or run_id mismatch`);
+    log.error(`Cannot complete task ${taskId}: invalid lock or run_id mismatch`);
     return null;
   }
-  
+
   item.status = "done";
   item.completion = {
     verified_at: getTimestamp(),
@@ -69,13 +74,13 @@ export function completeTask(
     verification_results: verificationResults,
     changed_files: changedFiles,
   };
-  
+
   delete item.lock;
-  
+
   writeBacklogItem(filePath, item);
-  deleteClaim(taskId, runId);
-  
-  console.log(`Completed task ${taskId} (status: done)`);
+  deleteClaim(taskId, runId, logger);
+
+  log.log(`Completed task ${taskId} (status: done)`);
   return item;
 }
 
@@ -84,56 +89,60 @@ export function failTask(
   itemsDir: string,
   runId: string,
   notes?: string,
-  isBlocked: boolean = false
+  isBlocked: boolean = false,
+  logger?: RunnerOptions["logger"]
 ): BacklogItem | null {
+  const log = logger ?? console;
   const filePath = getItemFilePath(itemsDir, taskId);
   const item = parseBacklogItem(filePath);
-  
+
   if (!item.lock || item.lock.run_id !== runId) {
-    console.error(`Cannot fail task ${taskId}: invalid lock or run_id mismatch`);
+    log.error(`Cannot fail task ${taskId}: invalid lock or run_id mismatch`);
     return null;
   }
-  
+
   if (isBlocked) {
     item.status = "blocked";
   } else {
     item.status = "needs-fix";
   }
-  
+
   if (notes) {
     item.notes = notes;
   }
-  
+
   delete item.lock;
-  
+
   writeBacklogItem(filePath, item);
-  deleteClaim(taskId, runId);
-  
-  console.log(`Failed task ${taskId} (status: ${item.status})`);
+  deleteClaim(taskId, runId, logger);
+
+  log.log(`Failed task ${taskId} (status: ${item.status})`);
   return item;
 }
 
 export function releaseLock(
   taskId: string,
   itemsDir: string,
-  runId: string
+  runId: string,
+  logger?: RunnerOptions["logger"]
 ): BacklogItem | null {
+  const log = logger ?? console;
   const filePath = getItemFilePath(itemsDir, taskId);
   const item = parseBacklogItem(filePath);
-  
+
   if (!item.lock || item.lock.run_id !== runId) {
-    console.error(`Cannot release lock for task ${taskId}: invalid lock or run_id mismatch`);
+    log.error(`Cannot release lock for task ${taskId}: invalid lock or run_id mismatch`);
     return null;
   }
-  
+
   const previousStatus = item.lock.previous_status;
   item.status = previousStatus;
-  
+
   delete item.lock;
-  
+
   writeBacklogItem(filePath, item);
-  deleteClaim(taskId, runId);
-  
-  console.log(`Released lock for task ${taskId} (status: ${item.status})`);
+  deleteClaim(taskId, runId, logger);
+
+  log.log(`Released lock for task ${taskId} (status: ${item.status})`);
   return item;
 }

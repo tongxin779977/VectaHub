@@ -7,9 +7,7 @@ import {
   SkillCacheEntry,
   SkillCacheConfig
 } from './types.js';
-import { getLogger } from '../infrastructure/logger/index.js';
-
-const logger = getLogger('skill-registry');
+import type { Logger } from '../infrastructure/logger/index.js';
 
 /**
  * Result of a skill match operation
@@ -79,6 +77,11 @@ export class SkillRegistry {
     ttl: 3600000,
     enabled: true
   };
+  private logger: Logger;
+
+  constructor(logger: Logger) {
+    this.logger = logger;
+  }
 
   /**
    * Registers a new skill in the registry
@@ -248,7 +251,7 @@ export class SkillRegistry {
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        logger.warn({ path: discoveryPath, error: message }, 'Skill discovery path scan failed');
+        this.logger.warn({ path: discoveryPath, error: message }, 'Skill discovery path scan failed');
       }
     }
 
@@ -322,7 +325,7 @@ export class SkillRegistry {
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        logger.warn({ skillId: skill.id, error: message }, 'Skill applicability check failed');
+        this.logger.warn({ skillId: skill.id, error: message }, 'Skill applicability check failed');
       }
     }
     return applicable.sort((a, b) => b.tags.length - a.tags.length);
@@ -424,7 +427,7 @@ export class SkillRegistry {
    * Not yet implemented — returns empty array. Callers receive a warning log.
    */
   private async scanForSkills(path: string): Promise<Skill[]> {
-    logger.warn({ path }, 'Skill discovery scanner not implemented; returning empty results');
+    this.logger.warn({ path }, 'Skill discovery scanner not implemented; returning empty results');
     return [];
   }
 
@@ -508,6 +511,6 @@ export class SkillRegistry {
  * Creates a new SkillRegistry instance
  * @returns A new SkillRegistry
  */
-export function createSkillRegistry(): SkillRegistry {
-  return new SkillRegistry();
+export function createSkillRegistry(logger: Logger): SkillRegistry {
+  return new SkillRegistry(logger);
 }

@@ -261,7 +261,7 @@ async function importFromArchive(environment: IEnvironmentService, logger: pino.
 
 async function exportExecutionsAsData(environment: IEnvironmentService, logger: pino.Logger, options: { output: string; status?: string; limit: string; format: string }): Promise<void> {
   const join = (...args: string[]) => environment.joinPath(...args);
-  const recordManager = createRecordManager();
+  const recordManager = createRecordManager(environment.getPath('executions'));
   const limit = parseInt(options.limit, 10) || 100;
   const records = await recordManager.getRecent(limit);
 

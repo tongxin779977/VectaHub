@@ -6,8 +6,9 @@
  */
 
 import {
-  createTraceAuditSystem,
+  createTraceAuditSystemWithDeps,
   type TraceAuditSystem,
+  type TraceAuditSystemDeps,
   type ExecutionStatus,
   type TraceQueryOptions,
   type TraceQueryResult,
@@ -129,11 +130,11 @@ export class WorkflowTraceAuditAdapter {
   private config: TraceAuditIntegrationConfig;
   private traceSystem: TraceAuditSystem | null = null;
 
-  constructor(config?: Partial<TraceAuditIntegrationConfig>) {
+  constructor(deps: TraceAuditSystemDeps, config?: Partial<TraceAuditIntegrationConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     
     if (this.config.enabled) {
-      this.traceSystem = createTraceAuditSystem({
+      this.traceSystem = createTraceAuditSystemWithDeps(deps, {
         logDir: this.config.logDir,
       });
     }
@@ -305,7 +306,8 @@ export class WorkflowTraceAuditAdapter {
  * Create Workflow Trace Audit Adapter Factory Function
  */
 export function createWorkflowTraceAuditAdapter(
+  deps: TraceAuditSystemDeps,
   config?: Partial<TraceAuditIntegrationConfig>
 ): WorkflowTraceAuditAdapter {
-  return new WorkflowTraceAuditAdapter(config);
+  return new WorkflowTraceAuditAdapter(deps, config);
 }

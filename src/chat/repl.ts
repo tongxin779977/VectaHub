@@ -169,8 +169,6 @@ export function createREPL(deps: ReplDeps) {
       nlProcessor: deps.nlProcessor,
       taskContractProcessor: deps.taskContractProcessor,
       sessionManager: deps.sessionManager,
-      useLLM: deps.useLLM,
-      llmConfig: deps.llmConfig,
       auditHelper: deps.auditHelper,
       workflowEngine: deps.workflowEngine,
       commandExecutor: deps.commandExecutor,

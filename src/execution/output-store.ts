@@ -1,7 +1,6 @@
 import { join } from 'node:path';
 import { mkdir, readFile, writeFile, readdir, rm, stat } from 'node:fs/promises';
 import type { OutputReference } from './types.js';
-import { getVectaHubPath } from '../infrastructure/paths/index.js';
 
 export interface OutputStore {
   save(executionId: string, stepId: string, stdout: string, stderr?: string): Promise<OutputReference>;
@@ -36,11 +35,14 @@ function makeSummary(content: string, maxLen = DEFAULT_SUMMARY_MAX_LEN): string 
  *
  * Stores stdout/stderr per step as individual files under `baseDir/<executionId>/`.
  *
- * @param baseDir - Base directory for output storage. Defaults to `<VectaHub>/outputs`.
+ * @param baseDir - Base directory for output storage.
  * @returns An {@link OutputStore} instance
  */
-export function createOutputStore(baseDir?: string): OutputStore {
-  const dir = baseDir || getVectaHubPath('outputs');
+export function createOutputStore(baseDir: string): OutputStore {
+  if (!baseDir) {
+    throw new Error('createOutputStore requires baseDir');
+  }
+  const dir = baseDir;
 
   return {
     async save(executionId: string, stepId: string, stdout: string, stderr = ''): Promise<OutputReference> {

@@ -2,8 +2,8 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { platform } from 'node:os';
 
-import { getVectaHubPath } from '../infrastructure/paths/index.js';
 import { createDetector, type Detector } from './detector.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 import { CommandRuleEngine, createCommandRuleEngine } from '../command-rules/index.js';
 import {
   loadGlobalBlocklist,
@@ -65,36 +65,42 @@ export type {
  * defaultPolicy: 'passthrough' 是有意设计——当命令未命中黑白名单时，
  * 交给后续的危险命令检测系统 (detector) 处理，而非直接拒绝。
  * CommandRuleEvaluator (security-protocol) 也独立使用 'passthrough' 以保证安全评估管线完整性。
+ *
+ * @param environment - 环境服务，用于解析 VectaHub 主目录下的沙箱路径
+ * @returns SandboxManager 内部运行时默认配置
  */
-const DEFAULT_CONFIG: SandboxConfig = {
-  root: getVectaHubPath('sandbox'),
-  workspace: getVectaHubPath('sandbox', 'workspace'),
-  tempDir: getVectaHubPath('sandbox', 'tmp'),
-  cacheDir: getVectaHubPath('sandbox', 'cache'),
-  mode: 'RELAXED',
-  maxMemoryMB: 512,
-  timeoutMs: 60000,
-  allowedEnvVars: [
-    'PATH', 'HOME', 'USER', 'LANG', 'LC_ALL',
-    'GEMINI_API_KEY',
-    'OPENAI_API_KEY',
-    'ANTHROPIC_API_KEY',
-    'GROQ_API_KEY',
-    'OLLAMA_API_KEY',
-    'DEEPSEEK_API_KEY',
-    'VECTAHUB_LLM_PROVIDER',
-    'VECTAHUB_LLM_MODEL',
-    'VECTAHUB_LLM_BASE_URL'
-  ],
-  namespaceIsolation: true,
-  defaultPolicy: 'passthrough',
-};
+function createDefaultConfig(environment: IEnvironmentService): SandboxConfig {
+  return {
+    root: environment.getPath('sandbox'),
+    workspace: environment.getPath('sandbox', 'workspace'),
+    tempDir: environment.getPath('sandbox', 'tmp'),
+    cacheDir: environment.getPath('sandbox', 'cache'),
+    mode: 'RELAXED',
+    maxMemoryMB: 512,
+    timeoutMs: 60000,
+    allowedEnvVars: [
+      'PATH', 'HOME', 'USER', 'LANG', 'LC_ALL',
+      'GEMINI_API_KEY',
+      'OPENAI_API_KEY',
+      'ANTHROPIC_API_KEY',
+      'GROQ_API_KEY',
+      'OLLAMA_API_KEY',
+      'DEEPSEEK_API_KEY',
+      'VECTAHUB_LLM_PROVIDER',
+      'VECTAHUB_LLM_MODEL',
+      'VECTAHUB_LLM_BASE_URL'
+    ],
+    namespaceIsolation: true,
+    defaultPolicy: 'passthrough',
+  };
+}
 
 /**
  * 沙箱管理器依赖注入接口
  * 用于支持自定义替换各个组件，提高可测试性
  */
 export interface SandboxManagerDeps {
+  environment: IEnvironmentService;
   detector?: Detector;
   ruleEngine?: CommandRuleEngine;
   audit: AuditHelper;
@@ -122,13 +128,14 @@ export class SandboxManager {
   } | null = null;
 
   constructor(config: Partial<SandboxConfig> & { projectPath?: string } = {}, deps: SandboxManagerDeps) {
+    const environment = deps.environment;
     const workspaceDefault = config.workspace || process.cwd();
-    this.config = { ...DEFAULT_CONFIG, ...config, workspace: workspaceDefault };
+    this.config = { ...createDefaultConfig(environment), ...config, workspace: workspaceDefault };
     this.projectPath = config.projectPath;
     this.detector = deps.detector ?? createDetector();
     const commandRuleLoader = deps.commandRuleLoader ?? {
       logger: console,
-      getGlobalConfigPath: () => getVectaHubPath('command-rules'),
+      getGlobalConfigPath: () => environment.getPath('command-rules'),
     };
     this.ruleEngine = deps.ruleEngine ?? createCommandRuleEngine({
       globalBlocklist: loadGlobalBlocklist(commandRuleLoader),
@@ -138,7 +145,7 @@ export class SandboxManager {
       defaultPolicy: this.config.defaultPolicy || 'passthrough',
     });
     this.auditHelper = deps.audit;
-    this.securityGuard = deps.securityGuard ?? createSecurityGuard();
+    this.securityGuard = deps.securityGuard ?? createSecurityGuard({ environment });
     this.ensureDirectories();
   }
 
@@ -438,8 +445,8 @@ export interface Sandbox {
  * @param mode - 沙箱模式，默认 'RELAXED'
  * @returns 沙箱实例，包含 shouldBlock、isDangerous、setMode 方法
  */
-export function createSandbox(mode: SandboxMode = 'RELAXED'): Sandbox {
-  const manager = createSandboxManager({ mode }, { audit: createNoopAuditHelper() });
+export function createSandbox(mode: SandboxMode = 'RELAXED', environment: IEnvironmentService): Sandbox {
+  const manager = createSandboxManager({ mode }, { environment, audit: createNoopAuditHelper() });
   
   return {
     get mode() {

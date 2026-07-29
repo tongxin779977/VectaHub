@@ -18,7 +18,10 @@ export function createArchiveCmd(context: InfrastructureContext): Command {
     .option('-r, --restore <archiveId>', 'Restore an archive')
     .option('-d, --delete <archiveId>', 'Delete an archive')
     .action(async (options: { before?: string; list?: boolean; restore?: string; delete?: string }) => {
-      const archiver = createArchiver();
+      const archiver = createArchiver({
+        baseDir: context.environment.getPath('archives'),
+        executionsDir: context.environment.getPath('executions'),
+      });
 
       if (options.list) {
         const archives = await archiver.listArchives();

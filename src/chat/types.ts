@@ -7,7 +7,6 @@ import type { ChatConfig } from './config.js';
 import type { Workflow } from '../types/index.js';
 import type { NLProcessor, NLResult } from '../nl/core/types.js';
 import type { SessionManager } from '../nl/session-manager.js';
-import type { LLMConfig } from '../nl/llm.js';
 import type { WorkflowEngine } from '../workflow/engine.js';
 import type { CommandBridge } from './command-bridge.js';
 import type { ParamExtractor } from '../nl/param-extractor.js';
@@ -131,10 +130,6 @@ export interface ReplDeps {
   contextBuilder: { buildContext(sessionId?: string): Promise<ContextBuilderResult> };
   /** 会话管理器（可选） */
   sessionManager?: SessionManager;
-  /** 是否启用 LLM */
-  useLLM: boolean;
-  /** LLM 配置（可选） */
-  llmConfig?: LLMConfig | null;
   /** 审计助手 */
   auditHelper: AuditHelper;
   /** 工作流引擎（可选） */
@@ -200,8 +195,6 @@ export interface SessionMetadata {
   lastActivity: Date;
   /** 待执行工作流数量 */
   pendingWorkflowCount: number;
-  /** 是否已启用 LLM */
-  llmEnabled: boolean;
   /** 执行模式 */
   executeMode: ChatConfig['executeMode'];
 }

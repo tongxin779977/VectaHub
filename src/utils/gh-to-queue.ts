@@ -2,7 +2,8 @@ import { getQueueManager } from '../execution/queue-manager.js';
 import type { DiagnosticTask } from '../types/diagnostic.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getVectaHubHome } from '../infrastructure/paths/index.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
+import { createEnvironmentService } from '../infrastructure/environment/index.js';
 
 const modulePath = fileURLToPath(import.meta.url);
 const moduleDir = dirname(modulePath);
@@ -26,6 +27,7 @@ export interface ProcessFailedRunsOutput {
 
 export interface ProcessFailedRunsDeps {
   output: ProcessFailedRunsOutput;
+  environment: IEnvironmentService;
 }
 
 const cliOutput: ProcessFailedRunsOutput = {
@@ -35,7 +37,7 @@ const cliOutput: ProcessFailedRunsOutput = {
 
 export async function processFailedRuns(
   input: string,
-  deps: ProcessFailedRunsDeps = { output: cliOutput },
+  deps: ProcessFailedRunsDeps = { output: cliOutput, environment: createEnvironmentService() },
 ): Promise<number> {
   deps.output.log(`Received input of length: ${input.length}`);
   if (input.length > 0) {
@@ -48,7 +50,7 @@ export async function processFailedRuns(
   }
 
   const queueManager = getQueueManager(
-    join(getVectaHubHome(), 'diagnostic-queue.json'),
+    join(deps.environment.getHomePath(), 'diagnostic-queue.json'),
     { logger: queueLogger },
   );
   let count = 0;
@@ -80,7 +82,7 @@ async function main() {
   }
 
   try {
-    await processFailedRuns(input);
+    await processFailedRuns(input, { output: cliOutput, environment: createEnvironmentService() });
   } catch (error) {
     cliOutput.error(`Failed to parse or save runs: ${error}`);
     process.exit(1);

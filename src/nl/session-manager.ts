@@ -10,8 +10,8 @@ import {
   RecentAction,
 } from '../types/index.js';
 import { LifecycleManager } from '../utils/lifecycle-manager.js';
-import { getLogger } from '../infrastructure/logger/index.js';
 import type { Logger } from '../infrastructure/logger/index.js';
+import pino from 'pino';
 
 const execAsync = promisify(exec);
 
@@ -255,7 +255,7 @@ class ProjectContextMemory implements MemoryLayer {
   static async fetchProjectContext(cwd: string, logger?: Logger): Promise<ProjectContext> {
     let gitStatus: ProjectContext['gitStatus'];
     let packageJson: ProjectContext['packageJson'];
-    const localLogger = logger ?? getLogger('session-manager');
+    const localLogger = logger ?? pino({ level: 'silent' });
 
     try {
       const { stdout: branchOutput } = await execAsync('git branch --show-current', { cwd });
@@ -312,7 +312,7 @@ export class SessionManager {
 
   constructor(options: SessionManagerOptions = {}) {
     this.l1WindowRounds = options.l1WindowRounds ?? L1_WINDOW_ROUNDS;
-    this.logger = options.logger ?? getLogger('session-manager');
+    this.logger = options.logger ?? pino({ level: 'silent' });
     this.lifecycle = new LifecycleManager<SessionContext>({
       ttl: options.sessionTimeoutMs ?? DEFAULT_SESSION_TIMEOUT_MS,
       maxCount: options.maxSessions ?? 50,
@@ -357,7 +357,7 @@ export class SessionManager {
     };
     this.createMemoryLayers(sessionId);
     this.lifecycle.set(sessionId, context);
-    this.refreshProjectContext(sessionId).catch(() => {});
+    this.refreshProjectContext(sessionId).catch(e => this.logger?.warn({ sessionId, error: e instanceof Error ? e.message : String(e) }, 'Project context refresh failed'));
     return context;
   }
 

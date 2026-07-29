@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { processFailedRuns } from './gh-to-queue.js';
+import { createEnvironmentService } from '../infrastructure/environment/index.js';
 
 const addTask = vi.fn();
 
@@ -9,6 +10,8 @@ vi.mock('../execution/queue-manager.js', () => ({
     addTask,
   }),
 }));
+
+const environment = createEnvironmentService();
 
 describe('processFailedRuns', () => {
   it('writes queue entries with an executable CLI path', async () => {
@@ -20,7 +23,7 @@ describe('processFailedRuns', () => {
         displayTitle: 'Broken workflow',
         workflowName: 'CI',
       },
-    ]));
+    ]), { output: { log: () => {}, error: () => {} }, environment });
 
     expect(addTask).toHaveBeenCalledTimes(1);
     const task = addTask.mock.calls[0]?.[0];

@@ -12,7 +12,7 @@ export function createResumeCmd(context: InfrastructureContext): Command {
     .option('--from-step <index>', 'Resume from specific step index (0-based)')
     .option('-m, --mode <mode>', 'Execution mode (strict|relaxed|consensus)')
     .action(async (executionId: string, options: { fromStep?: string; mode?: string }) => {
-      const recordManager = createRecordManager();
+      const recordManager = createRecordManager(context.environment.getPath('executions'));
       const record = await recordManager.get(executionId);
 
       if (!record) {

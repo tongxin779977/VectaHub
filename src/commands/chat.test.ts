@@ -8,21 +8,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * - chatCmd 触发后，createRepl 会被调用一次，并使用 buildReplDeps 的结果
  * - 得到的 REPL 实例的 start() 会被调用
  * - buildReplDeps 装配出的 deps 包含 ReplDeps 必需的全部字段
- * - 在无 LLM 配置时给出明确错误（行为与基础 REPL 保持一致）
  *
  * REPL 自身的语义（bare-execute、/execute、/help、/status、/exit、pendingWorkflows）
  * 已经在 `src/chat/repl.test.ts` 中覆盖，这里不再重复。
  */
 
 const createReplMock = vi.fn();
-const createLLMConfigMock = vi.fn();
 
 vi.mock('../chat/repl.js', () => ({
   createRepl: (...args: unknown[]) => createReplMock(...args),
-}));
-
-vi.mock('../nl/llm.js', () => ({
-  createLLMConfig: () => createLLMConfigMock(),
 }));
 
 vi.mock('../chat/command-bridge.js', () => ({
@@ -86,7 +80,6 @@ describe('chat command bridge to REPL', () => {
     expect(createReplMock).toHaveBeenCalledTimes(1);
     const passedDeps = createReplMock.mock.calls[0][0] as Record<string, unknown>;
     // 关键字段必须在场（其余行为由 REPL 自身的测试覆盖）
-    expect(passedDeps.nlProcessor).toBeDefined();
     expect(passedDeps.contextBuilder).toBeDefined();
     expect(passedDeps.commandBridge).toBeDefined();
     expect(passedDeps.paramExtractor).toBeDefined();
@@ -98,7 +91,6 @@ describe('chat command bridge to REPL', () => {
   });
 
   it('buildReplDeps returns a complete ReplDeps shape', async () => {
-    createLLMConfigMock.mockReturnValue(null);
     const chatModule = await import('./chat.js');
     // sanity: the function must be a named export
     expect(typeof chatModule.buildReplDeps).toBe('function');
@@ -106,7 +98,6 @@ describe('chat command bridge to REPL', () => {
     const context = new ctx();
     const deps = chatModule.buildReplDeps(context);
 
-    expect(deps.nlProcessor).toBeDefined();
     expect(deps.contextBuilder).toBeDefined();
     expect(deps.commandBridge).toBeDefined();
     expect(deps.paramExtractor).toBeDefined();
@@ -115,11 +106,9 @@ describe('chat command bridge to REPL', () => {
     expect(deps.workflowEngine).toBeDefined();
     expect(deps.config).toBeDefined();
     expect(deps.config.executeMode).toBe('manual');
-    expect(typeof deps.useLLM).toBe('boolean');
   });
 
   it('createChatCmd returns a chat Command wired to createRepl + start', async () => {
-    createLLMConfigMock.mockReturnValue(null);
     const { createChatCmd } = await import('./chat.js');
     const ctx = (await import('../infrastructure/context.js')).InfrastructureContext;
     const context = new ctx();

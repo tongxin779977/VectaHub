@@ -33,8 +33,6 @@ export interface ChatConfig {
   logLevel: ChatLogLevel;
   /** 工作流执行模式 */
   executeMode: ChatExecuteMode;
-  /** 是否启用 LLM 能力 */
-  enableLLM: boolean;
 }
 
 /**
@@ -49,7 +47,6 @@ export function createDefaultChatConfig(): ChatConfig {
     defaultSessionId: 'default',
     logLevel: 'normal',
     executeMode: 'confirm',
-    enableLLM: true,
   };
 }
 
@@ -64,6 +61,5 @@ export function formatChatConfig(config: ChatConfig): string {
   return [
     `[mode=${config.executeMode}]`,
     `[log=${config.logLevel}]`,
-    `[llm=${config.enableLLM ? 'on' : 'off'}]`,
   ].join(' ');
 }

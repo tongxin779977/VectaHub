@@ -1,12 +1,19 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { SandboxManager, createSandboxManager } from './sandbox.js';
 import { createNoopAuditHelper } from '../infrastructure/audit/index.js';
+import { MockEnvironmentService } from '../infrastructure/testing/mock-services.js';
+
+// Mock fs to prevent real filesystem writes during SandboxManager construction
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...actual,
+    existsSync: vi.fn(() => false),
+    mkdirSync: vi.fn(),
+  };
+});
 
 // Mock dependencies
-vi.mock('../infrastructure/paths/index.js', () => ({
-  getVectaHubPath: vi.fn((...args) => `/tmp/vectahub/${args.join('/')}`),
-}));
-
 vi.mock('./detector.js', () => ({
   createDetector: vi.fn(() => ({
     detect: vi.fn((cmd) => ({
@@ -52,12 +59,16 @@ vi.mock('../infrastructure/audit/index.js', () => ({
   },
 }));
 
+function createEnv(): MockEnvironmentService {
+  return new MockEnvironmentService();
+}
+
 describe('SandboxManager', () => {
   describe('createSandboxManager', () => {
     it('should create a SandboxManager instance', () => {
       const manager = createSandboxManager(
         {},
-        { audit: createNoopAuditHelper() }
+        { environment: createEnv(), audit: createNoopAuditHelper() }
       );
       expect(manager).toBeInstanceOf(SandboxManager);
     });
@@ -65,7 +76,7 @@ describe('SandboxManager', () => {
     it('should use provided config', () => {
       const manager = createSandboxManager(
         { mode: 'STRICT', maxMemoryMB: 1024 },
-        { audit: createNoopAuditHelper() }
+        { environment: createEnv(), audit: createNoopAuditHelper() }
       );
       const config = manager.getConfig();
       expect(config.mode).toBe('STRICT');
@@ -77,7 +88,7 @@ describe('SandboxManager', () => {
     it('should initialize with default config when no config provided', () => {
       const manager = new SandboxManager(
         {},
-        { audit: createNoopAuditHelper() }
+        { environment: createEnv(), audit: createNoopAuditHelper() }
       );
       const config = manager.getConfig();
       expect(config.mode).toBe('RELAXED');
@@ -86,7 +97,7 @@ describe('SandboxManager', () => {
     it('should merge partial config with defaults', () => {
       const manager = new SandboxManager(
         { mode: 'STRICT' },
-        { audit: createNoopAuditHelper() }
+        { environment: createEnv(), audit: createNoopAuditHelper() }
       );
       const config = manager.getConfig();
       expect(config.mode).toBe('STRICT');
@@ -98,7 +109,7 @@ describe('SandboxManager', () => {
     it('should return a copy of the config', () => {
       const manager = new SandboxManager(
         { mode: 'STRICT' },
-        { audit: createNoopAuditHelper() }
+        { environment: createEnv(), audit: createNoopAuditHelper() }
       );
       const config1 = manager.getConfig();
       const config2 = manager.getConfig();
@@ -111,7 +122,7 @@ describe('SandboxManager', () => {
     it('should update the mode', () => {
       const manager = new SandboxManager(
         { mode: 'STRICT' },
-        { audit: createNoopAuditHelper() }
+        { environment: createEnv(), audit: createNoopAuditHelper() }
       );
       expect(manager.getConfig().mode).toBe('STRICT');
       
@@ -124,7 +135,7 @@ describe('SandboxManager', () => {
     it('should delegate detection to the detector', () => {
       const manager = new SandboxManager(
         {},
-        { audit: createNoopAuditHelper() }
+        { environment: createEnv(), audit: createNoopAuditHelper() }
       );
       
       expect(manager.isDangerous('sudo rm -rf /')).toBe(true);
@@ -140,7 +151,7 @@ describe('SandboxManager', () => {
     it('should return the isolation strategy', () => {
       const manager = new SandboxManager(
         {},
-        { audit: createNoopAuditHelper() }
+        { environment: createEnv(), audit: createNoopAuditHelper() }
       );
       const strategy = manager.getIsolationStrategy();
       expect(['sandbox-exec', 'bubblewrap', 'unshare', 'directory']).toContain(strategy);
@@ -151,7 +162,7 @@ describe('SandboxManager', () => {
     it('should sign and validate commands', () => {
       const manager = new SandboxManager(
         {},
-        { audit: createNoopAuditHelper() }
+        { environment: createEnv(), audit: createNoopAuditHelper() }
       );
       const command = 'ls -la';
       const signature = manager.signCommand(command);
@@ -168,7 +179,7 @@ describe('SandboxManager', () => {
     it('should reject invalid signatures', () => {
       const manager = new SandboxManager(
         {},
-        { audit: createNoopAuditHelper() }
+        { environment: createEnv(), audit: createNoopAuditHelper() }
       );
       const validation = manager.validateCommandSignature('ls', 'invalid-signature');
       expect(validation.valid).toBe(false);
@@ -179,7 +190,7 @@ describe('SandboxManager', () => {
     it('should filter environment variables but pass allowed and extra allowed ones', () => {
       const manager = new SandboxManager(
         { allowedEnvVars: ['PATH', 'HOME'] },
-        { audit: createNoopAuditHelper() }
+        { environment: createEnv(), audit: createNoopAuditHelper() }
       );
       
       const originalPath = process.env.PATH;

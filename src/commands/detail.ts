@@ -27,7 +27,7 @@ export function createDetailCmd(context: InfrastructureContext): Command {
     .argument('<executionId>', 'Execution ID to show details for')
     .option('-s, --step <index>', 'Show specific step details (0-based index)')
     .action(async (executionId: string, options: { step?: string }) => {
-      const recordManager = createRecordManager();
+      const recordManager = createRecordManager(context.environment.getPath('executions'));
       const record = await recordManager.get(executionId);
 
       if (!record) {

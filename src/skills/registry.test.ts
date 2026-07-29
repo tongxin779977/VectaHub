@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createSkillRegistry } from './registry.js';
 import type { Skill, SkillContext, SkillResult, SkillMetadata } from './types.js';
+import pino from 'pino';
 
 function createMockSkill<TInput = unknown, TOutput = unknown>(
   id: string,
@@ -24,7 +25,7 @@ describe('SkillRegistry', () => {
   let registry: ReturnType<typeof createSkillRegistry>;
 
   beforeEach(() => {
-    registry = createSkillRegistry();
+    registry = createSkillRegistry(pino({ level: 'silent' }));
   });
 
   describe('findSkillsBySemantic', () => {

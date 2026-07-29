@@ -83,11 +83,11 @@ export function createExecutor(deps: ExecutorDeps): Executor {
   const detector: Detector = deps.detector ?? createDetector();
   const semanticDetector: SemanticDetector = deps.semanticDetector ?? createSemanticDetector();
   const auditHelper: AuditHelper = deps.audit;
-  const policyManager = deps.policyManager ?? new PolicyManager(auditHelper);
-  const securityGuard: SecurityGuard = deps.securityGuard ?? createSecurityGuard();
+  const policyManager = deps.policyManager ?? new PolicyManager(auditHelper, environment);
+  const securityGuard: SecurityGuard = deps.securityGuard ?? createSecurityGuard({ environment });
   const sandboxManager = deps.sandboxManager ?? createSandboxManager(
     {},
-    { securityGuard, audit: auditHelper }
+    { environment, securityGuard, audit: auditHelper }
   );
   const customStepHandlers = deps.stepHandlers || {};
 

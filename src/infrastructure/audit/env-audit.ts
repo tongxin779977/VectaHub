@@ -1,7 +1,7 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { platform } from 'node:os';
-import { getLogger } from '../logger/index.js';
+import pino from 'pino';
 
 const execAsync = promisify(exec);
 
@@ -27,7 +27,7 @@ export interface EnvAuditResult {
 }
 
 export async function performEnvAudit(): Promise<EnvAuditResult> {
-  const logger = getLogger('env-audit');
+  const logger = pino({ level: 'silent' });
   const result: EnvAuditResult = {
     timestamp: new Date().toISOString(),
     platform: platform(),

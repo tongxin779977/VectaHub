@@ -2,7 +2,6 @@ import { beforeEach, describe, it, expect, vi } from 'vitest';
 
 const routeMock = vi.fn();
 const parseMock = vi.fn();
-const loggerErrorMock = vi.fn();
 
 vi.mock('./capabilities/router.js', () => ({
   createCapabilityRouter: () => ({
@@ -20,12 +19,6 @@ vi.mock('./llm.js', async () => {
   const actual = await vi.importActual<typeof import('./llm.js')>('./llm.js');
   return {
     ...actual,
-    createLLMConfig: vi.fn(() => ({
-      provider: 'openai',
-      model: 'mock-model',
-      baseUrl: 'http://localhost:11434/v1',
-      apiKey: 'mock',
-    })),
   };
 });
 
@@ -110,7 +103,7 @@ describe('orchestrateIntent', () => {
     expect(parseMock).not.toHaveBeenCalled();
   });
 
-  it('processInput uses capability-first and does not require llmConfig for auto route', async () => {
+  it('processInput uses capability-first for auto route', async () => {
     routeMock.mockReturnValueOnce({
       route: 'auto',
       matchedCapability: 'mock-cap',
@@ -140,7 +133,7 @@ describe('orchestrateIntent', () => {
     expect(parseMock).not.toHaveBeenCalled();
   });
 
-  it('processInput uses capability-first and does not require llmConfig for clarify route', async () => {
+  it('processInput uses capability-first for clarify route', async () => {
     routeMock.mockReturnValueOnce({
       route: 'clarify',
       matchedCapability: 'mock-clarify',
@@ -153,39 +146,6 @@ describe('orchestrateIntent', () => {
     expect(result.success).toBe(true);
     expect(result.taskList?.tasks).toHaveLength(0);
     expect(parseMock).not.toHaveBeenCalled();
-  });
-
-  it('processInput requires llmConfig only when entering fallback', async () => {
-    routeMock.mockReturnValueOnce({
-      route: 'fallback',
-      matchedCapability: undefined,
-      score: 0.1,
-      reason: 'no capability',
-      plan: null,
-    });
-
-    await expect(processInput('unknown intent')).rejects.toThrow(
-      'LLM config required for fallback processing'
-    );
-  });
-
-  it('processInput requires audit helper when entering fallback', async () => {
-    routeMock.mockReturnValueOnce({
-      route: 'fallback',
-      matchedCapability: undefined,
-      score: 0.1,
-      reason: 'no capability',
-      plan: null,
-    });
-
-    await expect(processInput('unknown intent', {
-      provider: 'openai',
-      model: 'mock-model',
-      baseUrl: 'http://localhost:11434/v1',
-      apiKey: 'mock',
-    })).rejects.toThrow(
-      'Audit helper required for fallback processing'
-    );
   });
 
   it('processInput capability plan preserves outputVar/runId binding chain', async () => {
@@ -222,72 +182,6 @@ describe('orchestrateIntent', () => {
     const commands = result.taskList?.tasks[0]?.commands ?? [];
     expect(commands[0]?.outputVar).toBe('runId');
     expect(commands[1]?.args).toContain('${runId}');
-  });
-
-  it('fallback route enters LLM pipeline', async () => {
-    routeMock
-      .mockReturnValueOnce({
-        route: 'fallback',
-        matchedCapability: undefined,
-        score: 0.1,
-        reason: 'no capability',
-        plan: null,
-      })
-      .mockReturnValueOnce({
-        route: 'fallback',
-        matchedCapability: undefined,
-        score: 0.1,
-        reason: 'no capability',
-        plan: null,
-      });
-    parseMock.mockResolvedValueOnce({
-      success: true,
-      confidence: 0.88,
-      intent: 'RUN_SCRIPT',
-      taskList: {
-        version: '1.0.0',
-        generatedAt: new Date().toISOString(),
-        originalInput: 'fallback route',
-        intent: 'RUN_SCRIPT',
-        confidence: 0.88,
-        entities: { FILE_PATH: [], CLI_TOOL: [], PACKAGE_NAME: [], FUNCTION_NAME: [], BRANCH_NAME: [], ENV: [], OPTIONS: [], HOST: [], PORT: [], OWNER: [], MODE: [], FILE1: [], FILE2: [] },
-        tasks: [{
-          id: 't1',
-          type: 'QUERY_EXEC',
-          description: 'llm step',
-          status: 'PENDING',
-          commands: [{ cli: 'git', args: ['status'], outputVar: 'gitStatus' }],
-          dependencies: [],
-        }],
-        warnings: [],
-      },
-      metadata: { path: 'llm-tool-calling', usedSkills: [] },
-    });
-
-    const result = await orchestrateIntent('fallback route', {
-      cwd: process.cwd(),
-      logger: { error: loggerErrorMock },
-      auditHelper: {
-        log: vi.fn(),
-        cliCommand: vi.fn(),
-        cliOutput: vi.fn(),
-        workflowStart: vi.fn(),
-        workflowEnd: vi.fn(),
-        workflowStep: vi.fn(),
-        securityAlert: vi.fn(),
-        securityAction: vi.fn(),
-        configChange: vi.fn(),
-        intentMatch: vi.fn(),
-        executorResult: vi.fn(),
-        fileOperation: vi.fn(),
-        sandboxDetect: vi.fn(),
-      },
-    });
-    expect(result.intentRecognitionMethod).toBe('llm');
-    expect(result.steps).toHaveLength(1);
-    expect(result.steps[0].cli).toBe('git');
-    expect(result.steps[0].args).toEqual(['status']);
-    expect(result.steps[0].outputVar).toBe('gitStatus');
   });
 
   it('routes capability plan and returns executable steps', async () => {
@@ -356,7 +250,7 @@ describe('orchestrateIntent', () => {
     expect(result.steps.every(step => step.cli.trim().length > 0)).toBe(true);
     expect(result.steps.every(step => Array.isArray(step.args))).toBe(true);
     expect(result.plan).toBeUndefined();
-    expect(result.intentRecognitionMethod).toBe('none');
+    expect(result.intentRecognitionMethod).toBe('capability');
   });
 
   it('multi-intent fails fast when any clause is preview or clarify', async () => {
@@ -427,26 +321,7 @@ describe('orchestrateIntent', () => {
       });
 
     await expect(
-      processInput('先修复 CI 然后运行测试', {
-        provider: 'openai',
-        model: 'mock-model',
-        baseUrl: 'http://localhost:11434/v1',
-        apiKey: 'mock',
-      }, {
-        log: vi.fn(),
-        cliCommand: vi.fn(),
-        cliOutput: vi.fn(),
-        workflowStart: vi.fn(),
-        workflowEnd: vi.fn(),
-        workflowStep: vi.fn(),
-        securityAlert: vi.fn(),
-        securityAction: vi.fn(),
-        configChange: vi.fn(),
-        intentMatch: vi.fn(),
-        executorResult: vi.fn(),
-        fileOperation: vi.fn(),
-        sandboxDetect: vi.fn(),
-      })
+      processInput('先修复 CI 然后运行测试')
     ).rejects.toThrow('Multi-intent contains non-executable clause; clarification or preview required');
   });
 

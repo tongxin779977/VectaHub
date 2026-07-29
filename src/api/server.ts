@@ -1,19 +1,15 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { createLLMConfig, createLLMEnhancedParser } from '../nl/llm.js';
 import { createWorkflowEngine } from '../workflow/engine.js';
 import { createStorage } from '../workflow/storage.js';
 import { createScheduleManager } from '../workflow/scheduler.js';
 import { AuditEventType, type AuditHelper, type AuditLogger } from '../infrastructure/audit/index.js';
 import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
-import { getVectaHubPath } from '../infrastructure/paths/index.js';
-import type { Step } from '../types/index.js';
-import type { LLMWorkflowStepInline } from '../nl/llm.js';
 import type pino from 'pino';
 
-function getWorkflowsDir(): string {
-  return getVectaHubPath('workflows');
+function getWorkflowsDir(environment: IEnvironmentService): string {
+  return environment.getPath('workflows');
 }
 
 interface APIResponse {
@@ -33,24 +29,6 @@ interface APIExecutionSummary {
   status: string;
   steps: unknown[];
   warnings?: string[];
-}
-
-function mapLLMWorkflowStep(step: LLMWorkflowStepInline, index: number): Step {
-  return {
-    id: `step_${index + 1}`,
-    type: step.type,
-    cli: step.cli,
-    args: step.args || [],
-    condition: step.condition,
-    items: step.items,
-    body: Array.isArray(step.body)
-      ? step.body.map((childStep, childIndex) => mapLLMWorkflowStep(childStep, childIndex))
-      : undefined,
-  };
-}
-
-function mapLLMWorkflowSteps(steps: LLMWorkflowStepInline[]): Step[] {
-  return steps.map((step, index) => mapLLMWorkflowStep(step, index));
 }
 
 function toExecutionSummary(result: { status: string; steps: unknown[]; warnings?: string[] }): APIExecutionSummary {
@@ -143,8 +121,8 @@ async function parseRequestBody(req: IncomingMessage): Promise<Record<string, un
   });
 }
 
-function listWorkflows(): { id: string; name: string; steps: unknown[] }[] {
-  const workflowsDir = getWorkflowsDir();
+function listWorkflows(environment: IEnvironmentService): { id: string; name: string; steps: unknown[] }[] {
+  const workflowsDir = getWorkflowsDir(environment);
 
   if (!existsSync(workflowsDir)) return [];
   return readdirSync(workflowsDir)
@@ -173,7 +151,7 @@ export async function createAPIServer(
 
     try {
       if (method === 'GET' && url.pathname === '/api/workflows') {
-        const workflows = listWorkflows();
+        const workflows = listWorkflows(deps.environment);
         jsonResponse(res, 200, { success: true, data: workflows });
       } else if (method === 'GET' && url.pathname === '/api/executions') {
         const storage = createStorage({ environment: deps.environment, logger: deps.logger });
@@ -185,14 +163,9 @@ export async function createAPIServer(
         jsonResponse(res, 200, { success: true, data: logs });
       } else if (method === 'POST' && url.pathname === '/api/workflows') {
         const body = await parseRequestBody(req);
-        const input = (body.input as string) || '';
         const workflowFile = (body.workflowFile as string);
 
-        let executionResult: APIExecutionSummary = {
-          status: 'PENDING',
-          steps: [],
-          warnings: [],
-        };
+        let executionResult!: APIExecutionSummary;
 
         if (workflowFile && existsSync(workflowFile)) {
           const content = readFileSync(workflowFile, 'utf-8');
@@ -200,76 +173,19 @@ export async function createAPIServer(
           const result = await engine.execute(workflow, { sessionId });
           executionResult = toExecutionSummary(result);
         } else {
-          const llmConfig = createLLMConfig();
-
-          if (llmConfig) {
-            const llmParser = createLLMEnhancedParser(llmConfig, { auditHelper: deps.audit });
-            const llmResult = await llmParser.parse(input);
-            const llmWorkflow = llmResult.workflow;
-
-            if (llmResult.confidence >= 0.7 && llmWorkflow && llmWorkflow.steps.length > 0) {
-              const steps = mapLLMWorkflowSteps(llmWorkflow.steps);
-              const workflow = await engine.createWorkflow(llmWorkflow.name || input, steps);
-              const result = await engine.execute(workflow, { sessionId });
-              executionResult = toExecutionSummary(result);
-            } else {
-              executionResult = { status: 'NEEDS_CLARIFICATION', steps: [], warnings: ['Low confidence, no workflow generated'] };
-            }
-          } else {
-            executionResult = { status: 'NEEDS_CLARIFICATION', steps: [], warnings: ['LLM not configured'] };
-          }
+          // LLM 解析路径已移除,后续将改为 ACP 模式;暂返回 NEEDS_CLARIFICATION
+          executionResult = {
+            status: 'NEEDS_CLARIFICATION',
+            steps: [],
+            warnings: ['Natural-language workflow generation is not configured'],
+          };
         }
 
         deps.audit.workflowEnd('api', executionResult.status as AuditEventType, 0, sessionId);
         jsonResponse(res, 200, { success: true, data: executionResult });
       } else if (method === 'POST' && url.pathname === '/api/ai-delegate') {
-        const body = await parseRequestBody(req);
-        const input = (body.input as string) || '';
-
-        deps.audit.workflowStart('ai-delegate', input, sessionId);
-
-        const llmConfig = createLLMConfig();
-        if (!llmConfig) {
-          jsonResponse(res, 503, { success: false, error: 'LLM not configured' });
-          return;
-        }
-
-        const llmParser = createLLMEnhancedParser(llmConfig, { auditHelper: deps.audit });
-        const llmResult = await llmParser.parse(input);
-        const llmWorkflow = llmResult.workflow;
-
-        deps.audit.intentMatch(llmResult.intent, llmResult.confidence, llmResult.params, sessionId);
-
-        if (llmResult.confidence < 0.5) {
-          jsonResponse(res, 400, {
-            success: false,
-            error: `Low confidence: ${llmResult.confidence}`,
-            data: { intent: llmResult.intent, confidence: llmResult.confidence },
-          });
-          return;
-        }
-
-        if (llmWorkflow && llmWorkflow.steps.length > 0) {
-          const steps = mapLLMWorkflowSteps(llmWorkflow.steps);
-          const workflow = await engine.createWorkflow(llmWorkflow.name || input, steps);
-          const result = await engine.execute(workflow, { sessionId });
-
-          deps.audit.workflowEnd('ai-delegate', result.status as AuditEventType, result.duration || 0, sessionId);
-
-          jsonResponse(res, 200, {
-            success: true,
-            data: {
-              intent: llmResult.intent,
-              confidence: llmResult.confidence,
-              execution: { status: result.status, steps: result.steps },
-            },
-          });
-        } else {
-          jsonResponse(res, 200, {
-            success: true,
-            data: { intent: llmResult.intent, confidence: llmResult.confidence, message: 'No workflow steps generated' },
-          });
-        }
+        // LLM 解析路径已移除,后续将改为 ACP 模式;暂返回 503
+        jsonResponse(res, 503, { success: false, error: 'AI delegate is not configured' });
       } else if (method === 'GET' && url.pathname === '/health') {
         jsonResponse(res, 200, { success: true, data: { status: 'ok', uptime: process.uptime() } });
       } else {

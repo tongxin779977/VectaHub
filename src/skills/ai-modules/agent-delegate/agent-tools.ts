@@ -1,4 +1,3 @@
-import type { LLMTool } from '../../../nl/llm.js';
 import type { AgentToolDefinition } from './types.js';
 
 export const BUILTIN_AGENT_TOOLS: AgentToolDefinition[] = [
@@ -54,7 +53,9 @@ export const BUILTIN_AGENT_TOOLS: AgentToolDefinition[] = [
   },
 ];
 
-export function agentToolsToLLMTools(tools: AgentToolDefinition[]): LLMTool[] {
+export function agentToolsToLLMTools(
+  tools: AgentToolDefinition[],
+): { type: 'function'; function: { name: string; description: string; parameters: object } }[] {
   return tools.map(tool => ({
     type: 'function' as const,
     function: {

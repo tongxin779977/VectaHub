@@ -55,7 +55,7 @@ export function setTaskDisplayState(task: DocTask, status: DocTaskRunStatus): vo
 
 /**
  * Authoritative hash drift / recovery guard requires CLI-equivalent digest.
- * 插件侧当前无法证明与 CLI createLLMConfig() 等价，故权威路径返回 unavailable。
+ * 插件侧不参与 CLI 的配置解析路径，故权威路径返回 unavailable。
  */
 export async function getAuthoritativeGlobalConfigDigestForHash(): Promise<string | undefined> {
   return undefined;

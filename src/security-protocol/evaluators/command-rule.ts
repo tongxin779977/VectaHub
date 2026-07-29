@@ -14,7 +14,6 @@ import {
   loadProjectAllowlist 
 } from '../../command-rules/loader.js';
 import type { CommandRuleLoaderDeps } from '../../command-rules/loader.js';
-import { getVectaHubPath } from '../../infrastructure/paths/index.js';
 
 /**
  * 命令规则评估器
@@ -26,11 +25,8 @@ export class CommandRuleEvaluator implements SecurityEvaluator {
   private lastProjectPath: string | null = null;
   private readonly loaderDeps: CommandRuleLoaderDeps;
 
-  constructor(loaderDeps?: CommandRuleLoaderDeps) {
-    this.loaderDeps = loaderDeps ?? {
-      logger: console,
-      getGlobalConfigPath: () => getVectaHubPath('command-rules'),
-    };
+  constructor(loaderDeps: CommandRuleLoaderDeps) {
+    this.loaderDeps = loaderDeps;
   }
 
   /**

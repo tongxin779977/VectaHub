@@ -3,9 +3,10 @@ import type { TaskList, IntentName, StepType } from '../types/index.js';
 import type { ExecutionPlan, RouterResult } from './capabilities/types.js';
 import type { ProjectContext } from './core/goal-types.js';
 import type { AuditHelper } from '../infrastructure/audit/index.js';
-import { createNLProcessor } from './core/pipeline.js';
+import type { AgentTransport, TransportResult } from '../agent-runtime/transport/types.js';
+import type { AcpConfig } from '../agent-runtime/transport/factory.js';
+import type { AgentDescriptor } from '../types/agent.js';
 import { createIntentSplitter } from './core/intent-splitter.js';
-import { createLLMConfig, type LLMConfig } from './llm.js';
 import { parseGoal } from './core/goal-parser.js';
 import { createCapabilityRouter } from './capabilities/router.js';
 import { executionPlanToSteps } from './capabilities/plan-adapter.js';
@@ -16,10 +17,71 @@ import type pino from 'pino';
 type NLLogger = Pick<pino.Logger, 'error'>;
 
 /**
+ * NL 处理器依赖集合。
+ *
+ * - `transport` / `agentDescriptor` / `acpConfig`: ACP fallback 所需,确定性路由未匹配时启用
+ * - `auditHelper` / `logger`: 审计与日志(向后兼容,可选)
+ *
+ * 当确定性能力路由返回 fallback 时,若提供了 `transport` + `agentDescriptor`,
+ * 将调用 `transport.execute()` 交给 ACP agent 处理;否则抛出错误(保持旧行为)。
+ */
+export interface NLProcessorDeps {
+  /** ACP fallback 传输层;未提供时 fallback 路径抛错 */
+  transport?: AgentTransport;
+  /** 默认 ACP agent 描述符;fallback 必需 */
+  agentDescriptor?: AgentDescriptor;
+  /** ACP 超时/权限配置 */
+  acpConfig?: AcpConfig;
+  /** 审计助手(向后兼容) */
+  auditHelper?: AuditHelper;
+  /** 日志记录器(向后兼容) */
+  logger?: NLLogger;
+}
+
+/**
  * 初始化路由（保留接口兼容性，当前为空实现）
  * @param _intentEntries - 意图条目列表
  */
 export function initializeRouter(_intentEntries: Array<{ intent: string; category: string; patterns: RegExp[]; examples: string[]; priority: number }>): void {}
+
+/**
+ * 将 ACP TransportResult 映射为 NLResult。
+ *
+ * - success=true → NLResult(success, reply=output, metadata.path='acp-fallback', acpToolCalls/acpChangedFiles)
+ * - success=false → NLResult(success=false, error=error.message, metadata.path='acp-fallback')
+ *
+ * @param result - ACP 传输层返回的结构化结果
+ * @param input - 用户原始输入(用于填充 NLResult.input 等元数据)
+ * @returns 映射后的 NLResult
+ */
+function transportResultToNLResult(
+  result: TransportResult,
+  input: string,
+): NLResult {
+  if (result.success) {
+    return {
+      success: true,
+      intent: 'UNKNOWN' as IntentName,
+      confidence: 1,
+      reply: result.output,
+      metadata: {
+        path: 'acp-fallback',
+        acpToolCalls: result.toolCalls,
+        acpChangedFiles: result.changedFiles,
+      },
+    };
+  }
+
+  return {
+    success: false,
+    intent: 'UNKNOWN' as IntentName,
+    confidence: 0,
+    reply: result.error?.message ?? 'ACP agent failed to process input',
+    metadata: {
+      path: 'acp-fallback',
+    },
+  };
+}
 
 /**
  * 处理用户自然语言输入，返回 NL 解析结果
@@ -27,27 +89,23 @@ export function initializeRouter(_intentEntries: Array<{ intent: string; categor
  * 处理流程：
  * 1. 意图拆分：检测是否为多意图输入
  * 2. Capability 路由：优先匹配已注册的 Capability
- * 3. LLM 降级：Capability 未匹配时使用 LLM 解析
+ * 3. ACP fallback：确定性路由未匹配时，交给 ACP agent 处理(需提供 transport)
  *
  * @param input - 用户原始输入
- * @param llmConfig - 可选的 LLM 配置（LLM 降级时必需）
- * @param auditHelper - 可选的审计助手（LLM 降级时必需）
- * @param logger - 可选的日志记录器
+ * @param deps - NL 处理器依赖(transport/agentDescriptor/acpConfig/auditHelper/logger)
  * @returns NL 解析结果
- * @throws 多意图包含不可执行子句时抛出错误
+ * @throws 多意图包含不可执行子句,或 fallback 时未提供 transport 时抛出错误
  */
 export async function processInput(
   input: string,
-  llmConfig?: LLMConfig,
-  auditHelper?: AuditHelper,
-  logger?: NLLogger,
+  deps?: NLProcessorDeps,
 ): Promise<NLResult> {
   const splitter = createIntentSplitter();
   const splitResult = await splitter.split(input);
 
   const clauses = splitResult.clauses?.map(clause => clause.text.trim()).filter(Boolean) ?? [];
   if (splitResult.isMultiIntent && clauses.length > 1) {
-    return handleMultiIntent(clauses, llmConfig, auditHelper, logger);
+    return handleMultiIntent(clauses, deps);
   }
 
   const normalizedInput = input.trim();
@@ -63,63 +121,64 @@ export async function processInput(
     return capabilityNoTaskNLResult(normalizedInput, routeResult, 'clarification required before execution');
   }
 
-  const processor = createNLProcessor({
-    llmConfig: requireLLMConfigForFallback(llmConfig),
-    auditHelper: requireAuditHelperForFallback(auditHelper),
-    logger: requireLoggerForFallback(logger),
-  });
-  return processor.parse({ input: normalizedInput });
+  // ACP fallback: 确定性路由未匹配时,交给 ACP agent 处理
+  return executeAcpFallback(normalizedInput, deps, context);
 }
 
 export async function processInputWithTaskContract(
   input: string,
-  llmConfig?: LLMConfig,
-  auditHelper?: AuditHelper,
-  logger?: NLLogger,
+  deps?: NLProcessorDeps,
 ): Promise<TaskContractEnvelope<NLResult>> {
-  const legacy = await processInput(input, llmConfig, auditHelper, logger);
+  const legacy = await processInput(input, deps);
   return toTaskContractEnvelope(input, legacy);
 }
 
-function requireLLMConfigForFallback(llmConfig?: LLMConfig): LLMConfig {
-  if (!llmConfig) {
-    throw new Error('LLM config required for fallback processing. Configure llmConfig when capability routing returns fallback.');
+/**
+ * 执行 ACP fallback:确定性路由未匹配时,将输入交给 ACP agent 处理。
+ *
+ * 需要提供 `deps.transport` + `deps.agentDescriptor`,否则抛错(保持向后兼容)。
+ * 构造 TransportRequest → transport.execute() → transportResultToNLResult() 映射。
+ *
+ * @param input - 用户原始输入(或拆分后的子句)
+ * @param deps - NL 处理器依赖
+ * @param context - 项目上下文(提供 cwd)
+ * @returns 映射后的 NLResult
+ */
+async function executeAcpFallback(
+  input: string,
+  deps: NLProcessorDeps | undefined,
+  context: ProjectContext,
+): Promise<NLResult> {
+  if (!deps?.transport) {
+    throw new Error('Capability routing returned fallback; ACP transport not provided. Pass NLProcessorDeps.transport to enable ACP fallback.');
   }
-  return llmConfig;
-}
+  if (!deps.agentDescriptor) {
+    throw new Error('ACP fallback requires agentDescriptor; none provided in NLProcessorDeps.');
+  }
 
-function requireAuditHelperForFallback(auditHelper?: AuditHelper): AuditHelper {
-  if (!auditHelper) {
-    throw new Error('Audit helper required for fallback processing. Provide auditHelper when capability routing returns fallback.');
-  }
-  return auditHelper;
-}
+  const workspaceRoot = context.cwd ?? process.cwd();
+  const traceId = `nl-fallback-${Date.now()}`;
+  const acpResult = await deps.transport.execute({
+    descriptor: deps.agentDescriptor,
+    workspaceRoot,
+    taskPrompt: input,
+    mode: 'run',
+    traceContext: { traceId, source: 'cli' },
+    parentSpanId: '',
+    securityContext: {
+      cwd: workspaceRoot,
+      sessionId: traceId,
+    },
+    timeoutMs: deps.acpConfig?.defaultTimeoutMs ?? 600_000,
+  });
 
-function requireLoggerForFallback(logger?: NLLogger): NLLogger {
-  if (!logger) {
-    throw new Error('Logger required for fallback processing. Provide logger when capability routing returns fallback.');
-  }
-  return logger;
+  return transportResultToNLResult(acpResult, input);
 }
 
 async function handleMultiIntent(
   clauses: string[],
-  llmConfig?: LLMConfig,
-  auditHelper?: AuditHelper,
-  logger?: NLLogger,
+  deps?: NLProcessorDeps,
 ): Promise<NLResult> {
-  let fallbackProcessor: ReturnType<typeof createNLProcessor> | null = null;
-  const getFallbackProcessor = (): ReturnType<typeof createNLProcessor> => {
-    if (!fallbackProcessor) {
-      fallbackProcessor = createNLProcessor({
-        llmConfig: requireLLMConfigForFallback(llmConfig),
-        auditHelper: requireAuditHelperForFallback(auditHelper),
-        logger: requireLoggerForFallback(logger),
-      });
-    }
-    return fallbackProcessor;
-  };
-
   const clauseResults = await Promise.all(clauses.map(async clause => {
     const context = buildProjectContext(clause);
     const routeResult = routeCapability(clause, context);
@@ -133,7 +192,8 @@ async function handleMultiIntent(
       return capabilityNoTaskNLResult(clause, routeResult, 'clarification required before execution');
     }
 
-    return getFallbackProcessor().parse({ input: clause });
+    // ACP fallback: 确定性路由未匹配时,交给 ACP agent 处理
+    return executeAcpFallback(clause, deps, context);
   }));
 
   const hasNonExecutableClause = clauseResults.some(result => mapTaskListToSteps(result.taskList).length === 0 && !result.reply);
@@ -175,7 +235,7 @@ async function handleMultiIntent(
     confidence: minConfidence,
     taskList,
     metadata: {
-      path: 'llm-tool-calling',
+      path: 'rule-based',
     },
   };
 }
@@ -200,7 +260,7 @@ export interface OrchestrateResult {
   steps: OrchestrateStep[];
   plan?: ExecutionPlan;
   reply?: string;
-  intentRecognitionMethod: 'capability' | 'llm' | 'none';
+  intentRecognitionMethod: 'capability' | 'none';
   matchedCapability?: string;
   score?: number;
   recognizedIntent?: string;
@@ -373,6 +433,7 @@ function capabilityNoTaskNLResult(
 async function orchestrateSingleIntent(
   input: string,
   options?: { cwd?: string; auditHelper?: AuditHelper; logger?: NLLogger },
+  deps?: NLProcessorDeps,
 ): Promise<OrchestrateResult> {
   const context = buildProjectContext(input, options);
   const routeResult = routeCapability(input, context);
@@ -422,25 +483,19 @@ async function orchestrateSingleIntent(
     }
   }
 
-  const llmConfig = createLLMConfig();
-  if (!llmConfig) {
-    throw new Error('LLM not configured. Run `vectahub setup` or set VECTAHUB_LLM_* environment variables.');
+  // ACP fallback: 确定性路由未匹配时,交给 ACP agent 处理
+  if (deps?.transport) {
+    const nlResult = await executeAcpFallback(input, deps, context);
+    return {
+      steps: [],
+      reply: nlResult.reply,
+      plan: routeResult.plan ?? undefined,
+      intentRecognitionMethod: 'none',
+      matchedCapability: routeResult.matchedCapability,
+      score: routeResult.score,
+    };
   }
-
-  const llmResult = await processInput(input, llmConfig, options?.auditHelper, options?.logger);
-  const steps = mapTaskListToSteps(llmResult.taskList);
-  
-  if (steps.length === 0 && !llmResult.reply) {
-    throw new Error('NL parsing produced no executable steps');
-  }
-
-  return {
-    steps,
-    reply: llmResult.reply,
-    intentRecognitionMethod: 'llm',
-    recognizedIntent: llmResult.intent as string | undefined,
-    score: llmResult.confidence,
-  };
+  throw new Error('Capability routing returned fallback; ACP transport not provided. Pass NLProcessorDeps.transport to enable ACP fallback.');
 }
 
 /**
@@ -453,12 +508,14 @@ async function orchestrateSingleIntent(
  * @param options.cwd - 可选的工作目录
  * @param options.auditHelper - 可选的审计助手
  * @param options.logger - 可选的日志记录器
+ * @param deps - NL 处理器依赖(transport/agentDescriptor/acpConfig),用于 ACP fallback
  * @returns 编排结果
  * @throws 多意图包含不可执行子句或无步骤产出时抛出错误
  */
 export async function orchestrateIntent(
   input: string,
   options?: { cwd?: string; auditHelper?: AuditHelper; logger?: NLLogger },
+  deps?: NLProcessorDeps,
 ): Promise<OrchestrateResult> {
   const splitter = createIntentSplitter();
   const splitResult = await splitter.split(input);
@@ -466,7 +523,7 @@ export async function orchestrateIntent(
 
   if (splitResult.isMultiIntent && clauses.length > 1) {
     const clauseResults = await Promise.all(
-      clauses.map(clause => orchestrateSingleIntent(clause, options))
+      clauses.map(clause => orchestrateSingleIntent(clause, options, deps))
     );
 
     const hasNonExecutableClause = clauseResults.some(result => result.steps.length === 0 && !result.reply);
@@ -481,16 +538,15 @@ export async function orchestrateIntent(
       throw new Error('Multi-intent parsing produced no executable steps');
     }
     const allCapability = clauseResults.every(result => result.intentRecognitionMethod === 'capability');
-    const hasLLM = clauseResults.some(result => result.intentRecognitionMethod === 'llm');
 
     return {
       steps,
       reply: combinedReply || undefined,
-      intentRecognitionMethod: allCapability ? 'none' : (hasLLM ? 'llm' : 'none'),
+      intentRecognitionMethod: allCapability ? 'capability' : 'none',
       score: Math.min(...clauseResults.map(result => result.score ?? 0)),
     };
   }
 
   const singleInput = clauses[0] ?? input.trim();
-  return orchestrateSingleIntent(singleInput, options);
+  return orchestrateSingleIntent(singleInput, options, deps);
 }

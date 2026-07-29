@@ -98,10 +98,6 @@ vi.mock('../execution/record-manager.js', () => ({
   createRecordManager: vi.fn(() => ({ save: vi.fn() })),
 }));
 
-vi.mock('../nl/llm.js', () => ({
-  createLLMConfig: vi.fn(() => null),
-}));
-
 vi.mock('../skills/init.js', () => ({
   createSkillSystem: vi.fn(async () => ({ registry: {}, executor: {} })),
 }));
@@ -291,7 +287,7 @@ describe('run command dry-run first run behavior', () => {
           type: 'exec',
         },
       ],
-      intentRecognitionMethod: 'llm',
+      intentRecognitionMethod: 'capability',
       recognizedIntent: 'ci_diagnose',
       score: 0.8,
     });
@@ -317,7 +313,7 @@ describe('run command dry-run first run behavior', () => {
           type: 'exec',
         },
       ],
-      intentRecognitionMethod: 'llm',
+      intentRecognitionMethod: 'capability',
       recognizedIntent: 'ci_diagnose',
       score: 0.8,
     });
@@ -344,7 +340,7 @@ describe('run command dry-run first run behavior', () => {
           type: 'exec',
         },
       ],
-      intentRecognitionMethod: 'llm',
+      intentRecognitionMethod: 'capability',
       recognizedIntent: 'ci_diagnose',
       score: 0.8,
     });
@@ -375,7 +371,7 @@ describe('run command dry-run first run behavior', () => {
           type: 'exec',
         },
       ],
-      intentRecognitionMethod: 'llm',
+      intentRecognitionMethod: 'capability',
       recognizedIntent: 'doc_task',
       score: 0.8,
     });
@@ -562,7 +558,7 @@ describe('run command TaskContract-first routing', () => {
     orchestrateIntent.mockResolvedValue({
       steps: [],
       reply: '项目状态正常。',
-      intentRecognitionMethod: 'llm',
+      intentRecognitionMethod: 'capability',
       recognizedIntent: 'QUERY_INFO',
       score: 0.9,
     });
@@ -606,20 +602,20 @@ describe('run command TaskContract-first routing', () => {
       steps: [
         { id: 'step_1', description: 'Doctor', status: 'PENDING', cli: 'vectahub', args: ['doctor'], type: 'exec' },
       ],
-      intentRecognitionMethod: 'llm',
+      intentRecognitionMethod: 'capability',
       recognizedIntent: 'doctor',
       score: 0.9,
     });
     resolveRunTaskContractMock.mockReturnValue({
       taskContract: {
         schemaVersion: '1.0', requestId: 'invalid-vh', rawInput: '诊断 CI 失败', normalizedGoal: '诊断 CI 失败',
-        confidence: 0.9, language: 'zh-CN', internalSignals: { intentCandidates: ['ci_diagnose'], routeSource: 'llm-tool-calling' },
+        confidence: 0.9, language: 'zh-CN', internalSignals: { intentCandidates: ['ci_diagnose'], routeSource: 'rule-based' },
         kind: 'execute', taskKind: 'inspect', operation: 'ci_diagnose',
         target: { scope: 'project' }, constraints: { requiresConfirmation: false, requiresVerification: false, sideEffects: ['command'] },
         executionStrategy: { mode: 'direct-command', commandSurfaceId: 'vectahub ci diagnose' },
         expectedOutput: { format: 'text', audience: 'system' },
       },
-      legacy: { success: true, intent: 'ci_diagnose', confidence: 0.9, metadata: { path: 'llm-tool-calling' } },
+      legacy: { success: true, intent: 'ci_diagnose', confidence: 0.9, metadata: { path: 'rule-based' } },
     });
 
     const runCmd = await createTestRunCmd();
@@ -639,7 +635,7 @@ describe('run command TaskContract-first routing', () => {
     orchestrateIntent.mockResolvedValue({
       steps: [],
       reply: '项目状态正常。',
-      intentRecognitionMethod: 'llm',
+      intentRecognitionMethod: 'capability',
       recognizedIntent: 'QUERY_INFO',
       score: 0.9,
     });
@@ -693,9 +689,19 @@ describe('run command TaskContract-first routing', () => {
         { id: 'step_1', description: 'Git status', status: 'PENDING', cli: 'git', args: ['status'], type: 'exec' },
       ],
       reply: '我先解释一下',
-      intentRecognitionMethod: 'llm',
+      intentRecognitionMethod: 'capability',
       recognizedIntent: 'git_status',
       score: 0.9,
+    });
+    // Mock ReplyTaskContract so the code takes the reply-present path (early return)
+    // instead of falling through to workflow creation.
+    resolveRunTaskContractMock.mockReturnValue({
+      taskContract: {
+        schemaVersion: '1.0', requestId: 'reply-non-dry', rawInput: '查看 git 状态并解释', normalizedGoal: '查看 git 状态并解释',
+        confidence: 0.9, language: 'zh-CN', internalSignals: { intentCandidates: ['git_status'], routeSource: 'capability' },
+        kind: 'reply', replyMode: 'answer', answerTopic: 'git_status',
+      },
+      legacy: { success: true, intent: 'git_status', confidence: 0.9, reply: '我先解释一下', metadata: { path: 'rule-based' } },
     });
 
     const runCmd = await createTestRunCmd();
@@ -712,7 +718,7 @@ describe('run command TaskContract-first routing', () => {
       steps: [
         { id: 'step_doc', description: 'Doc task', status: 'PENDING', cli: 'vectahub', args: ['run-task'], type: 'exec' },
       ],
-      intentRecognitionMethod: 'llm',
+      intentRecognitionMethod: 'capability',
       recognizedIntent: 'doc_task',
       score: 0.8,
     });
@@ -731,20 +737,20 @@ describe('run command TaskContract-first routing', () => {
       steps: [
         { id: 'step_1', description: 'Doctor', status: 'PENDING', cli: 'vectahub', args: ['doctor'], type: 'exec' },
       ],
-      intentRecognitionMethod: 'llm',
+      intentRecognitionMethod: 'capability',
       recognizedIntent: 'doctor',
       score: 0.9,
     });
     resolveRunTaskContractMock.mockReturnValue({
       taskContract: {
         schemaVersion: '1.0', requestId: 'doctor-dry-run', rawInput: '诊断项目', normalizedGoal: '诊断项目',
-        confidence: 0.9, language: 'zh-CN', internalSignals: { intentCandidates: ['doctor'], routeSource: 'llm-tool-calling' },
+        confidence: 0.9, language: 'zh-CN', internalSignals: { intentCandidates: ['doctor'], routeSource: 'rule-based' },
         kind: 'execute', taskKind: 'diagnose', operation: 'doctor',
         target: { scope: 'project' }, constraints: { requiresConfirmation: false, requiresVerification: false, sideEffects: ['command'] },
         executionStrategy: { mode: 'agent-runtime' },
         expectedOutput: { format: 'text', audience: 'system' },
       },
-      legacy: { success: true, intent: 'doctor', confidence: 0.9, metadata: { path: 'llm-tool-calling' } },
+      legacy: { success: true, intent: 'doctor', confidence: 0.9, metadata: { path: 'rule-based' } },
     });
 
     const runCmd = await createTestRunCmd();
@@ -770,7 +776,7 @@ describe('run command TaskContract-first routing', () => {
       steps: [
         { id: 'step_1', description: 'Doctor', status: 'PENDING', cli: 'vectahub', args: ['doctor'], type: 'exec' },
       ],
-      intentRecognitionMethod: 'llm',
+      intentRecognitionMethod: 'capability',
       recognizedIntent: 'doctor',
       score: 0.9,
     });
@@ -811,7 +817,7 @@ describe('run command TaskContract priority over legacy', () => {
     orchestrateIntent.mockResolvedValue({
       steps: [{ id: 'step_1', description: 'Git status', status: 'PENDING', cli: 'git', args: ['status'], type: 'exec' }],
       reply: '项目状态正常。',
-      intentRecognitionMethod: 'llm',
+      intentRecognitionMethod: 'capability',
       recognizedIntent: 'QUERY_INFO',
       score: 0.9,
     });
@@ -821,7 +827,7 @@ describe('run command TaskContract priority over legacy', () => {
         confidence: 0.9, language: 'zh-CN', internalSignals: { intentCandidates: ['QUERY_INFO'], routeSource: 'mixed' },
         kind: 'reply', replyMode: 'answer', answerTopic: 'general',
       },
-      legacy: { success: true, intent: 'QUERY_INFO', confidence: 0.9, reply: '项目状态正常。', metadata: { path: 'llm-tool-calling' } },
+      legacy: { success: true, intent: 'QUERY_INFO', confidence: 0.9, reply: '项目状态正常。', metadata: { path: 'rule-based' } },
     });
 
     const runCmd = await createTestRunCmd();
@@ -842,7 +848,7 @@ describe('run command TaskContract priority over legacy', () => {
     const consoleSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     orchestrateIntent.mockResolvedValue({
       steps: [{ id: 'step_1', description: 'Some step', status: 'PENDING', cli: 'git', args: ['status'], type: 'exec' }],
-      intentRecognitionMethod: 'llm',
+      intentRecognitionMethod: 'capability',
       recognizedIntent: 'UNKNOWN',
       score: 0.3,
     });
@@ -852,7 +858,7 @@ describe('run command TaskContract priority over legacy', () => {
         confidence: 0.3, language: 'zh-CN', internalSignals: { intentCandidates: ['UNKNOWN'], routeSource: 'mixed' },
         kind: 'clarify', missing: [], question: '请说明具体目标',
       },
-      legacy: { success: true, intent: 'UNKNOWN', confidence: 0.3, metadata: { path: 'llm-tool-calling' } },
+      legacy: { success: true, intent: 'UNKNOWN', confidence: 0.3, metadata: { path: 'rule-based' } },
     });
 
     const runCmd = await createTestRunCmd();
@@ -872,7 +878,7 @@ describe('run command TaskContract priority over legacy', () => {
     const consoleSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     orchestrateIntent.mockResolvedValue({
       steps: [{ id: 'step_1', description: 'Some step', status: 'PENDING', cli: 'git', args: ['status'], type: 'exec' }],
-      intentRecognitionMethod: 'llm',
+      intentRecognitionMethod: 'capability',
       recognizedIntent: 'UNKNOWN',
       score: 0.1,
     });
@@ -882,7 +888,7 @@ describe('run command TaskContract priority over legacy', () => {
         confidence: 0.1, language: 'unknown', internalSignals: { intentCandidates: ['UNKNOWN'], routeSource: 'mixed' },
         kind: 'blocked', reason: 'request is blocked', safetyCategory: 'unsupported',
       },
-      legacy: { success: true, intent: 'UNKNOWN', confidence: 0.1, metadata: { path: 'llm-tool-calling' } },
+      legacy: { success: true, intent: 'UNKNOWN', confidence: 0.1, metadata: { path: 'rule-based' } },
     });
 
     const runCmd = await createTestRunCmd();
@@ -903,20 +909,20 @@ describe('run command TaskContract priority over legacy', () => {
     orchestrateIntent.mockResolvedValue({
       steps: [{ id: 'step_1', description: 'Git status', status: 'PENDING', cli: 'git', args: ['status'], type: 'exec' }],
       reply: '我先解释一下',
-      intentRecognitionMethod: 'llm',
+      intentRecognitionMethod: 'capability',
       recognizedIntent: 'git_status',
       score: 0.9,
     });
     resolveRunTaskContractMock.mockReturnValue({
       taskContract: {
         schemaVersion: '1.0', requestId: 'e1', rawInput: '查看 git 状态并解释', normalizedGoal: '查看 git 状态并解释',
-        confidence: 0.9, language: 'zh-CN', internalSignals: { intentCandidates: ['git_status'], routeSource: 'llm-tool-calling' },
+        confidence: 0.9, language: 'zh-CN', internalSignals: { intentCandidates: ['git_status'], routeSource: 'rule-based' },
         kind: 'execute', taskKind: 'modify', operation: 'git_status',
         target: { scope: 'project' }, constraints: { requiresConfirmation: false, requiresVerification: false, sideEffects: ['command'] },
         executionStrategy: { mode: 'direct-command', commandSurfaceId: 'git status' },
         expectedOutput: { format: 'text', audience: 'system' },
       },
-      legacy: { success: true, intent: 'git_status', confidence: 0.9, reply: '我先解释一下', metadata: { path: 'llm-tool-calling' } },
+      legacy: { success: true, intent: 'git_status', confidence: 0.9, reply: '我先解释一下', metadata: { path: 'rule-based' } },
     });
     createWorkflow.mockResolvedValue({
       id: 'wf_exec', name: 'exec workflow',
@@ -942,18 +948,18 @@ describe('run command TaskContract priority over legacy', () => {
     const consoleSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     orchestrateIntent.mockResolvedValue({
       steps: [{ id: 'step_legacy', description: 'Legacy', status: 'PENDING', cli: 'git', args: ['log'], type: 'exec' }],
-      intentRecognitionMethod: 'llm', recognizedIntent: 'doctor', score: 0.9,
+      intentRecognitionMethod: 'capability', recognizedIntent: 'doctor', score: 0.9,
     });
     resolveRunTaskContractMock.mockReturnValue({
       taskContract: {
         schemaVersion: '1.0', requestId: 'eb1', rawInput: '诊断项目', normalizedGoal: '诊断项目',
-        confidence: 0.9, language: 'zh-CN', internalSignals: { intentCandidates: ['doctor'], routeSource: 'llm-tool-calling' },
+        confidence: 0.9, language: 'zh-CN', internalSignals: { intentCandidates: ['doctor'], routeSource: 'rule-based' },
         kind: 'execute', taskKind: 'diagnose', operation: 'doctor',
         target: { scope: 'project' }, constraints: { requiresConfirmation: false, requiresVerification: false, sideEffects: ['command'] },
         executionStrategy: { mode: 'capability', commandSurfaceId: 'vectahub doctor' },
         expectedOutput: { format: 'text', audience: 'system' },
       },
-      legacy: { success: true, intent: 'doctor', confidence: 0.9, metadata: { path: 'llm-tool-calling' } },
+      legacy: { success: true, intent: 'doctor', confidence: 0.9, metadata: { path: 'rule-based' } },
     });
 
     const runCmd = await createTestRunCmd();
@@ -974,18 +980,18 @@ describe('run command TaskContract priority over legacy', () => {
   it('execute-bridge uses contract command not legacy steps (non-dry-run)', async () => {
     orchestrateIntent.mockResolvedValue({
       steps: [{ id: 'step_legacy', description: 'Legacy', status: 'PENDING', cli: 'git', args: ['log'], type: 'exec' }],
-      intentRecognitionMethod: 'llm', recognizedIntent: 'doctor', score: 0.9,
+      intentRecognitionMethod: 'capability', recognizedIntent: 'doctor', score: 0.9,
     });
     resolveRunTaskContractMock.mockReturnValue({
       taskContract: {
         schemaVersion: '1.0', requestId: 'eb2', rawInput: '诊断项目', normalizedGoal: '诊断项目',
-        confidence: 0.9, language: 'zh-CN', internalSignals: { intentCandidates: ['doctor'], routeSource: 'llm-tool-calling' },
+        confidence: 0.9, language: 'zh-CN', internalSignals: { intentCandidates: ['doctor'], routeSource: 'rule-based' },
         kind: 'execute', taskKind: 'diagnose', operation: 'doctor',
         target: { scope: 'project' }, constraints: { requiresConfirmation: false, requiresVerification: false, sideEffects: ['command'] },
         executionStrategy: { mode: 'capability', commandSurfaceId: 'vectahub doctor' },
         expectedOutput: { format: 'text', audience: 'system' },
       },
-      legacy: { success: true, intent: 'doctor', confidence: 0.9, metadata: { path: 'llm-tool-calling' } },
+      legacy: { success: true, intent: 'doctor', confidence: 0.9, metadata: { path: 'rule-based' } },
     });
     createWorkflow.mockResolvedValue({
       id: 'wf_bridge', name: 'bridge workflow',
@@ -1012,18 +1018,18 @@ describe('run command TaskContract priority over legacy', () => {
     const consoleSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     orchestrateIntent.mockResolvedValue({
       steps: [{ id: 'step_1', description: 'Refactor', status: 'PENDING', cli: 'vectahub', args: ['run-task'], type: 'exec' }],
-      intentRecognitionMethod: 'llm', recognizedIntent: 'refactor', score: 0.9,
+      intentRecognitionMethod: 'capability', recognizedIntent: 'refactor', score: 0.9,
     });
     resolveRunTaskContractMock.mockReturnValue({
       taskContract: {
         schemaVersion: '1.0', requestId: 'ar1', rawInput: '重构模块', normalizedGoal: '重构模块',
-        confidence: 0.9, language: 'zh-CN', internalSignals: { intentCandidates: ['refactor'], routeSource: 'llm-tool-calling' },
+        confidence: 0.9, language: 'zh-CN', internalSignals: { intentCandidates: ['refactor'], routeSource: 'rule-based' },
         kind: 'execute', taskKind: 'delegate', operation: 'refactor',
         target: { scope: 'project' }, constraints: { requiresConfirmation: false, requiresVerification: false, sideEffects: ['command'] },
         executionStrategy: { mode: 'agent-runtime' },
         expectedOutput: { format: 'text', audience: 'system' },
       },
-      legacy: { success: true, intent: 'refactor', confidence: 0.9, metadata: { path: 'llm-tool-calling' } },
+      legacy: { success: true, intent: 'refactor', confidence: 0.9, metadata: { path: 'rule-based' } },
     });
 
     const runCmd = await createTestRunCmd();
@@ -1047,7 +1053,7 @@ describe('run command TaskContract priority over legacy', () => {
     orchestrateIntent.mockResolvedValue({
       steps: [],
       reply: '项目状态正常。',
-      intentRecognitionMethod: 'llm',
+      intentRecognitionMethod: 'capability',
       recognizedIntent: 'QUERY_INFO',
       score: 0.9,
     });
@@ -1057,7 +1063,7 @@ describe('run command TaskContract priority over legacy', () => {
         confidence: 0.9, language: 'zh-CN', internalSignals: { intentCandidates: ['QUERY_INFO'], routeSource: 'mixed' },
         kind: 'reply', replyMode: 'answer', answerTopic: 'general',
       },
-      legacy: { success: true, intent: 'QUERY_INFO', confidence: 0.9, reply: '项目状态正常。', metadata: { path: 'llm-tool-calling' } },
+      legacy: { success: true, intent: 'QUERY_INFO', confidence: 0.9, reply: '项目状态正常。', metadata: { path: 'rule-based' } },
     });
 
     const runCmd = await createTestRunCmd();
@@ -1079,18 +1085,18 @@ describe('run command TaskContract priority over legacy', () => {
 
     orchestrateIntent.mockResolvedValue({
       steps: [{ id: 'step_1', description: 'Refactor', status: 'PENDING', cli: 'vectahub', args: ['run-task'], type: 'exec' }],
-      intentRecognitionMethod: 'llm', recognizedIntent: 'refactor', score: 0.9,
+      intentRecognitionMethod: 'capability', recognizedIntent: 'refactor', score: 0.9,
     });
     resolveRunTaskContractMock.mockReturnValue({
       taskContract: {
         schemaVersion: '1.0', requestId: 'ar-test-json-123', rawInput: '重构模块', normalizedGoal: '重构模块',
-        confidence: 0.95, language: 'zh-CN', internalSignals: { intentCandidates: ['refactor'], routeSource: 'llm-tool-calling' },
+        confidence: 0.95, language: 'zh-CN', internalSignals: { intentCandidates: ['refactor'], routeSource: 'rule-based' },
         kind: 'execute', taskKind: 'delegate', operation: 'refactor',
         target: { scope: 'project' }, constraints: { requiresConfirmation: false, requiresVerification: false, sideEffects: ['command'] },
         executionStrategy: { mode: 'agent-runtime' },
         expectedOutput: { format: 'text', audience: 'system' },
       },
-      legacy: { success: true, intent: 'refactor', confidence: 0.9, metadata: { path: 'llm-tool-calling' } },
+      legacy: { success: true, intent: 'refactor', confidence: 0.9, metadata: { path: 'rule-based' } },
     });
 
     const runCmd = await createTestRunCmd();
@@ -1126,18 +1132,18 @@ describe('run command TaskContract priority over legacy', () => {
 
     orchestrateIntent.mockResolvedValue({
       steps: [{ id: 'step_1', description: 'Refactor', status: 'PENDING', cli: 'vectahub', args: ['run-task'], type: 'exec' }],
-      intentRecognitionMethod: 'llm', recognizedIntent: 'refactor', score: 0.9,
+      intentRecognitionMethod: 'capability', recognizedIntent: 'refactor', score: 0.9,
     });
     resolveRunTaskContractMock.mockReturnValue({
       taskContract: {
         schemaVersion: '1.0', requestId: 'ar-test-console-123', rawInput: '重构模块', normalizedGoal: '重构模块',
-        confidence: 0.95, language: 'zh-CN', internalSignals: { intentCandidates: ['refactor'], routeSource: 'llm-tool-calling' },
+        confidence: 0.95, language: 'zh-CN', internalSignals: { intentCandidates: ['refactor'], routeSource: 'rule-based' },
         kind: 'execute', taskKind: 'delegate', operation: 'refactor',
         target: { scope: 'project' }, constraints: { requiresConfirmation: false, requiresVerification: false, sideEffects: ['command'] },
         executionStrategy: { mode: 'agent-runtime' },
         expectedOutput: { format: 'text', audience: 'system' },
       },
-      legacy: { success: true, intent: 'refactor', confidence: 0.9, metadata: { path: 'llm-tool-calling' } },
+      legacy: { success: true, intent: 'refactor', confidence: 0.9, metadata: { path: 'rule-based' } },
     });
 
     const runCmd = await createTestRunCmd();

@@ -4,8 +4,6 @@ import { createRepl } from '../chat/repl.js';
 import { CommandBridge } from '../chat/command-bridge.js';
 import { registerLazyProxyCommands } from '../cli-command-registry.js';
 import { createContextBuilder } from '../chat/context-builder.js';
-import { createNLProcessor } from '../nl/core/pipeline.js';
-import { createLLMConfig } from '../nl/llm.js';
 import { createParamExtractor } from '../nl/param-extractor.js';
 import { createWorkflowEngine, type ProgressInfo } from '../workflow/engine.js';
 import { createStorage } from '../workflow/storage.js';
@@ -45,7 +43,6 @@ export function buildReplDeps(context: InfrastructureContext): ReplDeps {
   const commandProgram = new Command('vectahub');
   registerLazyProxyCommands(commandProgram, context);
   const commandBridge = new CommandBridge(commandProgram);
-  const llmConfig = createLLMConfig();
   const storage = createStorage({
     logger: context.logger.getLogger('storage'),
     environment: context.environment,
@@ -57,11 +54,6 @@ export function buildReplDeps(context: InfrastructureContext): ReplDeps {
     audit: auditHelper,
     environment: context.environment,
   });
-  const nlProcessor = createNLProcessor({
-    llmConfig,
-    logger: context.logger.getLogger('nl'),
-    auditHelper,
-  });
   const contextBuilder = createContextBuilder(undefined);
   const paramExtractor = createParamExtractor();
 
@@ -71,10 +63,8 @@ export function buildReplDeps(context: InfrastructureContext): ReplDeps {
   };
 
   const deps: ReplDeps = {
-    nlProcessor,
+    nlProcessor: undefined as never,
     contextBuilder,
-    llmConfig,
-    useLLM: Boolean(llmConfig),
     config,
     commandBridge,
     paramExtractor,

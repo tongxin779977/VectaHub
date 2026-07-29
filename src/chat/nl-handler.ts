@@ -10,15 +10,10 @@ import type { UIRenderer } from './ui-renderer.js';
 import type { NLResult } from '../nl/core/types.js';
 import type { TaskContractEnvelope } from '../types/task-contract.js';
 import type { Workflow } from '../types/index.js';
-import { LLMClient } from '../nl/llm.js';
-import { buildAllTools } from '../nl/tool-calling.js';
 import { toTaskContractEnvelope } from '../nl/task-contract-adapter.js';
 import { resolveTaskContractAction } from '../nl/task-contract-runtime.js';
 import { parseWorkflowSteps } from './workflow-parser.js';
 import { formatError, SimpleCache } from './utils.js';
-import { getLogger } from '../infrastructure/logger/index.js';
-
-const moduleLogger = getLogger('nl-handler');
 
 /** 意图解析缓存 TTL（毫秒），120 秒 */
 const INTENT_CACHE_TTL_MS = 120_000;
@@ -33,8 +28,6 @@ export interface NLHandlerDeps {
   nlProcessor: ReplDeps['nlProcessor'];
   taskContractProcessor?: ReplDeps['taskContractProcessor'];
   sessionManager: ReplDeps['sessionManager'];
-  useLLM: boolean;
-  llmConfig: ReplDeps['llmConfig'];
   auditHelper: ReplDeps['auditHelper'];
   workflowEngine: ReplDeps['workflowEngine'];
   commandExecutor: ReplDeps['commandExecutor'];
@@ -74,25 +67,11 @@ export function createNLHandler(
     if (deps.taskContractProcessor) {
       return deps.taskContractProcessor(input);
     }
-    const nlResult = await deps.nlProcessor.parse({ input, sessionId, options: { useLLM: deps.useLLM } });
+    const nlResult = await deps.nlProcessor.parse({ input, sessionId });
     return toTaskContractEnvelope(input, nlResult);
   }
 
   async function handleNLInput(input: string): Promise<ChatOutput> {
-    if (deps.config.executeMode === 'auto' && deps.useLLM && deps.llmConfig) {
-      try {
-        const llmClient = new LLMClient(deps.llmConfig, { auditHelper: deps.auditHelper });
-        await llmClient.complete(
-          'intent-parser-chat',
-          input,
-          {},
-          { tools: buildAllTools() }
-        );
-      } catch (err) {
-        deps.logger.debug({ err }, 'LLM preflight failed, falling back to NL processor');
-      }
-    }
-
     const cacheKey = buildIntentCacheKey(input);
     let envelope: TaskContractEnvelope<NLResult>;
 
@@ -247,9 +226,7 @@ function sanitizeReply(reply: string): string {
       return tail ? `${sanitized}\n\n${tail}` : sanitized;
     }
     return reply;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    moduleLogger.debug({ error: message, input: trimmed.slice(0, 100) }, 'NL reply JSON parse failed');
+  } catch {
     if (/^\{[a-zA-Z_]+\}$/.test(trimmed) || /^\{[a-zA-Z_]+:\s*.+\}$/.test(trimmed)) {
       return '收到，但未生成有效回复。请重试或换个方式提问。';
     }
@@ -286,9 +263,8 @@ function sanitizeSingleValue(val: string): string {
       try {
         const innerParsed: Record<string, unknown> = JSON.parse(innerJson);
         return sanitizeParsedJSON(innerParsed) || trimmed;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        moduleLogger.debug({ error: message }, 'Inner JSON sanitize fallback');
+      } catch {
+        // JSON parse failed; fall through to return trimmed original value
       }
     }
   }

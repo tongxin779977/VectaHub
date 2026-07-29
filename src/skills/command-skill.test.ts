@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createCommandSkill, CommandSkill } from './command-skill.js';
-import { join } from 'path';
-import { getVectaHubHome } from '../infrastructure/paths/index.js';
+import { MockEnvironmentService } from '../infrastructure/testing/mock-services.js';
 
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>();
@@ -17,9 +16,10 @@ vi.mock('child_process', async (importOriginal) => {
 
 describe('CommandSkill', () => {
   let skill: CommandSkill;
+  const env = new MockEnvironmentService();
 
   beforeEach(() => {
-    skill = createCommandSkill();
+    skill = createCommandSkill(env);
   });
 
   it('should have correct metadata', () => {
@@ -55,7 +55,7 @@ describe('CommandSkill', () => {
   });
 
   it('should search files by query', () => {
-    const results = skill.searchFiles('package', [getVectaHubHome()]);
+    const results = skill.searchFiles('package', [env.getHomePath()]);
     expect(Array.isArray(results)).toBe(true);
   });
 

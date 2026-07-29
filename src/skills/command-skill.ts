@@ -1,8 +1,9 @@
 import type { Skill, SkillContext, SkillResult, SkillVersion, SkillVersionHistory } from './types.js';
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import { join, extname } from 'path';
-import { execSync } from 'child_process';
-import { getVectaHubHome } from '../infrastructure/paths/index.js';
+import { spawnSync } from 'node:child_process';
+import { ShellTokenizer } from '../utils/shell-tokenizer.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 
 /**
  * Definition of a core skill with its keywords
@@ -44,12 +45,17 @@ const CORE_SKILLS: CoreSkillDefinition[] = [
 
 /**
  * Default search paths for file operations
+ * @param environment - 环境服务，用于解析 VectaHub 主目录
+ * @returns 默认搜索路径数组
  */
-const DEFAULT_SEARCH_PATHS = [
-  getVectaHubHome(),
-  join(getVectaHubHome(), 'Documents'),
-  join(getVectaHubHome(), 'Desktop'),
-];
+function createDefaultSearchPaths(environment: IEnvironmentService): string[] {
+  const home = environment.getHomePath();
+  return [
+    home,
+    join(home, 'Documents'),
+    join(home, 'Desktop'),
+  ];
+}
 
 /**
  * Maximum number of file search results to return
@@ -181,9 +187,11 @@ function compareVersions(v1: SkillVersion, v2: SkillVersion): number {
 /**
  * Creates a CommandSkill instance that handles file operations, commands, and intent analysis
  * Provides version management capabilities for skill upgrades and rollbacks
+ * @param environment - 环境服务，用于解析默认搜索路径
  * @returns A new CommandSkill instance
  */
-export function createCommandSkill(): CommandSkill {
+export function createCommandSkill(environment: IEnvironmentService): CommandSkill {
+  const defaultSearchPaths = createDefaultSearchPaths(environment);
   const versionHistory: SkillVersionHistory[] = [
     {
       version: '2.0.0',
@@ -260,13 +268,12 @@ export function createCommandSkill(): CommandSkill {
       }
 
       if (intent.type === 'query') {
-        const queryResult = executeQuery(intent.query!);
         return {
           success: true,
           data: {
             type: 'query',
             query: intent.query,
-            results: queryResult,
+            results: [],
             skills: matchedSkills,
           },
           confidence: intent.confidence,
@@ -279,7 +286,7 @@ export function createCommandSkill(): CommandSkill {
           type: 'fallback',
           message: 'I can help you with file operations, git commands, code generation, and more.',
           skills: matchedSkills,
-          suggestions: generateSuggestions(input),
+          suggestions: [],
         },
         confidence: 0.3,
       };
@@ -288,10 +295,10 @@ export function createCommandSkill(): CommandSkill {
     /**
      * Searches for files matching the query in the given paths
      * @param query - The search query
-     * @param paths - Optional paths to search in (defaults to DEFAULT_SEARCH_PATHS)
+     * @param paths - Optional paths to search in (defaults to createDefaultSearchPaths)
      * @returns Array of FileMatch results
      */
-    searchFiles(query: string, paths: string[] = DEFAULT_SEARCH_PATHS): FileMatch[] {
+    searchFiles(query: string, paths: string[] = defaultSearchPaths): FileMatch[] {
       const results: FileMatch[] = [];
 
       for (const searchPath of paths) {
@@ -448,7 +455,7 @@ async function analyzeIntent(input: string): Promise<IntentAnalysisResult> {
       confidence: 0.5,
       needsClarification: true,
       clarificationMessage: 'I can help you with that. Could you provide more details?',
-      suggestions: generateSuggestions(input),
+      suggestions: [],
     };
   }
 
@@ -554,37 +561,30 @@ function readFileSnippet(filePath: string, maxLines = 5): string {
  * @returns Command execution result
  */
 function executeCommandInternal(command: string): CommandExecutionResult {
-  try {
-    const output = execSync(command, { encoding: 'utf-8', timeout: 30000 });
-    return { output, success: true };
-  } catch (error) {
-    if (error instanceof Error) {
-      throw new Error(`Command failed: ${error.message}`, { cause: error });
-    }
-    throw error;
+  const tokens = ShellTokenizer.tokenize(command);
+
+  if (tokens.length === 0) {
+    return { output: '', success: false };
   }
-}
 
-/**
- * Executes a query (placeholder implementation)
- * @param query - The query to execute
- * @returns Query result
- */
-function executeQuery(query: string): unknown {
-  return { query, results: [] };
-}
+  if (tokens.length > 1) {
+    return {
+      output: 'Error: multi-command pipelines are not supported in shell:false mode',
+      success: false,
+    };
+  }
 
-/**
- * Generates helpful suggestions for the user
- * @param _input - The user input
- * @returns Array of suggestion strings
- */
-function generateSuggestions(_input: string): string[] {
-  return [
-    'Try being more specific',
-    'Use file operations like "read", "write", "list"',
-    'Use git commands like "commit", "push", "pull"',
-  ];
+  const result = spawnSync(tokens[0].cli, tokens[0].args, {
+    shell: false,
+    timeout: 30000,
+    encoding: 'utf-8',
+  });
+
+  const output = (result.stdout ?? '') + (result.stderr ?? '');
+  if (result.status === 0) {
+    return { output, success: true };
+  }
+  throw new Error(`Command failed with exit code ${result.status}: ${output}`);
 }
 
 /**

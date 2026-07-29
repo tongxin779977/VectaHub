@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuditHelper } from '../infrastructure/audit/index.js';
+import { MockEnvironmentService } from '../infrastructure/testing/mock-services.js';
+
+const env = new MockEnvironmentService();
 
 const processInputMock = vi.fn();
 const auditIntentMatchMock = vi.fn();
@@ -45,13 +48,7 @@ describe('SocketServer.executeTask', () => {
     vi.clearAllMocks();
   });
 
-  it('passes unified llm config to processInput', async () => {
-    const llmConfig = {
-      provider: 'openai',
-      model: 'gpt-4o-mini',
-      apiKey: 'secret',
-      baseUrl: 'https://api.openai.com/v1',
-    };
+  it('passes audit helper and logger to processInput', async () => {
     processInputMock.mockResolvedValue({
       success: true,
       intent: 'RUN_SCRIPT',
@@ -66,21 +63,22 @@ describe('SocketServer.executeTask', () => {
 
     const { SocketServer } = await import('./socket-server.js');
     const server = new SocketServer({}, {
+      environment: env,
       auditHelper: createAuditHelper(),
       logger: { error: loggerErrorMock },
       getSessionId: () => 'session-test',
-      llmConfigProvider: () => llmConfig,
     });
     const result = await (server as any).executeTask('check status');
 
     expect(processInputMock).toHaveBeenCalledWith(
       'check status',
-      llmConfig,
       expect.objectContaining({
-        intentMatch: expect.any(Function),
-      }),
-      expect.objectContaining({
-        error: expect.any(Function),
+        auditHelper: expect.objectContaining({
+          intentMatch: expect.any(Function),
+        }),
+        logger: expect.objectContaining({
+          error: expect.any(Function),
+        }),
       }),
     );
     expect(result).toContain('Execution delegated to Skill System.');
@@ -103,6 +101,7 @@ describe('SocketServer.executeTask', () => {
 
     const { SocketServer } = await import('./socket-server.js');
     const server = new SocketServer({}, {
+      environment: env,
       auditHelper: createAuditHelper(),
       logger: { error: loggerErrorMock },
       getSessionId: () => 'session-test',
@@ -116,6 +115,7 @@ describe('SocketServer.executeTask', () => {
   it('rejects invalid setMode value and does not call sandbox.setMode', async () => {
     const { SocketServer } = await import('./socket-server.js');
     const server = new SocketServer({}, {
+      environment: env,
       auditHelper: createAuditHelper(),
       logger: { error: loggerErrorMock },
       getSessionId: () => 'session-test',
@@ -134,6 +134,7 @@ describe('SocketServer.executeTask', () => {
   it('parses newline-delimited socket stream with sticky and split packets', async () => {
     const { SocketServer } = await import('./socket-server.js');
     const server = new SocketServer({}, {
+      environment: env,
       auditHelper: createAuditHelper(),
       logger: { error: loggerErrorMock },
       getSessionId: () => 'session-test',

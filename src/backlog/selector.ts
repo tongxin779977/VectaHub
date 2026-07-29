@@ -13,10 +13,12 @@ export interface TaskSelectorOptions {
   itemsDir: string;
   checkClaims?: boolean;
   claimDir?: string;
+  logger?: { log: (...args: unknown[]) => void; error: (...args: unknown[]) => void; warn: (...args: unknown[]) => void };
 }
 
 export function selectNextTask(options: TaskSelectorOptions): TaskSelectionResult {
-  const allItems = getAllBacklogItems(options.itemsDir);
+  const log = options.logger ?? console;
+  const allItems = getAllBacklogItems(options.itemsDir, options.logger);
   const result: TaskSelectionResult = {
     reason: "",
     eligible: [],
@@ -24,7 +26,7 @@ export function selectNextTask(options: TaskSelectorOptions): TaskSelectionResul
     dependencies_unmet: [],
   };
 
-  cleanupStaleClaims();
+  cleanupStaleClaims(options.logger);
 
   const reviewFixTasks: BacklogItem[] = [];
   const needsFixTasks: BacklogItem[] = [];
@@ -32,10 +34,10 @@ export function selectNextTask(options: TaskSelectorOptions): TaskSelectionResul
 
   for (const [id, item] of allItems) {
     let taskLocked = false;
-    
+
     if (isTaskInProgress(item) && item.lock) {
       if (isLockExpired(item.lock)) {
-        console.warn(`Task ${id} has an expired lock, will be considered stale`);
+        log.warn(`Task ${id} has an expired lock, will be considered stale`);
       } else {
         taskLocked = true;
       }

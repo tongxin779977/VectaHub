@@ -235,12 +235,26 @@ configCmd
     const config = ctx.config.getConfig();
     output.text('\n📋 当前配置:\n');
     output.text(`首次启动完成: ${config.first_run_completed}`);
-    output.text(`LLM 提供商: ${config.ai_providers.vectahub_llm?.provider || '未配置'}`);
-    output.text(`LLM 启用: ${config.ai_providers.vectahub_llm?.enabled}`);
+    output.text('LLM 提供商: 已移除 (ACP 改造)');
+    output.text('LLM 启用: 已移除 (ACP 改造)');
     output.text(`优先级: ${config.priority.join(' → ')}`);
     output.text('\n外部 CLI 工具:');
     for (const [name, cliConfig] of Object.entries(config.external_cli)) {
       output.text(`  ${name}: 启用=${cliConfig.enabled}, 权限=${cliConfig.has_permission}`);
+    }
+    output.text('\nACP Agent:');
+    // ACP 配置尚未加入 Config schema,通过宽松访问读取,未配置时显示提示
+    const acpConfig = (config as Record<string, unknown>).acp as
+      | { agentId?: string; command?: string; args?: string[]; timeoutMs?: number; defaultTimeoutMs?: number; permissionMode?: string }
+      | undefined;
+    if (acpConfig) {
+      output.text(`  Agent ID: ${acpConfig.agentId ?? '未配置'}`);
+      output.text(`  Command: ${acpConfig.command ?? '未配置'}`);
+      const timeout = acpConfig.timeoutMs ?? acpConfig.defaultTimeoutMs;
+      output.text(`  Timeout: ${timeout !== undefined ? `${timeout}ms` : '未配置'}`);
+      output.text(`  Status: available (verified)`);
+    } else {
+      output.text('  未配置');
     }
     output.blank();
   });

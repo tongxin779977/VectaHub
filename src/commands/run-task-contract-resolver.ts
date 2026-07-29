@@ -43,7 +43,7 @@ function orchestrateResultToNLResult(result: OrchestrateResult, rawInput: string
       warnings: [],
     } : undefined,
     metadata: {
-      path: result.intentRecognitionMethod === 'capability' ? 'category-router' : 'llm-tool-calling',
+      path: result.intentRecognitionMethod === 'capability' ? 'category-router' : 'rule-based',
     },
   };
 }

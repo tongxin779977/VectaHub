@@ -3,13 +3,15 @@ import {
   type CleanupConfig,
   type DataCleanupDeps,
 } from '../infrastructure/data/cleanup.js';
-import { getLogger } from '../infrastructure/logger/index.js';
-import { getVectaHubPath } from '../infrastructure/paths/index.js';
+import { LoggerService } from '../infrastructure/logger/service.js';
+import { getLoggerWithDeps } from '../infrastructure/logger/facade.js';
+import type { IEnvironmentService } from '../infrastructure/interfaces/index.js';
 
-function createCompatDeps(): DataCleanupDeps {
+function createCompatDeps(environment: IEnvironmentService): DataCleanupDeps {
+  const loggerService = new LoggerService(environment);
   return {
-    logger: getLogger('data-cleanup'),
-    resolveStoragePath: getVectaHubPath,
+    logger: getLoggerWithDeps({ logger: loggerService }, 'data-cleanup'),
+    resolveStoragePath: (...segments: string[]) => environment.getPath(...segments),
   };
 }
 
@@ -18,8 +20,8 @@ function createCompatDeps(): DataCleanupDeps {
  * @deprecated 建议直接使用 infrastructure/data/cleanup 中的显式依赖 API
  */
 export class DataCleanupService extends InfrastructureDataCleanupService {
-  constructor(config?: Partial<CleanupConfig>) {
-    super({ config, deps: createCompatDeps() });
+  constructor(environment: IEnvironmentService, config?: Partial<CleanupConfig>) {
+    super({ config, deps: createCompatDeps(environment) });
   }
 }
 
@@ -27,8 +29,8 @@ export class DataCleanupService extends InfrastructureDataCleanupService {
  * 兼容桥接层：为历史工厂签名注入默认基础设施依赖
  * @deprecated 建议直接使用 infrastructure/data/cleanup 中的显式依赖 API
  */
-export function createDataCleanupService(config?: Partial<CleanupConfig>): DataCleanupService {
-  return new DataCleanupService(config);
+export function createDataCleanupService(environment: IEnvironmentService, config?: Partial<CleanupConfig>): DataCleanupService {
+  return new DataCleanupService(environment, config);
 }
 
 export type { CleanupConfig, DataCleanupDeps, DataCleanupServiceOptions } from '../infrastructure/data/cleanup.js';
