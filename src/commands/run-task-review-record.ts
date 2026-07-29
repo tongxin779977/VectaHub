@@ -3,7 +3,6 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 
 const MAX_RECORDS_PER_AGENT = 200;
-const REVIEW_RECORDS_DIR = 'review-records';
 
 export interface ExecutionReviewRecord {
   reviewId: string;

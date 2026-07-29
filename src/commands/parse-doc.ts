@@ -9,12 +9,8 @@ import type { AgentTransport } from '../agent-runtime/transport/types.js';
 import { createTransport, type AcpConfig } from '../agent-runtime/transport/factory.js';
 import { getAgentDescriptorById } from './agent-cli-adapter.js';
 
-const DEFAULT_MAX_DOC_LENGTH = 50000;
-const DEFAULT_MAX_RETRIES = 2;
 const CHUNK_BOUNDARY_SEARCH_RATIO = 0.2;
 
-const CONTINUATION_SUFFIX = '\n（接下一段）';
-const CONTINUATION_PREFIX = '（接上一段）\n';
 const HEADING_PATTERN = /^#{1,6}\s+(.+)$/;
 const PRIORITY_SECTION_PATTERN = /当前开发优先级/;
 const TASK_ID_PATTERN = /([A-Za-z]{1,8}-\d+(?:[-.]\d+)*|[A-Za-z]?\d+(?:[-.]\d+)*)/;

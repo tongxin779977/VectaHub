@@ -56,7 +56,7 @@ export function initializeRouter(_intentEntries: Array<{ intent: string; categor
  */
 function transportResultToNLResult(
   result: TransportResult,
-  input: string,
+  _input: string,
 ): NLResult {
   if (result.success) {
     return {

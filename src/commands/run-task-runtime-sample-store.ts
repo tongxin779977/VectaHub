@@ -3,7 +3,6 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import type { AgentRuntimeSample, AgentRuntimeProfileKey, TaskComplexityLevel } from './run-task-runtime-estimator.js';
 
 const MAX_SAMPLES_PER_AGENT = 100;
-const SAMPLES_DIR = 'runtime-samples';
 
 export interface RuntimeSampleStoreDeps {
   resolvePath: (...segments: string[]) => string;

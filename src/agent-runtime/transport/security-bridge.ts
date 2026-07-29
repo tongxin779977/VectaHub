@@ -60,7 +60,7 @@ export async function handleAcpPermission(
       return { optionId: findOption(request.options, 'allow_once') };
 
     default: {
-      const _exhaustive: never = decision.decision;
+      void (decision.decision satisfies never);
       return { cancelled: true };
     }
   }

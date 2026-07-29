@@ -1,6 +1,6 @@
 import type { AgentDescriptor } from '../types/agent.js';
 
-const BUILT_IN_AGENT_DESCRIPTORS: Record<string, AgentDescriptor> = {
+export const BUILT_IN_AGENT_DESCRIPTORS: Record<string, AgentDescriptor> = {
   codex: {
     id: 'codex',
     displayName: 'OpenAI Codex CLI',
