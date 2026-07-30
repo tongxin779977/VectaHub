@@ -40,7 +40,7 @@ export function renderPlanPreview(plan: ExecutionPlan): string {
 }
 
 function escapeDoubleQuotes(value: string): string {
-  return value.replace(/"/g, '\\"');
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
 function shellQuote(value: string): string {

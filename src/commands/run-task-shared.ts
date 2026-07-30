@@ -260,8 +260,9 @@ export function waitForWriterSettled(writer: NodeJS.WritableStream): Promise<voi
 
 export function buildCommandString(command: string, args: string[]): string {
   const escaped = args.map(a => {
-    if (/[\s"']/.test(a)) {
-      return `"${a.replace(/"/g, '\\"')}"`;
+    if (/[\s"']\\/.test(a)) {
+      // Escape backslashes first, then double quotes (order matters)
+      return `"${a.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
     }
     return a;
   });

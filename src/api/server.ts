@@ -192,7 +192,10 @@ export async function createAPIServer(
         jsonResponse(res, 404, { success: false, error: `Not found: ${method} ${url.pathname}` });
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const isClientError = err instanceof RequestBodyParseError || err instanceof BodyTooLargeError;
+      const message = isClientError
+        ? (err instanceof Error ? err.message : String(err))
+        : 'Internal server error';
       const statusCode = (err instanceof RequestBodyParseError)
         ? 400
         : (err instanceof BodyTooLargeError) ? 413 : 500;

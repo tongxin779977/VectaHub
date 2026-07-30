@@ -38,6 +38,15 @@ function createTemplatesCommandOutput(): TemplatesCommandOutput {
   };
 }
 
+function isGitHubUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === 'github.com' || parsed.hostname.endsWith('.github.com');
+  } catch {
+    return false;
+  }
+}
+
 function getTemplatesDir(context: InfrastructureContext): string {
   const firstRunWizardDeps = { environment: context.environment };
   const envDir = context.environment.getEnv('VECTAHUB_TEMPLATES_DIR');
@@ -204,7 +213,7 @@ export function createTemplatesCmd(context: InfrastructureContext): Command {
         await addSource(context.environment, {
           name,
           url,
-          type: url.includes('github.com') ? 'github' : 'git',
+          type: isGitHubUrl(url) ? 'github' : 'git',
           branch: options.branch,
           path: options.path,
         });

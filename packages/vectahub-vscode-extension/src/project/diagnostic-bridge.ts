@@ -130,9 +130,9 @@ export class DiagnosticBridge implements vscode.Disposable {
           totalDiagnostics,
           data: serialized,
         }));
-      } catch (err) {
+      } catch {
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: false, error: String(err) }));
+        res.end(JSON.stringify({ ok: false, error: 'Internal server error' }));
       }
     });
 

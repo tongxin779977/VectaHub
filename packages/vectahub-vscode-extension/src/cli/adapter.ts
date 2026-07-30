@@ -173,11 +173,11 @@ export async function runCli<T = unknown>(args: string[], options: CliOptions = 
       let data: T | undefined;
       let ok = code === 0;
       let error: CliResult['error'];
-      if (!ok && !error && timedOut) {
+      if (!ok && timedOut) {
         error = { code: 'TIMEOUT', message: `CLI timeout after ${effectiveTimeout}ms` };
-      } else if (!ok && !error && cancelledByUser) {
+      } else if (!ok && cancelledByUser) {
         error = { code: 'CANCELLED', message: 'Command was cancelled by user' };
-      } else if (!ok && !error && (signal === 'SIGTERM' || signal === 'SIGKILL')) {
+      } else if (!ok && (signal === 'SIGTERM' || signal === 'SIGKILL')) {
         error = { code: 'CANCELLED', message: `Command terminated by signal ${signal}` };
       }
 

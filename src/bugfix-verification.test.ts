@@ -212,7 +212,6 @@ describe('Bug Fix: credit card pattern false positives', () => {
 describe('Bug Fix: run.ts env variable cleanup', () => {
   it('restoreEnvValue should restore to undefined when previous was undefined', () => {
     function restoreEnvValue(name: string, previousValue: string | undefined): void {
-      // codeql[unneeded-defensive-code] regression test for run.ts env-leak fix
       if (previousValue === undefined) {
         delete process.env[name];
       } else {
@@ -224,22 +223,11 @@ describe('Bug Fix: run.ts env variable cleanup', () => {
     process.env[key] = '1';
     restoreEnvValue(key, undefined);
     expect(process.env[key]).toBeUndefined();
-  });
 
-  it('restoreEnvValue should restore to previous value', () => {
-    function restoreEnvValue(name: string, previousValue: string | undefined): void {
-      // codeql[unneeded-defensive-code] regression test for run.ts env-leak fix
-      if (previousValue === undefined) {
-        delete process.env[name];
-      } else {
-        process.env[name] = previousValue;
-      }
-    }
-
-    const key = '__TEST_VECTAHUB_AUDIT_DISABLED_2__';
-    process.env[key] = 'original';
-    process.env[key] = '1'; // simulate dryRun
-    restoreEnvValue(key, 'original');
-    expect(process.env[key]).toBe('original');
+    const key2 = '__TEST_VECTAHUB_AUDIT_DISABLED_2__';
+    process.env[key2] = 'original';
+    process.env[key2] = '1';
+    restoreEnvValue(key2, 'original');
+    expect(process.env[key2]).toBe('original');
   });
 });

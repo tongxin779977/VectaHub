@@ -269,7 +269,7 @@ function extractGitCommitMessage(
   originalInput: string
 ): string {
   const messageMatch = originalInput.match(
-    /(?:消息(?:是)?|commit(?: message)?)["'"]?([^"'"]+)["'"]?/i
+    /(?:消息(?:是)?|commit(?: message)?)["']?([^"']+)["']?/i
   );
   if (messageMatch?.[1]) {
     return messageMatch[1].trim();

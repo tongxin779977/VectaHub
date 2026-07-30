@@ -148,7 +148,7 @@ describe('Performance Baseline - P5 Performance Hardening', () => {
         const start = performance.now();
         const index = buildDocIndex(doc);
         for (let j = 0; j < 100; j++) {
-          findHeadingSection(index, `Task ${j}`, doc);
+          findHeadingSection(index, `Task ${j}`);
         }
         const end = performance.now();
         latencies.push(end - start);
@@ -176,7 +176,7 @@ describe('Performance Baseline - P5 Performance Hardening', () => {
       for (let i = 0; i < ITERATIONS; i++) {
         const start = performance.now();
         for (let j = 0; j < 10; j++) {
-          findHeadingSection(index, `Task ${j}`, doc);
+          findHeadingSection(index, `Task ${j}`);
         }
         const end = performance.now();
         latencies.push(end - start);
