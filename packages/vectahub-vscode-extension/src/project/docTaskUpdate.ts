@@ -11,8 +11,6 @@ import * as path from 'path';
  * 4. 如果没找到表格，尝试寻找以 ID 开头的列表项并标记完成。
  */
 export async function updateMarkdownDocTaskStatus(filePath: string, taskId: string): Promise<boolean> {
-  if (!fs.existsSync(filePath)) return false;
-
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
     const lines = content.split('\n');
@@ -78,6 +76,7 @@ export async function updateMarkdownDocTaskStatus(filePath: string, taskId: stri
       return true;
     }
   } catch (err) {
+    if (err instanceof Error && (err as NodeJS.ErrnoException).code === 'ENOENT') return false;
     console.error(`[updateMarkdownDocTaskStatus] Error: ${err}`);
   }
 

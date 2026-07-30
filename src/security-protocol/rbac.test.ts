@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { createRBACManager, type RoleName } from './rbac.js';
 import { EnvironmentService } from '../infrastructure/environment/index.js';
 
@@ -19,11 +20,16 @@ function createEnv(): EnvironmentService {
 }
 
 describe('rbac', () => {
+  let tmpA: string;
+  let tmpB: string;
+
   beforeEach(() => {
   });
 
   afterEach(() => {
     restoreEnvVar('VECTAHUB_HOME', originalVectaHubHome);
+    if (tmpA) rmSync(tmpA, { recursive: true, force: true });
+    if (tmpB) rmSync(tmpB, { recursive: true, force: true });
   });
 
   it('gets default developer role', () => {
@@ -85,7 +91,8 @@ describe('rbac', () => {
   });
 
   it('recomputes RBAC file path after VECTAHUB_HOME changes', () => {
-    process.env.VECTAHUB_HOME = '/tmp/vectahub-rbac-home-a';
+    tmpA = mkdtempSync(join(tmpdir(), 'vectahub-rbac-home-a-'));
+    process.env.VECTAHUB_HOME = tmpA;
 
     const managerA = createRBACManager({ environment: createEnv() });
     managerA.saveConfig([
@@ -112,8 +119,8 @@ describe('rbac', () => {
       },
     ]);
 
-    process.env.VECTAHUB_HOME = '/tmp/vectahub-rbac-home-b';
-    mkdirSync('/tmp/vectahub-rbac-home-b', { recursive: true });
+    tmpB = mkdtempSync(join(tmpdir(), 'vectahub-rbac-home-b-'));
+    process.env.VECTAHUB_HOME = tmpB;
 
     const managerB = createRBACManager({ environment: createEnv() });
     managerB.saveConfig([
@@ -140,8 +147,8 @@ describe('rbac', () => {
       },
     ]);
 
-    const savedA = JSON.parse(readFileSync(join('/tmp/vectahub-rbac-home-a', 'rbac.json'), 'utf-8')) as RoleName[];
-    const savedB = JSON.parse(readFileSync(join('/tmp/vectahub-rbac-home-b', 'rbac.json'), 'utf-8')) as RoleName[];
+    const savedA = JSON.parse(readFileSync(join(tmpA, 'rbac.json'), 'utf-8')) as RoleName[];
+    const savedB = JSON.parse(readFileSync(join(tmpB, 'rbac.json'), 'utf-8')) as RoleName[];
 
     expect(savedA).not.toEqual(savedB);
   });

@@ -6,8 +6,11 @@ import {
   type WorkflowVersion,
 } from './versioning.js';
 import { MockEnvironmentService } from '../infrastructure/testing/mock-services.js';
+import { mkdtempSync, rmSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 
-const TEST_DIR = '/tmp/vectahub-test-versioning';
+let TEST_DIR: string;
 const WF_ID = 'wf_test_123';
 let environment: MockEnvironmentService;
 
@@ -21,9 +24,11 @@ function makeYAML(name: string, stepCount: number): string {
 describe('WorkflowVersioning', () => {
   beforeEach(() => {
     environment = new MockEnvironmentService();
+    TEST_DIR = mkdtempSync(join(tmpdir(), 'vectahub-test-versioning-'));
   });
 
   afterEach(() => {
+    rmSync(TEST_DIR, { recursive: true, force: true });
   });
 
   describe('saveVersion', () => {
