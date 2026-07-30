@@ -103,3 +103,4 @@ agent-homes/
 
 .aider*
 *.vsix
+.omo/run-continuation/
