@@ -74,7 +74,7 @@ async function scanDocExcerptAsync(source, input) {
     const line = `${raw}\n`;
     head = appendBounded(head, line, captureLimit);
 
-    const headingMatch = raw.match(/^(#{1,6})\s+(.+)$/);
+    const headingMatch = raw.match(/^(#{1,6})\s+(\S.*)$/);
     if (!hasHeadingSection && headingMatch && raw.includes(input.taskId)) {
       inHeadingSection = true;
       hasHeadingSection = true;
@@ -146,7 +146,7 @@ function scanDocExcerptSync(source, input) {
     const line = `${raw}\n`;
     head = appendBounded(head, line, captureLimit);
 
-    const headingMatch = raw.match(/^(#{1,6})\s+(.+)$/);
+    const headingMatch = raw.match(/^(#{1,6})\s+(\S.*)$/);
     if (!hasHeadingSection && headingMatch && raw.includes(input.taskId)) {
       inHeadingSection = true;
       hasHeadingSection = true;
@@ -391,7 +391,7 @@ function extractExplicitFileSections(text) {
     if (!currentSection) continue;
 
     // 显式文件分区是安全边界来源，只读取列表项，避免把说明文字误当成文件路径。
-    const item = line.match(/^[-*]\s+(.+)$/);
+    const item = line.match(/^[-*]\s+(\S.*)$/);
     if (!item) continue;
 
     const candidates = extractCandidateFiles(item[1]);
@@ -412,10 +412,10 @@ function detectFileSection(line) {
     .trim()
     .toLowerCase();
 
-  if (/^allowedfiles\s*:?\s*$/.test(normalized) || /^allowed files\s*:?\s*$/.test(normalized)) {
+  if (/^allowedfiles[ \t]*:?$/.test(normalized) || /^allowed files[ \t]*:?$/.test(normalized)) {
     return 'allowed';
   }
-  if (/^forbiddenfiles\s*:?\s*$/.test(normalized) || /^forbidden files\s*:?\s*$/.test(normalized)) {
+  if (/^forbiddenfiles[ \t]*:?$/.test(normalized) || /^forbidden files[ \t]*:?$/.test(normalized)) {
     return 'forbidden';
   }
   return null;
@@ -489,7 +489,7 @@ function stripLeadingCurrentDir(projectRelativePath) {
 }
 
 function sanitizeCandidatePath(value) {
-  return value.replace(/[.,，。;；:：)）\]】]+$/g, '');
+  return value.replace(/[.,，。;；:：)）\]】]{1,100}$/g, '');
 }
 
 function looksLikeProjectPath(value) {
