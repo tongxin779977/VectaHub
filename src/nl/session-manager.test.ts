@@ -145,7 +145,6 @@ describe('SessionManager', () => {
 
       const ctx = manager.getFormattedContext('s1');
       const l3Pos = ctx.indexOf('[L3 项目上下文]');
-      const l2Pos = ctx.indexOf('[L2 会话摘要]');
       const l1Pos = ctx.indexOf('[L1 工作记忆]');
 
       expect(l3Pos).toBeGreaterThanOrEqual(0);

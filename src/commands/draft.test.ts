@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createDraftCommand } from './draft.js';
 import { createDraftStorage } from '../orchestration-plan/draft-storage.js';
 import { convertPlanToDraft } from '../orchestration-plan/workflow-draft-converter.js';
 import type { OrchestrationPlan } from '../types/orchestration-plan.js';
@@ -116,8 +115,6 @@ describe('Draft CLI Commands', () => {
     });
 
     it('should handle needs_confirmation status', async () => {
-      const storage = createDraftStorage({ environment, logger: testLogger });
-
       const plan = createTestPlan({
         safetyReview: {
           status: 'needs_confirmation',

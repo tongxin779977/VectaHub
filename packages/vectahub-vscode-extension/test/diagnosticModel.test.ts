@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   DiagnosticTask,
-  DiagnosticTaskStatus,
   VALID_DIAGNOSTIC_STATUSES,
   QueueSummary,
   normalizeDiagnosticTask,

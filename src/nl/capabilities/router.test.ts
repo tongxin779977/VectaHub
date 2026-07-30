@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createCapabilityRouter } from './router.js';
 import { parseGoal } from '../core/goal-parser.js';
-import { normalizeInput } from '../core/input-normalizer.js';
 
 describe('createCapabilityRouter', () => {
   const router = createCapabilityRouter();

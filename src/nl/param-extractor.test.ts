@@ -89,18 +89,18 @@ describe('ParamExtractor', () => {
 
   describe('boost calculation', () => {
     it('returns 0 when no params extracted', () => {
-      const result = extractor.extract('完全无关');
+      extractor.extract('完全无关');
       // expect(extractor.calculateBoost(result)).toBe(0);
     });
 
     it('returns positive boost when params extracted', () => {
-      const result = extractor.extract('查找 src 目录');
+      extractor.extract('查找 src 目录');
       // expect(extractor.calculateBoost(result)).toBeGreaterThan(0);
     });
 
     it('accumulates boost for multiple params', () => {
-      const single = extractor.extract('commit');
-      const multi = extractor.extract('git commit in src');
+      extractor.extract('commit');
+      extractor.extract('git commit in src');
       // expect(extractor.calculateBoost(multi)).toBeGreaterThanOrEqual(extractor.calculateBoost(single));
     });
   });

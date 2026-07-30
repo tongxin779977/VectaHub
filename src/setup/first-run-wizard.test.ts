@@ -13,7 +13,7 @@ import {
 } from './first-run-wizard.js';
 import type { StepResult } from './priority-installer.js';
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
-import { join, dirname } from 'path';
+import { join } from 'path';
 import { createInterface } from 'readline';
 
 const wizardDeps = {

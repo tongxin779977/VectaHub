@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -14,23 +14,31 @@ if (!existsSync(resultDir)) {
   mkdirSync(resultDir, { recursive: true });
 }
 
-if (!existsSync(resultPath)) {
-  console.error(`Missing benchmark result at ${resultPath}`);
-  console.error('Run `npm run bench` first.');
-  process.exit(1);
+let result;
+try {
+  result = JSON.parse(readFileSync(resultPath, 'utf-8'));
+} catch (err) {
+  if (err.code === 'ENOENT') {
+    console.error(`Missing benchmark result at ${resultPath}`);
+    console.error('Run `npm run bench` first.');
+    process.exit(1);
+  }
+  throw err;
 }
 
-const result = JSON.parse(readFileSync(resultPath, 'utf-8'));
-
-if (!existsSync(baselinePath)) {
-  console.warn(`No baseline found at ${baselinePath}.`);
-  console.warn('Creating baseline from current results; future runs will be compared against this.');
-  mkdirSync(dirname(baselinePath), { recursive: true });
-  writeFileSync(baselinePath, JSON.stringify(result, null, 2) + '\n', 'utf-8');
-  process.exit(0);
+let baseline;
+try {
+  baseline = JSON.parse(readFileSync(baselinePath, 'utf-8'));
+} catch (err) {
+  if (err.code === 'ENOENT') {
+    console.warn(`No baseline found at ${baselinePath}.`);
+    console.warn('Creating baseline from current results; future runs will be compared against this.');
+    mkdirSync(dirname(baselinePath), { recursive: true });
+    writeFileSync(baselinePath, JSON.stringify(result, null, 2) + '\n', 'utf-8');
+    process.exit(0);
+  }
+  throw err;
 }
-
-const baseline = JSON.parse(readFileSync(baselinePath, 'utf-8'));
 
 const REGRESSION_PERCENT = 10;
 const HARD_FAIL_PERCENT = 25;

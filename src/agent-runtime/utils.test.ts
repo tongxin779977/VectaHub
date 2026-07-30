@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createSingleton, createSilentLogger, formatErrorMessage, debounce, throttle } from './utils';
 
 describe('utils', () => {
@@ -10,7 +10,7 @@ describe('utils', () => {
         return { id: instanceCount };
       };
       
-      const { getInstance, reset } = createSingleton(createFn);
+      const { getInstance } = createSingleton(createFn);
       
       const inst1 = getInstance();
       const inst2 = getInstance();

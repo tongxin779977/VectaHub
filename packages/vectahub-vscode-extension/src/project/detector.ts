@@ -26,11 +26,10 @@ export async function detectProjectTasks(): Promise<ProjectTask[]> {
   const packageJsonPath = path.join(workspaceFolder, 'package.json');
   let pkg: PackageJson | undefined;
   try {
-    await access(packageJsonPath);
     const content = await readFile(packageJsonPath, 'utf-8');
     pkg = JSON.parse(content);
   } catch {
-    // ignore
+    // ignore — file may not exist or may have been removed
   }
 
   const pm = detectPackageManager(workspaceFolder);

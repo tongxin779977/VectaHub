@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   validateCheckpointReference,
-  checkGitCheckpointAvailability,
   checkWorktreeCheckpointAvailability,
   checkCheckpointAvailability,
 } from './checkpoint-reference-validator.js';

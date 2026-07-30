@@ -3,7 +3,6 @@ import { createEmptyPlan, planFromCapability } from './planner.js';
 import { convertPlanToDraft } from './workflow-draft-converter.js';
 import { createDraftStorage } from './draft-storage.js';
 import type { OrchestrationTask } from '../types/index.js';
-import { createTestInfrastructureContext } from '../infrastructure/testing/index.js';
 import { MockEnvironmentService } from '../infrastructure/testing/mock-services.js';
 import pino from 'pino';
 

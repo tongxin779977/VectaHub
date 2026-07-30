@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { isAbsolute, normalize, relative, resolve, posix, win32 } from 'node:path';
+import { isAbsolute, normalize, resolve, posix, win32 } from 'node:path';
 
 const DEFAULT_MAX_EXCERPT_CHARS = 8000;
 const DEFAULT_WINDOW_BEFORE = 2000;

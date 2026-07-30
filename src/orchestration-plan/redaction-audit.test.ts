@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { createFeedbackStorage, createFeedbackRecord } from './feedback-storage.js';
 import {
   createProposalStorage,
-  createProposalRecord,
   createEvalCandidateProposal,
   createPromptProposal,
   createRuleProposal,
@@ -13,7 +12,6 @@ import { MockEnvironmentService } from '../infrastructure/testing/mock-services.
 import pino from 'pino';
 import type { OrchestrationPlan } from '../types/orchestration-plan.js';
 import type { WorkflowDraft } from '../types/workflow-draft.js';
-import type { WorkerResult } from '../types/worker-result.js';
 import { normalizeWorkerResult } from './worker-result-normalizer.js';
 import {
   buildSuccessResponse,
@@ -28,18 +26,6 @@ import {
 } from '../machine-response/index.js';
 
 const logger = pino({ level: 'silent' });
-
-const SENSITIVE_STRINGS = [
-  'sk-1234567890abcdefghijklmnopqrstuvwxyz123456789012',
-  'ghp_1234567890abcdefghijklmnopqrstuvwxyz123456',
-  'AKIAIOSFODNN7EXAMPLE',
-  'password123',
-  'super_secret_key',
-  'my_api_key_12345',
-  'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c',
-  'admin@company.com',
-  '1[3-9]\\d{9}',
-];
 
 describe('P2-013: NL/plan/draft/feedback Full Chain Redaction Audit', () => {
   describe('1. JSON stdout purity checks', () => {
@@ -900,7 +886,6 @@ describe('P2-013: NL/plan/draft/feedback Full Chain Redaction Audit', () => {
     });
 
     it('should not store full diffs in proposal records', async () => {
-      const longDiff = '+新增代码\n' + 'x'.repeat(5000) + '\n-删除代码';
       const feedbackRecord = createFeedbackRecord(
         'semantic_e2e',
         'test',

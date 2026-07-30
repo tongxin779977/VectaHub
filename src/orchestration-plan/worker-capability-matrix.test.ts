@@ -6,7 +6,7 @@ import {
   workerIsSuitableForTask,
   workerAllowInExecutablePlans,
 } from './worker-capability-matrix.js';
-import { getAgentRegistry, resetAgentRegistry } from '../agent-runtime/registry.js';
+import { resetAgentRegistry } from '../agent-runtime/registry.js';
 import { initializeBuiltInAgents } from '../agent-runtime/factory.js';
 
 describe('Worker Capability Matrix', () => {

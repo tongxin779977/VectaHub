@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { writeFileSync, rmSync, existsSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { loadCommandConfig, loadIntentConfig, CommandConfig, IntentConfig } from './command-config.js';
+import { loadCommandConfig, loadIntentConfig } from './command-config.js';
 
 let TEST_DIR: string;
 

@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import * as path from 'path';
 
 /**
  * 更新 Markdown 文档中指定任务的状态。

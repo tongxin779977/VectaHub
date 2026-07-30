@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ToolService, getToolService, resetToolService, type ToolServiceOptions, type ToolServiceDeps } from './tool-service.js';
+import { ToolService, getToolService, resetToolService, type ToolServiceDeps } from './tool-service.js';
 import type { CliToolRegistry, CliTool } from './types.js';
 
 function createMockRegistry(): CliToolRegistry {
@@ -124,12 +124,12 @@ describe('ToolService', () => {
   });
 
   it('should include builtin tools by default', () => {
-    const service = new ToolService(registry, {}, deps);
+    new ToolService(registry, {}, deps);
     expect(registry.register).toHaveBeenCalled();
   });
 
   it('should not include builtin tools when disabled', () => {
-    const service = new ToolService(registry, { includeBuiltin: false }, deps);
+    new ToolService(registry, { includeBuiltin: false }, deps);
     expect(registry.register).not.toHaveBeenCalled();
   });
 
@@ -164,7 +164,7 @@ describe('ToolService', () => {
       ...registry,
       register: vi.fn(() => { throw new Error('Registration failed'); }),
     };
-    const service = new ToolService(failingRegistry, { includeBuiltin: true }, { logger: { warn: warnSpy } });
+    new ToolService(failingRegistry, { includeBuiltin: true }, { logger: { warn: warnSpy } });
     expect(warnSpy).toHaveBeenCalled();
   });
 

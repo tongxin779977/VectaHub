@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs';
 import { detectPackageManager } from '../src/project/packageManager.js';

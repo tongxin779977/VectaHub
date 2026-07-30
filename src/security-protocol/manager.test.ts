@@ -110,7 +110,7 @@ describe('SecurityProtocolManager', () => {
     it('should merge missing default rules into existing database', () => {
       setTestMode(false);
       tempDir = mkdtempSync(join(tmpdir(), 'vectahub-security-migrate-'));
-      const { configPath, dbPath } = createStaleDatabase(tempDir, ['rule-sudo', 'rule-rm-root']);
+      const { configPath } = createStaleDatabase(tempDir, ['rule-sudo', 'rule-rm-root']);
 
       const manager = new SecurityProtocolManager(configPath);
       const ruleIds = manager.getAllRules().map(r => r.id);

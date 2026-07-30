@@ -2,7 +2,7 @@ import { createServer } from 'http';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { createAPIServer } from './server.js';
 import { createNoopAuditHelper, createAuditHelper } from '../infrastructure/audit/index.js';
 import { createEnvironmentService } from '../infrastructure/environment/index.js';

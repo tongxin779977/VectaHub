@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DiagnosticTask, DiagnosticTaskStatus, VALID_DIAGNOSTIC_STATUSES } from '../src/project/diagnosticModel.js';
-import { EmptyStateTreeItem } from '../src/views/treeItems.js';
+import { DiagnosticTask, VALID_DIAGNOSTIC_STATUSES } from '../src/project/diagnosticModel.js';
 
 function groupDiagnosticsByStatus(tasks: DiagnosticTask[]): Map<DiagnosticTaskStatus, DiagnosticTask[]> {
   const groups = new Map<DiagnosticTaskStatus, DiagnosticTask[]>();

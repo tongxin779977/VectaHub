@@ -1,14 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { buildDocIndex, findHeadingSection } from '../packages/vectahub-vscode-extension/src/project/docTaskDocIndex.js';
 import os from 'os';
-import fs from 'fs';
 import { promises as fsp } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CLI_PATH = join(__dirname, '../src/cli.ts');
 
 const ITERATIONS = 3; // Reduced to avoid timeout
 
@@ -56,12 +53,6 @@ function formatMs(ms: number): string {
   return `${ms.toFixed(2)}ms`;
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)}KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)}MB`;
-}
-
 function generateMockDoc(numTasks: number, contentSizeMb: number = 1): string {
   const lines: string[] = [];
   for (let i = 0; i < numTasks; i++) {
@@ -74,27 +65,6 @@ function generateMockDoc(numTasks: number, contentSizeMb: number = 1): string {
     content += content.slice(0, Math.min(1024 * 1024, contentSizeMb * 1024 * 1024 - Buffer.byteLength(content, 'utf8')));
   }
   return content;
-}
-
-async function measureCliCommand(command: string): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const start = performance.now();
-    const child = spawn('npx', ['tsx', CLI_PATH, command], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, NODE_ENV: 'production' },
-    });
-    
-    child.on('close', (code) => {
-      const end = performance.now();
-      if (code !== 0) {
-        reject(new Error(`Command failed with code ${code}`));
-      } else {
-        resolve(end - start);
-      }
-    });
-    
-    child.on('error', reject);
-  });
 }
 
 function getMemoryUsageMb(): number {

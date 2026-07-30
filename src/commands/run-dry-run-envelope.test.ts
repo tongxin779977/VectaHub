@@ -10,7 +10,7 @@ import {
 } from './run-dry-run-envelope.js';
 import type { ExecutionPlan } from '../nl/capabilities/types.js';
 import type { WorkflowDraft } from '../types/workflow-draft.js';
-import { stepsToWorkflowDraft, workflowToDraft } from '../orchestration-plan/workflow-draft-adapter.js';
+import { stepsToWorkflowDraft } from '../orchestration-plan/workflow-draft-adapter.js';
 
 function createMockPlan(overrides?: Partial<ExecutionPlan>): ExecutionPlan {
   return {

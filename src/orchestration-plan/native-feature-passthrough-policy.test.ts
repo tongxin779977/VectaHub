@@ -12,7 +12,7 @@ import {
   isFeaturePassthroughBlocked,
 } from './native-feature-passthrough-policy.js';
 import type { FeaturePassthroughRequest } from '../types/native-feature-passthrough.js';
-import { getAgentRegistry, resetAgentRegistry } from '../agent-runtime/registry.js';
+import { resetAgentRegistry } from '../agent-runtime/registry.js';
 import { initializeBuiltInAgents } from '../agent-runtime/factory.js';
 
 describe('native-feature-passthrough-policy', () => {

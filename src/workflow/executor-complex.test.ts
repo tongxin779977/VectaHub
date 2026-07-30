@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { createExecutor } from './executor.js';
 import { contextManager } from './context-manager.js';
 import { createNoopAuditHelper } from '../infrastructure/audit/index.js';
