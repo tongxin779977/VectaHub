@@ -272,7 +272,7 @@ export async function handleCliError(error: unknown, ctx: InfrastructureContext)
     if (isVerbose()) {
       output.error(`   技术详情: ${classification.technicalMessage}`);
       if (error instanceof Error && error.stack) {
-        output.error(error.stack);
+        ctx.logger.getLogger('cli-error-handler').error({ stack: error.stack }, 'Error stack trace');
       }
     }
   }

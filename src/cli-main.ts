@@ -92,7 +92,11 @@ async function handleError(error: unknown): Promise<never> {
   } else {
     output.error(`\n❌ ${formatErrorMessage(error)}`);
     if (isVerbose()) {
-      output.error(error instanceof Error && error.stack ? error.stack : String(error));
+      const msg = error instanceof Error ? error.message : String(error);
+      output.error(`   技术详情: ${msg}`);
+      if (error instanceof Error && error.stack) {
+        ctx.logger.getLogger('cli-main').error({ stack: error.stack }, 'Error stack trace');
+      }
     }
   }
   ctx.environment.exit(1);
