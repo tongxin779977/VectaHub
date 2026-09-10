@@ -80,7 +80,7 @@
     "tsx": "^4.22.4",
     "typescript": "5.9.3",
     "typescript-eslint": "8.59.2",
-    "vitest": "4.1.5"
+    "vitest": "4.1.11"
   },
   "overrides": {
     "esbuild": "0.28.1",
